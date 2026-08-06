@@ -9,6 +9,7 @@ import orchestratorRouter from './backend/src/routes/orchestrator';
 import creatorRouter from './backend/src/routes/creator';
 import musicRouter from './backend/src/routes/music';
 import equalizerRouter from './backend/src/routes/equalizer';
+import authRouter, { requireSonaraAuthentication } from './backend/src/routes/auth';
 
 const startTime = Date.now();
 
@@ -16,6 +17,7 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT || 3000);
 
+  app.set('trust proxy', 1);
   app.use(cors());
   app.use(express.json());
 
@@ -47,18 +49,19 @@ async function startServer() {
   });
 
   // API Routes
-  app.use('/api/engine', engineRouter);
-  app.use('/api/orchestrator', orchestratorRouter);
-  app.use('/api/creator', creatorRouter);
-  app.use('/api/music', musicRouter);
-  app.use('/api/eq', equalizerRouter);
+  app.use('/api/auth', authRouter);
+  app.use('/api/engine', requireSonaraAuthentication, engineRouter);
+  app.use('/api/orchestrator', requireSonaraAuthentication, orchestratorRouter);
+  app.use('/api/creator', requireSonaraAuthentication, creatorRouter);
+  app.use('/api/music', requireSonaraAuthentication, musicRouter);
+  app.use('/api/eq', requireSonaraAuthentication, equalizerRouter);
 
   // Serve storage files (generated audio, audio renders)
   const storagePath = path.join(process.cwd(), 'storage');
   if (!fs.existsSync(storagePath)) {
     fs.mkdirSync(storagePath, { recursive: true });
   }
-  app.use('/storage', express.static(storagePath, {
+  app.use('/storage', requireSonaraAuthentication, express.static(storagePath, {
     setHeaders: (res) => {
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Accept-Ranges', 'bytes');
