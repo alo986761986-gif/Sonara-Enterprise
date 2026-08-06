@@ -334,6 +334,7 @@ export class PatternGeneratorService {
       [['modern trap', 'trap'], 'trap'],
       [['drone ambient', 'ambient'], 'ambient'],
       [['orchestral cinematic', 'cinematic', 'film score'], 'cinematic'],
+      [['pop edm', 'edm pop', 'dance pop', 'edm'], 'house'],
       [['house'], 'house']
     ];
 
