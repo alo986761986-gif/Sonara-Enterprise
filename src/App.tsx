@@ -414,21 +414,19 @@ export default function App() {
           </section>
         )}
 
-        {status === 'COMPLETED' && audioUrl && (
-          <section
-            id="professional-equalizer"
-            className="scroll-mt-6 rounded-2xl border border-purple-800/60 bg-slate-950/60 p-3 shadow-2xl shadow-purple-950/20 sm:p-5"
-          >
-            <ProfessionalAudioEqualizer
-              audioUrl={audioUrl}
-              isEmbedded
-              onProcessedAudio={processedAudioUrl => {
-                setIsPlaying(false);
-                setAudioUrl(processedAudioUrl);
-              }}
-            />
-          </section>
-        )}
+        <section
+          id="professional-equalizer"
+          className="scroll-mt-6 rounded-2xl border border-purple-800/60 bg-slate-950/60 p-3 shadow-2xl shadow-purple-950/20 sm:p-5"
+        >
+          <ProfessionalAudioEqualizer
+            audioUrl={audioUrl}
+            isEmbedded
+            onProcessedAudio={processedAudioUrl => {
+              setIsPlaying(false);
+              setAudioUrl(processedAudioUrl);
+            }}
+          />
+        </section>
       </main>
     </div>
   );
