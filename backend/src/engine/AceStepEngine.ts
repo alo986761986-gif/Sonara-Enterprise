@@ -134,7 +134,13 @@ export class AceStepEngine extends IAudioGenerationEngine {
       Math.min(240, Number(params.bpm || 128))
     );
 
-    const beatsPerBar = 4;
+    const requestedBeatsPerBar = Number((params as any).beatsPerBar);
+    const beatsPerBar = Number.isFinite(requestedBeatsPerBar) && requestedBeatsPerBar > 0
+      ? Math.max(1, Math.min(16, Math.round(requestedBeatsPerBar)))
+      : 4;
+    const timeSignature = String(
+      (params as any).timeSignature || `${beatsPerBar}/4`
+    );
     const secondsPerBar = (60 / bpm) * beatsPerBar;
     const requestedBars = Number((params as any).totalBars);
     const totalBars = Number.isFinite(requestedBars) && requestedBars > 0
@@ -277,6 +283,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
           bpm,
           totalBars,
           beatsPerBar,
+          timeSignature,
           secondsPerBar: Number(secondsPerBar.toFixed(6)),
           prompt,
           remoteOutputPath:
