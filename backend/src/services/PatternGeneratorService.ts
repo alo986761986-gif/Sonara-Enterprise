@@ -19,6 +19,14 @@ export interface PatternGenerationResult {
     velocityOffsets: number[];
     timingOffsetsMs: number[];
   };
+  grid: {
+    timeSignature: '4/4';
+    beatsPerBar: 4;
+    stepsPerBar: 16;
+    subdivision: '1/16';
+    phraseBars: 4;
+  };
+  promptDirective: string;
   seed: number;
 }
 
@@ -244,8 +252,8 @@ export class PatternGeneratorService {
   };
 
   public static generatePattern(genre: string, seed: number = Date.now()): PatternGenerationResult {
-    const key = genre.toLowerCase();
-    const template = this.GENRE_TEMPLATES[key] || this.GENRE_TEMPLATES['melodic house'];
+    const key = this.resolveTemplateKey(genre);
+    const template = this.GENRE_TEMPLATES[key];
 
     // Deterministic pseudo-random number generator for seed consistency
     const pseudoRandom = (step: number) => {
@@ -273,7 +281,7 @@ export class PatternGeneratorService {
       if (bass[i] > 0) bass[i] = Math.max(0.3, Math.min(1.0, Number((bass[i] + vOffset).toFixed(2))));
     }
 
-    return {
+    const result: PatternGenerationResult = {
       genre: key,
       subgenre: template.chordProgression[0] ? `${genre} V12 Professional` : genre,
       bpm: template.bpm,
@@ -292,7 +300,62 @@ export class PatternGeneratorService {
         velocityOffsets,
         timingOffsetsMs
       },
+      grid: {
+        timeSignature: '4/4',
+        beatsPerBar: 4,
+        stepsPerBar: 16,
+        subdivision: '1/16',
+        phraseBars: 4
+      },
+      promptDirective: '',
       seed
     };
+
+    result.promptDirective = this.toPromptDirective(result);
+    return result;
+  }
+
+  private static resolveTemplateKey(genre: string): string {
+    const normalized = String(genre || '').trim().toLowerCase();
+    if (this.GENRE_TEMPLATES[normalized]) return normalized;
+
+    const aliases: Array<[string[], string]> = [
+      [['neurofunk', 'liquid dnb', 'drum and bass', 'drum & bass', 'dnb'], 'drum & bass'],
+      [['boom bap', 'hip-hop', 'hip hop', 'rap'], 'hip hop'],
+      [['chillhop', 'lofi', 'lo-fi'], 'lo-fi'],
+      [['melodic house'], 'melodic house'],
+      [['progressive house'], 'progressive house'],
+      [['organic house'], 'organic house'],
+      [['tech house'], 'tech house'],
+      [['deep house'], 'deep house'],
+      [['afro house'], 'afro house'],
+      [['peak time techno', 'melodic techno', 'techno'], 'techno'],
+      [['uplifting trance', 'trance'], 'trance'],
+      [['modern trap', 'trap'], 'trap'],
+      [['drone ambient', 'ambient'], 'ambient'],
+      [['orchestral cinematic', 'cinematic', 'film score'], 'cinematic'],
+      [['house'], 'house']
+    ];
+
+    return aliases.find(([terms]) => terms.some(term => normalized.includes(term)))?.[1]
+      || 'melodic house';
+  }
+
+  public static toPromptDirective(pattern: PatternGenerationResult): string {
+    const activeSteps = (values: number[]) => values
+      .map((velocity, index) => velocity > 0 ? `${index + 1}:${velocity.toFixed(2)}` : null)
+      .filter((value): value is string => Boolean(value))
+      .join(',');
+
+    return [
+      `GROOVE_GRID: ${pattern.grid.timeSignature}, ${pattern.grid.stepsPerBar} steps per bar (${pattern.grid.subdivision})`,
+      `KICK_STEPS[${activeSteps(pattern.rhythm.kick)}]`,
+      `SNARE_STEPS[${activeSteps(pattern.rhythm.snare)}]`,
+      `HIHAT_STEPS[${activeSteps(pattern.rhythm.hihat)}]`,
+      `PERCUSSION_STEPS[${activeSteps(pattern.rhythm.percussion)}]`,
+      `BASS_STEPS[${activeSteps(pattern.rhythm.bass)}]`,
+      `SWING: ${pattern.swingPct.toFixed(1)} percent on off-grid sixteenth notes`,
+      'GROOVE_RULES: preserve downbeats, keep kick and bass phase-locked, use controlled humanization only on hats and percussion'
+    ].join(' | ');
   }
 }
