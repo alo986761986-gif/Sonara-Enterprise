@@ -1,4 +1,4 @@
-import {
+﻿import {
   IAudioGenerationEngine,
   GenerationParams,
   GenerationResult,
@@ -6,6 +6,7 @@ import {
 } from './IAudioGenerationEngine';
 import http from 'http';
 import https from 'https';
+import { appConfig } from '../config/AppConfig';
 
 interface AceStepHealthResponse {
   status?: string;
@@ -31,7 +32,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
   private static instance: AceStepEngine | null = null;
 
   private readonly apiBaseUrl =
-    (process.env.ACE_STEP_API_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '');
+    appConfig.aceStep.apiUrl;
 
   public static getInstance(): AceStepEngine {
     if (!AceStepEngine.instance) {
@@ -65,7 +66,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
         'GET',
         '/health',
         undefined,
-        10_000
+        appConfig.aceStep.healthTimeoutMs
       );
 
       const ready = response.status === 'healthy';
@@ -135,7 +136,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
     );
 
     const timeoutMs = Math.max(
-      Number(params.timeoutMs || 300_000),
+      Number(params.timeoutMs || appConfig.aceStep.generationTimeoutMs),
       60_000
     );
 
@@ -530,3 +531,4 @@ export class AceStepEngine extends IAudioGenerationEngine {
       : String(error);
   }
 }
+
