@@ -32,8 +32,8 @@ export interface SongPlan {
   status: 'success';
   genre: string;
   bpm: number;
-  timeSignature: '4/4';
-  beatsPerBar: 4;
+  timeSignature: string;
+  beatsPerBar: number;
   phraseBars: number;
   secondsPerBeat: number;
   secondsPerBar: number;
@@ -65,8 +65,17 @@ export class SongPlannerService {
 
     const genre = String(normalized.genre || 'Melodic House');
     const bpm = this.clamp(Number(normalized.bpm || 124), 60, 240);
+    const signatureMatch = String(normalized.timeSignature || '4/4')
+      .trim()
+      .match(/^(\d{1,2})\/(2|4|8|16)$/);
+    const timeSignature = signatureMatch
+      ? `${Number(signatureMatch[1])}/${signatureMatch[2]}`
+      : '4/4';
+    const beatsPerBar = signatureMatch
+      ? this.clamp(Number(signatureMatch[1]), 1, 16)
+      : 4;
     const secondsPerBeat = 60 / bpm;
-    const secondsPerBar = secondsPerBeat * 4;
+    const secondsPerBar = secondsPerBeat * beatsPerBar;
 
     const requestedDurationSec = this.clamp(
       Number(targetDuration || this.durationFromStructure(normalized.structure, secondsPerBar) || 30),
@@ -111,8 +120,8 @@ export class SongPlannerService {
       status: 'success',
       genre,
       bpm,
-      timeSignature: '4/4',
-      beatsPerBar: 4,
+      timeSignature,
+      beatsPerBar,
       phraseBars,
       secondsPerBeat: Number(secondsPerBeat.toFixed(6)),
       secondsPerBar: Number(secondsPerBar.toFixed(6)),
@@ -122,7 +131,7 @@ export class SongPlannerService {
       sections,
       jobs: sections,
       promptDirective: [
-        `ARRANGEMENT_GRID: strict 4/4, ${bpm} BPM, ${totalBars} complete bars`,
+        `ARRANGEMENT_GRID: strict ${timeSignature}, ${bpm} BPM, ${totalBars} complete bars`,
         'TRANSITIONS: only at bar boundaries; preserve four-bar phrases; never cut a measure',
         `SECTIONS: ${structureText}`
       ].join(' | ')
