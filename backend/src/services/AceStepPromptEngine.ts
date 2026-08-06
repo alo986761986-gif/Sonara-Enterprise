@@ -81,6 +81,16 @@ export class AceStepPromptEngine {
       bannedKeywords: ['country', 'metal', 'screamo'],
       modelTier: 'GOLD'
     },
+    'pop edm': {
+      primaryGenre: 'Electronic',
+      subgenre: 'Pop EDM',
+      recommendedBpm: 126,
+      bpmRange: [120, 130],
+      keySignature: 'C Minor',
+      acousticKeywords: ['radio-ready dance groove', 'bright melodic synth hook', 'clean four-on-the-floor kick', 'sidechained bass', 'polished pop arrangement', 'uplifting festival chorus'],
+      bannedKeywords: ['industrial techno rumble', 'raw acid techno', 'country twang', 'heavy metal distortion'],
+      modelTier: 'GOLD'
+    },
     'trance': {
       primaryGenre: 'Trance',
       subgenre: 'Uplifting Trance',
@@ -163,15 +173,103 @@ export class AceStepPromptEngine {
     }
   };
 
-  public static detectGenreProfile(query: string, explicitGenre?: string): GenreLockProfile {
-    const text = `${query || ''} ${explicitGenre || ''}`.toLowerCase();
+  private static readonly GENRE_ALIASES: Record<string, string> = {
+    'techno house': 'tech house',
+    'classic house': 'house',
+    'edm': 'pop edm',
+    'edm pop': 'pop edm',
+    'dance pop': 'pop edm',
+    'uplifting trance': 'trance',
+    'peak time techno': 'techno',
+    'melodic techno': 'techno',
+    'dnb': 'drum & bass',
+    'drum and bass': 'drum & bass',
+    'hip-hop': 'hip hop',
+    'hiphop': 'hip hop',
+    'rap': 'hip hop',
+    'lofi': 'lo-fi',
+    'lo fi': 'lo-fi',
+    'chillhop': 'lo-fi',
+    'film score': 'cinematic',
+    'orchestral': 'cinematic'
+  };
 
-    // Direct multi-word subgenre matching first
-    for (const [key, profile] of Object.entries(this.GENRE_PROFILES)) {
-      if (text.includes(key)) {
-        return profile;
-      }
+  private static normalizeGenre(value: string): string {
+    return String(value || '')
+      .toLowerCase()
+      .replace(/[_]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private static resolveGenreKey(value: string): string | null {
+    const normalized = this.normalizeGenre(value);
+    if (!normalized) return null;
+    if (this.GENRE_PROFILES[normalized]) return normalized;
+    if (this.GENRE_ALIASES[normalized]) return this.GENRE_ALIASES[normalized];
+
+    const candidates = [
+      ...Object.keys(this.GENRE_PROFILES),
+      ...Object.keys(this.GENRE_ALIASES)
+    ].sort((left, right) => right.length - left.length);
+
+    const matched = candidates.find(candidate => normalized.includes(candidate));
+    if (!matched) return null;
+    return this.GENRE_ALIASES[matched] || matched;
+  }
+
+  private static escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  private static removeConflictingGenres(
+    query: string,
+    lockedKey: string,
+    profile: GenreLockProfile
+  ): string {
+    let cleaned = String(query || '');
+    const primaryGenre = this.normalizeGenre(profile.primaryGenre);
+    const conflictingTerms = [
+      ...Object.keys(this.GENRE_PROFILES),
+      ...Object.keys(this.GENRE_ALIASES)
+    ]
+      .filter(term => {
+        const resolved = this.GENRE_ALIASES[term] || term;
+        return resolved !== lockedKey && this.normalizeGenre(term) !== primaryGenre;
+      })
+      .sort((left, right) => right.length - left.length);
+
+    for (const term of conflictingTerms) {
+      cleaned = cleaned.replace(
+        new RegExp(`\\b${this.escapeRegExp(term)}\\b`, 'gi'),
+        ' '
+      );
     }
+
+    return cleaned
+      .replace(/\s*[,;/|]+\s*/g, ', ')
+      .replace(/\b(?:and|plus)\s+with\b/gi, 'with')
+      .replace(/\bwith\s+influence\b/gi, ' ')
+      .replace(/\b(and|with|plus)\s*(?=,|$)/gi, ' ')
+      .replace(/\s+,/g, ',')
+      .replace(/,\s*,+/g, ', ')
+      .replace(/^\s*,|,\s*$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  public static detectGenreProfile(query: string, explicitGenre?: string): GenreLockProfile {
+    // The user's explicit selector is authoritative. Prompt text can describe
+    // instruments and influences, but it must never silently replace the
+    // selected primary genre.
+    const explicitKey = this.resolveGenreKey(explicitGenre || '');
+    if (explicitKey) return this.GENRE_PROFILES[explicitKey];
+
+    const text = this.normalizeGenre(query);
+
+    // Prefer the most specific phrase when no explicit selector was supplied.
+    const detectedKey = this.resolveGenreKey(text);
+    if (detectedKey) return this.GENRE_PROFILES[detectedKey];
 
     // Single token genre fallback
     if (text.includes('techno')) return this.GENRE_PROFILES['techno'];
@@ -196,22 +294,45 @@ export class AceStepPromptEngine {
    * Generates a genre-locked optimized prompt by automatically injecting high-fidelity
    * acoustic profiles and removing banned anti-genre keywords.
    */
-  static async generatePrompt(query: string, explicitGenre?: string) {
+  static async generatePrompt(
+    query: string,
+    explicitGenre?: string,
+    explicitBpm?: number
+  ) {
     const originalQuery = query || 'Melodic House';
 
     const profile = this.detectGenreProfile(originalQuery, explicitGenre);
+    const lockedGenreKey =
+      this.resolveGenreKey(explicitGenre || '') ||
+      this.resolveGenreKey(profile.subgenre) ||
+      'melodic house';
 
-    // Filter out banned words from original query
-    let cleanedQuery = originalQuery;
+    // Remove competing genre labels before the model sees the prompt. The
+    // selected genre remains the only primary style; the rest of the user's
+    // musical description is preserved.
+    let cleanedQuery = this.removeConflictingGenres(
+      originalQuery,
+      lockedGenreKey,
+      profile
+    );
     profile.bannedKeywords.forEach(banned => {
-      const reg = new RegExp(`\\b${banned}\\b`, 'gi');
+      const reg = new RegExp(`\\b${this.escapeRegExp(banned)}\\b`, 'gi');
       cleanedQuery = cleanedQuery.replace(reg, '');
     });
     cleanedQuery = cleanedQuery.replace(/\s+/g, ' ').trim();
+    if (!cleanedQuery) {
+      cleanedQuery = `Authentic ${profile.subgenre} instrumental production`;
+    }
+
+    const parsedBpm = Number(explicitBpm);
+    const selectedBpm = Number.isFinite(parsedBpm) && parsedBpm >= 40 && parsedBpm <= 240
+      ? Math.round(parsedBpm)
+      : profile.recommendedBpm;
 
     // Build Genre Lock Prompt Payload
-    const genreLockTag = `GENRE_LOCK: [${profile.primaryGenre.toUpperCase()} -> ${profile.subgenre.toUpperCase()}]`;
-    const tempoTag = `TEMPO: ${profile.recommendedBpm} BPM (${profile.bpmRange[0]}-${profile.bpmRange[1]} BPM)`;
+    const genreLockTag = `HARD_GENRE_LOCK: [${profile.primaryGenre.toUpperCase()} -> ${profile.subgenre.toUpperCase()}]`;
+    const genreConstraint = `HARD_CONSTRAINT: the output must remain unmistakably ${profile.subgenre}; the selected genre overrides every genre word in user details; never substitute, merge, or relabel the primary genre`;
+    const tempoTag = `HARD_TEMPO: exactly ${selectedBpm} BPM`;
     const keyTag = `KEY: ${profile.keySignature}`;
     const acousticString = profile.acousticKeywords.join(', ');
 
@@ -224,7 +345,7 @@ export class AceStepPromptEngine {
       'Zero Phase Distortion'
     ].join(', ');
 
-    const optimizedBody = `${genreLockTag} | ${tempoTag} | ${keyTag} | ${cleanedQuery} | Style Elements: ${acousticString} | Mix Quality: ${coreProduction}`;
+    const optimizedBody = `${genreLockTag} | ${genreConstraint} | ${tempoTag} | ${keyTag} | USER_DETAILS_SECONDARY: ${cleanedQuery} | Style Elements: ${acousticString} | Mix Quality: ${coreProduction}`;
     const optimizedPrompt = this.formatPrompt(optimizedBody);
 
     return {
@@ -234,9 +355,11 @@ export class AceStepPromptEngine {
       optimizedPrompt,
       genreLock: {
         locked: true,
+        requestedGenre: explicitGenre || profile.subgenre,
+        selectionWasExplicit: Boolean(this.resolveGenreKey(explicitGenre || '')),
         primaryGenre: profile.primaryGenre,
         subgenre: profile.subgenre,
-        targetBpm: profile.recommendedBpm,
+        targetBpm: selectedBpm,
         bpmBounds: profile.bpmRange,
         keySignature: profile.keySignature,
         fidelityScore: 100.0
