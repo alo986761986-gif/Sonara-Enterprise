@@ -1,3 +1,9 @@
+import {
+  GENRE_CATALOG_NAMES,
+  normalizeGenreName,
+  resolveGenreSelection
+} from '../../../shared/genreCatalog';
+
 export interface GenreLockProfile {
   primaryGenre: string;
   subgenre: string;
@@ -7,6 +13,9 @@ export interface GenreLockProfile {
   acousticKeywords: string[];
   bannedKeywords: string[];
   modelTier: string;
+  familyId?: string;
+  timeSignature?: string;
+  isCatalogEntry?: boolean;
 }
 
 export class AceStepPromptEngine {
@@ -195,11 +204,14 @@ export class AceStepPromptEngine {
   };
 
   private static normalizeGenre(value: string): string {
-    return String(value || '')
-      .toLowerCase()
-      .replace(/[_]+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+    return normalizeGenreName(value);
+  }
+
+  private static resolveExactGenreKey(value: string): string | null {
+    const normalized = this.normalizeGenre(value);
+    if (!normalized) return null;
+    if (this.GENRE_PROFILES[normalized]) return normalized;
+    return this.GENRE_ALIASES[normalized] || null;
   }
 
   private static resolveGenreKey(value: string): string | null {
@@ -222,6 +234,54 @@ export class AceStepPromptEngine {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
+  private static enrichProfile(
+    profile: GenreLockProfile,
+    selectedGenre: string
+  ): GenreLockProfile {
+    const selection = resolveGenreSelection(selectedGenre || profile.subgenre);
+    return {
+      ...profile,
+      familyId: selection.familyId,
+      timeSignature: selection.timeSignature,
+      isCatalogEntry: selection.isCatalogEntry
+    };
+  }
+
+  private static createOpenGenreProfile(selectedGenre: string): GenreLockProfile {
+    const selection = resolveGenreSelection(selectedGenre);
+    const exactGenre = String(selectedGenre || selection.matchedGenre || 'Custom Genre').trim();
+    return {
+      primaryGenre: selection.familyName,
+      subgenre: exactGenre,
+      recommendedBpm: selection.recommendedBpm,
+      bpmRange: selection.bpmRange,
+      keySignature: selection.keySignature,
+      acousticKeywords: selection.acousticKeywords,
+      bannedKeywords: [],
+      modelTier: selection.isCatalogEntry ? 'GOLD' : 'OPEN',
+      familyId: selection.familyId,
+      timeSignature: selection.timeSignature,
+      isCatalogEntry: selection.isCatalogEntry
+    };
+  }
+
+  private static profileForExactSelection(selectedGenre: string): GenreLockProfile {
+    const exactKey = this.resolveExactGenreKey(selectedGenre);
+    const existingProfile = exactKey ? this.GENRE_PROFILES[exactKey] : null;
+
+    // Reuse a handcrafted acoustic profile only when it describes the exact
+    // selected style. Broad aliases such as "Trance" must not silently become
+    // "Uplifting Trance", nor may "Techno" become "Peak Time Techno".
+    if (
+      existingProfile &&
+      this.normalizeGenre(existingProfile.subgenre) === this.normalizeGenre(selectedGenre)
+    ) {
+      return this.enrichProfile(existingProfile, selectedGenre);
+    }
+
+    return this.createOpenGenreProfile(selectedGenre);
+  }
+
   private static removeConflictingGenres(
     query: string,
     lockedKey: string,
@@ -231,7 +291,8 @@ export class AceStepPromptEngine {
     const primaryGenre = this.normalizeGenre(profile.primaryGenre);
     const conflictingTerms = [
       ...Object.keys(this.GENRE_PROFILES),
-      ...Object.keys(this.GENRE_ALIASES)
+      ...Object.keys(this.GENRE_ALIASES),
+      ...GENRE_CATALOG_NAMES.map(name => this.normalizeGenre(name))
     ]
       .filter(term => {
         const resolved = this.GENRE_ALIASES[term] || term;
@@ -262,14 +323,24 @@ export class AceStepPromptEngine {
     // The user's explicit selector is authoritative. Prompt text can describe
     // instruments and influences, but it must never silently replace the
     // selected primary genre.
-    const explicitKey = this.resolveGenreKey(explicitGenre || '');
-    if (explicitKey) return this.GENRE_PROFILES[explicitKey];
+    const explicitSelection = String(explicitGenre || '').trim();
+    if (explicitSelection) {
+      return this.profileForExactSelection(explicitSelection);
+    }
 
     const text = this.normalizeGenre(query);
 
-    // Prefer the most specific phrase when no explicit selector was supplied.
+    const catalogSelection = resolveGenreSelection(text);
+    if (catalogSelection.matchedGenre) {
+      return this.profileForExactSelection(catalogSelection.matchedGenre);
+    }
+
+    // Legacy aliases remain supported when the text is not part of the open
+    // catalog (for example shorthand such as DnB or hiphop).
     const detectedKey = this.resolveGenreKey(text);
-    if (detectedKey) return this.GENRE_PROFILES[detectedKey];
+    if (detectedKey) {
+      return this.enrichProfile(this.GENRE_PROFILES[detectedKey], detectedKey);
+    }
 
     // Single token genre fallback
     if (text.includes('techno')) return this.GENRE_PROFILES['techno'];
@@ -283,7 +354,10 @@ export class AceStepPromptEngine {
     if (text.includes('house')) return this.GENRE_PROFILES['house'];
 
     // Default fallback to Melodic House if electronic dance vibe is present
-    return this.GENRE_PROFILES['melodic house'];
+    return this.enrichProfile(
+      this.GENRE_PROFILES['melodic house'],
+      'Melodic House'
+    );
   }
 
   static formatPrompt(prompt: string) {
@@ -302,10 +376,10 @@ export class AceStepPromptEngine {
     const originalQuery = query || 'Melodic House';
 
     const profile = this.detectGenreProfile(originalQuery, explicitGenre);
-    const lockedGenreKey =
-      this.resolveGenreKey(explicitGenre || '') ||
-      this.resolveGenreKey(profile.subgenre) ||
-      'melodic house';
+    const explicitSelection = String(explicitGenre || '').trim();
+    const lockedGenreKey = this.normalizeGenre(
+      explicitSelection || profile.subgenre || 'Melodic House'
+    );
 
     // Remove competing genre labels before the model sees the prompt. The
     // selected genre remains the only primary style; the rest of the user's
@@ -355,10 +429,13 @@ export class AceStepPromptEngine {
       optimizedPrompt,
       genreLock: {
         locked: true,
-        requestedGenre: explicitGenre || profile.subgenre,
-        selectionWasExplicit: Boolean(this.resolveGenreKey(explicitGenre || '')),
+        requestedGenre: explicitSelection || profile.subgenre,
+        selectionWasExplicit: Boolean(explicitSelection),
         primaryGenre: profile.primaryGenre,
         subgenre: profile.subgenre,
+        familyId: profile.familyId || 'custom',
+        timeSignature: profile.timeSignature || '4/4',
+        isCatalogEntry: Boolean(profile.isCatalogEntry),
         targetBpm: selectedBpm,
         bpmBounds: profile.bpmRange,
         keySignature: profile.keySignature,
