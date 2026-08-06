@@ -256,6 +256,7 @@ export default function App() {
       </header>
 
       <main className="mx-auto max-w-5xl space-y-6 p-6">
+                <AISongwriter onApply={applySongwriterResult} />
         <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 shadow-xl">
           <div className="mb-5 flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-purple-400" />
