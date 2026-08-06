@@ -45,7 +45,23 @@ else
   fail "Nessun ambiente Python dedicato trovato."
 fi
 
-echo "[2/8] CUDA e Demucs v4"
+echo "[2/8] CUDA, FFmpeg, TorchCodec e Demucs v4"
+if ! command -v ffmpeg >/dev/null 2>&1; then
+  command -v apt-get >/dev/null || fail "FFmpeg mancante e apt-get non disponibile."
+  apt-get update
+  apt-get install -y ffmpeg
+fi
+
+TORCH_VERSION="$(${PYTHON_BIN} -c 'import torch; print(torch.__version__)')"
+if [[ "${TORCH_VERSION}" == 2.11* ]] && ! "${PYTHON_BIN}" -c 'import torchcodec' >/dev/null 2>&1; then
+  "${PYTHON_BIN}" -m pip install \
+    --index-url https://download.pytorch.org/whl/cu128 \
+    'torchcodec==0.11.1+cu128'
+fi
+if [[ "${TORCH_VERSION}" == 2.11* ]]; then
+  "${PYTHON_BIN}" -c 'import torchcodec; from torchcodec.decoders import AudioDecoder; print(f"torchcodec={torchcodec.__version__}")'
+fi
+
 if ! "${PYTHON_BIN}" -c 'import demucs' >/dev/null 2>&1; then
   "${PYTHON_BIN}" -m pip install 'demucs==4.0.1'
 fi
