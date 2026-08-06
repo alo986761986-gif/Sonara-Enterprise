@@ -10,6 +10,7 @@ export interface AuditReport {
   ceilingDbtp: number;
   clippingEventsPrevented: number;
   stereoPhaseCorrelation: number;
+  stereoWidthMultiplier: number;
   monoCompatible: boolean;
   lowEndMonoCutoffHz: number;
   midNotchHz: number;
@@ -66,12 +67,22 @@ export class MixingMasteringEngineService {
     const nearestBarSamples = Math.round(nearestCompleteBars * samplesPerBar);
     const withinBarTolerance = Math.abs(availableSamples - nearestBarSamples) <= samplesPerBar * 0.03;
     const totalBars = withinBarTolerance ? nearestCompleteBars : floorCompleteBars;
-    const totalSamples = Math.min(availableSamples, Math.round(totalBars * samplesPerBar));
+    // If the neural renderer ends a few milliseconds early, pad the missing tail
+    // with silence instead of returning a mathematically incomplete measure.
+    const totalSamples = withinBarTolerance
+      ? nearestBarSamples
+      : Math.min(availableSamples, Math.round(totalBars * samplesPerBar));
+    const paddedSamples = Math.max(0, totalSamples - availableSamples);
     const barsAligned = Math.abs(totalSamples - totalBars * samplesPerBar) <= 2;
     const samplesL: number[] = new Array(totalSamples);
     const samplesR: number[] = new Array(totalSamples);
 
     for (let i = 0; i < totalSamples; i++) {
+      if (i >= availableSamples) {
+        samplesL[i] = 0;
+        samplesR[i] = 0;
+        continue;
+      }
       const idx = dataOffset + i * 4;
       samplesL[i] = inputBuffer.readInt16LE(idx) / 32768.0;
       samplesR[i] = inputBuffer.readInt16LE(idx + 2) / 32768.0;
@@ -187,19 +198,40 @@ export class MixingMasteringEngineService {
     }
 
     // --- 6. MID-SIDE STEREO SPATIALIZER ---
-    let preWidthSumL2 = 0;
-    let preWidthSumR2 = 0;
-    let preWidthSumLR = 0;
-    for (let i = 0; i < totalSamples; i += 8) {
-      const l = samplesL[i];
-      const r = samplesR[i];
-      preWidthSumL2 += l * l;
-      preWidthSumR2 += r * r;
-      preWidthSumLR += l * r;
+    const correlationAtWidth = (width: number): number => {
+      let sumL2 = 0;
+      let sumR2 = 0;
+      let sumLR = 0;
+      for (let i = 0; i < totalSamples; i += 8) {
+        const mid = (samplesL[i] + samplesR[i]) * 0.5;
+        const side = (samplesL[i] - samplesR[i]) * 0.5 * width;
+        const l = mid + side;
+        const r = mid - side;
+        sumL2 += l * l;
+        sumR2 += r * r;
+        sumLR += l * r;
+      }
+      const denom = Math.sqrt(sumL2 * sumR2);
+      return denom < 1e-9 ? 1.0 : sumLR / denom;
+    };
+
+    // Preserve as much stereo separation as possible while guaranteeing a
+    // mono-safe master. Find the widest image that stays above the target.
+    const targetPhaseCorrelation = 0.72;
+    let widthMult = 1.1;
+    if (correlationAtWidth(widthMult) < targetPhaseCorrelation) {
+      let lower = 0;
+      let upper = widthMult;
+      for (let iteration = 0; iteration < 16; iteration++) {
+        const candidate = (lower + upper) * 0.5;
+        if (correlationAtWidth(candidate) >= targetPhaseCorrelation) {
+          lower = candidate;
+        } else {
+          upper = candidate;
+        }
+      }
+      widthMult = lower;
     }
-    const preWidthDenom = Math.sqrt(preWidthSumL2 * preWidthSumR2);
-    const preWidthPhase = preWidthDenom < 1e-9 ? 1.0 : preWidthSumLR / preWidthDenom;
-    const widthMult = preWidthPhase < 0.75 ? 1.0 : (preWidthPhase < 0.9 ? 1.05 : 1.1);
     for (let i = 0; i < totalSamples; i++) {
       const l = samplesL[i];
       const r = samplesR[i];
@@ -282,7 +314,9 @@ export class MixingMasteringEngineService {
     const phaseCorr = denom < 1e-9 ? 1.0 : Math.max(-1.0, Math.min(1.0, sumLR / denom));
 
     const report: AuditReport = {
-      status: 'MASTER_AUDIT_PASSED',
+      status: paddedSamples > 0 || widthMult < 1.0 || clippingEvents > 0
+        ? 'MASTER_AUDIT_CORRECTED'
+        : 'MASTER_AUDIT_PASSED',
       inputSupported: true,
       inputFormat: `PCM16 stereo ${sampleRate}Hz`,
       iterationsExecuted: 1,
@@ -292,6 +326,7 @@ export class MixingMasteringEngineService {
       ceilingDbtp,
       clippingEventsPrevented: clippingEvents,
       stereoPhaseCorrelation: Number(phaseCorr.toFixed(3)),
+      stereoWidthMultiplier: Number(widthMult.toFixed(3)),
       monoCompatible: phaseCorr >= 0.70,
       lowEndMonoCutoffHz: 90.0,
       midNotchHz: 350.0,
@@ -321,6 +356,7 @@ export class MixingMasteringEngineService {
       ceilingDbtp,
       clippingEventsPrevented: 0,
       stereoPhaseCorrelation: 0.95,
+      stereoWidthMultiplier: 1.0,
       monoCompatible: true,
       lowEndMonoCutoffHz: 90.0,
       midNotchHz: 350.0,
