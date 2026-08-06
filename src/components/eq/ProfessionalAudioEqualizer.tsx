@@ -119,19 +119,23 @@ export function ProfessionalAudioEqualizer({
   const hasAudio = Boolean(currentAudioUrl || audioUrl);
 
   useEffect(() => {
-    if (audioUrl) {
-      setCurrentAudioUrl(audioUrl);
+    setCurrentAudioUrl(audioUrl || '');
+    setIsPlaying(false);
+    setBackendNotice(null);
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
     }
   }, [audioUrl]);
 
   // Metering State
   const [metrics, setMetrics] = useState({
-    lufs: -14.2,
-    truePeakDbtp: -1.2,
-    peakL: 0.78,
-    peakR: 0.81,
+    lufs: -60,
+    truePeakDbtp: -60,
+    peakL: 0,
+    peakR: 0,
     gainReductionDb: 0.0,
-    stereoPhaseCorrelation: 0.94
+    stereoPhaseCorrelation: 0
   });
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -142,6 +146,8 @@ export function ProfessionalAudioEqualizer({
   const outputGainNodeRef = useRef<GainNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const mediaSourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const meterFrameRef = useRef<number | null>(null);
+  const lastMeterUpdateRef = useRef<number>(0);
 
   // Load Presets on Mount
   useEffect(() => {
@@ -171,7 +177,10 @@ export function ProfessionalAudioEqualizer({
       const inputGainNode = ctx.createGain();
       const outputGainNode = ctx.createGain();
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 512;
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0.72;
+      analyser.minDecibels = -100;
+      analyser.maxDecibels = -6;
 
       inputGainNodeRef.current = inputGainNode;
       outputGainNodeRef.current = outputGainNode;
@@ -180,10 +189,11 @@ export function ProfessionalAudioEqualizer({
       // Build chain of 26 Biquad Filter Nodes
       const filterNodes: BiquadFilterNode[] = bands.map(b => {
         const node = ctx.createBiquadFilter();
-        node.type = mapFilterTypeToWebAudio(b.type);
+        const bypassed = globalBypass || b.bypass || !b.enabled;
+        node.type = bypassed ? 'allpass' : mapFilterTypeToWebAudio(b.type);
         node.frequency.setValueAtTime(b.freq, ctx.currentTime);
         node.Q.setValueAtTime(b.q, ctx.currentTime);
-        node.gain.setValueAtTime(b.enabled && !globalBypass ? b.gain : 0, ctx.currentTime);
+        node.gain.setValueAtTime(bypassed ? 0 : b.gain, ctx.currentTime);
         return node;
       });
 
@@ -245,17 +255,74 @@ export function ProfessionalAudioEqualizer({
       const node = filterNodesRef.current[idx];
       if (!node) return;
 
-      let effectiveGain = b.gain;
-      if (globalBypass || b.bypass || !b.enabled || (hasSolo && !b.solo)) {
-        effectiveGain = 0;
-      }
+      const bypassed =
+        globalBypass ||
+        Boolean(b.bypass) ||
+        !b.enabled ||
+        (hasSolo && !b.solo);
 
-      node.type = mapFilterTypeToWebAudio(b.type);
-      node.frequency.setValueAtTime(b.freq, ctx.currentTime);
-      node.Q.setValueAtTime(b.q, ctx.currentTime);
-      node.gain.setValueAtTime(effectiveGain, ctx.currentTime);
+      node.type = bypassed ? 'allpass' : mapFilterTypeToWebAudio(b.type);
+      node.frequency.setTargetAtTime(b.freq, ctx.currentTime, 0.01);
+      node.Q.setTargetAtTime(b.q, ctx.currentTime, 0.01);
+      node.gain.setTargetAtTime(bypassed ? 0 : b.gain, ctx.currentTime, 0.01);
     });
   }, [bands, globalBypass, inputGainDb, outputGainDb]);
+
+  // Real analyser-driven level metering. Values come from the processed Web Audio
+  // signal, not from decorative animation.
+  useEffect(() => {
+    if (!isPlaying || !analyserRef.current) return;
+
+    const analyser = analyserRef.current;
+    const timeDomain = new Float32Array(analyser.fftSize);
+
+    const updateMeters = (timestamp: number) => {
+      analyser.getFloatTimeDomainData(timeDomain);
+
+      if (timestamp - lastMeterUpdateRef.current >= 100) {
+        let peak = 0;
+        let sumSquares = 0;
+
+        for (let index = 0; index < timeDomain.length; index += 1) {
+          const sample = timeDomain[index];
+          peak = Math.max(peak, Math.abs(sample));
+          sumSquares += sample * sample;
+        }
+
+        const rms = Math.sqrt(sumSquares / Math.max(1, timeDomain.length));
+        const rmsDb = Math.max(-60, 20 * Math.log10(rms + 1e-9));
+        const peakDb = Math.max(-60, 20 * Math.log10(peak + 1e-9));
+
+        setMetrics(previous => ({
+          ...previous,
+          lufs: Number(rmsDb.toFixed(1)),
+          truePeakDbtp: Number(peakDb.toFixed(1)),
+          peakL: Number(peak.toFixed(3)),
+          peakR: Number(peak.toFixed(3))
+        }));
+
+        lastMeterUpdateRef.current = timestamp;
+      }
+
+      meterFrameRef.current = requestAnimationFrame(updateMeters);
+    };
+
+    meterFrameRef.current = requestAnimationFrame(updateMeters);
+
+    return () => {
+      if (meterFrameRef.current !== null) {
+        cancelAnimationFrame(meterFrameRef.current);
+        meterFrameRef.current = null;
+      }
+    };
+  }, [isPlaying]);
+
+  useEffect(() => () => {
+    if (meterFrameRef.current !== null) {
+      cancelAnimationFrame(meterFrameRef.current);
+    }
+    void audioCtxRef.current?.close();
+  }, []);
 
   // Handle Preset Selection
   const applyPreset = (preset: EqPreset) => {
@@ -282,6 +349,7 @@ export function ProfessionalAudioEqualizer({
 
   // Single Band Parameter Handlers
   const updateBand = (id: string, updates: Partial<EqBandConfig>) => {
+    setSelectedPresetId('custom');
     setBands(prev => prev.map(b => b.id === id ? { ...b, ...updates } : b));
   };
 
@@ -290,7 +358,8 @@ export function ProfessionalAudioEqualizer({
   };
 
   const resetAllBands = () => {
-    setBands(prev => prev.map(b => ({ ...b, gain: 0, q: 1.0, enabled: true, solo: false, bypass: false })));
+    setBands(INITIAL_BANDS.map(b => ({ ...b, solo: false, bypass: false })));
+    setSelectedPresetId('flat');
     setInputGainDb(0);
     setOutputGainDb(0);
     setGlobalBypass(false);
@@ -314,8 +383,9 @@ export function ProfessionalAudioEqualizer({
         audioRef.current.play()
           .then(() => setIsPlaying(true))
           .catch((err) => {
-            console.warn('Audio play notice:', err);
-            setIsPlaying(true);
+            console.warn('Audio play failed:', err);
+            setBackendNotice('Playback could not start. Check the browser audio permission and try again.');
+            setIsPlaying(false);
           });
       }
     } else {
@@ -376,13 +446,20 @@ export function ProfessionalAudioEqualizer({
         ctx.fillText(`${freq >= 1000 ? freq / 1000 + 'k' : freq}Hz`, x + 4, height - 8);
       });
 
-      // Simulated Spectrum Visualizer Bars
-      if (isPlaying) {
-        ctx.fillStyle = 'rgba(168, 85, 247, 0.15)';
-        for (let i = 0; i < 48; i++) {
-          const barWidth = width / 48;
-          const barHeight = Math.random() * (height * 0.45);
-          ctx.fillRect(i * barWidth, height - barHeight, barWidth - 1, barHeight);
+      // Live spectrum from the post-EQ analyser.
+      if (isPlaying && analyserRef.current) {
+        const analyser = analyserRef.current;
+        const spectrum = new Uint8Array(analyser.frequencyBinCount);
+        analyser.getByteFrequencyData(spectrum);
+        ctx.fillStyle = 'rgba(168, 85, 247, 0.22)';
+
+        const visibleBars = 64;
+        const barWidth = width / visibleBars;
+        for (let index = 0; index < visibleBars; index += 1) {
+          const sourceIndex = Math.floor((index / visibleBars) * spectrum.length);
+          const magnitude = spectrum[sourceIndex] / 255;
+          const barHeight = magnitude * (height * 0.48);
+          ctx.fillRect(index * barWidth, height - barHeight, Math.max(1, barWidth - 1), barHeight);
         }
       }
 
@@ -481,10 +558,16 @@ export function ProfessionalAudioEqualizer({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           bands,
-          audioUrl: currentAudioUrl || audioUrl
+          audioUrl: currentAudioUrl || audioUrl,
+          inputGainDb,
+          outputGainDb,
+          globalBypass
         })
       });
       const data = await res.json();
+      if (!res.ok || data.status !== 'success') {
+        throw new Error(data.error || `EQ processing failed with HTTP ${res.status}`);
+      }
       if (data.status === 'success') {
         setMetrics({
           lufs: data.metrics.lufs,
@@ -629,6 +712,39 @@ export function ProfessionalAudioEqualizer({
         </div>
       )}
 
+      {hasAudio && (
+        <div className="rounded-xl border border-emerald-500/30 bg-slate-900 p-4 shadow-xl">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-emerald-300">Live DSP Monitor</p>
+              <p className="text-[11px] text-slate-400">This player is routed through all active EQ bands, input gain and output gain.</p>
+            </div>
+            <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold ${
+              globalBypass
+                ? 'border-red-500/40 bg-red-950/40 text-red-300'
+                : 'border-emerald-500/40 bg-emerald-950/40 text-emerald-300'
+            }`}>
+              {globalBypass ? 'DSP BYPASSED' : 'DSP ACTIVE'}
+            </span>
+          </div>
+
+          <audio
+            ref={audioRef}
+            src={currentAudioUrl || undefined}
+            controls
+            preload="metadata"
+            crossOrigin="anonymous"
+            onPlay={() => {
+              initWebAudio();
+              setIsPlaying(true);
+            }}
+            onPause={() => setIsPlaying(false)}
+            onEnded={() => setIsPlaying(false)}
+            className="w-full"
+          />
+        </div>
+      )}
+
       {/* Main Equalizer Display & Metering Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Interactive Response Curve Canvas (3 Cols) */}
@@ -766,7 +882,7 @@ export function ProfessionalAudioEqualizer({
             {/* LUFS & True Peak */}
             <div className="grid grid-cols-2 gap-2">
               <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-center">
-                <span className="text-[10px] text-slate-400 block">Integrated LUFS</span>
+                <span className="text-[10px] text-slate-400 block">{isPlaying ? 'Live RMS' : 'Measured Loudness'}</span>
                 <span className="text-sm font-bold font-mono text-emerald-400">{metrics.lufs} LUFS</span>
               </div>
               <div className="bg-slate-950 p-2.5 rounded-lg border border-slate-800 text-center">
@@ -977,13 +1093,6 @@ export function ProfessionalAudioEqualizer({
         </div>
       </div>
 
-      <audio
-        ref={audioRef}
-        src={currentAudioUrl || undefined}
-        onEnded={() => setIsPlaying(false)}
-        crossOrigin="anonymous"
-        className="hidden"
-      />
     </div>
   );
 }
