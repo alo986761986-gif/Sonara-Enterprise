@@ -1,7 +1,9 @@
 import {
   GENRE_CATALOG_NAMES,
+  houseStylePromptKeywords,
   normalizeGenreName,
-  resolveGenreSelection
+  resolveGenreSelection,
+  resolveHouseStyleProfile
 } from '../../../shared/genreCatalog';
 
 export interface GenreLockProfile {
@@ -16,6 +18,15 @@ export interface GenreLockProfile {
   familyId?: string;
   timeSignature?: string;
   isCatalogEntry?: boolean;
+  styleBlueprint?: {
+    atmosphere: string;
+    groove: string;
+    bass: string;
+    harmony: string;
+    soundPalette: string;
+    arrangement: string;
+    vocalStyle: string;
+  };
 }
 
 export class AceStepPromptEngine {
@@ -265,7 +276,44 @@ export class AceStepPromptEngine {
     };
   }
 
+  private static createHouseGenreProfile(selectedGenre: string): GenreLockProfile | null {
+    const houseStyle = resolveHouseStyleProfile(selectedGenre);
+    if (!houseStyle) return null;
+
+    return {
+      primaryGenre: 'House',
+      subgenre: houseStyle.name,
+      recommendedBpm: houseStyle.recommendedBpm,
+      bpmRange: houseStyle.bpmRange,
+      keySignature: houseStyle.keySignature,
+      acousticKeywords: [
+        `authentic ${houseStyle.name} style`,
+        ...houseStylePromptKeywords(houseStyle)
+      ],
+      bannedKeywords: houseStyle.bannedKeywords,
+      modelTier: 'GOLD',
+      familyId: 'house',
+      timeSignature: '4/4',
+      isCatalogEntry: true,
+      styleBlueprint: {
+        atmosphere: houseStyle.atmosphere,
+        groove: houseStyle.groove,
+        bass: houseStyle.bass,
+        harmony: houseStyle.harmony,
+        soundPalette: houseStyle.soundPalette,
+        arrangement: houseStyle.arrangement,
+        vocalStyle: houseStyle.vocalStyle
+      }
+    };
+  }
+
   private static profileForExactSelection(selectedGenre: string): GenreLockProfile {
+    // House has a complete production blueprint for every catalogued
+    // subgenre. It is the source of truth even for the older handcrafted
+    // entries above, so atmosphere, groove and arrangement cannot drift.
+    const houseProfile = this.createHouseGenreProfile(selectedGenre);
+    if (houseProfile) return houseProfile;
+
     const exactKey = this.resolveExactGenreKey(selectedGenre);
     const existingProfile = exactKey ? this.GENRE_PROFILES[exactKey] : null;
 
