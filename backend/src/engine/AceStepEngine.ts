@@ -155,9 +155,9 @@ export class AceStepEngine extends IAudioGenerationEngine {
         '/workspace/ACE-Step/checkpoints',
 
       bf16: true,
-      torch_compile: false,
+      torch_compile: Boolean((params as any).torchCompile ?? false),
       cpu_offload: false,
-      overlapped_decode: false,
+      overlapped_decode: Boolean((params as any).overlappedDecode ?? false),
       device_id: Number(process.env.ACE_STEP_DEVICE_ID || 0),
 
       audio_duration: durationSec,
