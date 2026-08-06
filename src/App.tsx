@@ -1,10 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Activity,
   Download,
   Music,
-  Pause,
-  Play,
   RefreshCw,
   Sparkles,
   Zap
@@ -62,27 +60,10 @@ export default function App() {
   const [audioUrl, setAudioUrl] = useState('');
   const [engine, setEngine] = useState('Sonara V12 ACE-Step Engine');
   const [health, setHealth] = useState('CHECKING');
-  const [isPlaying, setIsPlaying] = useState(false);
-
-  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     void checkHealth();
   }, []);
-
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio || !audioUrl) return;
-
-    if (isPlaying) {
-      void audio.play().catch(playError => {
-        console.error('Playback failed:', playError);
-        setIsPlaying(false);
-      });
-    } else {
-      audio.pause();
-    }
-  }, [isPlaying, audioUrl]);
 
   const checkHealth = async () => {
     try {
@@ -103,7 +84,6 @@ export default function App() {
     setError('');
     setAudioUrl('');
     setJobId('');
-    setIsPlaying(false);
 
     try {
       const response = await fetch('/api/engine/generate', {
@@ -151,10 +131,10 @@ export default function App() {
       setStatus('PROCESSING');
       setStage('ACE-Step is generating the track...');
 
-      const maximumAttempts = 1200; // 6 minutes, at 300 ms per check.
+      const maximumAttempts = 1200; // Up to 20 minutes for four-minute GPU renders and stem separation.
 
       for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
-        await sleep(300);
+        await sleep(1000);
 
         const pollResponse = await fetch(`/api/music/job/${encodeURIComponent(id)}`, {
           cache: 'no-store'
@@ -302,7 +282,10 @@ export default function App() {
               >
                 <option value={15}>15 seconds</option>
                 <option value={30}>30 seconds</option>
-                <option value={60}>60 seconds</option>
+                <option value={60}>1 minute</option>
+                <option value={120}>2 minutes</option>
+                <option value={180}>3 minutes</option>
+                <option value={240}>4 minutes</option>
               </select>
             </label>
           </div>
@@ -372,35 +355,17 @@ export default function App() {
               </span>
             </div>
 
-            <audio
-              ref={audioRef}
-              controls
-              preload="metadata"
-              src={audioUrl}
-              onEnded={() => setIsPlaying(false)}
-              className="w-full"
-            >
-              Your browser does not support audio playback.
-            </audio>
+            <div className="rounded-xl border border-purple-500/30 bg-purple-950/20 p-4 text-sm text-purple-100">
+              The generated master is connected to the Live DSP Monitor below. Use that player to hear every EQ change in real time.
+            </div>
 
             <div className="mt-5 flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => setIsPlaying(previous => !previous)}
+              <a
+                href="#professional-equalizer"
                 className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium"
               >
-                {isPlaying ? (
-                  <>
-                    <Pause className="h-4 w-4" />
-                    Pause
-                  </>
-                ) : (
-                  <>
-                    <Play className="h-4 w-4" />
-                    Play
-                  </>
-                )}
-              </button>
+                Open Live Equalizer
+              </a>
 
               <a
                 href={audioUrl}
@@ -422,7 +387,6 @@ export default function App() {
             audioUrl={audioUrl}
             isEmbedded
             onProcessedAudio={processedAudioUrl => {
-              setIsPlaying(false);
               setAudioUrl(processedAudioUrl);
             }}
           />
