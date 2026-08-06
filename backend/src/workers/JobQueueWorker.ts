@@ -125,7 +125,8 @@ export class JobQueueWorker {
       const songPlan = SongPlannerService.planSong(
         {
           genre: targetGenre,
-          bpm: targetBpm
+          bpm: targetBpm,
+          timeSignature: genreProfile.timeSignature || '4/4'
         },
         durationSec
       );
@@ -142,7 +143,11 @@ export class JobQueueWorker {
       );
       const neuralPlan = useFastLongForm
         ? SongPlannerService.planSong(
-            { genre: targetGenre, bpm: targetBpm },
+            {
+              genre: targetGenre,
+              bpm: targetBpm,
+              timeSignature: genreProfile.timeSignature || '4/4'
+            },
             coreDurationSec
           )
         : songPlan;
@@ -190,7 +195,9 @@ export class JobQueueWorker {
           groovePrompt: patternResult.promptDirective,
           seed: patternSeed,
           inferStep: useFastLongForm ? 36 : 60,
-          overlappedDecode: useFastLongForm
+          overlappedDecode: useFastLongForm,
+          beatsPerBar: neuralPlan.beatsPerBar,
+          timeSignature: neuralPlan.timeSignature
         }
       );
 
@@ -300,6 +307,8 @@ export class JobQueueWorker {
       const finalMetadata = {
         title: payload.title || `${targetGenre} Track`,
         genre: targetGenre,
+        genreFamily: genreProfile.primaryGenre,
+        genreFamilyId: genreProfile.familyId || 'custom',
         bpm: targetBpm,
         keySignature: genreProfile.keySignature,
         prompt: userPrompt,
