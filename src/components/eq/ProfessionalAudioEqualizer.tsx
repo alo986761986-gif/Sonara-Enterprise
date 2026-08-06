@@ -116,6 +116,7 @@ export function ProfessionalAudioEqualizer({
 
   // Active audio URL
   const [currentAudioUrl, setCurrentAudioUrl] = useState<string>(audioUrl || '');
+  const hasAudio = Boolean(currentAudioUrl || audioUrl);
 
   useEffect(() => {
     if (audioUrl) {
@@ -300,6 +301,10 @@ export function ProfessionalAudioEqualizer({
 
   // Audio Playback Toggle
   const togglePlay = () => {
+    if (!hasAudio) {
+      setBackendNotice('Generate a track first to enable real-time EQ audition.');
+      return;
+    }
     initWebAudio();
     if (audioRef.current) {
       if (isPlaying) {
@@ -464,6 +469,10 @@ export function ProfessionalAudioEqualizer({
 
   // Execute Server-Side WAV Processing
   const processServerAudio = async () => {
+    if (!hasAudio) {
+      setBackendNotice('Generate a track first to render an equalized master.');
+      return;
+    }
     setIsProcessingBackend(true);
     setBackendNotice(null);
     try {
@@ -569,9 +578,10 @@ export function ProfessionalAudioEqualizer({
         <div className="flex items-center flex-wrap gap-2">
           <button
             onClick={togglePlay}
+            disabled={!hasAudio}
             className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all shadow-md ${
               isPlaying ? 'bg-amber-600 hover:bg-amber-500 text-white' : 'bg-purple-600 hover:bg-purple-500 text-white'
-            }`}
+            } disabled:cursor-not-allowed disabled:opacity-40`}
           >
             {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
             <span>{isPlaying ? 'Pause EQ Audition' : 'Real-time Audition'}</span>
@@ -596,7 +606,7 @@ export function ProfessionalAudioEqualizer({
 
           <button
             onClick={processServerAudio}
-            disabled={isProcessingBackend}
+            disabled={isProcessingBackend || !hasAudio}
             className="flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-lg shadow-emerald-600/20 disabled:opacity-50"
           >
             <Sparkles className="h-4 w-4" />
@@ -609,6 +619,13 @@ export function ProfessionalAudioEqualizer({
         <div className="flex items-center space-x-2 p-3 bg-emerald-950/50 border border-emerald-500/40 rounded-lg text-xs text-emerald-300">
           <CheckCircle2 className="h-4 w-4 text-emerald-400 flex-shrink-0" />
           <span>{backendNotice}</span>
+        </div>
+      )}
+
+      {!hasAudio && !backendNotice && (
+        <div className="flex items-center space-x-2 rounded-lg border border-purple-500/30 bg-purple-950/30 p-3 text-xs text-purple-200">
+          <AlertCircle className="h-4 w-4 flex-shrink-0 text-purple-400" />
+          <span>The equalizer is ready. Generate a track to activate real-time audition and master export.</span>
         </div>
       )}
 
@@ -962,7 +979,7 @@ export function ProfessionalAudioEqualizer({
 
       <audio
         ref={audioRef}
-        src={currentAudioUrl || '/storage/audio/proj_delivery_test_1785741606827.wav'}
+        src={currentAudioUrl || undefined}
         onEnded={() => setIsPlaying(false)}
         crossOrigin="anonymous"
         className="hidden"
