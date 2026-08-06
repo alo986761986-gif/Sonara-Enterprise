@@ -1,4 +1,5 @@
 ﻿import React, { useEffect, useRef, useState } from 'react';
+import { AISongwriter, SongwriterResult } from './components/songwriter/AISongwriter';
 import {
   Activity,
   Download,
@@ -52,6 +53,7 @@ export default function App() {
   const [genre, setGenre] = useState('Tech House');
   const [bpm, setBpm] = useState(124);
   const [durationSec, setDurationSec] = useState(15);
+  const [lyrics, setLyrics] = useState('');
 
   const [status, setStatus] = useState<JobStatus>('IDLE');
   const [progress, setProgress] = useState(0);
@@ -112,7 +114,7 @@ export default function App() {
           prompt: prompt.trim(),
           genre,
           mood: 'Energetic',
-          lyrics: '',
+          lyrics,
           title: 'Sonara AI Track',
           bpm,
           durationSec,
@@ -220,7 +222,11 @@ export default function App() {
     }
   };
 
-  const busy = status === 'QUEUED' || status === 'PROCESSING';
+  const busy = status === 'QUEUED' || status === 'PROCESSING';  const applySongwriterResult = (result: SongwriterResult) => {
+    setPrompt(result.prompt);
+    setLyrics(result.lyrics);
+    setGenre(result.genre);
+  };
 
   return (
     <div className="min-h-screen bg-[#090d16] text-slate-100">
@@ -263,6 +269,33 @@ export default function App() {
             placeholder="Describe the track..."
             className="w-full rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm outline-none focus:border-purple-500"
           />
+
+          <div className="mt-4">
+            <label className="mb-2 block text-xs font-medium text-slate-400">
+              Song Lyrics
+            </label>
+
+            <textarea
+              value={lyrics}
+              onChange={event => setLyrics(event.target.value)}
+              rows={10}
+              placeholder={`Write or paste the lyrics here...
+
+Example:
+
+[Verse 1]
+I see the sunset in your eyes...
+
+[Chorus]
+Take me higher through the night...`}
+              className="w-full rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm leading-relaxed outline-none focus:border-purple-500"
+            />
+
+            <div className="mt-2 flex justify-between text-[11px] text-slate-500">
+              <span>Use sections such as [Verse], [Chorus], [Bridge] and [Outro]</span>
+              <span>{lyrics.length} characters</span>
+            </div>
+          </div>
 
           <div className="mt-4 grid gap-4 sm:grid-cols-3">
             <label className="space-y-1 text-xs text-slate-400">
@@ -419,4 +452,10 @@ export default function App() {
     </div>
   );
 }
+
+
+
+
+
+
 
