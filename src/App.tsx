@@ -9,6 +9,7 @@ import {
   Sparkles,
   Zap
 } from 'lucide-react';
+import { ProfessionalAudioEqualizer } from './components/eq/ProfessionalAudioEqualizer';
 
 type JobStatus = 'IDLE' | 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
@@ -225,7 +226,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#090d16] text-slate-100">
       <header className="border-b border-slate-800 bg-[#0d1322] px-6 py-4">
-        <div className="mx-auto flex max-w-5xl items-center justify-between">
+        <div className="mx-auto flex max-w-7xl items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-600">
               <Music className="h-5 w-5" />
@@ -249,7 +250,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl space-y-6 p-6">
+      <main className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6">
         <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 shadow-xl">
           <div className="mb-5 flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-purple-400" />
@@ -355,7 +356,7 @@ export default function App() {
         )}
 
         {status === 'COMPLETED' && audioUrl && (
-          <section className="rounded-2xl border border-emerald-800/60 bg-slate-900/80 p-6 shadow-xl">
+          <section className="rounded-2xl border border-emerald-800/60 bg-slate-900/80 p-4 shadow-xl sm:p-6">
             <div className="mb-5 flex items-center justify-between">
               <div>
                 <h2 className="font-semibold text-emerald-300">
@@ -410,6 +411,22 @@ export default function App() {
                 Download WAV
               </a>
             </div>
+          </section>
+        )}
+
+        {status === 'COMPLETED' && audioUrl && (
+          <section
+            id="professional-equalizer"
+            className="scroll-mt-6 rounded-2xl border border-purple-800/60 bg-slate-950/60 p-3 shadow-2xl shadow-purple-950/20 sm:p-5"
+          >
+            <ProfessionalAudioEqualizer
+              audioUrl={audioUrl}
+              isEmbedded
+              onProcessedAudio={processedAudioUrl => {
+                setIsPlaying(false);
+                setAudioUrl(processedAudioUrl);
+              }}
+            />
           </section>
         )}
       </main>
