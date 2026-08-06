@@ -7,6 +7,7 @@ import {
   Sparkles,
   Zap
 } from 'lucide-react';
+import { GENRE_CATALOG_NAMES, GENRE_FAMILIES } from '../shared/genreCatalog';
 import { ProfessionalAudioEqualizer } from './components/eq/ProfessionalAudioEqualizer';
 
 type JobStatus = 'IDLE' | 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
@@ -253,31 +254,28 @@ export default function App() {
 
           <div className="mt-4 grid gap-4 sm:grid-cols-3">
             <label className="space-y-1 text-xs text-slate-400">
-              <span>Genre</span>
-              <select
+              <span>Genre or subgenre</span>
+              <input
+                list="sonara-genre-catalog"
                 value={genre}
                 onChange={event => setGenre(event.target.value)}
+                placeholder="Type any genre exactly..."
+                autoComplete="off"
                 className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-slate-100"
-              >
-                <option>House</option>
-                <option>Deep House</option>
-                <option>Tech House</option>
-                <option>Afro House</option>
-                <option>Melodic House</option>
-                <option>Progressive House</option>
-                <option>Organic House</option>
-                <option>Techno</option>
-                <option>Trance</option>
-                <option>Drum &amp; Bass</option>
-                <option>Hip Hop</option>
-                <option>Trap</option>
-                <option>Lo-fi</option>
-                <option>Ambient</option>
-                <option>Cinematic</option>
-                <option>Pop EDM</option>
-              </select>
+              />
+              <datalist id="sonara-genre-catalog">
+                {GENRE_FAMILIES.flatMap(family =>
+                  family.subgenres.map(subgenre => (
+                    <option
+                      key={`${family.id}-${subgenre}`}
+                      value={subgenre}
+                      label={family.name}
+                    />
+                  ))
+                )}
+              </datalist>
               <span className="block text-[10px] text-purple-300">
-                This selection is authoritative and will not be replaced by prompt text.
+                {GENRE_CATALOG_NAMES.length} catalogued styles, plus any custom genre. Your exact selection is authoritative.
               </span>
             </label>
 
