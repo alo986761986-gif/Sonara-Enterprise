@@ -1,5 +1,8 @@
 export interface AuditReport {
-  status: 'MASTER_AUDIT_PASSED' | 'MASTER_AUDIT_CORRECTED';
+  status: 'MASTER_AUDIT_PASSED' | 'MASTER_AUDIT_CORRECTED' | 'MASTER_AUDIT_BYPASSED';
+  inputSupported: boolean;
+  inputFormat: string;
+  bypassReason?: string;
   iterationsExecuted: number;
   integratedLufs: number;
   targetLufs: number;
@@ -12,6 +15,9 @@ export interface AuditReport {
   midNotchHz: number;
   airBoostHz: number;
   harmonicSaturation: string;
+  barsAligned: boolean;
+  totalBars: number;
+  durationSec: number;
 }
 
 export interface ProcessingResult {
@@ -33,7 +39,7 @@ export class MixingMasteringEngineService {
     if (!inputBuffer || inputBuffer.length < 44 || inputBuffer.toString('utf8', 0, 4) !== 'RIFF') {
       return {
         processedBuffer: inputBuffer,
-        report: this.createDefaultReport(targetLufs, ceilingDbtp)
+        report: this.createDefaultReport(targetLufs, ceilingDbtp, 'Invalid or missing RIFF/WAVE header')
       };
     }
 
@@ -43,14 +49,25 @@ export class MixingMasteringEngineService {
     const dataOffset = 44;
 
     if (bitsPerSample !== 16 || numChannels !== 2) {
-      // Fallback: return as-is with basic report for unsupported channel/bit formats
       return {
         processedBuffer: inputBuffer,
-        report: this.createDefaultReport(targetLufs, ceilingDbtp)
+        report: this.createDefaultReport(
+          targetLufs,
+          ceilingDbtp,
+          `Unsupported WAV format: ${numChannels} channels, ${bitsPerSample}-bit. Expected stereo PCM16.`
+        )
       };
     }
 
-    const totalSamples = Math.floor((inputBuffer.length - dataOffset) / 4);
+    const availableSamples = Math.floor((inputBuffer.length - dataOffset) / 4);
+    const samplesPerBar = (sampleRate * 60.0 / Math.max(40, Math.min(240, bpm))) * 4.0;
+    const nearestCompleteBars = Math.max(1, Math.round(availableSamples / samplesPerBar));
+    const floorCompleteBars = Math.max(1, Math.floor(availableSamples / samplesPerBar));
+    const nearestBarSamples = Math.round(nearestCompleteBars * samplesPerBar);
+    const withinBarTolerance = Math.abs(availableSamples - nearestBarSamples) <= samplesPerBar * 0.03;
+    const totalBars = withinBarTolerance ? nearestCompleteBars : floorCompleteBars;
+    const totalSamples = Math.min(availableSamples, Math.round(totalBars * samplesPerBar));
+    const barsAligned = Math.abs(totalSamples - totalBars * samplesPerBar) <= 2;
     const samplesL: number[] = new Array(totalSamples);
     const samplesR: number[] = new Array(totalSamples);
 
@@ -132,12 +149,13 @@ export class MixingMasteringEngineService {
       samplesR[i] = (sr - hpR) + airR;
     }
 
-    // --- 4. HARMONIC EXCITER (Analogue Tube Saturation: x - 0.15*x^3) ---
+    // --- 4. HARMONIC EXCITER (Soft tube curve without hard clipping) ---
+    const saturationNorm = Math.tanh(1.1);
     for (let i = 0; i < totalSamples; i++) {
       const l = samplesL[i];
       const r = samplesR[i];
-      samplesL[i] = l - 0.15 * Math.pow(l, 3);
-      samplesR[i] = r - 0.15 * Math.pow(r, 3);
+      samplesL[i] = Math.tanh(l * 1.1) / saturationNorm;
+      samplesR[i] = Math.tanh(r * 1.1) / saturationNorm;
     }
 
     // --- 5. MULTIBAND & PARALLEL GLUE COMPRESSION ---
@@ -169,7 +187,19 @@ export class MixingMasteringEngineService {
     }
 
     // --- 6. MID-SIDE STEREO SPATIALIZER ---
-    const widthMult = 1.15;
+    let preWidthSumL2 = 0;
+    let preWidthSumR2 = 0;
+    let preWidthSumLR = 0;
+    for (let i = 0; i < totalSamples; i += 8) {
+      const l = samplesL[i];
+      const r = samplesR[i];
+      preWidthSumL2 += l * l;
+      preWidthSumR2 += r * r;
+      preWidthSumLR += l * r;
+    }
+    const preWidthDenom = Math.sqrt(preWidthSumL2 * preWidthSumR2);
+    const preWidthPhase = preWidthDenom < 1e-9 ? 1.0 : preWidthSumLR / preWidthDenom;
+    const widthMult = preWidthPhase < 0.75 ? 1.0 : (preWidthPhase < 0.9 ? 1.05 : 1.1);
     for (let i = 0; i < totalSamples; i++) {
       const l = samplesL[i];
       const r = samplesR[i];
@@ -200,19 +230,33 @@ export class MixingMasteringEngineService {
     let maxPeak = 0;
     let clippingEvents = 0;
 
-    const outputBuffer = Buffer.alloc(inputBuffer.length);
+    // Short click-safe fades make trimming at a complete measure inaudible.
+    const fadeSamples = Math.min(Math.round(sampleRate * 0.01), Math.floor(totalSamples / 2));
+    for (let i = 0; i < fadeSamples; i++) {
+      const fadeIn = i / Math.max(1, fadeSamples - 1);
+      const fadeOut = (fadeSamples - 1 - i) / Math.max(1, fadeSamples - 1);
+      samplesL[i] *= fadeIn;
+      samplesR[i] *= fadeIn;
+      const endIndex = totalSamples - fadeSamples + i;
+      samplesL[endIndex] *= fadeOut;
+      samplesR[endIndex] *= fadeOut;
+    }
+
+    const outputBuffer = Buffer.alloc(dataOffset + totalSamples * 4);
     inputBuffer.copy(outputBuffer, 0, 0, 44); // Copy RIFF header
+    outputBuffer.writeUInt32LE(outputBuffer.length - 8, 4);
+    outputBuffer.writeUInt32LE(totalSamples * 4, 40);
 
     for (let i = 0; i < totalSamples; i++) {
       const l = samplesL[i];
       const r = samplesR[i];
       const peak = Math.max(Math.abs(l), Math.abs(r));
 
-      if (peak > maxPeak) maxPeak = peak;
       if (peak > ceilingLinear) clippingEvents++;
 
       const clampedL = Math.max(-ceilingLinear, Math.min(ceilingLinear, l));
       const clampedR = Math.max(-ceilingLinear, Math.min(ceilingLinear, r));
+      maxPeak = Math.max(maxPeak, Math.abs(clampedL), Math.abs(clampedR));
 
       const intL = Math.floor(clampedL * 32767);
       const intR = Math.floor(clampedR * 32767);
@@ -239,6 +283,8 @@ export class MixingMasteringEngineService {
 
     const report: AuditReport = {
       status: 'MASTER_AUDIT_PASSED',
+      inputSupported: true,
+      inputFormat: `PCM16 stereo ${sampleRate}Hz`,
       iterationsExecuted: 1,
       integratedLufs: finalLufs,
       targetLufs,
@@ -250,7 +296,10 @@ export class MixingMasteringEngineService {
       lowEndMonoCutoffHz: 90.0,
       midNotchHz: 350.0,
       airBoostHz: 11000.0,
-      harmonicSaturation: 'Tube 2nd/3rd Order'
+      harmonicSaturation: 'Soft Tube tanh 1.1x',
+      barsAligned,
+      totalBars,
+      durationSec: Number((totalSamples / sampleRate).toFixed(3))
     };
 
     return {
@@ -259,10 +308,13 @@ export class MixingMasteringEngineService {
     };
   }
 
-  private static createDefaultReport(targetLufs: number, ceilingDbtp: number): AuditReport {
+  private static createDefaultReport(targetLufs: number, ceilingDbtp: number, reason: string): AuditReport {
     return {
-      status: 'MASTER_AUDIT_PASSED',
-      iterationsExecuted: 1,
+      status: 'MASTER_AUDIT_BYPASSED',
+      inputSupported: false,
+      inputFormat: 'UNSUPPORTED',
+      bypassReason: reason,
+      iterationsExecuted: 0,
       integratedLufs: targetLufs,
       targetLufs,
       truePeakDbtp: ceilingDbtp,
@@ -273,7 +325,10 @@ export class MixingMasteringEngineService {
       lowEndMonoCutoffHz: 90.0,
       midNotchHz: 350.0,
       airBoostHz: 11000.0,
-      harmonicSaturation: 'Tube 2nd/3rd Order'
+      harmonicSaturation: 'NOT_APPLIED',
+      barsAligned: false,
+      totalBars: 0,
+      durationSec: 0
     };
   }
 }
