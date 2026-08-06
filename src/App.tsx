@@ -46,9 +46,9 @@ const normalizeJob = (value: JobResponse): JobResponse =>
 
 export default function App() {
   const [prompt, setPrompt] = useState(
-    'Deep House and Tech House with Afro House influence, 124 BPM, deep rolling bassline, punchy four-on-the-floor kick, organic tribal percussion, congas, bongos, shakers, hypnotic groove, warm piano chords, atmospheric pads and a polished club mix.'
+    'Deep House with warm sub-bass, atmospheric Rhodes chords, a mellow four-on-the-floor groove, smooth shuffle hats and a polished club mix.'
   );
-  const [genre, setGenre] = useState('Tech House');
+  const [genre, setGenre] = useState('Deep House');
   const [bpm, setBpm] = useState(124);
   const [durationSec, setDurationSec] = useState(15);
 
@@ -259,12 +259,26 @@ export default function App() {
                 onChange={event => setGenre(event.target.value)}
                 className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-slate-100"
               >
+                <option>House</option>
                 <option>Deep House</option>
                 <option>Tech House</option>
                 <option>Afro House</option>
                 <option>Melodic House</option>
+                <option>Progressive House</option>
+                <option>Organic House</option>
+                <option>Techno</option>
+                <option>Trance</option>
+                <option>Drum &amp; Bass</option>
+                <option>Hip Hop</option>
+                <option>Trap</option>
+                <option>Lo-fi</option>
+                <option>Ambient</option>
+                <option>Cinematic</option>
                 <option>Pop EDM</option>
               </select>
+              <span className="block text-[10px] text-purple-300">
+                This selection is authoritative and will not be replaced by prompt text.
+              </span>
             </label>
 
             <label className="space-y-1 text-xs text-slate-400">
