@@ -1,0 +1,25 @@
+{
+  "id": "fact_house_000999",
+  "timestamp": "2026-08-01T17:05:53.662446+00:00",
+  "seed": 342040,
+  "genre": "house",
+  "subgenre": "tech_house",
+  "bpm": 135.0,
+  "key": "A Minor",
+  "mood": "Professional Studio",
+  "duration_sec": 60.0,
+  "quality_score": 92.0,
+  "generator_version": "Sonara V3 Gold Dataset Engine",
+  "lora_target": "lora/house/tech_house",
+  "quality_tier": "Gold",
+  "artifacts": {
+    "audio_wav": "audio.wav",
+    "prompt_json": "prompt.json",
+    "analysis_json": "analysis.json",
+    "quality_json": "quality.json",
+    "metadata_json": "metadata.json",
+    "spectrogram_png": "spectrogram.png",
+    "waveform_png": "waveform.png",
+    "critic_json": "critic.json"
+  }
+}

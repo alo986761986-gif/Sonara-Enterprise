@@ -1,0 +1,59 @@
+{
+  "genre": "House",
+  "subgenre": "Melodic House",
+  "prompt": "Melodic House studio production at 127 BPM",
+  "composed_prompt": "Deep House, Deep Soulful House,,\nAtmosphere: Atmospheric (70%), Warm (30%),\n120 BPM, Key of F Minor,,\nKick: Deep Analog Sub Kick with Clean Transient Punch and Low-end Weight,,\nBass: Warm Sub-heavy FM Sine-Square Bassline with Filter Envelope Modulation,,\nPads: Lush Analog Warm Polyphonic Pads with Lush Reverb & Shimmer,,\nLead: Muted Electric Piano Chords and Soft Plucked Synth Leads,,\nPercussion: Crisp Shaker Grooves, Rimshots, and Off-beat Open Hi-Hats,,\nStereo: Stereo Width 85%, Sidechain Ducking 85%,,\nArrangement: 16 Bars Intro -> 16 Bars Beat In -> 16 Bars Breakdown -> 8 Bars Build -> 32 Bars Drop -> 16 Bars Outro,,\nMastering: Streaming Ready, -14 LUFS Target, Warm Tube Saturation & Transparent Peak Limiting,",
+  "bpm": 127.0,
+  "seed": 284829,
+  "arrangement": {
+    "genre_structure": "house",
+    "total_bars": 120,
+    "summary": "8 Bars Intro -> 16 Bars Build -> 32 Bars Drop -> 16 Bars Break -> 32 Bars Drop -> 16 Bars Outro",
+    "sections": [
+      {
+        "section": "Intro",
+        "bars": 8,
+        "description": "Filtered kick and atmospheric sweeps"
+      },
+      {
+        "section": "Build",
+        "bars": 16,
+        "description": "Rising snare rolls, vocal chops and pitch risers"
+      },
+      {
+        "section": "Drop",
+        "bars": 32,
+        "description": "Full punchy main kick, heavy sub bass, lead synth line"
+      },
+      {
+        "section": "Break",
+        "bars": 16,
+        "description": "Lush vocal melody, atmospheric chords, no kick"
+      },
+      {
+        "section": "Drop",
+        "bars": 32,
+        "description": "Peak energy main drop with driving percussion"
+      },
+      {
+        "section": "Outro",
+        "bars": 16,
+        "description": "Gradual element strip down for seamless DJ mixing"
+      }
+    ]
+  },
+  "auto_labels": {
+    "primary_genre": "House",
+    "subgenre": "Tech House",
+    "bpm": 127.0,
+    "lufs": -11.5,
+    "energy_level": "Mid Energy Driving",
+    "instrument_tags": [
+      "Punchy Kick",
+      "Electric Piano",
+      "Percussive Groove"
+    ],
+    "lora_target": "lora/house/tech_house",
+    "auto_label_confidence": 0.99
+  }
+}

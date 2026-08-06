@@ -1,0 +1,20 @@
+{
+  "job_id": "job_lora_deep_house_1785599712",
+  "bundle_name": "deep_house_job_lora_deep_house_1785599712",
+  "genre": "Deep House",
+  "target_modules": [
+    "q_proj",
+    "v_proj",
+    "k_proj",
+    "out_proj"
+  ],
+  "r": 16,
+  "lora_alpha": 32,
+  "lora_dropout": 0.05,
+  "batch_size": 4,
+  "learning_rate": 0.0002,
+  "epochs": 10,
+  "seed": 42,
+  "dataset_version": "v_test_suite",
+  "task_type": "ACE_STEP_AUDIO_LORA"
+}

@@ -1,0 +1,17 @@
+{
+  "hypothesis_id": "hyp_test_cycle_001",
+  "statement": "Increasing CFG by +0.5 in Techno improves audio punch and overall quality.",
+  "parameter_changes": {
+    "cfg_offset": 0.5
+  },
+  "target_metrics": [
+    "Punch",
+    "Quality",
+    "overall_score"
+  ],
+  "expected_direction": "INCREASE",
+  "expected_delta": 2.0,
+  "status": "REJECTED",
+  "validation_reason": "Statistically REJECTED: Candidate failed validation criteria (mean diff=+0.00, p=1.0000, Cohen's d=0.00, Win Rate=0.0%, Bayes P=0.49)",
+  "created_at": "2026-08-01T16:22:17.893098+00:00"
+}

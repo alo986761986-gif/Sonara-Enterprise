@@ -1,0 +1,143 @@
+{
+  "title": "Sonara Labs - Consistency Audit Protocol Report",
+  "auditor": "Principal Scientific Auditor",
+  "software_freeze_status": "ACTIVE",
+  "timestamp": "2026-08-01T15:11:33.113548+00:00",
+  "stato_finale": "NON COERENTE",
+  "fase_1_filesystem": {
+    "totale_cartelle_traccia_fisiche": 33,
+    "dettaglio_file": {
+      "audio.wav": {
+        "conteggio": 33,
+        "dimensione_bytes": 11643852,
+        "dimensione_mb": 11.1044,
+        "sample_percorsi": [
+          "dataset/house/deep_house/audio.wav",
+          "dataset/house/deep_house/baseline_001/audio.wav",
+          "dataset/house/deep_house/fact_house_000012/audio.wav",
+          "dataset/house/tech_house/audio.wav",
+          "dataset/house/melodic_house/audio.wav"
+        ]
+      },
+      "prompt.json": {
+        "conteggio": 33,
+        "dimensione_bytes": 23523,
+        "dimensione_mb": 0.0224,
+        "sample_percorsi": [
+          "dataset/house/deep_house/prompt.json",
+          "dataset/house/deep_house/baseline_001/prompt.json",
+          "dataset/house/deep_house/fact_house_000012/prompt.json",
+          "dataset/house/tech_house/prompt.json",
+          "dataset/house/melodic_house/prompt.json"
+        ]
+      },
+      "analysis.json": {
+        "conteggio": 33,
+        "dimensione_bytes": 13627,
+        "dimensione_mb": 0.013,
+        "sample_percorsi": [
+          "dataset/house/deep_house/analysis.json",
+          "dataset/house/deep_house/baseline_001/analysis.json",
+          "dataset/house/deep_house/fact_house_000012/analysis.json",
+          "dataset/house/tech_house/analysis.json",
+          "dataset/house/melodic_house/analysis.json"
+        ]
+      },
+      "quality.json": {
+        "conteggio": 33,
+        "dimensione_bytes": 18490,
+        "dimensione_mb": 0.0176,
+        "sample_percorsi": [
+          "dataset/house/deep_house/quality.json",
+          "dataset/house/deep_house/baseline_001/quality.json",
+          "dataset/house/deep_house/fact_house_000012/quality.json",
+          "dataset/house/tech_house/quality.json",
+          "dataset/house/melodic_house/quality.json"
+        ]
+      },
+      "metadata.json": {
+        "conteggio": 16,
+        "dimensione_bytes": 7766,
+        "dimensione_mb": 0.0074,
+        "sample_percorsi": [
+          "dataset/house/deep_house/baseline_001/metadata.json",
+          "dataset/house/deep_house/fact_house_000012/metadata.json",
+          "dataset/techno/melodic_techno/baseline_001/metadata.json",
+          "dataset/techno/melodic_techno/fact_techno_000003/metadata.json",
+          "dataset/edm/future_bass/baseline_001/metadata.json"
+        ]
+      },
+      "critic.json": {
+        "conteggio": 15,
+        "dimensione_bytes": 8938,
+        "dimensione_mb": 0.0085,
+        "sample_percorsi": [
+          "dataset/house/deep_house/baseline_001/critic.json",
+          "dataset/house/deep_house/fact_house_000012/critic.json",
+          "dataset/techno/melodic_techno/baseline_001/critic.json",
+          "dataset/techno/melodic_techno/fact_techno_000003/critic.json",
+          "dataset/edm/future_bass/baseline_001/critic.json"
+        ]
+      },
+      "spectrogram.png": {
+        "conteggio": 16,
+        "dimensione_bytes": 922864,
+        "dimensione_mb": 0.8801,
+        "sample_percorsi": [
+          "dataset/house/deep_house/baseline_001/spectrogram.png",
+          "dataset/house/deep_house/fact_house_000012/spectrogram.png",
+          "dataset/techno/melodic_techno/baseline_001/spectrogram.png",
+          "dataset/techno/melodic_techno/fact_techno_000003/spectrogram.png",
+          "dataset/edm/future_bass/baseline_001/spectrogram.png"
+        ]
+      },
+      "waveform.png": {
+        "conteggio": 16,
+        "dimensione_bytes": 26688,
+        "dimensione_mb": 0.0255,
+        "sample_percorsi": [
+          "dataset/house/deep_house/baseline_001/waveform.png",
+          "dataset/house/deep_house/fact_house_000012/waveform.png",
+          "dataset/techno/melodic_techno/baseline_001/waveform.png",
+          "dataset/techno/melodic_techno/fact_techno_000003/waveform.png",
+          "dataset/edm/future_bass/baseline_001/waveform.png"
+        ]
+      }
+    }
+  },
+  "fase_2_database": {
+    "numero_produzioni_totali": 2205,
+    "numero_gold": 620,
+    "numero_silver": 1553,
+    "numero_bronze": 0,
+    "numero_scartate": 32,
+    "record_con_campi_schema_incompleti": 1585
+  },
+  "fase_3_cross_check": {
+    "match_count": 0,
+    "missing_count": 2205,
+    "esito": "MISSING (2172 record nel DB non hanno bundle audio/file fisici sul disco)"
+  },
+  "fase_4_benchmark": {
+    "stato_benchmark": "BENCHMARK NON VALIDO",
+    "motivo": "Discrepanza tra benchmark_dataset.json (1,000 prompt) e sample size del report (2,205 record); valutazioni basate su simulazioni senza file audio reali per 2,172 record."
+  },
+  "fase_5_checksum": {
+    "checksum_dataset": "7d643322ffa85eb6dfad58b6338c0ba26a30cc93053fdcad4cba308fdd35c0d6",
+    "checksum_benchmark": "ecf5a7ff44050e29641cebb407c8f2699b14adf198670ae16956ae824b8e6589",
+    "checksum_leaderboard": "dc70f529548d0fe0af7146a2d65ffbbbaa36a654e543b7edf147b4d3241fbf94",
+    "checksum_learning_memory": "0024eb4bbbb6098491a696d512c8cb798e62bc5c0b440ab7d6c358f536e5ee65"
+  },
+  "fase_6_matrice_coerenza": {
+    "filesystem": "NON COERENTE",
+    "database": "NON COERENTE",
+    "benchmark": "NON COERENTE",
+    "report": "NON COERENTE"
+  },
+  "dettaglio_incoerenze": [
+    "2,172 record presenti in quality_database.json non possiedono una directory fisica o file audio.wav in dataset/.",
+    "1,585 record nel database mancano di campi schema obbligatori di primo livello (timestamp, analysis).",
+    "17 su 33 cartelle fisiche mancano di metadata.json, spectrogram.png e waveform.png; 18 mancano di critic.json.",
+    "Il benchmark dichiarava 2,205 campioni valutati ma il file benchmark_dataset.json ne contiene 1,000 e si basa su dati non correlati ad file audio fisici per la maggioranza dei campioni."
+  ]
+}

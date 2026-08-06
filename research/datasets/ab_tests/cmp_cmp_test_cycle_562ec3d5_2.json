@@ -1,0 +1,125 @@
+{
+  "comparison_id": "cmp_test_cycle_562ec3d5_2",
+  "experiment_id": "exp_test_cycle_562ec3d5",
+  "track_a_uuid": "019fbe34-b1ef-7e3c-826e-59fb8b4ed194",
+  "track_b_uuid": "019fbe34-b264-7f94-8289-1370d44d4aba",
+  "overall_winner": "TIE",
+  "overall_score_a": 83.22,
+  "overall_score_b": 83.22,
+  "score_delta": 0.0,
+  "metric_breakdown": [
+    {
+      "metric_name": "Quality",
+      "score_a": 83.8,
+      "score_b": 83.8,
+      "delta": 0.0,
+      "winner": "TIE"
+    },
+    {
+      "metric_name": "Commercial",
+      "score_a": 84.3,
+      "score_b": 84.3,
+      "delta": 0.0,
+      "winner": "TIE"
+    },
+    {
+      "metric_name": "Festival",
+      "score_a": 80.6,
+      "score_b": 80.6,
+      "delta": 0.0,
+      "winner": "TIE"
+    },
+    {
+      "metric_name": "Streaming",
+      "score_a": 85.0,
+      "score_b": 85.0,
+      "delta": 0.0,
+      "winner": "TIE"
+    },
+    {
+      "metric_name": "Danceability",
+      "score_a": 78.8,
+      "score_b": 78.8,
+      "delta": 0.0,
+      "winner": "TIE"
+    },
+    {
+      "metric_name": "Replay",
+      "score_a": 86.2,
+      "score_b": 86.2,
+      "delta": 0.0,
+      "winner": "TIE"
+    },
+    {
+      "metric_name": "Emotion",
+      "score_a": 87.0,
+      "score_b": 87.0,
+      "delta": 0.0,
+      "winner": "TIE"
+    },
+    {
+      "metric_name": "Kick",
+      "score_a": 74.8,
+      "score_b": 74.8,
+      "delta": 0.0,
+      "winner": "TIE"
+    },
+    {
+      "metric_name": "Bass",
+      "score_a": 74.8,
+      "score_b": 74.8,
+      "delta": 0.0,
+      "winner": "TIE"
+    },
+    {
+      "metric_name": "Stereo",
+      "score_a": 85.5,
+      "score_b": 85.5,
+      "delta": 0.0,
+      "winner": "TIE"
+    },
+    {
+      "metric_name": "Dynamics",
+      "score_a": 93.7,
+      "score_b": 93.7,
+      "delta": 0.0,
+      "winner": "TIE"
+    },
+    {
+      "metric_name": "Groove",
+      "score_a": 82.8,
+      "score_b": 82.8,
+      "delta": 0.0,
+      "winner": "TIE"
+    },
+    {
+      "metric_name": "Arrangement",
+      "score_a": 86.0,
+      "score_b": 86.0,
+      "delta": 0.0,
+      "winner": "TIE"
+    },
+    {
+      "metric_name": "Punch",
+      "score_a": 82.2,
+      "score_b": 82.2,
+      "delta": 0.0,
+      "winner": "TIE"
+    },
+    {
+      "metric_name": "Drop",
+      "score_a": 82.0,
+      "score_b": 82.0,
+      "delta": 0.0,
+      "winner": "TIE"
+    },
+    {
+      "metric_name": "Break",
+      "score_a": 84.0,
+      "score_b": 84.0,
+      "delta": 0.0,
+      "winner": "TIE"
+    }
+  ],
+  "timestamp": "2026-08-01T16:42:32.655853+00:00"
+}

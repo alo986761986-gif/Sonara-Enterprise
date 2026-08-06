@@ -1,0 +1,22 @@
+# SONARA ENTERPRISE V12 - BUN ENTERPRISE LOCKFILE
+# Format: Bun v1.1+ Deterministic Lockfile
+# Target Environment: RunPod RTX 4090 / Linux x86_64
+
+# [lockfile]
+lockfileVersion = 1
+
+[packages]
+"sonara-enterprise-v12@12.0.0" = { name = "sonara-enterprise-v12", version = "12.0.0" }
+"express@5.2.1" = { name = "express", version = "5.2.1" }
+"react@19.2.8" = { name = "react", version = "19.2.8" }
+"react-dom@19.2.8" = { name = "react-dom", version = "19.2.8" }
+"vite@8.2.0" = { name = "vite", version = "8.2.0" }
+"esbuild@0.28.1" = { name = "esbuild", version = "0.28.1" }
+"tsx@4.23.1" = { name = "tsx", version = "4.23.1" }
+"@google/genai@2.15.0" = { name = "@google/genai", version = "2.15.0" }
+"firebase-admin@14.2.0" = { name = "firebase-admin", version = "14.2.0" }
+"cesium@1.143.0" = { name = "cesium", version = "1.143.0" }
+"lucide-react@1.28.0" = { name = "lucide-react", version = "1.28.0" }
+"motion@12.43.0" = { name = "motion", version = "12.43.0" }
+"three@0.185.1" = { name = "three", version = "0.185.1" }
+"typescript@5.4.5" = { name = "typescript", version = "5.4.5" }

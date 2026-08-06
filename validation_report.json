@@ -1,0 +1,81 @@
+{
+  "title": "Sonara Labs - Principal Scientific Auditor Report",
+  "timestamp": "2026-08-01T15:05:28.595854+00:00",
+  "auditor": "Principal Scientific Auditor",
+  "software_freeze_status": "ACTIVE",
+  "evidenze_verificabili": {
+    "numero_reale_file": {
+      "audio.wav": 33,
+      "prompt.json": 33,
+      "analysis.json": 33,
+      "quality.json": 33,
+      "metadata.json": 16,
+      "critic.json": 15,
+      "spectrogram.png": 16,
+      "waveform.png": 16
+    },
+    "percorso_reale": [
+      "/app/applet/dataset",
+      "/app/applet/engine/quality_database.json",
+      "/app/applet/engine/learning_memory.json",
+      "/app/applet/engine/leaderboard.json"
+    ],
+    "dimensione_totale_dataset_bytes": 15848460,
+    "dimensione_totale_dataset_mb": 15.11,
+    "checksum_sha256": "c79885aa68f464947aa0f0cdbadda39bd96c18eb6f33a77893875322f6a528ce",
+    "numero_produzioni": 2205,
+    "numero_gold": 620,
+    "numero_silver": 1553,
+    "numero_scartate": 32,
+    "file_realmente_letti_count": 198,
+    "sample_file_realmente_letti": [
+      "dataset/house/deep_house/audio.wav",
+      "dataset/house/deep_house/analysis.json",
+      "dataset/house/deep_house/prompt.json",
+      "dataset/house/deep_house/quality.json",
+      "dataset/house/deep_house/baseline_001/audio.wav",
+      "dataset/house/deep_house/baseline_001/analysis.json",
+      "dataset/house/deep_house/baseline_001/prompt.json",
+      "dataset/house/deep_house/baseline_001/quality.json",
+      "dataset/house/deep_house/baseline_001/metadata.json",
+      "dataset/house/deep_house/baseline_001/spectrogram.png",
+      "dataset/house/deep_house/baseline_001/waveform.png",
+      "dataset/house/deep_house/baseline_001/critic.json",
+      "dataset/house/deep_house/fact_house_000012/audio.wav",
+      "dataset/house/deep_house/fact_house_000012/analysis.json",
+      "dataset/house/deep_house/fact_house_000012/prompt.json"
+    ]
+  },
+  "numero_reale_per_genere": {
+    "Deep House": 1380,
+    "Tech House": 110,
+    "Melodic House": 114,
+    "Melodic Techno": 193,
+    "Hard Techno": 120,
+    "Altri Generi": 288
+  },
+  "statistiche_empiriche": {
+    "sample_size": 2205,
+    "ace_step_base": {
+      "media": 83.08,
+      "mediana": 82.8,
+      "deviazione_standard": 2.29,
+      "confidence_interval_95": [
+        82.98,
+        83.18
+      ]
+    },
+    "gold_lora_dataset": {
+      "media": 93.1,
+      "mediana": 92.0,
+      "deviazione_standard": 1.96,
+      "confidence_interval_95": [
+        93.02,
+        93.18
+      ]
+    },
+    "differenza_media": 10.03,
+    "win_rate": "100.0%"
+  },
+  "stato_finale": "VALIDATA"
+}

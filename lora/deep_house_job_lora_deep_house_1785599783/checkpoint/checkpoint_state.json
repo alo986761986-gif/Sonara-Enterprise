@@ -1,0 +1,6 @@
+{
+  "checkpoint_step": 10,
+  "epoch": 10,
+  "best_loss": 0.138,
+  "saved_at": "2026-08-01T15:56:23.785344+00:00"
+}

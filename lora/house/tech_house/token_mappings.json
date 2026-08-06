@@ -1,0 +1,10 @@
+{
+  "genre_tag": "house/tech_house",
+  "dataset_sample_count": 1,
+  "required_tokens": [
+    "<HOUSE_TECH_HOUSE>",
+    "<HIGH_FIDELITY>",
+    "<STEREO_WIDTH_WIDE>",
+    "<SIDECHAIN_DUCKED>"
+  ]
+}

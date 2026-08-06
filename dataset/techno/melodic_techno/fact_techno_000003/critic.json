@@ -1,0 +1,45 @@
+{
+  "record_id": "critique_techno_1785602450006",
+  "timestamp": "2026-08-01T16:40:50.006114+00:00",
+  "genre": "Techno",
+  "bpm": 122.0,
+  "iteration": 1,
+  "overall_score": 89.7,
+  "category_scores": {
+    "Kick": 92.5,
+    "Bass": 91.0,
+    "Groove": 94.4,
+    "Drop": 92.0,
+    "Break": 92.0,
+    "Stereo": 79.1,
+    "Punch": 76.4,
+    "Dynamics": 88.6,
+    "Compression": 86.0,
+    "Sidechain": 95.0,
+    "Mix": 87.8,
+    "Master": 86.9,
+    "Arrangement": 94.0,
+    "Originality": 94.0,
+    "Emotion": 94.0,
+    "Commercial Potential": 88.7,
+    "Festival Potential": 87.4,
+    "Streaming Potential": 88.9,
+    "Danceability": 93.2,
+    "Replay Value": 91.9
+  },
+  "critique_text": [
+    "Bass poco presente: sub-bass poco definito, amplificare la risposta alle basse frequenze.",
+    "Stereo troppo stretto: espandere l'immagine stereofonica nei pad e hi-hats.",
+    "Punch insufficiente: i transienti ritmici sono attenuati, aumentare la dinamica dei drum stabs.",
+    "Dinamica limitata: margine di headroom ridotto, calibrare il limiter di mastering.",
+    "Mix troppo compresso: attenuare il bus compressor per preservare la naturalezza del brano.",
+    "Mix Sbilanciato: sovrapposizione di frequenze medie, applicare EQ chirurgico."
+  ],
+  "original_prompt": "Melodic Techno, Afterlife Style Melodic Techno,,\nAtmosphere: Atmospheric (70%), Warm (30%),\n124 BPM, Key of A Minor,,\nKick: Punchy Tight Studio Kick Drum,,\nBass: Warm Sub-heavy FM Sine-Square Bassline with Filter Envelope Modulation,,\nPads: Lush Analog Warm Polyphonic Pads with Lush Reverb & Shimmer,,\nLead: Muted Electric Piano Chords and Soft Plucked Synth Leads,,\nPercussion: Crisp Shaker Grooves, Rimshots, and Off-beat Open Hi-Hats,,\nStereo: Stereo Width 90%, Sidechain Ducking 88%,,\nArrangement: 8 Bars Intro -> 16 Bars Verse / Build -> 32 Bars Drop / Chorus -> 16 Bars Breakdown -> 32 Bars Drop / Chorus -> 16 Bars Outro,,\nMastering: Streaming Ready, -14 LUFS Target, Warm Tube Saturation & Transparent Peak Limiting,",
+  "corrected_prompt": "Melodic Techno, Afterlife Style Melodic Techno,,\nAtmosphere: Atmospheric (70%), Warm (30%),\n124 BPM, Key of A Minor,,\nKick: Punchy Tight Studio Kick Drum,,\nBass: Warm Sub-heavy FM Sine-Square Bassline with Filter Envelope Modulation,,\nPads: Lush Analog Warm Polyphonic Pads with Lush Reverb & Shimmer,,\nLead: Muted Electric Piano Chords and Soft Plucked Synth Leads,,\nPercussion: Crisp Shaker Grooves, Rimshots, and Off-beat Open Hi-Hats,,\nStereo: Stereo Width 90%, Sidechain Ducking 90%, Sidechain Ducking 88%,,\nArrangement: 8 Bars Intro -> 16 Bars Verse / Build -> 32 Bars Drop / Chorus -> 16 Bars Breakdown -> 32 Bars Drop / Chorus -> 16 Bars Outro,,\nMastering: Streaming Ready, -14 LUFS Target, Warm Tube Saturation & Transparent Peak Limiting, -14 LUFS Target, Warm Tube Saturation & Transparent Peak Limiting,",
+  "applied_fixes": [
+    "Sub-Bass FM Warmth Reinforcement",
+    "Pumping Sidechain & Stereo Expansion",
+    "Transparent Tube Mastering Calibration"
+  ]
+}

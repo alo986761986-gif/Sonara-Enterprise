@@ -1,0 +1,29 @@
+{
+  "version": "Sonara V3 LoRA Infrastructure",
+  "target_modules": [
+    "q_proj",
+    "v_proj",
+    "k_proj",
+    "out_proj"
+  ],
+  "r": 16,
+  "lora_alpha": 32,
+  "lora_dropout": 0.05,
+  "bias": "none",
+  "task_type": "AUDIO_PROMPT_LM",
+  "batch_size": 4,
+  "learning_rate": 0.0002,
+  "num_train_epochs": 10,
+  "warmup_steps": 100,
+  "target_min_quality_score": 90,
+  "supported_genres": [
+    "house/deep_house",
+    "house/tech_house",
+    "house/melodic_house",
+    "techno/melodic_techno",
+    "techno/hard_techno"
+  ],
+  "genre_target": "house/melodic_house",
+  "train_data_path": "/app/applet/lora/house/melodic_house/manifest.jsonl",
+  "num_samples_ready": 1
+}

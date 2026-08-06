@@ -1,0 +1,30 @@
+{
+  "decision": "REJECTED",
+  "p_value": 1.0,
+  "cohens_d": 0.0,
+  "win_rate_pct": 0.0,
+  "bayes_win_probability": 0.492,
+  "mean_difference": 0.0,
+  "bootstrap_ci_lower": 0.0,
+  "bootstrap_ci_upper": 0.0,
+  "stats_a": {
+    "sample_size": 3,
+    "mean": 83.22,
+    "median": 83.22,
+    "variance": 0.0,
+    "std_dev": 0.0,
+    "ci_95_lower": 83.22,
+    "ci_95_upper": 83.22
+  },
+  "stats_b": {
+    "sample_size": 3,
+    "mean": 83.22,
+    "median": 83.22,
+    "variance": 0.0,
+    "std_dev": 0.0,
+    "ci_95_lower": 83.22,
+    "ci_95_upper": 83.22
+  },
+  "statistically_significant": false,
+  "rationale": "Statistically REJECTED: Candidate failed validation criteria (mean diff=+0.00, p=1.0000, Cohen's d=0.00, Win Rate=0.0%, Bayes P=0.49)"
+}

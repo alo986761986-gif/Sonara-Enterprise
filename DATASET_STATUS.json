@@ -1,0 +1,328 @@
+{
+  "total_files": 47,
+  "total_hours": 0.0261,
+  "hours_per_genre": {
+    "Techno": 0.0022,
+    "Melodic Techno": 0.0033,
+    "Deep House": 0.0078,
+    "Tech House": 0.0017,
+    "Progressive House": 0.0006,
+    "EDM Festival": 0.0028,
+    "Ambient": 0.0011,
+    "Cinematic": 0.0011,
+    "Pop": 0.0017,
+    "Trap": 0.0017,
+    "Drill": 0.0011,
+    "Rock": 0.0011
+  },
+  "files_per_genre": {
+    "Techno": 4,
+    "Melodic Techno": 6,
+    "Deep House": 14,
+    "Tech House": 3,
+    "Progressive House": 1,
+    "EDM Festival": 5,
+    "Ambient": 2,
+    "Cinematic": 2,
+    "Pop": 3,
+    "Trap": 3,
+    "Drill": 2,
+    "Rock": 2
+  },
+  "duplicates_count": 93,
+  "average_quality": 90.9,
+  "errors_count": 47,
+  "dataset_score": 47.0,
+  "status": "NOT READY",
+  "errors": [
+    {
+      "path": "dataset/ambient/ambient/baseline_001/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/ambient/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/cinematic/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/cinematic/cinematic/baseline_001/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/drill/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/drill/drill/baseline_001/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/edm/dubstep/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/edm/future_bass/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/edm/future_bass/baseline_001/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/house/afro_house/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/house/deep_house/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/house/deep_house/baseline_001/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/house/deep_house/fact_house_000012/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/house/deep_house/fact_house_000070/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/house/deep_house/fact_house_000106/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/house/deep_house/fact_house_000136/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/house/deep_house/fact_house_000307/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/house/deep_house/fact_house_000319/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/house/deep_house/fact_house_000364/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/house/deep_house/fact_house_000370/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/house/melodic_house/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/house/melodic_house/fact_house_000102/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/house/progressive_house/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/house/slap_house/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/house/tech_house/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/house/tech_house/fact_house_000315/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/house/tech_house/fact_house_000999/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/pop/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/pop/pop/baseline_001/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/rock/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/rock/rock/baseline_001/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/techno/hard_techno/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/techno/hard_techno/fact_techno_000002/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)",
+        "Digital clipping detected: True Peak is 0.2 dBTP"
+      ]
+    },
+    {
+      "path": "dataset/techno/hard_techno/fact_techno_000003/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)",
+        "Digital clipping detected: True Peak is 0.2 dBTP"
+      ]
+    },
+    {
+      "path": "dataset/techno/industrial_techno/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/techno/melodic_techno/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/techno/melodic_techno/baseline_001/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/techno/melodic_techno/fact_techno_000001/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)",
+        "Digital clipping detected: True Peak is 0.2 dBTP"
+      ]
+    },
+    {
+      "path": "dataset/techno/melodic_techno/fact_techno_000002/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)",
+        "Digital clipping detected: True Peak is 0.2 dBTP"
+      ]
+    },
+    {
+      "path": "dataset/techno/melodic_techno/fact_techno_000003/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)",
+        "Digital clipping detected: True Peak is 0.2 dBTP"
+      ]
+    },
+    {
+      "path": "dataset/techno/melodic_techno/fact_techno_000008/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)",
+        "Digital clipping detected: True Peak is 0.2 dBTP"
+      ]
+    },
+    {
+      "path": "dataset/trap/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/trap/trap/baseline_001/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/trap/trap/fact_trap_000004/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)",
+        "Digital clipping detected: True Peak is 0.1 dBTP"
+      ]
+    },
+    {
+      "path": "dataset/versions/v_deep_house_gold_v1/pop/pop/fact_pop_000002/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/versions/v_tech_house_gold_500/edm/dubstep/fact_edm_000004/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    },
+    {
+      "path": "dataset/versions/v_tech_house_gold_500/edm/future_bass/fact_edm_000002/audio.wav",
+      "reasons": [
+        "Track too short: 2.0s (Minimum 5.0s)"
+      ]
+    }
+  ]
+}

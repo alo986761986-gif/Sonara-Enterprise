@@ -1,0 +1,29 @@
+{
+  "overall_score": 94,
+  "quality_tier": "Gold",
+  "benchmark_scores": {
+    "kick_score": 95,
+    "bass_score": 91,
+    "groove_score": 95,
+    "mix_score": 92,
+    "master_score": 96,
+    "stereo_score": 89,
+    "commercial_score": 98,
+    "festival_score": 100,
+    "streaming_score": 90,
+    "originality_score": 95,
+    "overall_score": 94,
+    "pass_status": "PASS"
+  },
+  "genre_validation": {
+    "House": 0.69,
+    "Techno": 0.01,
+    "EDM": 0.01,
+    "Trap": 0.01,
+    "Pop": 0.27,
+    "Rock": 0.01,
+    "Cinematic": 0.01,
+    "Ambient": 0.01
+  },
+  "timestamp": "2026-08-01T13:14:58.576320+00:00"
+}

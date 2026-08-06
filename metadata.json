@@ -1,0 +1,6 @@
+{
+  "name": "Sonara AI - Professional AI Music Generation",
+  "description": "Professional AI Music Generation Platform powered by MusicGen, LoRA, and Enterprise DSP",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

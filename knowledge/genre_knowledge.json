@@ -1,0 +1,202 @@
+{
+  "Techno": {
+    "target_bpm": 130,
+    "best_keys": [
+      "A Minor",
+      "C Minor",
+      "F Minor"
+    ],
+    "spectral_balance": "Warm Analog Low-End + Crisp High Sibilance",
+    "reference_standard": "Beatport Top 100 Master",
+    "winning_patterns": [
+      "Sidechain compression ducking of 12dB",
+      "Stereo width exceeding 85% on hats",
+      "Dynamic build-up riser of 8 bars"
+    ],
+    "weak_patterns": [
+      "Monotonous 4-bar kick loops without filtration",
+      "Muddy frequency overlap at 250Hz"
+    ],
+    "score": 90.55
+  },
+  "Melodic Techno": {
+    "target_bpm": 124,
+    "best_keys": [
+      "A Minor",
+      "C Minor",
+      "F Minor"
+    ],
+    "spectral_balance": "Warm Analog Low-End + Crisp High Sibilance",
+    "reference_standard": "Beatport Top 100 Master",
+    "winning_patterns": [
+      "Sidechain compression ducking of 12dB",
+      "Stereo width exceeding 85% on hats",
+      "Dynamic build-up riser of 8 bars"
+    ],
+    "weak_patterns": [
+      "Monotonous 4-bar kick loops without filtration",
+      "Muddy frequency overlap at 250Hz"
+    ],
+    "score": 91.64
+  },
+  "Deep House": {
+    "target_bpm": 122,
+    "best_keys": [
+      "A Minor",
+      "C Minor",
+      "F Minor"
+    ],
+    "spectral_balance": "Warm Analog Low-End + Crisp High Sibilance",
+    "reference_standard": "Beatport Top 100 Master",
+    "winning_patterns": [
+      "Sidechain compression ducking of 12dB",
+      "Stereo width exceeding 85% on hats",
+      "Dynamic build-up riser of 8 bars"
+    ],
+    "weak_patterns": [
+      "Monotonous 4-bar kick loops without filtration",
+      "Muddy frequency overlap at 250Hz"
+    ],
+    "score": 90.58
+  },
+  "Progressive House": {
+    "target_bpm": 126,
+    "best_keys": [
+      "A Minor",
+      "C Minor",
+      "F Minor"
+    ],
+    "spectral_balance": "Warm Analog Low-End + Crisp High Sibilance",
+    "reference_standard": "Beatport Top 100 Master",
+    "winning_patterns": [
+      "Sidechain compression ducking of 12dB",
+      "Stereo width exceeding 85% on hats",
+      "Dynamic build-up riser of 8 bars"
+    ],
+    "weak_patterns": [
+      "Monotonous 4-bar kick loops without filtration",
+      "Muddy frequency overlap at 250Hz"
+    ],
+    "score": 90.61
+  },
+  "Tech House": {
+    "target_bpm": 127,
+    "best_keys": [
+      "A Minor",
+      "C Minor",
+      "F Minor"
+    ],
+    "spectral_balance": "Warm Analog Low-End + Crisp High Sibilance",
+    "reference_standard": "Beatport Top 100 Master",
+    "winning_patterns": [
+      "Sidechain compression ducking of 12dB",
+      "Stereo width exceeding 85% on hats",
+      "Dynamic build-up riser of 8 bars"
+    ],
+    "weak_patterns": [
+      "Monotonous 4-bar kick loops without filtration",
+      "Muddy frequency overlap at 250Hz"
+    ],
+    "score": 90.56
+  },
+  "Trance": {
+    "target_bpm": 138,
+    "best_keys": [
+      "A Minor",
+      "C Minor",
+      "F Minor"
+    ],
+    "spectral_balance": "Warm Analog Low-End + Crisp High Sibilance",
+    "reference_standard": "Beatport Top 100 Master",
+    "winning_patterns": [
+      "Sidechain compression ducking of 12dB",
+      "Stereo width exceeding 85% on hats",
+      "Dynamic build-up riser of 8 bars"
+    ],
+    "weak_patterns": [
+      "Monotonous 4-bar kick loops without filtration",
+      "Muddy frequency overlap at 250Hz"
+    ],
+    "score": 90.58
+  },
+  "Future Rave": {
+    "target_bpm": 128,
+    "best_keys": [
+      "A Minor",
+      "C Minor",
+      "F Minor"
+    ],
+    "spectral_balance": "Warm Analog Low-End + Crisp High Sibilance",
+    "reference_standard": "Beatport Top 100 Master",
+    "winning_patterns": [
+      "Sidechain compression ducking of 12dB",
+      "Stereo width exceeding 85% on hats",
+      "Dynamic build-up riser of 8 bars"
+    ],
+    "weak_patterns": [
+      "Monotonous 4-bar kick loops without filtration",
+      "Muddy frequency overlap at 250Hz"
+    ],
+    "score": 90.54
+  },
+  "EDM Festival": {
+    "target_bpm": 128,
+    "best_keys": [
+      "A Minor",
+      "C Minor",
+      "F Minor"
+    ],
+    "spectral_balance": "Warm Analog Low-End + Crisp High Sibilance",
+    "reference_standard": "Beatport Top 100 Master",
+    "winning_patterns": [
+      "Sidechain compression ducking of 12dB",
+      "Stereo width exceeding 85% on hats",
+      "Dynamic build-up riser of 8 bars"
+    ],
+    "weak_patterns": [
+      "Monotonous 4-bar kick loops without filtration",
+      "Muddy frequency overlap at 250Hz"
+    ],
+    "score": 91.67
+  },
+  "Cinematic Electronic": {
+    "target_bpm": 110,
+    "best_keys": [
+      "A Minor",
+      "C Minor",
+      "F Minor"
+    ],
+    "spectral_balance": "Warm Analog Low-End + Crisp High Sibilance",
+    "reference_standard": "Beatport Top 100 Master",
+    "winning_patterns": [
+      "Sidechain compression ducking of 12dB",
+      "Stereo width exceeding 85% on hats",
+      "Dynamic build-up riser of 8 bars"
+    ],
+    "weak_patterns": [
+      "Monotonous 4-bar kick loops without filtration",
+      "Muddy frequency overlap at 250Hz"
+    ],
+    "score": 90.58
+  },
+  "Ambient": {
+    "target_bpm": 90,
+    "best_keys": [
+      "A Minor",
+      "C Minor",
+      "F Minor"
+    ],
+    "spectral_balance": "Warm Analog Low-End + Crisp High Sibilance",
+    "reference_standard": "Beatport Top 100 Master",
+    "winning_patterns": [
+      "Sidechain compression ducking of 12dB",
+      "Stereo width exceeding 85% on hats",
+      "Dynamic build-up riser of 8 bars"
+    ],
+    "weak_patterns": [
+      "Monotonous 4-bar kick loops without filtration",
+      "Muddy frequency overlap at 250Hz"
+    ],
+    "score": 90.51
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "overall_score": 92.0,
+  "quality_tier": "Gold",
+  "benchmark_scores": {
+    "kick_score": 95,
+    "bass_score": 91,
+    "groove_score": 95,
+    "mix_score": 92,
+    "master_score": 96,
+    "stereo_score": 89,
+    "commercial_score": 98,
+    "festival_score": 100,
+    "streaming_score": 90,
+    "originality_score": 95,
+    "overall_score": 94,
+    "pass_status": "PASS"
+  },
+  "critic_evaluation": {
+    "record_id": "critique_house_1785591822903",
+    "timestamp": "2026-08-01T13:43:42.903797+00:00",
+    "genre": "House",
+    "bpm": 133.0,
+    "iteration": 1,
+    "overall_score": 90.7,
+    "category_scores": {
+      "Kick": 86.5,
+      "Bass": 85.7,
+      "Groove": 91.7,
+      "Drop": 92.0,
+      "Break": 92.0,
+      "Stereo": 85.8,
+      "Punch": 88.2,
+      "Dynamics": 93.7,
+      "Compression": 92.0,
+      "Sidechain": 95.0,
+      "Mix": 87.9,
+      "Master": 90.0,
+      "Arrangement": 94.0,
+      "Originality": 94.0,
+      "Emotion": 94.0,
+      "Commercial Potential": 90.0,
+      "Festival Potential": 89.8,
+      "Streaming Potential": 90.8,
+      "Danceability": 88.9,
+      "Replay Value": 92.4
+    },
+    "critique_text": [
+      "Kick troppo debole: manca di punch transiente e presenza sub-bass 50-80Hz.",
+      "Bass poco presente: sub-bass poco definito, amplificare la risposta alle basse frequenze.",
+      "Stereo troppo stretto: espandere l'immagine stereofonica nei pad e hi-hats.",
+      "Punch insufficiente: i transienti ritmici sono attenuati, aumentare la dinamica dei drum stabs.",
+      "Mix Sbilanciato: sovrapposizione di frequenze medie, applicare EQ chirurgico."
+    ],
+    "original_prompt": "Deep House, Deep Soulful House,,\nAtmosphere: Atmospheric (70%), Warm (30%),\n120 BPM, Key of F Minor,,\nKick: Deep Analog Sub Kick with Clean Transient Punch and Low-end Weight,,\nBass: Warm Sub-heavy FM Sine-Square Bassline with Filter Envelope Modulation,,\nPads: Lush Analog Warm Polyphonic Pads with Lush Reverb & Shimmer,,\nLead: Muted Electric Piano Chords and Soft Plucked Synth Leads,,\nPercussion: Crisp Shaker Grooves, Rimshots, and Off-beat Open Hi-Hats,,\nStereo: Stereo Width 85%, Sidechain Ducking 85%,,\nArrangement: 16 Bars Intro -> 16 Bars Beat In -> 16 Bars Breakdown -> 8 Bars Build -> 32 Bars Drop -> 16 Bars Outro,,\nMastering: Streaming Ready, -14 LUFS Target, Warm Tube Saturation & Transparent Peak Limiting,",
+    "corrected_prompt": "Deep House, Deep Soulful House,,\nAtmosphere: Atmospheric (70%), Warm (30%),\n120 BPM, Key of F Minor,,\nKick: Deep Analog Sub Kick with Clean Transient Punch and Low-end Weight,,\nBass: Warm Sub-heavy FM Sine-Square Bassline with Filter Envelope Modulation,,\nPads: Lush Analog Warm Polyphonic Pads with Lush Reverb & Shimmer,,\nLead: Muted Electric Piano Chords and Soft Plucked Synth Leads,,\nPercussion: Crisp Shaker Grooves, Rimshots, and Off-beat Open Hi-Hats,,\nStereo: Stereo Width 85%, Sidechain Ducking 85%,,\nArrangement: 16 Bars Intro -> 16 Bars Beat In -> 16 Bars Breakdown -> 8 Bars Build -> 32 Bars Drop -> 16 Bars Outro,,\nMastering: Streaming Ready, -14 LUFS Target, Warm Tube Saturation & Transparent Peak Limiting, -14 LUFS Target, Warm Tube Saturation & Transparent Peak Limiting,",
+    "applied_fixes": [
+      "Kick Punch & Low-End Enhancement",
+      "Sub-Bass FM Warmth Reinforcement",
+      "Transparent Tube Mastering Calibration"
+    ]
+  },
+  "genre_validation": {
+    "House": 0.64,
+    "Techno": 0.01,
+    "EDM": 0.01,
+    "Trap": 0.32,
+    "Pop": 0.01,
+    "Rock": 0.01,
+    "Cinematic": 0.01,
+    "Ambient": 0.01
+  },
+  "timestamp": "2026-08-01T13:43:42.939065+00:00"
+}

@@ -1,0 +1,14 @@
+{
+  "id": "baseline_001",
+  "timestamp": "2026-08-01T12:59:55.807078+00:00",
+  "seed": 42,
+  "genre": "techno",
+  "subgenre": "melodic_techno",
+  "bpm": 126,
+  "key": "A Minor",
+  "mood": "Professional Studio",
+  "duration_sec": 60.0,
+  "quality_score": 95,
+  "generator_version": "Sonara V3 Gold Dataset Engine",
+  "lora_target": "lora/techno/melodic_techno"
+}

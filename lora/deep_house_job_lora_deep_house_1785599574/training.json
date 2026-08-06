@@ -1,0 +1,23 @@
+{
+  "job_id": "job_lora_deep_house_1785599574",
+  "split": "TRAIN",
+  "sample_count": 0,
+  "samples": [],
+  "hyperparameters": {
+    "learning_rate": 0.0002,
+    "r": 16,
+    "lora_alpha": 32,
+    "lora_dropout": 0.05,
+    "batch_size": 4,
+    "epochs": 10,
+    "warmup_steps": 100,
+    "optimizer": "AdamW",
+    "target_modules": [
+      "q_proj",
+      "v_proj",
+      "k_proj",
+      "out_proj"
+    ],
+    "seed": 42
+  }
+}

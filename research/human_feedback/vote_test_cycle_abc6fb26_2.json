@@ -1,0 +1,13 @@
+{
+  "vote_id": "vote_test_cycle_abc6fb26_2",
+  "listener_id": "auto_judge_v9",
+  "track_uuid": "019fbe42-772b-7078-8558-c825184898ab",
+  "pair_track_uuid": null,
+  "genre": "Techno",
+  "rating": 4.0,
+  "favorite": false,
+  "preferred_uuid": "019fbe42-772b-7078-8558-c825184898ab",
+  "rejected_uuid": "019fbe42-77a0-7822-8ce9-adb7374863a6",
+  "comments": "Automated preference judgment for trial 2",
+  "timestamp": "2026-08-01T16:57:35.114911+00:00"
+}

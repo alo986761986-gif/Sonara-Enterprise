@@ -1,0 +1,159 @@
+{
+  "version_id": "v_deep_house_gold_v1",
+  "created_at": "2026-08-01T14:23:25.180975+00:00",
+  "description": "Automated Immutable Dataset Release",
+  "immutable": true,
+  "checksum": "53721983dd84ebea",
+  "total_samples": 16,
+  "total_files": 112,
+  "genre_breakdown": {
+    "House": 2,
+    "Techno": 2,
+    "EDM": 1,
+    "Edm": 2,
+    "Trap": 2,
+    "Drill": 1,
+    "Pop": 2,
+    "Rock": 1,
+    "Cinematic": 2,
+    "Ambient": 1
+  },
+  "tier_breakdown": {
+    "Bronze": 0,
+    "Silver": 1,
+    "Gold": 15,
+    "Platinum": 0,
+    "Diamond": 0
+  },
+  "records": [
+    {
+      "id": "baseline_001",
+      "genre": "House",
+      "subgenre": "Deep House",
+      "quality_score": 94,
+      "tier": "Gold",
+      "rel_folder": "house/deep_house/baseline_001"
+    },
+    {
+      "id": "fact_house_000012",
+      "genre": "House",
+      "subgenre": "Deep House",
+      "quality_score": 94,
+      "tier": "Gold",
+      "rel_folder": "house/deep_house/fact_house_000012"
+    },
+    {
+      "id": "baseline_001",
+      "genre": "Techno",
+      "subgenre": "Melodic Techno",
+      "quality_score": 95,
+      "tier": "Gold",
+      "rel_folder": "techno/melodic_techno/baseline_001"
+    },
+    {
+      "id": "fact_techno_000003",
+      "genre": "Techno",
+      "subgenre": "Melodic Techno",
+      "quality_score": 91.4,
+      "tier": "Gold",
+      "rel_folder": "techno/melodic_techno/fact_techno_000003"
+    },
+    {
+      "id": "baseline_001",
+      "genre": "EDM",
+      "subgenre": "Future Bass",
+      "quality_score": 93,
+      "tier": "Gold",
+      "rel_folder": "edm/future_bass/baseline_001"
+    },
+    {
+      "id": "fact_edm_000002",
+      "genre": "Edm",
+      "subgenre": "Future Bass",
+      "quality_score": 89.7,
+      "tier": "Silver",
+      "rel_folder": "edm/future_bass/fact_edm_000002"
+    },
+    {
+      "id": "fact_edm_000004",
+      "genre": "Edm",
+      "subgenre": "Dubstep",
+      "quality_score": 92,
+      "tier": "Gold",
+      "rel_folder": "edm/dubstep/fact_edm_000004"
+    },
+    {
+      "id": "baseline_001",
+      "genre": "Trap",
+      "subgenre": "Trap",
+      "quality_score": 94,
+      "tier": "Gold",
+      "rel_folder": "trap/trap/baseline_001"
+    },
+    {
+      "id": "fact_trap_000004",
+      "genre": "Trap",
+      "subgenre": "Trap",
+      "quality_score": 90.8,
+      "tier": "Gold",
+      "rel_folder": "trap/trap/fact_trap_000004"
+    },
+    {
+      "id": "baseline_001",
+      "genre": "Drill",
+      "subgenre": "Drill",
+      "quality_score": 92,
+      "tier": "Gold",
+      "rel_folder": "drill/drill/baseline_001"
+    },
+    {
+      "id": "baseline_001",
+      "genre": "Pop",
+      "subgenre": "Contemporary Pop",
+      "quality_score": 91,
+      "tier": "Gold",
+      "rel_folder": "pop/pop/baseline_001"
+    },
+    {
+      "id": "fact_pop_000002",
+      "genre": "Pop",
+      "subgenre": "Pop",
+      "quality_score": 90,
+      "tier": "Gold",
+      "rel_folder": "pop/pop/fact_pop_000002"
+    },
+    {
+      "id": "baseline_001",
+      "genre": "Rock",
+      "subgenre": "Alternative Rock",
+      "quality_score": 89,
+      "tier": "Gold",
+      "rel_folder": "rock/rock/baseline_001"
+    },
+    {
+      "id": "baseline_001",
+      "genre": "Cinematic",
+      "subgenre": "Epic Orchestral",
+      "quality_score": 96,
+      "tier": "Gold",
+      "rel_folder": "cinematic/cinematic/baseline_001"
+    },
+    {
+      "id": "fact_cinematic_000001",
+      "genre": "Cinematic",
+      "subgenre": "Cinematic",
+      "quality_score": 90,
+      "tier": "Gold",
+      "rel_folder": "cinematic/cinematic/fact_cinematic_000001"
+    },
+    {
+      "id": "baseline_001",
+      "genre": "Ambient",
+      "subgenre": "Drone Ambient",
+      "quality_score": 95,
+      "tier": "Gold",
+      "rel_folder": "ambient/ambient/baseline_001"
+    }
+  ],
+  "version_dir": "/app/applet/dataset/versions/v_deep_house_gold_v1"
+}

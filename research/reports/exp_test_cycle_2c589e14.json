@@ -1,0 +1,211 @@
+{
+  "report_metadata": {
+    "experiment_id": "exp_test_cycle_2c589e14",
+    "generated_at": "2026-08-01 16:42:55 UTC",
+    "version": "9.0.0"
+  },
+  "experiment": {
+    "experiment_id": "exp_test_cycle_2c589e14",
+    "goal": "Autonomous Learning Loop test_cycle_2c589e14",
+    "description": "Increasing CFG by +0.5 in Techno improves audio punch and overall quality.",
+    "genre": "Techno",
+    "dataset_version": "v8.0.0",
+    "model_version": "ACE-Step-v8-Heavy-Techno",
+    "lora_version": "lora_peaktime_groove_v8",
+    "seed": 42,
+    "temperature": 0.8,
+    "cfg": 7.0,
+    "batch_size": 4,
+    "date": "2026-08-01T16:42:54.447115+00:00",
+    "status": "CREATED",
+    "result": null
+  },
+  "hypothesis": {
+    "hypothesis_id": "hyp_test_cycle_2c589e14",
+    "statement": "Increasing CFG by +0.5 in Techno improves audio punch and overall quality.",
+    "parameter_changes": {
+      "cfg_offset": 0.5
+    },
+    "target_metrics": [
+      "Punch",
+      "Quality",
+      "overall_score"
+    ],
+    "expected_direction": "INCREASE",
+    "expected_delta": 2.0,
+    "status": "REJECTED",
+    "validation_reason": "Statistically REJECTED: Candidate failed validation criteria (mean diff=+0.00, p=1.0000, Cohen's d=0.00, Win Rate=0.0%, Bayes P=0.49)",
+    "created_at": "2026-08-01T16:42:54.446915+00:00"
+  },
+  "ab_comparison": {
+    "comparison_id": "cmp_test_cycle_2c589e14_3",
+    "experiment_id": "exp_test_cycle_2c589e14",
+    "track_a_uuid": "019fbe35-0ad1-7bbd-8dcc-3d963c413884",
+    "track_b_uuid": "019fbe35-0b47-77cd-80bb-bb753a4783b3",
+    "overall_winner": "TIE",
+    "overall_score_a": 83.22,
+    "overall_score_b": 83.22,
+    "score_delta": 0.0,
+    "metric_breakdown": [
+      {
+        "metric_name": "Quality",
+        "score_a": 83.8,
+        "score_b": 83.8,
+        "delta": 0.0,
+        "winner": "TIE"
+      },
+      {
+        "metric_name": "Commercial",
+        "score_a": 84.3,
+        "score_b": 84.3,
+        "delta": 0.0,
+        "winner": "TIE"
+      },
+      {
+        "metric_name": "Festival",
+        "score_a": 80.6,
+        "score_b": 80.6,
+        "delta": 0.0,
+        "winner": "TIE"
+      },
+      {
+        "metric_name": "Streaming",
+        "score_a": 85.0,
+        "score_b": 85.0,
+        "delta": 0.0,
+        "winner": "TIE"
+      },
+      {
+        "metric_name": "Danceability",
+        "score_a": 78.8,
+        "score_b": 78.8,
+        "delta": 0.0,
+        "winner": "TIE"
+      },
+      {
+        "metric_name": "Replay",
+        "score_a": 86.2,
+        "score_b": 86.2,
+        "delta": 0.0,
+        "winner": "TIE"
+      },
+      {
+        "metric_name": "Emotion",
+        "score_a": 87.0,
+        "score_b": 87.0,
+        "delta": 0.0,
+        "winner": "TIE"
+      },
+      {
+        "metric_name": "Kick",
+        "score_a": 74.8,
+        "score_b": 74.8,
+        "delta": 0.0,
+        "winner": "TIE"
+      },
+      {
+        "metric_name": "Bass",
+        "score_a": 74.8,
+        "score_b": 74.8,
+        "delta": 0.0,
+        "winner": "TIE"
+      },
+      {
+        "metric_name": "Stereo",
+        "score_a": 85.5,
+        "score_b": 85.5,
+        "delta": 0.0,
+        "winner": "TIE"
+      },
+      {
+        "metric_name": "Dynamics",
+        "score_a": 93.7,
+        "score_b": 93.7,
+        "delta": 0.0,
+        "winner": "TIE"
+      },
+      {
+        "metric_name": "Groove",
+        "score_a": 82.8,
+        "score_b": 82.8,
+        "delta": 0.0,
+        "winner": "TIE"
+      },
+      {
+        "metric_name": "Arrangement",
+        "score_a": 86.0,
+        "score_b": 86.0,
+        "delta": 0.0,
+        "winner": "TIE"
+      },
+      {
+        "metric_name": "Punch",
+        "score_a": 82.2,
+        "score_b": 82.2,
+        "delta": 0.0,
+        "winner": "TIE"
+      },
+      {
+        "metric_name": "Drop",
+        "score_a": 82.0,
+        "score_b": 82.0,
+        "delta": 0.0,
+        "winner": "TIE"
+      },
+      {
+        "metric_name": "Break",
+        "score_a": 84.0,
+        "score_b": 84.0,
+        "delta": 0.0,
+        "winner": "TIE"
+      }
+    ],
+    "timestamp": "2026-08-01T16:42:55.178313+00:00"
+  },
+  "statistics": {
+    "decision": "REJECTED",
+    "p_value": 1.0,
+    "cohens_d": 0.0,
+    "win_rate_pct": 0.0,
+    "bayes_win_probability": 0.492,
+    "mean_difference": 0.0,
+    "bootstrap_ci_lower": 0.0,
+    "bootstrap_ci_upper": 0.0,
+    "stats_a": {
+      "sample_size": 3,
+      "mean": 83.22,
+      "median": 83.22,
+      "variance": 0.0,
+      "std_dev": 0.0,
+      "ci_95_lower": 83.22,
+      "ci_95_upper": 83.22
+    },
+    "stats_b": {
+      "sample_size": 3,
+      "mean": 83.22,
+      "median": 83.22,
+      "variance": 0.0,
+      "std_dev": 0.0,
+      "ci_95_lower": 83.22,
+      "ci_95_upper": 83.22
+    },
+    "statistically_significant": false,
+    "rationale": "Statistically REJECTED: Candidate failed validation criteria (mean diff=+0.00, p=1.0000, Cohen's d=0.00, Win Rate=0.0%, Bayes P=0.49)"
+  },
+  "promotion_decision": {
+    "candidate_name": "ACE-Step-v8-Heavy-Techno_cfg_7.5",
+    "status": "REJECTED",
+    "quality_delta": 0.0,
+    "commercial_delta": 0.0,
+    "p_value": 1.0,
+    "cohens_d": 0.0,
+    "win_rate_pct": 0.0,
+    "regressions_detected": [],
+    "rationale": "Candidate model 'ACE-Step-v8-Heavy-Techno_cfg_7.5' REJECTED for promotion: Quality delta +0.00 < required +1.0; Commercial delta +0.00 < required +1.0; Not statistically significant (p=1.0000 > 0.05); Effect size Cohen's d (0.00) < required 0.2; Preference win rate (0.0%) < required 50.0%"
+  },
+  "human_feedback_summary": {
+    "total_votes": 12,
+    "win_rate_pct": 0.0,
+    "favorite_rate_pct": 50.0
+  }
+}

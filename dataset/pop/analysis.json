@@ -1,0 +1,17 @@
+{
+  "bpm": 118.0,
+  "lufs": -11.2,
+  "peak_db": -0.5,
+  "true_peak_db": -0.2,
+  "rms_db": -13.2,
+  "dynamic_range_db": 8.2,
+  "stereo_width": 0.88,
+  "spectral_centroid_hz": 3100.0,
+  "spectral_rolloff_hz": 6820.000000000001,
+  "zero_crossing_rate": 0.045,
+  "beat_strength": 0.92,
+  "onset_strength": 0.89,
+  "kick_energy": 0.85,
+  "bass_energy": 0.8,
+  "high_freq_energy": 0.52
+}

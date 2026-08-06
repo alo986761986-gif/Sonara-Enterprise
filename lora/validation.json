@@ -1,0 +1,28 @@
+{
+  "dataset_type": "LORA_VALIDATION",
+  "total_samples": 2,
+  "samples": [
+    {
+      "id": "baseline_001",
+      "audio_path": "/app/applet/dataset/house/deep_house/baseline_001/audio.wav",
+      "prompt": "Deep House, 122 BPM, Warm Sub Bass, Smooth Rhodes Piano, Lush Atmosphere, Driving Kick, 4/4 Beat",
+      "genre": "house",
+      "subgenre": "deep_house",
+      "quality_score": 94,
+      "bpm": 122,
+      "key": "A Minor",
+      "seed": 42
+    },
+    {
+      "id": "fact_house_000012",
+      "audio_path": "/app/applet/dataset/house/deep_house/fact_house_000012/audio.wav",
+      "prompt": "Deep House, Deep Soulful House,,\nAtmosphere: Atmospheric (70%), Warm (30%),\n120 BPM, Key of F Minor,,\nKick: Deep Analog Sub Kick with Clean Transient Punch and Low-end Weight,,\nBass: Warm Sub-heavy FM Sine-Square Bassline with Filter Envelope Modulation,,\nPads: Lush Analog Warm Polyphonic Pads with Lush Reverb & Shimmer,,\nLead: Muted Electric Piano Chords and Soft Plucked Synth Leads,,\nPercussion: Crisp Shaker Grooves, Rimshots, and Off-beat Open Hi-Hats,,\nStereo: Stereo Width 85%, Sidechain Ducking 85%,,\nArrangement: 16 Bars Intro -> 16 Bars Beat In -> 16 Bars Breakdown -> 8 Bars Build -> 32 Bars Drop -> 16 Bars Outro,,\nMastering: Streaming Ready, -14 LUFS Target, Warm Tube Saturation & Transparent Peak Limiting,",
+      "genre": "house",
+      "subgenre": "deep_house",
+      "quality_score": 94,
+      "bpm": 128.0,
+      "key": "A Minor",
+      "seed": 337966
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "id": "fact_pop_000002",
+  "timestamp": "2026-08-01T13:31:56.796111+00:00",
+  "seed": 930961,
+  "genre": "pop",
+  "subgenre": "pop",
+  "bpm": 128.0,
+  "key": "A Minor",
+  "mood": "Professional Studio",
+  "duration_sec": 60.0,
+  "quality_score": 90,
+  "generator_version": "Sonara V3 Gold Dataset Engine",
+  "lora_target": "lora/pop/pop",
+  "quality_tier": "Gold",
+  "artifacts": {
+    "audio_wav": "audio.wav",
+    "prompt_json": "prompt.json",
+    "analysis_json": "analysis.json",
+    "quality_json": "quality.json",
+    "metadata_json": "metadata.json",
+    "spectrogram_png": "spectrogram.png",
+    "waveform_png": "waveform.png"
+  }
+}

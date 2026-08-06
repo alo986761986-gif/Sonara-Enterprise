@@ -1,0 +1,12 @@
+{
+  "job_id": "job_lora_deep_house_1785602365",
+  "split": "VALIDATION",
+  "sample_count": 0,
+  "samples": [],
+  "final_validation_loss": 0.2387,
+  "metrics": {
+    "perplexity": 1.338,
+    "bleu_prompt_score": 0.94,
+    "quality_score": 96.8
+  }
+}
