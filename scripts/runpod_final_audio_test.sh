@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ACE_STEP_URL="${ACE_STEP_API_URL:-http://127.0.0.1:8000}"
-SONARA_PORT="${SONARA_TEST_PORT:-3100}"
+SONARA_PORT="${SONARA_TEST_PORT:-$((20000 + RANDOM % 10000))}"
 SONARA_URL="http://127.0.0.1:${SONARA_PORT}"
 QA_DIR="${PROJECT_ROOT}/storage/qa"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -83,7 +83,7 @@ PORT="${SONARA_PORT}" \
 ACE_STEP_API_URL="${ACE_STEP_URL}" \
 SONARA_REQUIRE_STEMS=true \
 SONARA_PYTHON_BIN="${PYTHON_BIN}" \
-npm start >"${SERVER_LOG}" 2>&1 &
+node dist/server.cjs >"${SERVER_LOG}" 2>&1 &
 SERVER_PID="$!"
 
 for _ in $(seq 1 30); do
