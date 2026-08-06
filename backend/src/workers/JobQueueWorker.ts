@@ -131,6 +131,13 @@ export class JobQueueWorker {
         songPlan.promptDirective
       ].join(' | ');
 
+      // Scale the ACE-Step request budget with the bar-aligned duration. A
+      // four-minute render can legitimately need up to 30 minutes on the GPU.
+      const generationTimeoutMs = Math.min(
+        1_800_000,
+        Math.max(300_000, Math.ceil(songPlan.alignedDurationSec * 7_500))
+      );
+
       // PIPELINE STEP 4: Rendering Engine (ACE-Step Neural Audio / Python Inference)
       JobManager.updateJobStatus(jobId, 'PROCESSING', {
         progress: 60,
@@ -143,7 +150,7 @@ export class JobQueueWorker {
         payload.mood || 'Energetic',
         payload.lyrics || '',
         payload.title || 'Sonara AI Track',
-        30000,
+        generationTimeoutMs,
         songPlan.alignedDurationSec,
         targetBpm,
         {
