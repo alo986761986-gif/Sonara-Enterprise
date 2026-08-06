@@ -131,7 +131,11 @@ export default function App() {
 
       setJobId(id);
       setStatus('PROCESSING');
-      setStage('ACE-Step is generating the track...');
+      setStage(
+        durationSec > 90
+          ? 'Fast long-form mode: generating the neural production core...'
+          : 'ACE-Step is generating the track...'
+      );
 
       const maximumAttempts = 2400; // Up to 40 minutes for four-minute GPU renders and stem separation.
 
@@ -289,6 +293,11 @@ export default function App() {
                 <option value={180}>3 minutes</option>
                 <option value={240}>4 minutes</option>
               </select>
+              {durationSec > 90 && (
+                <span className="block text-[10px] text-emerald-400">
+                  Fast long-form: neural core + phrase-aligned arrangement
+                </span>
+              )}
             </label>
           </div>
 
