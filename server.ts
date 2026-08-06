@@ -8,6 +8,7 @@ import engineRouter from './backend/src/routes/engine';
 import orchestratorRouter from './backend/src/routes/orchestrator';
 import creatorRouter from './backend/src/routes/creator';
 import musicRouter from './backend/src/routes/music';
+import equalizerRouter from './backend/src/routes/equalizer';
 
 const startTime = Date.now();
 
@@ -50,6 +51,7 @@ async function startServer() {
   app.use('/api/orchestrator', orchestratorRouter);
   app.use('/api/creator', creatorRouter);
   app.use('/api/music', musicRouter);
+  app.use('/api/eq', equalizerRouter);
 
   // Serve storage files (generated audio, audio renders)
   const storagePath = path.join(process.cwd(), 'storage');
