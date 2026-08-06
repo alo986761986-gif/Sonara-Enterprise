@@ -1,6 +1,7 @@
 import {
   normalizeGenreName,
-  resolveGenreSelection
+  resolveGenreSelection,
+  resolveHouseStyleProfile
 } from '../../../shared/genreCatalog';
 
 export interface RhythmPattern {
@@ -33,6 +34,7 @@ export interface PatternGenerationResult {
     enforceStepGrid: boolean;
   };
   promptDirective: string;
+  styleDirectives: string[];
   seed: number;
 }
 
@@ -262,7 +264,10 @@ export class PatternGeneratorService {
     const key = this.resolveTemplateKey(genre);
     const template = this.GENRE_TEMPLATES[key];
     const normalizedGenre = normalizeGenreName(genre);
-    const hasNativeTemplate = Boolean(this.GENRE_TEMPLATES[normalizedGenre]);
+    const houseStyle = resolveHouseStyleProfile(genre);
+    const hasNativeTemplate = Boolean(
+      this.GENRE_TEMPLATES[normalizedGenre] || houseStyle
+    );
     const beatsPerBar = Math.max(
       1,
       Number.parseInt(selection.timeSignature.split('/')[0], 10) || 4
@@ -322,6 +327,7 @@ export class PatternGeneratorService {
         enforceStepGrid: hasNativeTemplate && selection.timeSignature === '4/4'
       },
       promptDirective: '',
+      styleDirectives: houseStyle ? selection.acousticKeywords : [],
       seed
     };
 
@@ -332,6 +338,9 @@ export class PatternGeneratorService {
   private static resolveTemplateKey(genre: string): string {
     const normalized = String(genre || '').trim().toLowerCase();
     if (this.GENRE_TEMPLATES[normalized]) return normalized;
+
+    const houseStyle = resolveHouseStyleProfile(genre);
+    if (houseStyle) return houseStyle.patternArchetype;
 
     const aliases: Array<[string[], string]> = [
       [['neurofunk', 'liquid dnb', 'drum and bass', 'drum & bass', 'dnb'], 'drum & bass'],
@@ -402,6 +411,9 @@ export class PatternGeneratorService {
 
     return [
       identity,
+      ...(pattern.styleDirectives.length > 0
+        ? [`HOUSE_STYLE_BLUEPRINT: ${pattern.styleDirectives.join('; ')}`]
+        : []),
       `GROOVE_GRID: ${pattern.grid.timeSignature}, ${pattern.grid.stepsPerBar} steps per bar (${pattern.grid.subdivision})`,
       `KICK_STEPS[${activeSteps(pattern.rhythm.kick)}]`,
       `SNARE_STEPS[${activeSteps(pattern.rhythm.snare)}]`,
