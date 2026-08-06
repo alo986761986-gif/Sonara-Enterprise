@@ -10,6 +10,7 @@ import { ContinuousLearningService } from '../services/ContinuousLearningService
 import { SongPlannerService } from '../services/SongPlannerService';
 import { MixingMasteringEngineService } from '../services/MixingMasteringEngineService';
 import { StemSeparationService } from '../services/StemSeparationService';
+import { AudioDeliveryFormatService } from '../services/AudioDeliveryFormatService';
 
 export interface GenerationPayload {
   prompt: string;
@@ -183,7 +184,10 @@ export class JobQueueWorker {
 
       const audioFileName = `musicgen-${jobId}.wav`;
       const finalAudioPath = path.join(storageAudioDir, audioFileName);
-      fs.writeFileSync(finalAudioPath, masteringResult.processedBuffer);
+      const deliveryFormat = await AudioDeliveryFormatService.writeProductionWav(
+        masteringResult.processedBuffer,
+        finalAudioPath
+      );
 
       const audioUrl = `/storage/audio/${audioFileName}`;
 
@@ -262,6 +266,7 @@ export class JobQueueWorker {
           ...masteringResult.report,
           status: masteringResult.report.status
         },
+        deliveryFormat,
         stemSeparation: stemSeparation
           ? {
               status: stemSeparation.status,
