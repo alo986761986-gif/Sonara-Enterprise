@@ -185,7 +185,9 @@ router.post('/generate', async (req: Request, res: Response) => {
         targetLufs: -14.0,
         truePeakDb: -1.0,
         audioUrl: `/storage/audio/musicgen-${jobId}.wav`,
-        stems: ['Drums', 'Bass', 'Lead Synthesizer', 'Atmospheric Pads']
+        stemsStatus: 'PENDING_NEURAL_SEPARATION',
+        stemEngine: 'Demucs v4 htdemucs_ft',
+        expectedStems: ['drums', 'bass', 'vocals', 'other']
       }
     });
   } catch (err: any) {
