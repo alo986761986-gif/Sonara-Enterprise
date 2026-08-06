@@ -176,7 +176,8 @@ export class MusicGenerationService {
     titleStr: string,
     timeoutMs: number = 30000,
     durationSec: number = 15,
-    bpm: number = 128
+    bpm: number = 128,
+    engineOptions: Record<string, any> = {}
   ): Promise<{ audioBuffer: Buffer | null; audioPath: string | null; metadata: Record<string, any> | null }> {
     const engine = AceStepEngine.getInstance();
     const result = await engine.generate({
@@ -187,7 +188,8 @@ export class MusicGenerationService {
       title: titleStr,
       timeoutMs,
       durationSec,
-      bpm
+      bpm,
+      ...engineOptions
     });
 
     return {
@@ -227,4 +229,3 @@ export class MusicGenerationService {
     }
   }
 }
-
