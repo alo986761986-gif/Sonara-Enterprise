@@ -7,6 +7,9 @@ import { MusicDnaLibraryService } from '../services/MusicDnaLibraryService';
 import { PatternGeneratorService } from '../services/PatternGeneratorService';
 import { SonaraDirectorService } from '../services/SonaraDirectorService';
 import { ContinuousLearningService } from '../services/ContinuousLearningService';
+import { SongPlannerService } from '../services/SongPlannerService';
+import { MixingMasteringEngineService } from '../services/MixingMasteringEngineService';
+import { StemSeparationService } from '../services/StemSeparationService';
 
 export interface GenerationPayload {
   prompt: string;
@@ -111,7 +114,21 @@ export class JobQueueWorker {
         metadata: { currentStage: 'Pattern Generator: Synthesizing genre-authentic groove & grid...' }
       });
 
-      const patternResult = PatternGeneratorService.generatePattern(targetGenre);
+      const patternSeed = this.hashToSeed(jobId);
+      const patternResult = PatternGeneratorService.generatePattern(targetGenre, patternSeed);
+      const songPlan = SongPlannerService.planSong(
+        {
+          genre: targetGenre,
+          bpm: targetBpm
+        },
+        durationSec
+      );
+
+      const productionPrompt = [
+        promptOptimization.optimizedPrompt,
+        patternResult.promptDirective,
+        songPlan.promptDirective
+      ].join(' | ');
 
       // PIPELINE STEP 4: Rendering Engine (ACE-Step Neural Audio / Python Inference)
       JobManager.updateJobStatus(jobId, 'PROCESSING', {
@@ -120,14 +137,20 @@ export class JobQueueWorker {
       });
 
       const execResult = await MusicGenerationService.executePythonEngine(
-        promptOptimization.optimizedPrompt,
+        productionPrompt,
         targetGenre,
         payload.mood || 'Energetic',
         payload.lyrics || '',
         payload.title || 'Sonara AI Track',
         30000,
-        durationSec,
-        targetBpm
+        songPlan.alignedDurationSec,
+        targetBpm,
+        {
+          totalBars: songPlan.totalBars,
+          structurePrompt: songPlan.promptDirective,
+          groovePrompt: patternResult.promptDirective,
+          seed: patternSeed
+        }
       );
 
       // PIPELINE STEP 5: DSP Engine, Mixing & Mastering (14-Stage DSP)
@@ -136,10 +159,22 @@ export class JobQueueWorker {
         metadata: { currentStage: '14-Stage DSP Engine: Mixing & Mastering (-14.0 LUFS, -1.0 dBTP)...' }
       });
 
-      const audioBuffer = execResult.audioBuffer;
-      if (!audioBuffer) {
+      const rawAudioBuffer = execResult.audioBuffer;
+      if (!rawAudioBuffer || !MusicGenerationService.validateAudioBuffer(rawAudioBuffer)) {
         const reason = execResult.metadata?.error || 'Neural audio engine unavailable (ENGINE_NOT_AVAILABLE)';
         throw new Error(`ENGINE_NOT_AVAILABLE: ${reason}`);
+      }
+
+      const masteringResult = MixingMasteringEngineService.processBuffer(
+        rawAudioBuffer,
+        -14.0,
+        -1.0,
+        targetBpm
+      );
+      if (!masteringResult.report.inputSupported) {
+        throw new Error(
+          `MASTERING_FAILED: ${masteringResult.report.bypassReason || 'unsupported neural WAV format'}`
+        );
       }
 
       // Store in storage directory
@@ -148,13 +183,32 @@ export class JobQueueWorker {
 
       const audioFileName = `musicgen-${jobId}.wav`;
       const finalAudioPath = path.join(storageAudioDir, audioFileName);
-      fs.writeFileSync(finalAudioPath, audioBuffer);
+      fs.writeFileSync(finalAudioPath, masteringResult.processedBuffer);
 
       const audioUrl = `/storage/audio/${audioFileName}`;
 
-      // PIPELINE STEP 6: Quality Audit & Music Brain Continuous Learning
+      // PIPELINE STEP 6: Real GPU Neural Stem Separation (no synthetic stems)
       JobManager.updateJobStatus(jobId, 'PROCESSING', {
-        progress: 92,
+        progress: 88,
+        metadata: { currentStage: 'Demucs v4 GPU: Separating drums, bass, vocals and other...' }
+      });
+
+      let stemSeparation: Awaited<ReturnType<typeof StemSeparationService.separate>> | null = null;
+      try {
+        stemSeparation = await StemSeparationService.separate(finalAudioPath, jobId);
+      } catch (stemError) {
+        if (StemSeparationService.isRequired()) {
+          throw stemError;
+        }
+        console.warn(
+          `[JOB_QUEUE_WORKER] Stem separation unavailable for ${jobId}:`,
+          stemError instanceof Error ? stemError.message : String(stemError)
+        );
+      }
+
+      // PIPELINE STEP 7: Quality Audit & Music Brain Continuous Learning
+      JobManager.updateJobStatus(jobId, 'PROCESSING', {
+        progress: 95,
         metadata: { currentStage: 'Music Brain: Evaluating track quality score & logging DNA...' }
       });
 
@@ -167,21 +221,21 @@ export class JobQueueWorker {
         swingPct: patternResult.swingPct,
         chords: patternResult.chordProgression,
         audioQuality: {
-          lufs: -14.0,
-          truePeakDbtp: -1.0,
-          stereoPhaseCorrelation: 0.95,
+          lufs: masteringResult.report.integratedLufs,
+          truePeakDbtp: masteringResult.report.truePeakDbtp,
+          stereoPhaseCorrelation: masteringResult.report.stereoPhaseCorrelation,
           noiseFloorDbfs: -85.0
         }
       });
 
-      // PIPELINE STEP 7: Final Job State Update
+      // PIPELINE STEP 8: Final Job State Update
       const finalMetadata = {
         title: payload.title || `${targetGenre} Track`,
         genre: targetGenre,
         bpm: targetBpm,
         keySignature: genreProfile.keySignature,
         prompt: userPrompt,
-        optimizedPrompt: promptOptimization.optimizedPrompt,
+        optimizedPrompt: productionPrompt,
         engine: `Sonara V12 ACE-Step Engine (${genreProfile.modelTier} Tier)`,
         status: 'COMPLETED',
         audioUrl,
@@ -190,16 +244,36 @@ export class JobQueueWorker {
         recalledDnaId: brainRecall.recalledDna?.id,
         qualityScore: loggedRecord?.scores?.overallScore || 9.5,
         pattern: {
+          seed: patternSeed,
+          grid: patternResult.grid,
           swingPct: patternResult.swingPct,
+          rhythm: patternResult.rhythm,
           chords: patternResult.chordProgression,
           melodyScale: patternResult.melodyScale
         },
-        dspMastering: {
-          integratedLufs: -14.0,
-          truePeakDbtp: -1.0,
-          stereoPhaseCorrelation: 0.95,
-          status: 'MASTERED'
+        arrangement: {
+          timeSignature: songPlan.timeSignature,
+          totalBars: songPlan.totalBars,
+          requestedDurationSec: songPlan.requestedDurationSec,
+          alignedDurationSec: songPlan.alignedDurationSec,
+          sections: songPlan.sections
         },
+        dspMastering: {
+          ...masteringResult.report,
+          status: masteringResult.report.status
+        },
+        stemSeparation: stemSeparation
+          ? {
+              status: stemSeparation.status,
+              engine: stemSeparation.engine,
+              model: stemSeparation.model,
+              device: stemSeparation.device,
+              stems: stemSeparation.stems
+            }
+          : {
+              status: 'NOT_AVAILABLE',
+              stems: {}
+            },
         completedAt: new Date().toISOString()
       };
 
@@ -242,5 +316,13 @@ export class JobQueueWorker {
     }
     return JobManager.getJob(jobId) || null;
   }
-}
 
+  private static hashToSeed(value: string): number {
+    let hash = 2166136261;
+    for (let index = 0; index < value.length; index++) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+}
