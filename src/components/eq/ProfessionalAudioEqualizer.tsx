@@ -116,10 +116,12 @@ export function ProfessionalAudioEqualizer({
 
   // Active audio URL
   const [currentAudioUrl, setCurrentAudioUrl] = useState<string>(audioUrl || '');
+  const [renderedAudioUrl, setRenderedAudioUrl] = useState<string>('');
   const hasAudio = Boolean(currentAudioUrl || audioUrl);
 
   useEffect(() => {
     setCurrentAudioUrl(audioUrl || '');
+    setRenderedAudioUrl('');
     setIsPlaying(false);
     setBackendNotice(null);
     if (audioRef.current) {
@@ -187,9 +189,14 @@ export function ProfessionalAudioEqualizer({
       analyserRef.current = analyser;
 
       // Build chain of 26 Biquad Filter Nodes
+      const hasSolo = bands.some(b => Boolean(b.solo));
       const filterNodes: BiquadFilterNode[] = bands.map(b => {
         const node = ctx.createBiquadFilter();
-        const bypassed = globalBypass || b.bypass || !b.enabled;
+        const bypassed =
+          globalBypass ||
+          Boolean(b.bypass) ||
+          !b.enabled ||
+          (hasSolo && !b.solo);
         node.type = bypassed ? 'allpass' : mapFilterTypeToWebAudio(b.type);
         node.frequency.setValueAtTime(b.freq, ctx.currentTime);
         node.Q.setValueAtTime(b.q, ctx.currentTime);
@@ -579,7 +586,7 @@ export function ProfessionalAudioEqualizer({
         });
 
         if (data.audioUrl) {
-          setCurrentAudioUrl(data.audioUrl);
+          setRenderedAudioUrl(data.audioUrl);
           if (onProcessedAudio) {
             onProcessedAudio(data.audioUrl, data.metrics);
           }
@@ -695,6 +702,17 @@ export function ProfessionalAudioEqualizer({
             <Sparkles className="h-4 w-4" />
             <span>{isProcessingBackend ? 'Rendering DSP...' : 'Render & Export Master'}</span>
           </button>
+
+          {renderedAudioUrl && (
+            <a
+              href={renderedAudioUrl}
+              download
+              className="flex items-center space-x-2 rounded-lg border border-emerald-500/40 bg-emerald-950/50 px-4 py-2 text-xs font-bold text-emerald-300 transition-all hover:bg-emerald-900/50"
+            >
+              <Download className="h-4 w-4" />
+              <span>Download Equalized WAV</span>
+            </a>
+          )}
         </div>
       </div>
 
