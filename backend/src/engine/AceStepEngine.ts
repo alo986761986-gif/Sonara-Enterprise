@@ -124,7 +124,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
       };
     }
 
-    const durationSec = Math.max(
+    const requestedDurationSec = Math.max(
       5,
       Math.min(240, Number(params.durationSec || 15))
     );
@@ -133,6 +133,14 @@ export class AceStepEngine extends IAudioGenerationEngine {
       60,
       Math.min(240, Number(params.bpm || 128))
     );
+
+    const beatsPerBar = 4;
+    const secondsPerBar = (60 / bpm) * beatsPerBar;
+    const requestedBars = Number((params as any).totalBars);
+    const totalBars = Number.isFinite(requestedBars) && requestedBars > 0
+      ? Math.max(4, Math.round(requestedBars))
+      : Math.max(4, Math.round((requestedDurationSec / secondsPerBar) / 4) * 4);
+    const durationSec = Number((totalBars * secondsPerBar).toFixed(3));
 
     const timeoutMs = Math.max(
       Number(params.timeoutMs || 300_000),
@@ -265,7 +273,11 @@ export class AceStepEngine extends IAudioGenerationEngine {
           engine: 'ACE-Step',
           apiUrl: this.apiBaseUrl,
           durationSec,
+          requestedDurationSec,
           bpm,
+          totalBars,
+          beatsPerBar,
+          secondsPerBar: Number(secondsPerBar.toFixed(6)),
           prompt,
           remoteOutputPath:
             response.output_path,
@@ -320,7 +332,10 @@ export class AceStepEngine extends IAudioGenerationEngine {
         : '',
       params.prompt ||
         'Modern electronic dance track',
-      'clear musical structure, defined kick, bassline, percussion and harmonic progression'
+      (params as any).structurePrompt || '',
+      (params as any).groovePrompt || '',
+      'MIX_ARCHITECTURE: drums centered and transient-clear; bass mono-compatible below 100 Hz; vocals centered with clean presence; harmonic instruments frequency-carved and spatially separated',
+      'MASTER_REQUIREMENTS: real stereo image, high transient definition, no clipping, no frequency masking, clean sub-bass, complete final bar'
     ];
 
     return parts
