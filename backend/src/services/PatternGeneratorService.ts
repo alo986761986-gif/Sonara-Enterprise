@@ -1,3 +1,8 @@
+import {
+  normalizeGenreName,
+  resolveGenreSelection
+} from '../../../shared/genreCatalog';
+
 export interface RhythmPattern {
   kick: number[];
   snare: number[];
@@ -20,11 +25,12 @@ export interface PatternGenerationResult {
     timingOffsetsMs: number[];
   };
   grid: {
-    timeSignature: '4/4';
-    beatsPerBar: 4;
+    timeSignature: string;
+    beatsPerBar: number;
     stepsPerBar: 16;
     subdivision: '1/16';
     phraseBars: 4;
+    enforceStepGrid: boolean;
   };
   promptDirective: string;
   seed: number;
@@ -252,8 +258,15 @@ export class PatternGeneratorService {
   };
 
   public static generatePattern(genre: string, seed: number = Date.now()): PatternGenerationResult {
+    const selection = resolveGenreSelection(genre);
     const key = this.resolveTemplateKey(genre);
     const template = this.GENRE_TEMPLATES[key];
+    const normalizedGenre = normalizeGenreName(genre);
+    const hasNativeTemplate = Boolean(this.GENRE_TEMPLATES[normalizedGenre]);
+    const beatsPerBar = Math.max(
+      1,
+      Number.parseInt(selection.timeSignature.split('/')[0], 10) || 4
+    );
 
     // Deterministic pseudo-random number generator for seed consistency
     const pseudoRandom = (step: number) => {
@@ -282,10 +295,10 @@ export class PatternGeneratorService {
     }
 
     const result: PatternGenerationResult = {
-      genre: key,
-      subgenre: template.chordProgression[0] ? `${genre} V12 Professional` : genre,
-      bpm: template.bpm,
-      keySignature: template.keySignature,
+      genre: selection.familyName,
+      subgenre: selection.requestedGenre,
+      bpm: selection.recommendedBpm,
+      keySignature: selection.keySignature,
       swingPct: template.swingPct,
       rhythm: {
         kick,
@@ -301,11 +314,12 @@ export class PatternGeneratorService {
         timingOffsetsMs
       },
       grid: {
-        timeSignature: '4/4',
-        beatsPerBar: 4,
+        timeSignature: selection.timeSignature,
+        beatsPerBar,
         stepsPerBar: 16,
         subdivision: '1/16',
-        phraseBars: 4
+        phraseBars: 4,
+        enforceStepGrid: hasNativeTemplate && selection.timeSignature === '4/4'
       },
       promptDirective: '',
       seed
@@ -338,8 +352,35 @@ export class PatternGeneratorService {
       [['house'], 'house']
     ];
 
-    return aliases.find(([terms]) => terms.some(term => normalized.includes(term)))?.[1]
-      || 'melodic house';
+    const aliasMatch = aliases.find(([terms]) =>
+      terms.some(term => normalized.includes(term))
+    )?.[1];
+    if (aliasMatch) return aliasMatch;
+
+    const familyFallbacks: Record<string, string> = {
+      house: 'house',
+      techno: 'techno',
+      trance: 'trance',
+      bass_breaks: 'drum & bass',
+      garage: 'house',
+      hard_dance: 'techno',
+      electronic: 'melodic house',
+      pop: 'house',
+      hip_hop: 'hip hop',
+      rnb_soul_funk: 'hip hop',
+      rock: 'cinematic',
+      metal: 'cinematic',
+      punk: 'cinematic',
+      jazz_blues: 'hip hop',
+      classical_cinematic: 'cinematic',
+      folk_country: 'cinematic',
+      reggae: 'hip hop',
+      latin: 'house',
+      african: 'afro house',
+      global: 'cinematic'
+    };
+    const selection = resolveGenreSelection(genre);
+    return familyFallbacks[selection.familyId] || 'melodic house';
   }
 
   public static toPromptDirective(pattern: PatternGenerationResult): string {
@@ -348,7 +389,19 @@ export class PatternGeneratorService {
       .filter((value): value is string => Boolean(value))
       .join(',');
 
+    const identity = `GENRE_IDENTITY: exact ${pattern.subgenre}, family ${pattern.genre}; never substitute or merge the selected genre`;
+
+    if (!pattern.grid.enforceStepGrid) {
+      return [
+        identity,
+        `METER: ${pattern.grid.timeSignature}, ${pattern.bpm} BPM`,
+        `GENRE_GROOVE: use authentic ${pattern.subgenre} rhythm, accents, instrumentation and phrasing`,
+        'GROOVE_RULES: do not impose a House, Techno or Hip Hop grid unless it belongs to the selected genre; preserve human feel where stylistically correct'
+      ].join(' | ');
+    }
+
     return [
+      identity,
       `GROOVE_GRID: ${pattern.grid.timeSignature}, ${pattern.grid.stepsPerBar} steps per bar (${pattern.grid.subdivision})`,
       `KICK_STEPS[${activeSteps(pattern.rhythm.kick)}]`,
       `SNARE_STEPS[${activeSteps(pattern.rhythm.snare)}]`,
