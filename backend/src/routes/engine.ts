@@ -135,6 +135,38 @@ router.post('/select', (req: Request, res: Response) => {
   });
 });
 
+// Prompt QA endpoint: verifies the effective genre lock without enqueueing a
+// GPU generation. This makes end-user prompt behavior testable and explicit.
+router.post('/prompt-preview', async (req: Request, res: Response) => {
+  try {
+    const { prompt, genre, bpm } = req.body || {};
+    if (!prompt || typeof prompt !== 'string') {
+      return res.status(400).json({
+        status: 'error',
+        error: 'Prompt must be a non-empty string.'
+      });
+    }
+
+    const result = await AceStepPromptEngine.generatePrompt(
+      prompt,
+      typeof genre === 'string' ? genre : undefined,
+      Number(bpm)
+    );
+
+    return res.status(200).json({
+      status: 'success',
+      genreLock: result.genreLock,
+      optimizedPrompt: result.optimizedPrompt,
+      injectedKeywords: result.injectedKeywords
+    });
+  } catch (error: any) {
+    return res.status(500).json({
+      status: 'error',
+      error: error.message || 'Prompt preview failed.'
+    });
+  }
+});
+
 router.post('/generate', async (req: Request, res: Response) => {
   try {
     const { prompt, durationSec, genre, bpm, key, engineId, title, mood, lyrics } = req.body;
