@@ -151,7 +151,7 @@ export function ProfessionalAudioEqualizer({
 
   // Load Presets on Mount
   useEffect(() => {
-    fetch('/api/music/eq/presets')
+    fetch('/api/eq/presets')
       .then(res => res.json())
       .then(data => {
         if (data.presets) {
@@ -553,7 +553,7 @@ export function ProfessionalAudioEqualizer({
     setIsProcessingBackend(true);
     setBackendNotice(null);
     try {
-      const res = await fetch('/api/music/eq/process', {
+      const res = await fetch('/api/eq/process', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
