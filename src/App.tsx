@@ -9,6 +9,7 @@ import {
   Download,
   FileText,
   Layers,
+  LogOut,
   Music,
   Play,
   RefreshCw,
@@ -20,6 +21,7 @@ import {
   Zap
 } from 'lucide-react';
 import { GENRE_CATALOG_NAMES, GENRE_FAMILIES } from '../shared/genreCatalog';
+import { useSonaraAuth } from './auth/SonaraAuth';
 import { MusicBrainDashboard } from './components/brain/MusicBrainDashboard';
 import { ProfessionalAudioEqualizer } from './components/eq/ProfessionalAudioEqualizer';
 
@@ -99,6 +101,7 @@ const MetricCard: React.FC<{
 };
 
 export default function App() {
+  const { user, signOut } = useSonaraAuth();
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('studio');
   const [title, setTitle] = useState('Sonara AI Track');
   const [prompt, setPrompt] = useState(
@@ -343,6 +346,22 @@ export default function App() {
             >
               <RefreshCw className={`h-4 w-4 ${platformLoading ? 'animate-spin' : ''}`} />
             </button>
+            <div className="ml-1 hidden items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 py-1.5 pl-2 pr-1 sm:flex">
+              {user?.photoUrl ? (
+                <img src={user.photoUrl} alt="" referrerPolicy="no-referrer" className="h-7 w-7 rounded-lg object-cover" />
+              ) : (
+                <div className="grid h-7 w-7 place-items-center rounded-lg bg-purple-600 text-[10px] font-black">
+                  {(user?.displayName || 'S').slice(0, 1).toUpperCase()}
+                </div>
+              )}
+              <div className="max-w-28 leading-tight">
+                <p className="truncate text-[10px] font-bold text-white">{user?.displayName}</p>
+                <p className="truncate text-[8px] uppercase tracking-wider text-slate-500">{user?.provider}</p>
+              </div>
+              <button type="button" onClick={() => void signOut()} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-800 hover:text-white" aria-label="Sign out">
+                <LogOut className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
         </div>
 
