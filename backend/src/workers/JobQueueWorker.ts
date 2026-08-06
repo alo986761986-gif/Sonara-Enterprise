@@ -96,7 +96,11 @@ export class JobQueueWorker {
         metadata: { currentStage: 'Sonara Prompt Engine: Analyzing prompt & Genre Lock...' }
       });
 
-      const promptOptimization = await AceStepPromptEngine.generatePrompt(userPrompt, userGenre);
+      const promptOptimization = await AceStepPromptEngine.generatePrompt(
+        userPrompt,
+        userGenre,
+        payload.bpm
+      );
       const genreProfile = promptOptimization.genreProfile;
       const genreLock = promptOptimization.genreLock;
       const targetBpm = payload.bpm || genreLock.targetBpm || 124;
