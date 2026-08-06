@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+﻿import React, { useEffect, useRef, useState } from 'react';
 import {
   Activity,
   Download,
@@ -192,7 +192,7 @@ export default function App() {
           setAudioUrl(currentAudioUrl);
           setProgress(100);
           setStatus('COMPLETED');
-          setStage('Generation complete — audio ready.');
+          setStage('Generation complete â€” audio ready.');
           return;
         }
 
@@ -302,6 +302,9 @@ export default function App() {
                 <option value={15}>15 seconds</option>
                 <option value={30}>30 seconds</option>
                 <option value={60}>60 seconds</option>
+                <option value={120}>2 minutes</option>
+                <option value={180}>3 minutes</option>
+                <option value={240}>4 minutes</option>
               </select>
             </label>
           </div>
@@ -416,3 +419,4 @@ export default function App() {
     </div>
   );
 }
+
