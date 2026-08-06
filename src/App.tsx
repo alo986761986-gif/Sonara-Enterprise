@@ -58,6 +58,7 @@ export default function App() {
   const [error, setError] = useState('');
   const [jobId, setJobId] = useState('');
   const [audioUrl, setAudioUrl] = useState('');
+  const [processedAudioUrl, setProcessedAudioUrl] = useState('');
   const [engine, setEngine] = useState('Sonara V12 ACE-Step Engine');
   const [health, setHealth] = useState('CHECKING');
 
@@ -83,6 +84,7 @@ export default function App() {
     setStage('Sending generation request...');
     setError('');
     setAudioUrl('');
+    setProcessedAudioUrl('');
     setJobId('');
 
     try {
@@ -131,7 +133,7 @@ export default function App() {
       setStatus('PROCESSING');
       setStage('ACE-Step is generating the track...');
 
-      const maximumAttempts = 1200; // Up to 20 minutes for four-minute GPU renders and stem separation.
+      const maximumAttempts = 2400; // Up to 40 minutes for four-minute GPU renders and stem separation.
 
       for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
         await sleep(1000);
@@ -375,6 +377,17 @@ export default function App() {
                 <Download className="h-4 w-4" />
                 Download WAV
               </a>
+
+              {processedAudioUrl && (
+                <a
+                  href={processedAudioUrl}
+                  download={`Sonara-${jobId || 'track'}-equalized.wav`}
+                  className="flex items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium"
+                >
+                  <Download className="h-4 w-4" />
+                  Download Equalized WAV
+                </a>
+              )}
             </div>
           </section>
         )}
@@ -386,8 +399,8 @@ export default function App() {
           <ProfessionalAudioEqualizer
             audioUrl={audioUrl}
             isEmbedded
-            onProcessedAudio={processedAudioUrl => {
-              setAudioUrl(processedAudioUrl);
+            onProcessedAudio={newProcessedAudioUrl => {
+              setProcessedAudioUrl(newProcessedAudioUrl);
             }}
           />
         </section>
