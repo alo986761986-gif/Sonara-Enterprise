@@ -11,6 +11,7 @@ import { SongPlannerService } from '../services/SongPlannerService';
 import { MixingMasteringEngineService } from '../services/MixingMasteringEngineService';
 import { StemSeparationService } from '../services/StemSeparationService';
 import { AudioDeliveryFormatService } from '../services/AudioDeliveryFormatService';
+import { LongFormAudioExpansionService } from '../services/LongFormAudioExpansionService';
 
 export interface GenerationPayload {
   prompt: string;
@@ -125,23 +126,49 @@ export class JobQueueWorker {
         durationSec
       );
 
+      const fastLongFormEnabled = process.env.SONARA_FAST_LONG_FORM !== 'false';
+      const useFastLongForm =
+        fastLongFormEnabled && songPlan.alignedDurationSec > 90;
+      const configuredCoreDurationSec = Number(
+        process.env.SONARA_LONG_FORM_CORE_SEC || 60
+      );
+      const coreDurationSec = Math.max(
+        30,
+        Math.min(90, Number.isFinite(configuredCoreDurationSec) ? configuredCoreDurationSec : 60)
+      );
+      const neuralPlan = useFastLongForm
+        ? SongPlannerService.planSong(
+            { genre: targetGenre, bpm: targetBpm },
+            coreDurationSec
+          )
+        : songPlan;
+
       const productionPrompt = [
         promptOptimization.optimizedPrompt,
         patternResult.promptDirective,
-        songPlan.promptDirective
-      ].join(' | ');
+        neuralPlan.promptDirective,
+        useFastLongForm
+          ? 'FAST_LONG_FORM_CORE: create a complete, loopable production core with a clean phrase-boundary ending; preserve groove, harmony and instrumentation for seamless long-form expansion.'
+          : ''
+      ].filter(Boolean).join(' | ');
 
-      // Scale the ACE-Step request budget with the bar-aligned duration. A
-      // four-minute render can legitimately need up to 30 minutes on the GPU.
+      // The fast long-form profile asks ACE-Step for only a high-quality neural
+      // core, so a four-minute song no longer requires four minutes of direct
+      // diffusion. Full-length rendering remains available with
+      // SONARA_FAST_LONG_FORM=false.
       const generationTimeoutMs = Math.min(
         1_800_000,
-        Math.max(300_000, Math.ceil(songPlan.alignedDurationSec * 7_500))
+        Math.max(300_000, Math.ceil(neuralPlan.alignedDurationSec * 7_500))
       );
 
       // PIPELINE STEP 4: Rendering Engine (ACE-Step Neural Audio / Python Inference)
       JobManager.updateJobStatus(jobId, 'PROCESSING', {
         progress: 60,
-        metadata: { currentStage: 'ACE-Step Rendering Engine: Generating neural audio waveform...' }
+        metadata: {
+          currentStage: useFastLongForm
+            ? 'ACE-Step Fast Long-Form: Generating the neural production core...'
+            : 'ACE-Step Rendering Engine: Generating neural audio waveform...'
+        }
       });
 
       const execResult = await MusicGenerationService.executePythonEngine(
@@ -151,21 +178,17 @@ export class JobQueueWorker {
         payload.lyrics || '',
         payload.title || 'Sonara AI Track',
         generationTimeoutMs,
-        songPlan.alignedDurationSec,
+        neuralPlan.alignedDurationSec,
         targetBpm,
         {
-          totalBars: songPlan.totalBars,
-          structurePrompt: songPlan.promptDirective,
+          totalBars: neuralPlan.totalBars,
+          structurePrompt: neuralPlan.promptDirective,
           groovePrompt: patternResult.promptDirective,
-          seed: patternSeed
+          seed: patternSeed,
+          inferStep: useFastLongForm ? 36 : 60,
+          overlappedDecode: useFastLongForm
         }
       );
-
-      // PIPELINE STEP 5: DSP Engine, Mixing & Mastering (14-Stage DSP)
-      JobManager.updateJobStatus(jobId, 'PROCESSING', {
-        progress: 80,
-        metadata: { currentStage: '14-Stage DSP Engine: Mixing & Mastering (-14.0 LUFS, -1.0 dBTP)...' }
-      });
 
       const rawAudioBuffer = execResult.audioBuffer;
       if (!rawAudioBuffer || !MusicGenerationService.validateAudioBuffer(rawAudioBuffer)) {
@@ -173,8 +196,38 @@ export class JobQueueWorker {
         throw new Error(`ENGINE_NOT_AVAILABLE: ${reason}`);
       }
 
+      let productionAudioBuffer = rawAudioBuffer;
+      let longFormExpansion: ReturnType<typeof LongFormAudioExpansionService.expand>['report'] | null = null;
+
+      if (useFastLongForm) {
+        JobManager.updateJobStatus(jobId, 'PROCESSING', {
+          progress: 72,
+          metadata: {
+            currentStage: 'Fast Long-Form Arranger: Expanding sections on phrase boundaries...'
+          }
+        });
+
+        const expansionResult = LongFormAudioExpansionService.expand(
+          rawAudioBuffer,
+          songPlan.alignedDurationSec,
+          songPlan.sections.map(section => ({
+            startSec: section.startSec,
+            durationSec: section.durationSec,
+            energy: section.energy
+          }))
+        );
+        productionAudioBuffer = expansionResult.processedBuffer;
+        longFormExpansion = expansionResult.report;
+      }
+
+      // PIPELINE STEP 5: DSP Engine, Mixing & Mastering (14-Stage DSP)
+      JobManager.updateJobStatus(jobId, 'PROCESSING', {
+        progress: 80,
+        metadata: { currentStage: '14-Stage DSP Engine: Mixing & Mastering (-14.0 LUFS, -1.0 dBTP)...' }
+      });
+
       const masteringResult = MixingMasteringEngineService.processBuffer(
-        rawAudioBuffer,
+        productionAudioBuffer,
         -14.0,
         -1.0,
         targetBpm
@@ -269,6 +322,22 @@ export class JobQueueWorker {
           alignedDurationSec: songPlan.alignedDurationSec,
           sections: songPlan.sections
         },
+        generationStrategy: useFastLongForm
+          ? {
+              mode: 'FAST_LONG_FORM',
+              neuralCoreDurationSec: neuralPlan.alignedDurationSec,
+              neuralCoreBars: neuralPlan.totalBars,
+              finalDurationSec: songPlan.alignedDurationSec,
+              diffusionSteps: 36,
+              expansion: longFormExpansion
+            }
+          : {
+              mode: 'FULL_NEURAL',
+              neuralCoreDurationSec: songPlan.alignedDurationSec,
+              neuralCoreBars: songPlan.totalBars,
+              finalDurationSec: songPlan.alignedDurationSec,
+              diffusionSteps: 60
+            },
         dspMastering: {
           ...masteringResult.report,
           status: masteringResult.report.status
