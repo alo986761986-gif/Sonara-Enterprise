@@ -98,7 +98,7 @@ def main() -> int:
     parser.add_argument("--output", required=True)
     parser.add_argument("--model", default="htdemucs_ft")
     parser.add_argument("--device", choices=("cuda",), default="cuda")
-    parser.add_argument("--segment", type=float, default=7.0)
+    parser.add_argument("--segment", type=int, default=7)
     parser.add_argument("--overlap", type=float, default=0.25)
     parser.add_argument("--shifts", type=int, default=1)
     args = parser.parse_args()
