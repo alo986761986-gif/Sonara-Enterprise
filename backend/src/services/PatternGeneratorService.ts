@@ -3,6 +3,10 @@ import {
   resolveGenreSelection,
   resolveHouseStyleProfile
 } from '../../../shared/genreCatalog';
+import {
+  genreProductionPromptKeywords,
+  resolveGenreProductionBlueprint
+} from '../../../shared/genreProductionBlueprints';
 
 export interface RhythmPattern {
   kick: number[];
@@ -260,7 +264,7 @@ export class PatternGeneratorService {
   };
 
   public static generatePattern(genre: string, seed: number = Date.now()): PatternGenerationResult {
-    const selection = resolveGenreSelection(genre);
+    const productionBlueprint = resolveGenreProductionBlueprint(genre);
     const key = this.resolveTemplateKey(genre);
     const template = this.GENRE_TEMPLATES[key];
     const normalizedGenre = normalizeGenreName(genre);
@@ -270,7 +274,7 @@ export class PatternGeneratorService {
     );
     const beatsPerBar = Math.max(
       1,
-      Number.parseInt(selection.timeSignature.split('/')[0], 10) || 4
+      Number.parseInt(productionBlueprint.timeSignature.split('/')[0], 10) || 4
     );
 
     // Deterministic pseudo-random number generator for seed consistency
@@ -300,10 +304,10 @@ export class PatternGeneratorService {
     }
 
     const result: PatternGenerationResult = {
-      genre: selection.familyName,
-      subgenre: selection.requestedGenre,
-      bpm: selection.recommendedBpm,
-      keySignature: selection.keySignature,
+      genre: productionBlueprint.familyName,
+      subgenre: productionBlueprint.canonicalName,
+      bpm: productionBlueprint.recommendedBpm,
+      keySignature: productionBlueprint.keySignature,
       swingPct: template.swingPct,
       rhythm: {
         kick,
@@ -319,15 +323,17 @@ export class PatternGeneratorService {
         timingOffsetsMs
       },
       grid: {
-        timeSignature: selection.timeSignature,
+        timeSignature: productionBlueprint.timeSignature,
         beatsPerBar,
         stepsPerBar: 16,
         subdivision: '1/16',
         phraseBars: 4,
-        enforceStepGrid: hasNativeTemplate && selection.timeSignature === '4/4'
+        enforceStepGrid: hasNativeTemplate && productionBlueprint.timeSignature === '4/4'
       },
       promptDirective: '',
-      styleDirectives: houseStyle ? selection.acousticKeywords : [],
+      styleDirectives: productionBlueprint.isCatalogEntry
+        ? genreProductionPromptKeywords(productionBlueprint)
+        : [],
       seed
     };
 
@@ -403,6 +409,9 @@ export class PatternGeneratorService {
     if (!pattern.grid.enforceStepGrid) {
       return [
         identity,
+        ...(pattern.styleDirectives.length > 0
+          ? [`GENRE_STYLE_BLUEPRINT: ${pattern.styleDirectives.join('; ')}`]
+          : []),
         `METER: ${pattern.grid.timeSignature}, ${pattern.bpm} BPM`,
         `GENRE_GROOVE: use authentic ${pattern.subgenre} rhythm, accents, instrumentation and phrasing`,
         'GROOVE_RULES: do not impose a House, Techno or Hip Hop grid unless it belongs to the selected genre; preserve human feel where stylistically correct'
@@ -412,7 +421,7 @@ export class PatternGeneratorService {
     return [
       identity,
       ...(pattern.styleDirectives.length > 0
-        ? [`HOUSE_STYLE_BLUEPRINT: ${pattern.styleDirectives.join('; ')}`]
+        ? [`GENRE_STYLE_BLUEPRINT: ${pattern.styleDirectives.join('; ')}`]
         : []),
       `GROOVE_GRID: ${pattern.grid.timeSignature}, ${pattern.grid.stepsPerBar} steps per bar (${pattern.grid.subdivision})`,
       `KICK_STEPS[${activeSteps(pattern.rhythm.kick)}]`,
