@@ -1,10 +1,12 @@
 import {
   GENRE_CATALOG_NAMES,
-  houseStylePromptKeywords,
   normalizeGenreName,
-  resolveGenreSelection,
-  resolveHouseStyleProfile
+  resolveGenreSelection
 } from '../../../shared/genreCatalog';
+import {
+  genreProductionPromptKeywords,
+  resolveGenreProductionBlueprint
+} from '../../../shared/genreProductionBlueprints';
 
 export interface GenreLockProfile {
   primaryGenre: string;
@@ -276,43 +278,42 @@ export class AceStepPromptEngine {
     };
   }
 
-  private static createHouseGenreProfile(selectedGenre: string): GenreLockProfile | null {
-    const houseStyle = resolveHouseStyleProfile(selectedGenre);
-    if (!houseStyle) return null;
+  private static createCatalogGenreProfile(selectedGenre: string): GenreLockProfile | null {
+    const blueprint = resolveGenreProductionBlueprint(selectedGenre);
+    if (!blueprint.isCatalogEntry) return null;
 
     return {
-      primaryGenre: 'House',
-      subgenre: houseStyle.name,
-      recommendedBpm: houseStyle.recommendedBpm,
-      bpmRange: houseStyle.bpmRange,
-      keySignature: houseStyle.keySignature,
+      primaryGenre: blueprint.familyName,
+      subgenre: blueprint.canonicalName,
+      recommendedBpm: blueprint.recommendedBpm,
+      bpmRange: blueprint.bpmRange,
+      keySignature: blueprint.keySignature,
       acousticKeywords: [
-        `authentic ${houseStyle.name} style`,
-        ...houseStylePromptKeywords(houseStyle)
+        `authentic ${blueprint.canonicalName} style`,
+        ...genreProductionPromptKeywords(blueprint)
       ],
-      bannedKeywords: houseStyle.bannedKeywords,
+      bannedKeywords: blueprint.bannedKeywords,
       modelTier: 'GOLD',
-      familyId: 'house',
-      timeSignature: '4/4',
-      isCatalogEntry: true,
+      familyId: blueprint.familyId,
+      timeSignature: blueprint.timeSignature,
+      isCatalogEntry: blueprint.isCatalogEntry,
       styleBlueprint: {
-        atmosphere: houseStyle.atmosphere,
-        groove: houseStyle.groove,
-        bass: houseStyle.bass,
-        harmony: houseStyle.harmony,
-        soundPalette: houseStyle.soundPalette,
-        arrangement: houseStyle.arrangement,
-        vocalStyle: houseStyle.vocalStyle
+        atmosphere: blueprint.atmosphere,
+        groove: blueprint.groove,
+        bass: blueprint.bass,
+        harmony: blueprint.harmony,
+        soundPalette: blueprint.soundPalette,
+        arrangement: blueprint.arrangement,
+        vocalStyle: blueprint.vocalStyle
       }
     };
   }
 
   private static profileForExactSelection(selectedGenre: string): GenreLockProfile {
-    // House has a complete production blueprint for every catalogued
-    // subgenre. It is the source of truth even for the older handcrafted
-    // entries above, so atmosphere, groove and arrangement cannot drift.
-    const houseProfile = this.createHouseGenreProfile(selectedGenre);
-    if (houseProfile) return houseProfile;
+    // Every catalogued genre now has the same complete production blueprint:
+    // atmosphere, groove, bass, harmony, timbre, arrangement and voice.
+    const catalogProfile = this.createCatalogGenreProfile(selectedGenre);
+    if (catalogProfile) return catalogProfile;
 
     const exactKey = this.resolveExactGenreKey(selectedGenre);
     const existingProfile = exactKey ? this.GENRE_PROFILES[exactKey] : null;
@@ -387,7 +388,11 @@ export class AceStepPromptEngine {
     // catalog (for example shorthand such as DnB or hiphop).
     const detectedKey = this.resolveGenreKey(text);
     if (detectedKey) {
-      return this.enrichProfile(this.GENRE_PROFILES[detectedKey], detectedKey);
+      const detectedCatalogProfile = this.createCatalogGenreProfile(detectedKey);
+      return detectedCatalogProfile || this.enrichProfile(
+        this.GENRE_PROFILES[detectedKey],
+        detectedKey
+      );
     }
 
     // Single token genre fallback
