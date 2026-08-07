@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 
 import { SONARA_MUSIC_DNA } from './core/musicDNA';
+import { resolveMusicBrainContext } from './core/musicBrainIntegrator';
 
 type JobStatus =
   | 'IDLE'
@@ -105,6 +106,9 @@ export default function App() {
 
   const [engine, setEngine] =
     useState('Sonara V12 ACE-Step Engine');
+
+  const [recommendedEQPreset, setRecommendedEQPreset] =
+    useState('');
 
   const [health, setHealth] =
     useState('CHECKING');
@@ -194,6 +198,40 @@ export default function App() {
 
     try {
 
+      setStage(
+        'Consulting Music Brain intelligence...'
+      );
+
+      const brainContext =
+        await resolveMusicBrainContext({
+          prompt: prompt.trim(),
+          genre,
+          subgenre: selectedSubgenre,
+          mood: selectedMood,
+          bpm
+        });
+
+      const finalPrompt =
+        brainContext.enhancedPrompt || prompt.trim();
+
+      const finalGenre =
+        brainContext.recommendedGenre || genre;
+
+      const finalSubgenre =
+        brainContext.recommendedSubgenre ||
+        selectedSubgenre;
+
+      const finalMood =
+        brainContext.recommendedMood || selectedMood;
+
+      setRecommendedEQPreset(
+        brainContext.recommendedEQPreset || ''
+      );
+
+      setStage(
+        'Sending generation request...'
+      );
+
       const response =
         await fetch(
           '/api/engine/generate',
@@ -206,15 +244,16 @@ export default function App() {
             body: JSON.stringify({
 
               prompt:
-                prompt.trim(),
+                finalPrompt,
 
-              genre,
+              genre:
+                finalGenre,
 
               subgenre:
-                selectedSubgenre,
+                finalSubgenre,
 
               mood:
-                selectedMood,
+                finalMood,
 
               lyrics,
 
@@ -755,6 +794,12 @@ export default function App() {
 
 
           </div>
+
+          {recommendedEQPreset && (
+            <div className="mt-4 rounded-xl border border-cyan-800/60 bg-cyan-950/30 px-3 py-2 text-xs text-cyan-200">
+              Music Brain EQ recommendation: <strong>{recommendedEQPreset}</strong>
+            </div>
+          )}
 
 
 
