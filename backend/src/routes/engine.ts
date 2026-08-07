@@ -3,6 +3,7 @@ import { AceStepPromptEngine } from '../services/AceStepPromptEngine';
 import { JobQueueWorker } from '../workers/JobQueueWorker';
 import { EngineDiagnosticService } from '../engine/EngineDiagnosticService';
 import { PythonEnvironmentManager } from '../engine/PythonEnvironmentManager';
+import { VocalProductionRequest } from '../../../shared/vocalProfiles';
 
 const router = Router();
 
@@ -139,7 +140,17 @@ router.post('/select', (req: Request, res: Response) => {
 // GPU generation. This makes end-user prompt behavior testable and explicit.
 router.post('/prompt-preview', async (req: Request, res: Response) => {
   try {
-    const { prompt, genre, bpm } = req.body || {};
+    const {
+      prompt,
+      genre,
+      bpm,
+      lyrics,
+      vocalMode,
+      vocalTimbre,
+      vocalRegister,
+      vocalDelivery,
+      vocalHarmony
+    } = req.body || {};
     if (!prompt || typeof prompt !== 'string') {
       return res.status(400).json({
         status: 'error',
@@ -147,17 +158,28 @@ router.post('/prompt-preview', async (req: Request, res: Response) => {
       });
     }
 
+    const vocalRequest: VocalProductionRequest = {
+      mode: vocalMode,
+      timbre: vocalTimbre,
+      register: vocalRegister,
+      delivery: vocalDelivery,
+      harmony: vocalHarmony,
+      lyricsPresent: Boolean(String(lyrics || '').trim())
+    };
     const result = await AceStepPromptEngine.generatePrompt(
       prompt,
       typeof genre === 'string' ? genre : undefined,
-      Number(bpm)
+      Number(bpm),
+      vocalRequest
     );
 
     return res.status(200).json({
       status: 'success',
       genreLock: result.genreLock,
+      vocalProfile: result.vocalProfile,
       optimizedPrompt: result.optimizedPrompt,
-      injectedKeywords: result.injectedKeywords
+      injectedKeywords: result.injectedKeywords,
+      injectedVocalKeywords: result.injectedVocalKeywords
     });
   } catch (error: any) {
     return res.status(500).json({
@@ -169,7 +191,22 @@ router.post('/prompt-preview', async (req: Request, res: Response) => {
 
 router.post('/generate', async (req: Request, res: Response) => {
   try {
-    const { prompt, durationSec, genre, bpm, key, engineId, title, mood, lyrics } = req.body;
+    const {
+      prompt,
+      durationSec,
+      genre,
+      bpm,
+      key,
+      engineId,
+      title,
+      mood,
+      lyrics,
+      vocalMode,
+      vocalTimbre,
+      vocalRegister,
+      vocalDelivery,
+      vocalHarmony
+    } = req.body;
 
     if (!prompt || typeof prompt !== 'string') {
       return res.status(400).json({ error: 'Prompt must be a non-empty string.' });
@@ -179,7 +216,26 @@ router.post('/generate', async (req: Request, res: Response) => {
     const plugin = ENGINE_MODELS.find(m => m.id === currentEngineId) || ENGINE_MODELS[1];
 
     // Automatically inject production instructions & genre lock via AceStepPromptEngine
-    const optimizationResult = await AceStepPromptEngine.generatePrompt(prompt, genre);
+    const vocalRequest: VocalProductionRequest = {
+      mode: vocalMode,
+      timbre: vocalTimbre,
+      register: vocalRegister,
+      delivery: vocalDelivery,
+      harmony: vocalHarmony,
+      lyricsPresent: Boolean(String(lyrics || '').trim())
+    };
+    const optimizationResult = await AceStepPromptEngine.generatePrompt(
+      prompt,
+      genre,
+      Number(bpm),
+      vocalRequest
+    );
+    if (optimizationResult.vocalProfile.requiresLyrics && !String(lyrics || '').trim()) {
+      return res.status(400).json({
+        status: 'error',
+        error: 'VOCAL_LYRICS_REQUIRED: add real lyrics or choose Instrumental.'
+      });
+    }
 
     // Enqueue job in centralized JobQueueWorker
     const jobId = `job-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
@@ -190,7 +246,12 @@ router.post('/generate', async (req: Request, res: Response) => {
       lyrics: lyrics || '',
       prompt: prompt,
       bpm: bpm || optimizationResult.genreLock.targetBpm || 124,
-      duration: durationSec || 30
+      duration: durationSec || 30,
+      vocalMode: optimizationResult.vocalProfile.requestedMode,
+      vocalTimbre: optimizationResult.vocalProfile.timbre,
+      vocalRegister: optimizationResult.vocalProfile.register,
+      vocalDelivery: optimizationResult.vocalProfile.delivery,
+      vocalHarmony: optimizationResult.vocalProfile.harmony
     });
 
     res.json({
@@ -205,6 +266,7 @@ router.post('/generate', async (req: Request, res: Response) => {
         prompt: optimizationResult.optimizedPrompt,
         originalPrompt: prompt,
         genreLock: optimizationResult.genreLock,
+        vocalProfile: optimizationResult.vocalProfile,
         optimizationLayer: optimizationResult.layers,
         injectedKeywords: optimizationResult.injectedKeywords,
         genre: optimizationResult.genreLock.subgenre || genre || 'Melodic House',
