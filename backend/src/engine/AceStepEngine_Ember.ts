@@ -143,7 +143,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
 
     const prompt = this.buildPrompt(params, bpm);
 
-    console.log(`[EMBER_PROMPT] ${prompt}`);
+console.log(`[EMBER_PROMPT] ${prompt}`);
 
     const payload = {
       checkpoint_path:

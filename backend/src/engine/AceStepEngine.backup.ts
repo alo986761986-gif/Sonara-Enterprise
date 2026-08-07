@@ -4,7 +4,6 @@
   GenerationResult,
   EngineHealthStatus
 } from './IAudioGenerationEngine';
-import { SonaraPromptEngine } from '../services/SonaraPromptEngine';
 import http from 'http';
 import https from 'https';
 import { appConfig } from '../config/AppConfig';
@@ -143,8 +142,6 @@ export class AceStepEngine extends IAudioGenerationEngine {
 
     const prompt = this.buildPrompt(params, bpm);
 
-    console.log(`[EMBER_PROMPT] ${prompt}`);
-
     const payload = {
       checkpoint_path:
         process.env.ACE_STEP_CHECKPOINT_PATH ||
@@ -160,21 +157,11 @@ export class AceStepEngine extends IAudioGenerationEngine {
       prompt,
       lyrics: params.lyrics || '',
 
-      infer_step: Number((params as any).inferStep || 80),
-
-guidance_scale: Number(
-  (params as any).guidanceScale || 16
-),
-
-scheduler_type:
-  (params as any).schedulerType || 'euler',
-
-cfg_type:
-  (params as any).cfgType || 'apg',
-
-omega_scale: Number(
-  (params as any).omegaScale || 12
-),
+      infer_step: Number((params as any).inferStep || 60),
+      guidance_scale: Number((params as any).guidanceScale || 15),
+      scheduler_type: (params as any).schedulerType || 'euler',
+      cfg_type: (params as any).cfgType || 'apg',
+      omega_scale: Number((params as any).omegaScale || 10),
 
       actual_seeds: [
         Number((params as any).seed || 42)
@@ -334,15 +321,7 @@ omega_scale: Number(
         : '',
       params.prompt ||
         'Modern electronic dance track',
-      'professional club production',
-      'stable four-on-the-floor groove',
-      'locked rhythm',
-      'tight kick and bass separation',
-      'clear percussion',
-      'wide stereo image',
-      'balanced arrangement',
-      'professional mixing',
-      'mastered sound'
+      'clear musical structure, defined kick, bassline, percussion and harmonic progression'
     ];
 
     return parts

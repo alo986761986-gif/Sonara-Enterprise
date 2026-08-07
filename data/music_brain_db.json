@@ -1,5 +1,1730 @@
 [
   {
+    "prompt": "Deep House and Tech House with Afro House influence, 124 BPM, deep rolling bassline, punchy four-on-the-floor kick, organic tribal percussion, congas, bongos, shakers, hypnotic groove, warm piano chords, atmospheric pads and a polished club mix.",
+    "genre": "House",
+    "subgenre": "Tech House",
+    "bpm": 124,
+    "keySignature": "A Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 15,
+    "chords": [
+      "Am7",
+      "Am7",
+      "Fmaj7",
+      "Fmaj7",
+      "Cmaj7",
+      "Cmaj7",
+      "Em7",
+      "Em7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.95,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 10.4,
+      "overallScore": 9.86
+    },
+    "id": "dna_1786050712335_7rihc",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T21:11:52.335Z",
+    "usageCount": 1
+  },
+  {
+    "prompt": "Create a professional Deep House track. Emotional atmosphere. Female lead vocals in English. Deep bassline, punchy kick, organic percussion, atmospheric pads, catchy chorus, clear song structure, professional club mix, radio-ready mastering and high-quality vocal production.",
+    "genre": "House",
+    "subgenre": "Deep House",
+    "bpm": 124,
+    "keySignature": "E Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 10,
+    "chords": [
+      "Em9",
+      "Cmaj9",
+      "Am9",
+      "Bm7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.8,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 9.6,
+      "overallScore": 9.78
+    },
+    "id": "dna_1786050529158_splfy",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T21:08:49.158Z",
+    "usageCount": 1
+  },
+  {
+    "prompt": "Deep House and Tech House with Afro House influence, 124 BPM, deep rolling bassline, punchy four-on-the-floor kick, organic tribal percussion, congas, bongos, shakers, hypnotic groove, warm piano chords, atmospheric pads and a polished club mix.",
+    "genre": "House",
+    "subgenre": "Tech House",
+    "bpm": 124,
+    "keySignature": "A Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 15,
+    "chords": [
+      "Am7",
+      "Am7",
+      "Fmaj7",
+      "Fmaj7",
+      "Cmaj7",
+      "Cmaj7",
+      "Em7",
+      "Em7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.95,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 10.4,
+      "overallScore": 9.86
+    },
+    "id": "dna_1786050507372_y0fgw",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T21:08:27.372Z",
+    "usageCount": 2
+  },
+  {
+    "prompt": "Deep House and Tech House with Afro House influence, 124 BPM, deep rolling bassline, punchy four-on-the-floor kick, organic tribal percussion, congas, bongos, shakers, hypnotic groove, warm piano chords, atmospheric pads and a polished club mix.",
+    "genre": "House",
+    "subgenre": "Tech House",
+    "bpm": 124,
+    "keySignature": "A Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 15,
+    "chords": [
+      "Am7",
+      "Am7",
+      "Fmaj7",
+      "Fmaj7",
+      "Cmaj7",
+      "Cmaj7",
+      "Em7",
+      "Em7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.95,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 10.4,
+      "overallScore": 9.86
+    },
+    "id": "dna_1786050478180_oz1hm",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T21:07:58.180Z",
+    "usageCount": 2
+  },
+  {
+    "prompt": "Create a professional House track. Dark atmosphere. Duo lead vocals in English. Deep bassline, punchy kick, organic percussion, atmospheric pads, catchy chorus, clear song structure, professional club mix, radio-ready mastering and high-quality vocal production.",
+    "genre": "House",
+    "subgenre": "House",
+    "bpm": 124,
+    "keySignature": "C Major",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 12,
+    "chords": [
+      "Am7",
+      "Fmaj7",
+      "Cmaj7",
+      "G7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.86,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 9.6,
+      "overallScore": 9.79
+    },
+    "id": "dna_1786050017577_czqen",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T21:00:17.577Z",
+    "usageCount": 1
+  },
+  {
+    "prompt": "Create a professional House track. Dark atmosphere. Duo lead vocals in English. Deep bassline, punchy kick, organic percussion, atmospheric pads, catchy chorus, clear song structure, professional club mix, radio-ready mastering and high-quality vocal production.",
+    "genre": "House",
+    "subgenre": "House",
+    "bpm": 124,
+    "keySignature": "C Major",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 12,
+    "chords": [
+      "Am7",
+      "Fmaj7",
+      "Cmaj7",
+      "G7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.86,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 9.6,
+      "overallScore": 9.79
+    },
+    "id": "dna_1786049817178_wd685",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T20:56:57.178Z",
+    "usageCount": 1
+  },
+  {
+    "prompt": "house, tech house, deep house,",
+    "genre": "House",
+    "subgenre": "Tech House",
+    "bpm": 124,
+    "keySignature": "A Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 15,
+    "chords": [
+      "Am7",
+      "Am7",
+      "Fmaj7",
+      "Fmaj7",
+      "Cmaj7",
+      "Cmaj7",
+      "Em7",
+      "Em7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.95,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 10.4,
+      "overallScore": 9.86
+    },
+    "id": "dna_1786049668623_h5jxn",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T20:54:28.623Z",
+    "usageCount": 1
+  },
+  {
+    "prompt": "HOUSE, HOUSE DEEP, HOUSE TRIBAL, DEEP HOUSE, HOUSE UNDERGROUND, TECH HOUSE",
+    "genre": "House",
+    "subgenre": "Tech House",
+    "bpm": 124,
+    "keySignature": "A Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 15,
+    "chords": [
+      "Am7",
+      "Am7",
+      "Fmaj7",
+      "Fmaj7",
+      "Cmaj7",
+      "Cmaj7",
+      "Em7",
+      "Em7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.95,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 10.4,
+      "overallScore": 9.86
+    },
+    "id": "dna_1786049504410_ckg2n",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T20:51:44.410Z",
+    "usageCount": 2
+  },
+  {
+    "prompt": "Professional melodic house track with a powerful four-on-the-floor rhythm, deep controlled bass, crisp percussion, emotional minor chords, clean transitions and a strong melodic drop",
+    "genre": "House",
+    "subgenre": "Melodic House",
+    "bpm": 124,
+    "keySignature": "F Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 8,
+    "chords": [
+      "Fm9",
+      "Abmaj9",
+      "Dbmaj9",
+      "Bbm9"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.74,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 9.6,
+      "overallScore": 9.76
+    },
+    "id": "dna_1786049295460_lfr1p",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T20:48:15.460Z",
+    "usageCount": 1
+  },
+  {
+    "prompt": "house, tech house, deep house, tribal house, afrobeat, house latino",
+    "genre": "House",
+    "subgenre": "Tech House",
+    "bpm": 124,
+    "keySignature": "A Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 15,
+    "chords": [
+      "Am7",
+      "Am7",
+      "Fmaj7",
+      "Fmaj7",
+      "Cmaj7",
+      "Cmaj7",
+      "Em7",
+      "Em7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.95,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 10.4,
+      "overallScore": 9.86
+    },
+    "id": "dna_1786042937244_1es7g",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T19:02:17.244Z",
+    "usageCount": 1
+  },
+  {
+    "prompt": "Create a professional Deep House track. Emotional atmosphere. Female lead vocals in English. Deep bassline, punchy kick, organic percussion, atmospheric pads, catchy chorus, clear song structure, professional club mix, radio-ready mastering and high-quality vocal production.",
+    "genre": "House",
+    "subgenre": "Deep House",
+    "bpm": 124,
+    "keySignature": "E Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 10,
+    "chords": [
+      "Em9",
+      "Cmaj9",
+      "Am9",
+      "Bm7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.8,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 9.6,
+      "overallScore": 9.78
+    },
+    "id": "dna_1786042853230_p9vya",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T19:00:53.230Z",
+    "usageCount": 1
+  },
+  {
+    "prompt": "Deep House and Tech House with Afro House influence, 124 BPM, deep rolling bassline, punchy four-on-the-floor kick, organic tribal percussion, congas, bongos, shakers, hypnotic groove, warm piano chords, atmospheric pads and a polished club mix.",
+    "genre": "House",
+    "subgenre": "Tech House",
+    "bpm": 124,
+    "keySignature": "A Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 15,
+    "chords": [
+      "Am7",
+      "Am7",
+      "Fmaj7",
+      "Fmaj7",
+      "Cmaj7",
+      "Cmaj7",
+      "Em7",
+      "Em7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.95,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 10.4,
+      "overallScore": 9.86
+    },
+    "id": "dna_1786042555899_gdhi9",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T18:55:55.899Z",
+    "usageCount": 2
+  },
+  {
+    "prompt": "Create a professional Deep House track. Emotional atmosphere. Female lead vocals in English. Song theme: deep house music voglio . Deep bassline, punchy kick, organic percussion, atmospheric pads, catchy chorus, clear song structure, professional club mix, radio-ready mastering and high-quality vocal production.",
+    "genre": "House",
+    "subgenre": "Deep House",
+    "bpm": 124,
+    "keySignature": "E Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 10,
+    "chords": [
+      "Em9",
+      "Cmaj9",
+      "Am9",
+      "Bm7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.8,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 9.6,
+      "overallScore": 9.78
+    },
+    "id": "dna_1786036138583_bgd85",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T17:08:58.583Z",
+    "usageCount": 3
+  },
+  {
+    "prompt": "house, commerciale, dance, tech house, deep house",
+    "genre": "House",
+    "subgenre": "Tech House",
+    "bpm": 124,
+    "keySignature": "A Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 15,
+    "chords": [
+      "Am7",
+      "Am7",
+      "Fmaj7",
+      "Fmaj7",
+      "Cmaj7",
+      "Cmaj7",
+      "Em7",
+      "Em7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.95,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 10.4,
+      "overallScore": 9.86
+    },
+    "id": "dna_1786036055894_m177g",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T17:07:35.894Z",
+    "usageCount": 1
+  },
+  {
+    "prompt": "HOUSE, TECH HOUSE, DEEP HOUSE, HOUSE TRIBAL PERCUSSION",
+    "genre": "House",
+    "subgenre": "Tech House",
+    "bpm": 124,
+    "keySignature": "A Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 15,
+    "chords": [
+      "Am7",
+      "Am7",
+      "Fmaj7",
+      "Fmaj7",
+      "Cmaj7",
+      "Cmaj7",
+      "Em7",
+      "Em7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.95,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 10.4,
+      "overallScore": 9.86
+    },
+    "id": "dna_1786035987130_xxobu",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T17:06:27.130Z",
+    "usageCount": 1
+  },
+  {
+    "prompt": "HOUSE, TECH HOUSE, DEEP HOUSE, HOUSE TRIBAL PERCUSSION",
+    "genre": "House",
+    "subgenre": "Tech House",
+    "bpm": 124,
+    "keySignature": "A Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 15,
+    "chords": [
+      "Am7",
+      "Am7",
+      "Fmaj7",
+      "Fmaj7",
+      "Cmaj7",
+      "Cmaj7",
+      "Em7",
+      "Em7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.95,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 10.4,
+      "overallScore": 9.86
+    },
+    "id": "dna_1786035925399_uxm5s",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T17:05:25.399Z",
+    "usageCount": 1
+  },
+  {
+    "prompt": "Create a professional Deep House track. Emotional atmosphere. Female lead vocals in English. Deep bassline, punchy kick, organic percussion, atmospheric pads, catchy chorus, clear song structure, professional club mix, radio-ready mastering and high-quality vocal production.",
+    "genre": "House",
+    "subgenre": "Deep House",
+    "bpm": 124,
+    "keySignature": "E Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 10,
+    "chords": [
+      "Em9",
+      "Cmaj9",
+      "Am9",
+      "Bm7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.8,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 9.6,
+      "overallScore": 9.78
+    },
+    "id": "dna_1786035794519_rax7w",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T17:03:14.520Z",
+    "usageCount": 1
+  },
+  {
+    "prompt": "Deep House and Tech House with Afro House influence, 124 BPM, deep rolling bassline, punchy four-on-the-floor kick, organic tribal percussion, congas, bongos, shakers, hypnotic groove, warm piano chords, atmospheric pads and a polished club mix.",
+    "genre": "House",
+    "subgenre": "Tech House",
+    "bpm": 124,
+    "keySignature": "A Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 15,
+    "chords": [
+      "Am7",
+      "Am7",
+      "Fmaj7",
+      "Fmaj7",
+      "Cmaj7",
+      "Cmaj7",
+      "Em7",
+      "Em7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.95,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 10.4,
+      "overallScore": 9.86
+    },
+    "id": "dna_1786035726822_5ae0p",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T17:02:06.822Z",
+    "usageCount": 2
+  },
+  {
+    "prompt": "Sunset Ibiza deep house anthem, emotional and elegant, premium club production",
+    "genre": "House",
+    "subgenre": "Deep House",
+    "bpm": 124,
+    "keySignature": "E Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 10,
+    "chords": [
+      "Em9",
+      "Cmaj9",
+      "Am9",
+      "Bm7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.8,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 9.6,
+      "overallScore": 9.78
+    },
+    "id": "dna_1786032280721_1kqtx",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T16:04:40.721Z",
+    "usageCount": 1
+  },
+  {
+    "prompt": "house, tech house, underground house, tribal house , afrobeat",
+    "genre": "House",
+    "subgenre": "Tech House",
+    "bpm": 126,
+    "keySignature": "A Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 15,
+    "chords": [
+      "Am7",
+      "Am7",
+      "Fmaj7",
+      "Fmaj7",
+      "Cmaj7",
+      "Cmaj7",
+      "Em7",
+      "Em7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.95,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 10.4,
+      "overallScore": 9.86
+    },
+    "id": "dna_1786000430169_edm1a",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T07:13:50.169Z",
+    "usageCount": 2
+  },
+  {
+    "prompt": "house, tech house, underground house, tribal house , afrobeat",
+    "genre": "House",
+    "subgenre": "Tech House",
+    "bpm": 126,
+    "keySignature": "A Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 15,
+    "chords": [
+      "Am7",
+      "Am7",
+      "Fmaj7",
+      "Fmaj7",
+      "Cmaj7",
+      "Cmaj7",
+      "Em7",
+      "Em7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.95,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 10.4,
+      "overallScore": 9.86
+    },
+    "id": "dna_1786000357558_obvvd",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T07:12:37.558Z",
+    "usageCount": 2
+  },
+  {
+    "prompt": "Create a professional House track. Energetic atmosphere. Male lead vocals in English. Song theme: mia mamma ama la musica . Deep bassline, punchy kick, organic percussion, atmospheric pads, catchy chorus, clear song structure, professional club mix, radio-ready mastering and high-quality vocal production.",
+    "genre": "House",
+    "subgenre": "House",
+    "bpm": 126,
+    "keySignature": "C Major",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 12,
+    "chords": [
+      "Am7",
+      "Fmaj7",
+      "Cmaj7",
+      "G7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.86,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 9.6,
+      "overallScore": 9.79
+    },
+    "id": "dna_1786000158337_3bkq5",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T07:09:18.337Z",
+    "usageCount": 1
+  },
+  {
+    "prompt": "Create a professional House track. Romantic atmosphere. Male lead vocals in Italian. Song theme: voglio stare da solo ma con la mia musica. Deep bassline, punchy kick, organic percussion, atmospheric pads, catchy chorus, clear song structure, professional club mix, radio-ready mastering and high-quality vocal production.",
+    "genre": "House",
+    "subgenre": "House",
+    "bpm": 126,
+    "keySignature": "C Major",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 12,
+    "chords": [
+      "Am7",
+      "Fmaj7",
+      "Cmaj7",
+      "G7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.86,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 9.6,
+      "overallScore": 9.79
+    },
+    "id": "dna_1785999932695_q9pw5",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T07:05:32.695Z",
+    "usageCount": 1
+  },
+  {
+    "prompt": "house, deep house, tech house, house minimal, tribla house",
+    "genre": "House",
+    "subgenre": "Tech House",
+    "bpm": 126,
+    "keySignature": "A Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 15,
+    "chords": [
+      "Am7",
+      "Am7",
+      "Fmaj7",
+      "Fmaj7",
+      "Cmaj7",
+      "Cmaj7",
+      "Em7",
+      "Em7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.95,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 10.4,
+      "overallScore": 9.86
+    },
+    "id": "dna_1785999779061_vhr2h",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T07:02:59.061Z",
+    "usageCount": 3
+  },
+  {
+    "prompt": "Deep House and Tech House with Afro House influence, 124 BPM, deep rolling bassline, punchy four-on-the-floor kick, organic tribal percussion, congas, bongos, shakers, hypnotic groove, warm piano chords, atmospheric pads and a polished club mix.",
+    "genre": "House",
+    "subgenre": "Tech House",
+    "bpm": 126,
+    "keySignature": "A Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 15,
+    "chords": [
+      "Am7",
+      "Am7",
+      "Fmaj7",
+      "Fmaj7",
+      "Cmaj7",
+      "Cmaj7",
+      "Em7",
+      "Em7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.95,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 10.4,
+      "overallScore": 9.86
+    },
+    "id": "dna_1785999671888_5fmk3",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T07:01:11.888Z",
+    "usageCount": 2
+  },
+  {
+    "prompt": "Create a professional Deep House track. Dark atmosphere. Female lead vocals in English. Song theme: voglio unbrano house deep con efffetti dark . Deep bassline, punchy kick, organic percussion, atmospheric pads, catchy chorus, clear song structure, professional club mix, radio-ready mastering and high-quality vocal production.",
+    "genre": "House",
+    "subgenre": "Deep House",
+    "bpm": 124,
+    "keySignature": "E Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 10,
+    "chords": [
+      "Em9",
+      "Cmaj9",
+      "Am9",
+      "Bm7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.8,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 9.6,
+      "overallScore": 9.78
+    },
+    "id": "dna_1785998935290_namyv",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T06:48:55.290Z",
+    "usageCount": 6
+  },
+  {
+    "prompt": "Create a professional Deep House track. Dark atmosphere. Female lead vocals in English. Song theme: sotto il cielo di ibiza. Deep bassline, punchy kick, organic percussion, atmospheric pads, catchy chorus, clear song structure, professional club mix, radio-ready mastering and high-quality vocal production.",
+    "genre": "House",
+    "subgenre": "Deep House",
+    "bpm": 124,
+    "keySignature": "E Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 10,
+    "chords": [
+      "Em9",
+      "Cmaj9",
+      "Am9",
+      "Bm7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.8,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 9.6,
+      "overallScore": 9.78
+    },
+    "id": "dna_1785998484799_cvp57",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T06:41:24.799Z",
+    "usageCount": 2
+  },
+  {
+    "prompt": "Create a professional House track. Energetic atmosphere. Female lead vocals in English. Song theme: sotto il cielo di ibiza. Deep bassline, punchy kick, organic percussion, atmospheric pads, catchy chorus, clear song structure, professional club mix, radio-ready mastering and high-quality vocal production.",
+    "genre": "House",
+    "subgenre": "House",
+    "bpm": 124,
+    "keySignature": "C Major",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 12,
+    "chords": [
+      "Am7",
+      "Fmaj7",
+      "Cmaj7",
+      "G7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.86,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 9.6,
+      "overallScore": 9.79
+    },
+    "id": "dna_1785998356548_gokel",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T06:39:16.548Z",
+    "usageCount": 3
+  },
+  {
+    "prompt": "house,house classic, deep house, tech house, minimal house , house underground",
+    "genre": "House",
+    "subgenre": "Tech House",
+    "bpm": 126,
+    "keySignature": "A Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 15,
+    "chords": [
+      "Am7",
+      "Am7",
+      "Fmaj7",
+      "Fmaj7",
+      "Cmaj7",
+      "Cmaj7",
+      "Em7",
+      "Em7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.95,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 10.4,
+      "overallScore": 9.86
+    },
+    "id": "dna_1785993853176_9c4ey",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T05:24:13.176Z",
+    "usageCount": 3
+  },
+  {
+    "prompt": "Create a world-class Deep House track with Tribal House influences.\n\nGenre:\nDeep House / Tribal House / Vocal House\n\nTempo:\n123 BPM\n\nKey:\nA Minor\n\nStyle:\nLuxury, emotional, modern, sophisticated.\n\nFemale lead vocalist with a warm, soulful and expressive voice.\n\nOrganic tribal percussion, deep rolling bassline, atmospheric pads, elegant piano chords, subtle guitar textures, rich analog synths and spacious reverb.\n\nSmooth transitions, emotional breakdown, uplifting chorus, professional club arrangement and radio-ready mastering.\n\nInspired by the feeling of Ibiza sunsets, beach clubs, ocean breeze and premium nightlife.\n\nThe vocals must be emotional, melodic and perfectly synchronized with the instrumental.\n\nCommercial quality.\nSpotify-ready.\nFestival-ready.",
+    "genre": "House",
+    "subgenre": "Deep House",
+    "bpm": 124,
+    "keySignature": "E Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 10,
+    "chords": [
+      "Em9",
+      "Cmaj9",
+      "Am9",
+      "Bm7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.8,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 9.6,
+      "overallScore": 9.78
+    },
+    "id": "dna_1785993564735_innll",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T05:19:24.735Z",
+    "usageCount": 11
+  },
+  {
+    "prompt": "Deep House, emotional, female vocals, Ibiza sunset, warm bass, piano chords.",
+    "genre": "House",
+    "subgenre": "Deep House",
+    "bpm": 124,
+    "keySignature": "E Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 10,
+    "chords": [
+      "Em9",
+      "Cmaj9",
+      "Am9",
+      "Bm7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.8,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 9.6,
+      "overallScore": 9.78
+    },
+    "id": "dna_1785993207182_mjkdb",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T05:13:27.182Z",
+    "usageCount": 1
+  },
+  {
+    "prompt": "Deep House and Tech House with Afro House influence, 124 BPM, deep rolling bassline, punchy four-on-the-floor kick, organic tribal percussion, congas, bongos, shakers, hypnotic groove, warm piano chords, atmospheric pads and a polished club mix.",
+    "genre": "House",
+    "subgenre": "Tech House",
+    "bpm": 124,
+    "keySignature": "A Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 15,
+    "chords": [
+      "Am7",
+      "Am7",
+      "Fmaj7",
+      "Fmaj7",
+      "Cmaj7",
+      "Cmaj7",
+      "Em7",
+      "Em7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.95,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 10.4,
+      "overallScore": 9.86
+    },
+    "id": "dna_1785992887399_gawa3",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T05:08:07.399Z",
+    "usageCount": 2
+  },
+  {
+    "prompt": "Deep House and Tech House with Afro House influence, 124 BPM, deep rolling bassline, punchy four-on-the-floor kick, organic tribal percussion, congas, bongos, shakers, hypnotic groove, warm piano chords, atmospheric pads and a polished club mix.",
+    "genre": "House",
+    "subgenre": "Tech House",
+    "bpm": 124,
+    "keySignature": "A Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 15,
+    "chords": [
+      "Am7",
+      "Am7",
+      "Fmaj7",
+      "Fmaj7",
+      "Cmaj7",
+      "Cmaj7",
+      "Em7",
+      "Em7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.95,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 10.4,
+      "overallScore": 9.86
+    },
+    "id": "dna_1785992734071_h86cy",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T05:05:34.071Z",
+    "usageCount": 2
+  },
+  {
+    "prompt": "Deep House and Tech House with Afro House influence, 124 BPM, deep rolling bassline, punchy four-on-the-floor kick, organic tribal percussion, congas, bongos, shakers, hypnotic groove, warm piano chords, atmospheric pads and a polished club mix.",
+    "genre": "House",
+    "subgenre": "Tech House",
+    "bpm": 124,
+    "keySignature": "A Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 15,
+    "chords": [
+      "Am7",
+      "Am7",
+      "Fmaj7",
+      "Fmaj7",
+      "Cmaj7",
+      "Cmaj7",
+      "Em7",
+      "Em7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.95,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 10.4,
+      "overallScore": 9.86
+    },
+    "id": "dna_1785992421233_8ul6o",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T05:00:21.233Z",
+    "usageCount": 2
+  },
+  {
+    "prompt": "Deep House and Tech House with Afro House influence, 124 BPM, deep rolling bassline, punchy four-on-the-floor kick, organic tribal percussion, congas, bongos, shakers, hypnotic groove, warm piano chords, atmospheric pads and a polished club mix.",
+    "genre": "House",
+    "subgenre": "Tech House",
+    "bpm": 124,
+    "keySignature": "A Minor",
+    "structure": [
+      "Intro",
+      "Verse",
+      "Drop",
+      "Outro"
+    ],
+    "instruments": [
+      "Kick",
+      "Sub Bass",
+      "Hi-Hat",
+      "Synth Lead"
+    ],
+    "swingPct": 15,
+    "chords": [
+      "Am7",
+      "Am7",
+      "Fmaj7",
+      "Fmaj7",
+      "Cmaj7",
+      "Cmaj7",
+      "Em7",
+      "Em7"
+    ],
+    "audioQuality": {
+      "lufs": -14,
+      "truePeakDbtp": -1,
+      "stereoPhaseCorrelation": 0.95,
+      "noiseFloorDbfs": -85
+    },
+    "scores": {
+      "genreFidelity": 9.9,
+      "grooveScore": 9.95,
+      "mixingScore": 9.9,
+      "masteringScore": 10,
+      "dynamicScore": 9.3,
+      "stereoScore": 9.75,
+      "clarityScore": 9.6,
+      "creativityScore": 10.4,
+      "overallScore": 9.86
+    },
+    "id": "dna_1785992055080_ijksf",
+    "isBenchmark": true,
+    "createdAt": "2026-08-06T04:54:15.081Z",
+    "usageCount": 2
+  },
+  {
     "prompt": "Generate an international-quality electronic dance music production with premium sound design, extremely punchy kick, deep rolling bassline, crystal-clear percussion, organic groove, modern analog synthesizers, emotional harmonic progression, cinematic atmosphere, professional stereo imaging, powerful transient processing, transparent mix, radio-ready mastering, commercial loudness, festival energy, clean low-end, sparkling high frequencies, world-class electronic music production comparable to top Beatport releases, professional mixing and mastering, premium club sound.",
     "genre": "House",
     "subgenre": "Tech House",
@@ -150,7 +1875,7 @@
     "id": "dna_1785981305777_grlgw",
     "isBenchmark": true,
     "createdAt": "2026-08-06T01:55:05.777Z",
-    "usageCount": 2
+    "usageCount": 4
   },
   {
     "prompt": "house, house classic, tech house, tribal house",
@@ -354,7 +2079,7 @@
     "id": "dna_1785981007899_d38as",
     "isBenchmark": true,
     "createdAt": "2026-08-06T01:50:07.899Z",
-    "usageCount": 3
+    "usageCount": 5
   },
   {
     "prompt": "Deep House and Tech House with Afro House influence, 124 BPM, deep rolling bassline, punchy four-on-the-floor kick, organic tribal percussion, congas, bongos, shakers, hypnotic groove, warm piano chords, atmospheric pads and a polished club mix.",
