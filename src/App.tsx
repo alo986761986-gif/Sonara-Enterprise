@@ -21,6 +21,18 @@ import {
   Zap
 } from 'lucide-react';
 import { GENRE_CATALOG_NAMES, GENRE_FAMILIES } from '../shared/genreCatalog';
+import {
+  VOCAL_DELIVERY_OPTIONS,
+  VOCAL_HARMONY_OPTIONS,
+  VOCAL_MODE_OPTIONS,
+  VOCAL_REGISTER_OPTIONS,
+  VOCAL_TIMBRE_OPTIONS,
+  VocalDelivery,
+  VocalHarmony,
+  VocalMode,
+  VocalRegister,
+  VocalTimbre
+} from '../shared/vocalProfiles';
 import { useSonaraAuth } from './auth/SonaraAuth';
 import { MusicBrainDashboard } from './components/brain/MusicBrainDashboard';
 import { ProfessionalAudioEqualizer } from './components/eq/ProfessionalAudioEqualizer';
@@ -51,6 +63,8 @@ interface PromptPreview {
   optimizedPrompt?: string;
   genreLock?: Record<string, any>;
   injectedKeywords?: string[];
+  injectedVocalKeywords?: string[];
+  vocalProfile?: Record<string, any>;
   error?: string;
 }
 
@@ -112,6 +126,11 @@ export default function App() {
   const [lyrics, setLyrics] = useState('');
   const [bpm, setBpm] = useState(124);
   const [durationSec, setDurationSec] = useState(30);
+  const [vocalMode, setVocalMode] = useState<VocalMode>('instrumental');
+  const [vocalTimbre, setVocalTimbre] = useState<VocalTimbre>('natural');
+  const [vocalRegister, setVocalRegister] = useState<VocalRegister>('auto');
+  const [vocalDelivery, setVocalDelivery] = useState<VocalDelivery>('adaptive');
+  const [vocalHarmony, setVocalHarmony] = useState<VocalHarmony>('natural');
 
   const [status, setStatus] = useState<JobStatus>('IDLE');
   const [progress, setProgress] = useState(0);
@@ -176,7 +195,17 @@ export default function App() {
       const data = await fetchJson('/api/engine/prompt-preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: prompt.trim(), genre: genre.trim(), bpm })
+        body: JSON.stringify({
+          prompt: prompt.trim(),
+          genre: genre.trim(),
+          bpm,
+          lyrics,
+          vocalMode,
+          vocalTimbre,
+          vocalRegister,
+          vocalDelivery,
+          vocalHarmony
+        })
       });
       setPreview(data);
     } catch (analysisError) {
@@ -213,6 +242,11 @@ export default function App() {
           bpm,
           durationSec,
           duration: durationSec,
+          vocalMode,
+          vocalTimbre,
+          vocalRegister,
+          vocalDelivery,
+          vocalHarmony,
           engineId: 'sonara_ace_step_v12'
         })
       });
@@ -224,9 +258,12 @@ export default function App() {
       setJobId(id);
       setStatus('PROCESSING');
       setStage(
-        durationSec > 90
+        durationSec > 90 &&
+          (vocalMode === 'instrumental' || (vocalMode === 'auto' && !lyrics.trim()))
           ? 'Fast Long-Form: generating the neural core and phrase-aligned arrangement...'
-          : 'ACE-Step is rendering the neural audio...'
+          : vocalMode === 'instrumental'
+            ? 'ACE-Step is rendering the neural instrumental audio...'
+            : 'ACE-Step is rendering the complete natural vocal performance and lyric phrasing...'
       );
 
       const maximumAttempts = 2400;
@@ -290,10 +327,13 @@ export default function App() {
   };
 
   const busy = status === 'QUEUED' || status === 'PROCESSING';
+  const vocalSelectionNeedsLyrics =
+    ['female', 'male', 'duet'].includes(vocalMode) && !lyrics.trim();
   const healthTelemetry = asRecord(healthData?.telemetry);
   const systemTelemetry = asRecord(healthTelemetry.system);
   const audioTelemetry = asRecord(healthTelemetry.audioEngine);
   const genreLock = asRecord(jobMetadata?.genreLock || preview?.genreLock);
+  const vocalProfile = asRecord(jobMetadata?.vocalProduction || preview?.vocalProfile);
   const arrangement = asRecord(jobMetadata?.arrangement);
   const mastering = asRecord(jobMetadata?.dspMastering);
   const generationStrategy = asRecord(jobMetadata?.generationStrategy);
@@ -463,20 +503,83 @@ export default function App() {
                     <option value={180}>3 minutes</option>
                     <option value={240}>4 minutes</option>
                   </select>
-                  <span className="block text-[10px] text-emerald-400">{durationSec > 90 ? 'Fast Long-Form active' : 'Full neural render'}</span>
+                  <span className="block text-[10px] text-emerald-400">
+                    {durationSec > 90 && (vocalMode === 'instrumental' || (vocalMode === 'auto' && !lyrics.trim()))
+                      ? 'Fast Long-Form instrumental active'
+                      : vocalMode === 'instrumental'
+                        ? 'Full neural instrumental render'
+                        : 'Full-length neural vocal render'}
+                  </span>
                 </label>
               </div>
 
+              <section className="mt-5 rounded-2xl border border-cyan-900/60 bg-cyan-950/15 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.22em] text-cyan-400">Natural Vocal Studio</p>
+                    <h3 className="mt-1 text-sm font-black text-white">Original human-like vocal direction</h3>
+                    <p className="mt-1 text-[11px] leading-relaxed text-slate-400">Real ACE-Step controls for voice identity, timbre, range, performance and harmonies. No artist imitation or fake demo voice.</p>
+                  </div>
+                  <span className="rounded-full border border-emerald-800 bg-emerald-950/50 px-3 py-1 text-[9px] font-black text-emerald-300">NATURALISM LOCK</span>
+                </div>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                  <label className="space-y-1.5 text-xs text-slate-400">
+                    <span>Voice</span>
+                    <select value={vocalMode} onChange={event => setVocalMode(event.target.value as VocalMode)} className="w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-slate-100">
+                      {VOCAL_MODE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </label>
+
+                  <label className="space-y-1.5 text-xs text-slate-400">
+                    <span>Timbre</span>
+                    <select disabled={vocalMode === 'instrumental'} value={vocalTimbre} onChange={event => setVocalTimbre(event.target.value as VocalTimbre)} className="w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-slate-100 disabled:cursor-not-allowed disabled:opacity-40">
+                      {VOCAL_TIMBRE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </label>
+
+                  <label className="space-y-1.5 text-xs text-slate-400">
+                    <span>Register</span>
+                    <select disabled={vocalMode === 'instrumental'} value={vocalRegister} onChange={event => setVocalRegister(event.target.value as VocalRegister)} className="w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-slate-100 disabled:cursor-not-allowed disabled:opacity-40">
+                      {VOCAL_REGISTER_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </label>
+
+                  <label className="space-y-1.5 text-xs text-slate-400">
+                    <span>Performance</span>
+                    <select disabled={vocalMode === 'instrumental'} value={vocalDelivery} onChange={event => setVocalDelivery(event.target.value as VocalDelivery)} className="w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-slate-100 disabled:cursor-not-allowed disabled:opacity-40">
+                      {VOCAL_DELIVERY_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </label>
+
+                  <label className="space-y-1.5 text-xs text-slate-400">
+                    <span>Harmonies</span>
+                    <select disabled={vocalMode === 'instrumental'} value={vocalHarmony} onChange={event => setVocalHarmony(event.target.value as VocalHarmony)} className="w-full rounded-xl border border-slate-700 bg-slate-950 p-3 text-slate-100 disabled:cursor-not-allowed disabled:opacity-40">
+                      {VOCAL_HARMONY_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </label>
+                </div>
+
+                <p className={`mt-3 text-[10px] ${vocalSelectionNeedsLyrics ? 'font-bold text-amber-300' : 'text-cyan-300'}`}>
+                  {vocalSelectionNeedsLyrics
+                    ? 'Add real lyrics below before generating this vocal performance.'
+                    : vocalMode === 'instrumental' || (vocalMode === 'auto' && !lyrics.trim())
+                      ? 'Strict instrumental mode: accidental voices and vocal-like artifacts are rejected.'
+                      : 'Natural breath, stable formants, expressive dynamics, clear diction and artifact rejection are active.'}
+                </p>
+              </section>
+
               <label className="mt-4 block space-y-1.5 text-xs text-slate-400">
-                <span>Lyrics (optional)</span>
-                <textarea value={lyrics} onChange={event => setLyrics(event.target.value)} rows={4} placeholder="Leave empty for an instrumental track, or enter the real lyrics..." className="w-full rounded-2xl border border-slate-700 bg-slate-950 p-4 text-sm text-slate-100 outline-none focus:border-purple-500" />
+                <span>Real lyrics {vocalMode === 'instrumental' ? '(not used in Instrumental mode)' : '(required for the selected voice)'}</span>
+                <textarea value={lyrics} onChange={event => setLyrics(event.target.value)} rows={5} placeholder={'[verse]\nWrite natural, singable lines here...\n\n[chorus]\nAdd the real hook here...'} className={`w-full rounded-2xl border bg-slate-950 p-4 text-sm text-slate-100 outline-none focus:border-purple-500 ${vocalSelectionNeedsLyrics ? 'border-amber-500/70' : 'border-slate-700'}`} />
+                <span className="block text-[10px] text-slate-500">ACE-Step structure tags supported: [verse], [pre-chorus], [chorus], [bridge], [instrumental], [outro].</span>
               </label>
 
               <div className="mt-5 grid gap-3 sm:grid-cols-[0.38fr_0.62fr]">
                 <button type="button" onClick={() => { setActiveTab('director'); void analyzePrompt(); }} disabled={previewLoading || !prompt.trim() || !genre.trim()} className="flex items-center justify-center gap-2 rounded-xl border border-purple-500/50 bg-purple-950/40 px-5 py-3.5 font-bold text-purple-200 disabled:opacity-50">
                   <Sparkles className="h-4 w-4" /> Analyze with AI Director
                 </button>
-                <button type="button" onClick={() => void generate()} disabled={busy || !prompt.trim() || !genre.trim()} className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-cyan-600 px-6 py-3.5 font-black shadow-lg shadow-purple-950/50 disabled:cursor-not-allowed disabled:opacity-50">
+                <button type="button" onClick={() => void generate()} disabled={busy || !prompt.trim() || !genre.trim() || vocalSelectionNeedsLyrics} className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-cyan-600 px-6 py-3.5 font-black shadow-lg shadow-purple-950/50 disabled:cursor-not-allowed disabled:opacity-50">
                   {busy ? <RefreshCw className="h-5 w-5 animate-spin" /> : <Zap className="h-5 w-5" />}
                   {busy ? 'Real production in progress...' : 'Generate Real Track'}
                 </button>
@@ -532,6 +635,8 @@ export default function App() {
                 <MetricCard label="Target tempo" value={`${formatValue(genreLock.targetBpm, bpm)} BPM`} detail={formatValue(genreLock.timeSignature, 'Meter pending')} tone="cyan" />
                 <MetricCard label="Key" value={formatValue(genreLock.keySignature)} detail={`Family: ${formatValue(genreLock.familyId)}`} tone="emerald" />
                 <MetricCard label="Fidelity lock" value={formatValue(genreLock.fidelityScore)} detail={genreLock.locked ? 'Hard constraint active' : 'Awaiting analysis'} tone="amber" />
+                <MetricCard label="Vocal mode" value={formatValue(vocalProfile.effectiveMode, vocalMode)} detail={vocalProfile.isInstrumental ? 'Strict instrumental rejection' : 'Original natural voice'} tone="cyan" />
+                <MetricCard label="Vocal character" value={formatValue(vocalProfile.timbre, vocalTimbre)} detail={`${formatValue(vocalProfile.register, vocalRegister)} · ${formatValue(vocalProfile.delivery, vocalDelivery)}`} tone="emerald" />
               </div>
             </section>
 
@@ -544,6 +649,12 @@ export default function App() {
               )}
               {preview?.injectedKeywords && preview.injectedKeywords.length > 0 && (
                 <div className="mt-4 flex flex-wrap gap-2">{preview.injectedKeywords.map(keyword => <span key={keyword} className="rounded-full border border-purple-800 bg-purple-950/40 px-3 py-1 text-[10px] text-purple-200">{keyword}</span>)}</div>
+              )}
+              {preview?.injectedVocalKeywords && preview.injectedVocalKeywords.length > 0 && (
+                <div className="mt-4 rounded-2xl border border-cyan-900/50 bg-cyan-950/20 p-4">
+                  <p className="mb-3 text-[9px] font-black uppercase tracking-[0.2em] text-cyan-400">Natural vocal directives sent to ACE-Step</p>
+                  <div className="flex flex-wrap gap-2">{preview.injectedVocalKeywords.map(keyword => <span key={keyword} className="rounded-full border border-cyan-800 bg-cyan-950/40 px-3 py-1 text-[10px] text-cyan-100">{keyword}</span>)}</div>
+                </div>
               )}
               {previewError && <p className="mt-4 rounded-xl border border-red-900 bg-red-950/40 p-3 text-xs text-red-300">{previewError}</p>}
             </section>
