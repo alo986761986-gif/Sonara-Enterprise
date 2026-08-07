@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card } from '../../ui/Card';
+import { Card } from '../ui/Card';
 
 export const MarketplaceAnalytics: React.FC = () => (
   <Card className="p-4">

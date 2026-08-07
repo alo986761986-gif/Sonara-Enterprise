@@ -9,6 +9,8 @@ import { INITIAL_GLOBAL_ARCS, EarthArc } from './ArcManager';
 import { CITY_HEATMAP_POINTS, HeatmapPoint } from './HeatmapManager';
 import { GlobeRingData } from './HeatLayerManager';
 
+const OPTIONAL_EARTH_TEXTURES = EARTH_TEXTURES as Partial<Record<'dayMap' | 'bumpMap' | 'cloudsMap', string>>;
+
 export interface EarthSceneOptions {
   container: HTMLElement;
   onMarkerClick?: (marker: EarthMarker) => void;
@@ -38,6 +40,8 @@ export class EarthScene {
 
     const globeObj = this.globeInstance.scene();
     const cloudMesh = globeObj.getObjectByName('cloudMesh');
+    const baseEarthTexture = OPTIONAL_EARTH_TEXTURES.dayMap ?? null;
+    const baseBumpTexture = OPTIONAL_EARTH_TEXTURES.bumpMap ?? null;
 
     if (mode === 'network') {
       // Hide surface texture, show dark neural space sphere
@@ -51,10 +55,10 @@ export class EarthScene {
 
       if (cloudMesh) cloudMesh.visible = false;
     } else if (mode === 'hybrid') {
-      // Night map earth with floating arcs above
+      // Earth surface with atmosphere and floating arcs above
       this.globeInstance
-        .globeImageUrl(EARTH_TEXTURES.nightMap)
-        .bumpImageUrl(EARTH_TEXTURES.bumpMap)
+        .globeImageUrl(baseEarthTexture)
+        .bumpImageUrl(baseBumpTexture)
         .showAtmosphere(true)
         .atmosphereColor('#38bdf8')
         .atmosphereAltitude(0.25)
@@ -67,8 +71,8 @@ export class EarthScene {
     } else {
       // Standard full Earth view
       this.globeInstance
-        .globeImageUrl(EARTH_TEXTURES.dayMap)
-        .bumpImageUrl(EARTH_TEXTURES.bumpMap)
+        .globeImageUrl(baseEarthTexture)
+        .bumpImageUrl(baseBumpTexture)
         .showAtmosphere(true)
         .atmosphereColor('#3a88ff')
         .atmosphereAltitude(0.2)
@@ -110,13 +114,16 @@ export class EarthScene {
   private initGlobeGL(): void {
     const width = this.container.clientWidth || window.innerWidth;
     const height = this.container.clientHeight || window.innerHeight;
+    const baseEarthTexture = OPTIONAL_EARTH_TEXTURES.dayMap ?? null;
+    const baseBumpTexture = OPTIONAL_EARTH_TEXTURES.bumpMap ?? null;
+    const baseCloudsTexture = OPTIONAL_EARTH_TEXTURES.cloudsMap ?? null;
 
     // Instantiate Globe.gl 3D WebGL Earth
     this.globeInstance = Globe()(this.container)
       .width(width)
       .height(height)
-      .globeImageUrl(EARTH_TEXTURES.dayMap)
-      .bumpImageUrl(EARTH_TEXTURES.bumpMap)
+      .globeImageUrl(baseEarthTexture)
+      .bumpImageUrl(baseBumpTexture)
       .showAtmosphere(true)
       .atmosphereColor('#3a88ff')
       .atmosphereAltitude(0.2)
@@ -126,17 +133,22 @@ export class EarthScene {
     const globeObj = this.globeInstance.scene();
 
     // Custom Cloud Layer Mesh
-    const cloudGeo = new THREE.SphereGeometry(this.globeInstance.getGlobeRadius() * 1.012, 75, 75);
-    const cloudTex = new THREE.TextureLoader().load(EARTH_TEXTURES.cloudsMap);
-    const cloudMat = new THREE.MeshPhongMaterial({
-      map: cloudTex,
-      transparent: true,
-      opacity: 0.38,
-      blending: THREE.AdditiveBlending,
-    });
-    const cloudMesh = new THREE.Mesh(cloudGeo, cloudMat);
-    cloudMesh.name = 'cloudMesh';
-    globeObj.add(cloudMesh);
+    const cloudMesh = baseCloudsTexture
+      ? (() => {
+          const cloudGeo = new THREE.SphereGeometry(this.globeInstance.getGlobeRadius() * 1.012, 75, 75);
+          const cloudTex = new THREE.TextureLoader().load(baseCloudsTexture);
+          const cloudMat = new THREE.MeshPhongMaterial({
+            map: cloudTex,
+            transparent: true,
+            opacity: 0.38,
+            blending: THREE.AdditiveBlending,
+          });
+          const mesh = new THREE.Mesh(cloudGeo, cloudMat);
+          mesh.name = 'cloudMesh';
+          globeObj.add(mesh);
+          return mesh;
+        })()
+      : null;
 
     // Directional Sunlight
     const sunLight = new THREE.DirectionalLight(0xffffff, 1.4);
@@ -354,6 +366,7 @@ export class EarthScene {
   private initThreeJSEarth(): void {
     const width = this.container.clientWidth || window.innerWidth;
     const height = this.container.clientHeight || window.innerHeight;
+    const baseEarthTexture = OPTIONAL_EARTH_TEXTURES.dayMap ?? null;
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#02050e');
@@ -368,7 +381,7 @@ export class EarthScene {
 
     // Earth Sphere
     const geo = new THREE.SphereGeometry(100, 64, 64);
-    const tex = new THREE.TextureLoader().load(EARTH_TEXTURES.dayMap);
+    const tex = new THREE.TextureLoader().load(baseEarthTexture ?? undefined);
     const mat = new THREE.MeshPhongMaterial({ map: tex });
     const earthMesh = new THREE.Mesh(geo, mat);
     scene.add(earthMesh);

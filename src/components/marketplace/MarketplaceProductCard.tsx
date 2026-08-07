@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Star, Download, Heart, Play, CheckCircle2 } from 'lucide-react';
-import { Card } from '../core/Card';
+import { Card } from '../ui/Card';
 import { motion } from 'motion/react';
 
 export interface MarketplaceProductCardProps {
