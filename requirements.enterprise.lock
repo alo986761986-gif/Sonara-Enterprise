@@ -33,6 +33,7 @@ resampy==0.4.3
 
 # --- Optional Plugin Extensions (Non-Blocking) ---
 audiocraft==1.3.0
+demucs==4.0.1
 julius==0.2.7
 einops==0.8.0
 

@@ -1,3 +1,13 @@
+import {
+  normalizeGenreName,
+  resolveGenreSelection,
+  resolveHouseStyleProfile
+} from '../../../shared/genreCatalog';
+import {
+  genreProductionPromptKeywords,
+  resolveGenreProductionBlueprint
+} from '../../../shared/genreProductionBlueprints';
+
 export interface RhythmPattern {
   kick: number[];
   snare: number[];
@@ -19,6 +29,16 @@ export interface PatternGenerationResult {
     velocityOffsets: number[];
     timingOffsetsMs: number[];
   };
+  grid: {
+    timeSignature: string;
+    beatsPerBar: number;
+    stepsPerBar: 16;
+    subdivision: '1/16';
+    phraseBars: 4;
+    enforceStepGrid: boolean;
+  };
+  promptDirective: string;
+  styleDirectives: string[];
   seed: number;
 }
 
@@ -244,8 +264,18 @@ export class PatternGeneratorService {
   };
 
   public static generatePattern(genre: string, seed: number = Date.now()): PatternGenerationResult {
-    const key = genre.toLowerCase();
-    const template = this.GENRE_TEMPLATES[key] || this.GENRE_TEMPLATES['melodic house'];
+    const productionBlueprint = resolveGenreProductionBlueprint(genre);
+    const key = this.resolveTemplateKey(genre);
+    const template = this.GENRE_TEMPLATES[key];
+    const normalizedGenre = normalizeGenreName(genre);
+    const houseStyle = resolveHouseStyleProfile(genre);
+    const hasNativeTemplate = Boolean(
+      this.GENRE_TEMPLATES[normalizedGenre] || houseStyle
+    );
+    const beatsPerBar = Math.max(
+      1,
+      Number.parseInt(productionBlueprint.timeSignature.split('/')[0], 10) || 4
+    );
 
     // Deterministic pseudo-random number generator for seed consistency
     const pseudoRandom = (step: number) => {
@@ -273,11 +303,11 @@ export class PatternGeneratorService {
       if (bass[i] > 0) bass[i] = Math.max(0.3, Math.min(1.0, Number((bass[i] + vOffset).toFixed(2))));
     }
 
-    return {
-      genre: key,
-      subgenre: template.chordProgression[0] ? `${genre} V12 Professional` : genre,
-      bpm: template.bpm,
-      keySignature: template.keySignature,
+    const result: PatternGenerationResult = {
+      genre: productionBlueprint.familyName,
+      subgenre: productionBlueprint.canonicalName,
+      bpm: productionBlueprint.recommendedBpm,
+      keySignature: productionBlueprint.keySignature,
       swingPct: template.swingPct,
       rhythm: {
         kick,
@@ -292,7 +322,115 @@ export class PatternGeneratorService {
         velocityOffsets,
         timingOffsetsMs
       },
+      grid: {
+        timeSignature: productionBlueprint.timeSignature,
+        beatsPerBar,
+        stepsPerBar: 16,
+        subdivision: '1/16',
+        phraseBars: 4,
+        enforceStepGrid: hasNativeTemplate && productionBlueprint.timeSignature === '4/4'
+      },
+      promptDirective: '',
+      styleDirectives: productionBlueprint.isCatalogEntry
+        ? genreProductionPromptKeywords(productionBlueprint)
+        : [],
       seed
     };
+
+    result.promptDirective = this.toPromptDirective(result);
+    return result;
+  }
+
+  private static resolveTemplateKey(genre: string): string {
+    const normalized = String(genre || '').trim().toLowerCase();
+    if (this.GENRE_TEMPLATES[normalized]) return normalized;
+
+    const houseStyle = resolveHouseStyleProfile(genre);
+    if (houseStyle) return houseStyle.patternArchetype;
+
+    const aliases: Array<[string[], string]> = [
+      [['neurofunk', 'liquid dnb', 'drum and bass', 'drum & bass', 'dnb'], 'drum & bass'],
+      [['boom bap', 'hip-hop', 'hip hop', 'rap'], 'hip hop'],
+      [['chillhop', 'lofi', 'lo-fi'], 'lo-fi'],
+      [['melodic house'], 'melodic house'],
+      [['progressive house'], 'progressive house'],
+      [['organic house'], 'organic house'],
+      [['tech house'], 'tech house'],
+      [['deep house'], 'deep house'],
+      [['afro house'], 'afro house'],
+      [['peak time techno', 'melodic techno', 'techno'], 'techno'],
+      [['uplifting trance', 'trance'], 'trance'],
+      [['modern trap', 'trap'], 'trap'],
+      [['drone ambient', 'ambient'], 'ambient'],
+      [['orchestral cinematic', 'cinematic', 'film score'], 'cinematic'],
+      [['pop edm', 'edm pop', 'dance pop', 'edm'], 'house'],
+      [['house'], 'house']
+    ];
+
+    const aliasMatch = aliases.find(([terms]) =>
+      terms.some(term => normalized.includes(term))
+    )?.[1];
+    if (aliasMatch) return aliasMatch;
+
+    const familyFallbacks: Record<string, string> = {
+      house: 'house',
+      techno: 'techno',
+      trance: 'trance',
+      bass_breaks: 'drum & bass',
+      garage: 'house',
+      hard_dance: 'techno',
+      electronic: 'melodic house',
+      pop: 'house',
+      hip_hop: 'hip hop',
+      rnb_soul_funk: 'hip hop',
+      rock: 'cinematic',
+      metal: 'cinematic',
+      punk: 'cinematic',
+      jazz_blues: 'hip hop',
+      classical_cinematic: 'cinematic',
+      folk_country: 'cinematic',
+      reggae: 'hip hop',
+      latin: 'house',
+      african: 'afro house',
+      global: 'cinematic'
+    };
+    const selection = resolveGenreSelection(genre);
+    return familyFallbacks[selection.familyId] || 'melodic house';
+  }
+
+  public static toPromptDirective(pattern: PatternGenerationResult): string {
+    const activeSteps = (values: number[]) => values
+      .map((velocity, index) => velocity > 0 ? `${index + 1}:${velocity.toFixed(2)}` : null)
+      .filter((value): value is string => Boolean(value))
+      .join(',');
+
+    const identity = `GENRE_IDENTITY: exact ${pattern.subgenre}, family ${pattern.genre}; never substitute or merge the selected genre`;
+
+    if (!pattern.grid.enforceStepGrid) {
+      return [
+        identity,
+        ...(pattern.styleDirectives.length > 0
+          ? [`GENRE_STYLE_BLUEPRINT: ${pattern.styleDirectives.join('; ')}`]
+          : []),
+        `METER: ${pattern.grid.timeSignature}, ${pattern.bpm} BPM`,
+        `GENRE_GROOVE: use authentic ${pattern.subgenre} rhythm, accents, instrumentation and phrasing`,
+        'GROOVE_RULES: do not impose a House, Techno or Hip Hop grid unless it belongs to the selected genre; preserve human feel where stylistically correct'
+      ].join(' | ');
+    }
+
+    return [
+      identity,
+      ...(pattern.styleDirectives.length > 0
+        ? [`GENRE_STYLE_BLUEPRINT: ${pattern.styleDirectives.join('; ')}`]
+        : []),
+      `GROOVE_GRID: ${pattern.grid.timeSignature}, ${pattern.grid.stepsPerBar} steps per bar (${pattern.grid.subdivision})`,
+      `KICK_STEPS[${activeSteps(pattern.rhythm.kick)}]`,
+      `SNARE_STEPS[${activeSteps(pattern.rhythm.snare)}]`,
+      `HIHAT_STEPS[${activeSteps(pattern.rhythm.hihat)}]`,
+      `PERCUSSION_STEPS[${activeSteps(pattern.rhythm.percussion)}]`,
+      `BASS_STEPS[${activeSteps(pattern.rhythm.bass)}]`,
+      `SWING: ${pattern.swingPct.toFixed(1)} percent on off-grid sixteenth notes`,
+      'GROOVE_RULES: preserve downbeats, keep kick and bass phase-locked, use controlled humanization only on hats and percussion'
+    ].join(' | ');
   }
 }

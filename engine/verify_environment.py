@@ -29,6 +29,7 @@ def audit_environment():
         "torchvision",
         "transformers",
         "audiocraft",
+        "demucs",
         "encodec",
         "sentencepiece",
         "huggingface_hub",

@@ -396,104 +396,201 @@ export function calculateBiquadCoeffs(
 
 export class ParametricEqService {
   /**
-   * Applies cascaded 26-band Biquad Equalizer to a 16-bit PCM WAV buffer.
+   * Applies a real cascaded parametric EQ to a stereo PCM16 WAV buffer.
+   * Input/output gain are included in both the audible preview and exported file.
    */
   public static processWavBuffer(
     inputBuffer: Buffer,
-    bands: EqBandConfig[]
+    bands: EqBandConfig[],
+    options: { inputGainDb?: number; outputGainDb?: number } = {}
   ): EqProcessingResult {
-    if (!inputBuffer || inputBuffer.length < 44 || inputBuffer.toString('utf8', 0, 4) !== 'RIFF') {
-      return {
-        processedBuffer: inputBuffer,
-        metrics: { lufs: -14.0, truePeakDbtp: -1.0, peakL: 0.8, peakR: 0.8, stereoPhaseCorrelation: 0.95, activeBandsCount: 0 }
-      };
+    if (
+      !inputBuffer ||
+      inputBuffer.length < 44 ||
+      inputBuffer.toString('ascii', 0, 4) !== 'RIFF' ||
+      inputBuffer.toString('ascii', 8, 12) !== 'WAVE'
+    ) {
+      throw new Error('EQ_INPUT_INVALID: expected a valid RIFF/WAVE file.');
     }
 
-    const numChannels = inputBuffer.readUInt16LE(22);
-    const sampleRate = inputBuffer.readUInt32LE(24);
-    const bitsPerSample = inputBuffer.readUInt16LE(34);
-    const dataOffset = 44;
+    let audioFormat = 0;
+    let numChannels = 0;
+    let sampleRate = 0;
+    let bitsPerSample = 0;
+    let dataOffset = -1;
+    let dataSize = 0;
+    let cursor = 12;
 
-    if (bitsPerSample !== 16 || numChannels !== 2) {
-      return {
-        processedBuffer: inputBuffer,
-        metrics: { lufs: -14.0, truePeakDbtp: -1.0, peakL: 0.8, peakR: 0.8, stereoPhaseCorrelation: 0.95, activeBandsCount: 0 }
-      };
+    while (cursor + 8 <= inputBuffer.length) {
+      const chunkId = inputBuffer.toString('ascii', cursor, cursor + 4);
+      const chunkSize = inputBuffer.readUInt32LE(cursor + 4);
+      const chunkDataOffset = cursor + 8;
+
+      if (chunkDataOffset + chunkSize > inputBuffer.length) {
+        throw new Error(`EQ_INPUT_INVALID: malformed WAV chunk ${chunkId}.`);
+      }
+
+      if (chunkId === 'fmt ' && chunkSize >= 16) {
+        audioFormat = inputBuffer.readUInt16LE(chunkDataOffset);
+        numChannels = inputBuffer.readUInt16LE(chunkDataOffset + 2);
+        sampleRate = inputBuffer.readUInt32LE(chunkDataOffset + 4);
+        bitsPerSample = inputBuffer.readUInt16LE(chunkDataOffset + 14);
+      } else if (chunkId === 'data') {
+        dataOffset = chunkDataOffset;
+        dataSize = chunkSize;
+        break;
+      }
+
+      cursor = chunkDataOffset + chunkSize + (chunkSize % 2);
     }
 
-    const totalSamples = Math.floor((inputBuffer.length - dataOffset) / 4);
+    if (
+      audioFormat !== 1 ||
+      numChannels !== 2 ||
+      bitsPerSample !== 16 ||
+      sampleRate < 8000 ||
+      dataOffset < 0 ||
+      dataSize < 4
+    ) {
+      throw new Error(
+        `EQ_INPUT_UNSUPPORTED: requires PCM16 stereo WAV; received format=${audioFormat}, channels=${numChannels}, bits=${bitsPerSample}, sampleRate=${sampleRate}.`
+      );
+    }
+
+    const readableDataSize = Math.min(dataSize, inputBuffer.length - dataOffset);
+    const totalSamples = Math.floor(readableDataSize / 4);
+    if (totalSamples <= 0) {
+      throw new Error('EQ_INPUT_INVALID: WAV data chunk is empty.');
+    }
+
+    const clampDb = (value: unknown) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? Math.max(-24, Math.min(24, parsed)) : 0;
+    };
+    const inputGainDb = clampDb(options.inputGainDb);
+    const outputGainDb = clampDb(options.outputGainDb);
+    const inputGainLinear = Math.pow(10, inputGainDb / 20);
+    const outputGainLinear = Math.pow(10, outputGainDb / 20);
+
     const samplesL = new Float32Array(totalSamples);
     const samplesR = new Float32Array(totalSamples);
 
-    for (let i = 0; i < totalSamples; i++) {
-      const idx = dataOffset + i * 4;
-      samplesL[i] = inputBuffer.readInt16LE(idx) / 32768.0;
-      samplesR[i] = inputBuffer.readInt16LE(idx + 2) / 32768.0;
+    for (let index = 0; index < totalSamples; index += 1) {
+      const byteOffset = dataOffset + index * 4;
+      samplesL[index] = (inputBuffer.readInt16LE(byteOffset) / 32768) * inputGainLinear;
+      samplesR[index] = (inputBuffer.readInt16LE(byteOffset + 2) / 32768) * inputGainLinear;
     }
 
-    // Active enabled bands
-    const activeBands = bands.filter(b => b.enabled && !b.bypass && (b.gain !== 0 || b.type === 'highpass' || b.type === 'lowpass' || b.type === 'notch'));
+    const safeBands = Array.isArray(bands) ? bands : [];
+    const hasSolo = safeBands.some(band => Boolean(band.solo));
+    const activeBands = safeBands
+      .filter(band =>
+        band.enabled &&
+        !band.bypass &&
+        (!hasSolo || Boolean(band.solo)) &&
+        (
+          Number(band.gain) !== 0 ||
+          band.type === 'highpass' ||
+          band.type === 'lowpass' ||
+          band.type === 'notch'
+        )
+      )
+      .map(band => ({
+        ...band,
+        freq: Math.max(10, Math.min(sampleRate / 2 - 10, Number(band.freq) || 1000)),
+        gain: Math.max(-24, Math.min(24, Number(band.gain) || 0)),
+        q: Math.max(0.1, Math.min(18, Number(band.q) || 1))
+      }));
 
-    // Apply each active band filter sequentially (Cascaded Direct Form II)
-    for (const b of activeBands) {
-      const coeffs = calculateBiquadCoeffs(b.type, b.freq, b.gain, b.q, sampleRate);
-      
-      let x1_l = 0, x2_l = 0, y1_l = 0, y2_l = 0;
-      let x1_r = 0, x2_r = 0, y1_r = 0, y2_r = 0;
+    for (const band of activeBands) {
+      const coefficients = calculateBiquadCoeffs(
+        band.type,
+        band.freq,
+        band.gain,
+        band.q,
+        sampleRate
+      );
 
-      for (let i = 0; i < totalSamples; i++) {
-        // Left Channel
-        const x_l = samplesL[i];
-        const y_l = coeffs.b0 * x_l + coeffs.b1 * x1_l + coeffs.b2 * x2_l - coeffs.a1 * y1_l - coeffs.a2 * y2_l;
-        x2_l = x1_l; x1_l = x_l; y2_l = y1_l; y1_l = y_l;
-        samplesL[i] = y_l;
+      let x1L = 0;
+      let x2L = 0;
+      let y1L = 0;
+      let y2L = 0;
+      let x1R = 0;
+      let x2R = 0;
+      let y1R = 0;
+      let y2R = 0;
 
-        // Right Channel
-        const x_r = samplesR[i];
-        const y_r = coeffs.b0 * x_r + coeffs.b1 * x1_r + coeffs.b2 * x2_r - coeffs.a1 * y1_r - coeffs.a2 * y2_r;
-        x2_r = x1_r; x1_r = x_r; y2_r = y1_r; y1_r = y_r;
-        samplesR[i] = y_r;
+      for (let index = 0; index < totalSamples; index += 1) {
+        const inputL = samplesL[index];
+        const outputL =
+          coefficients.b0 * inputL +
+          coefficients.b1 * x1L +
+          coefficients.b2 * x2L -
+          coefficients.a1 * y1L -
+          coefficients.a2 * y2L;
+        x2L = x1L;
+        x1L = inputL;
+        y2L = y1L;
+        y1L = outputL;
+        samplesL[index] = outputL;
+
+        const inputR = samplesR[index];
+        const outputR =
+          coefficients.b0 * inputR +
+          coefficients.b1 * x1R +
+          coefficients.b2 * x2R -
+          coefficients.a1 * y1R -
+          coefficients.a2 * y2R;
+        x2R = x1R;
+        x1R = inputR;
+        y2R = y1R;
+        y1R = outputR;
+        samplesR[index] = outputR;
       }
     }
 
-    // Output WAV construction & measurement
-    const outBuffer = Buffer.alloc(inputBuffer.length);
-    inputBuffer.copy(outBuffer, 0, 0, dataOffset);
+    const outputBuffer = Buffer.from(inputBuffer);
+    let maxL = 0;
+    let maxR = 0;
+    let sumSquares = 0;
+    let dotProduct = 0;
+    let normL = 0;
+    let normR = 0;
 
-    let maxL = 0, maxR = 0;
-    let sumSq = 0;
-    let dotProd = 0, normL = 0, normR = 0;
+    for (let index = 0; index < totalSamples; index += 1) {
+      const processedL = samplesL[index] * outputGainLinear;
+      const processedR = samplesR[index] * outputGainLinear;
+      const sampleL = Math.max(-1, Math.min(1, processedL));
+      const sampleR = Math.max(-1, Math.min(1, processedR));
 
-    for (let i = 0; i < totalSamples; i++) {
-      let sl = Math.max(-1.0, Math.min(1.0, samplesL[i]));
-      let sr = Math.max(-1.0, Math.min(1.0, samplesR[i]));
+      maxL = Math.max(maxL, Math.abs(sampleL));
+      maxR = Math.max(maxR, Math.abs(sampleR));
+      sumSquares += (sampleL * sampleL + sampleR * sampleR) * 0.5;
+      dotProduct += sampleL * sampleR;
+      normL += sampleL * sampleL;
+      normR += sampleR * sampleR;
 
-      if (Math.abs(sl) > maxL) maxL = Math.abs(sl);
-      if (Math.abs(sr) > maxR) maxR = Math.abs(sr);
-
-      sumSq += (sl * sl + sr * sr) * 0.5;
-      dotProd += sl * sr;
-      normL += sl * sl;
-      normR += sr * sr;
-
-      const idx = dataOffset + i * 4;
-      outBuffer.writeInt16LE(Math.round(sl * 32767), idx);
-      outBuffer.writeInt16LE(Math.round(sr * 32767), idx + 2);
+      const byteOffset = dataOffset + index * 4;
+      outputBuffer.writeInt16LE(Math.round(sampleL * 32767), byteOffset);
+      outputBuffer.writeInt16LE(Math.round(sampleR * 32767), byteOffset + 2);
     }
 
-    const rms = Math.sqrt(sumSq / Math.max(1, totalSamples));
-    const lufs = Number((20 * Math.log10(rms + 1e-9)).toFixed(1));
+    const rms = Math.sqrt(sumSquares / Math.max(1, totalSamples));
+    const loudness = Number((20 * Math.log10(rms + 1e-9)).toFixed(1));
     const truePeak = Number((20 * Math.log10(Math.max(maxL, maxR) + 1e-9)).toFixed(2));
-    const phaseCorr = (normL * normR > 0) ? Number((dotProd / Math.sqrt(normL * normR)).toFixed(3)) : 0.95;
+    const phaseCorrelation =
+      normL > 0 && normR > 0
+        ? Number((dotProduct / Math.sqrt(normL * normR)).toFixed(3))
+        : 0;
 
     return {
-      processedBuffer: outBuffer,
+      processedBuffer: outputBuffer,
       metrics: {
-        lufs,
+        lufs: loudness,
         truePeakDbtp: truePeak,
-        peakL: Number(maxL.toFixed(2)),
-        peakR: Number(maxR.toFixed(2)),
-        stereoPhaseCorrelation: phaseCorr,
+        peakL: Number(maxL.toFixed(3)),
+        peakR: Number(maxR.toFixed(3)),
+        stereoPhaseCorrelation: phaseCorrelation,
         activeBandsCount: activeBands.length
       }
     };

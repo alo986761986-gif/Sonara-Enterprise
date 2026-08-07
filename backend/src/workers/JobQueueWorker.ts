@@ -7,6 +7,15 @@ import { MusicDnaLibraryService } from '../services/MusicDnaLibraryService';
 import { PatternGeneratorService } from '../services/PatternGeneratorService';
 import { SonaraDirectorService } from '../services/SonaraDirectorService';
 import { ContinuousLearningService } from '../services/ContinuousLearningService';
+import { SongPlannerService } from '../services/SongPlannerService';
+import { MixingMasteringEngineService } from '../services/MixingMasteringEngineService';
+import { StemSeparationService } from '../services/StemSeparationService';
+import { AudioDeliveryFormatService } from '../services/AudioDeliveryFormatService';
+import { LongFormAudioExpansionService } from '../services/LongFormAudioExpansionService';
+import {
+  prepareLyricsForAceStep,
+  VocalProductionRequest
+} from '../../../shared/vocalProfiles';
 
 export interface GenerationPayload {
   prompt: string;
@@ -16,6 +25,11 @@ export interface GenerationPayload {
   title: string;
   bpm?: number;
   duration?: number;
+  vocalMode?: string;
+  vocalTimbre?: string;
+  vocalRegister?: string;
+  vocalDelivery?: string;
+  vocalHarmony?: string;
 }
 
 export class JobQueueWorker {
@@ -91,9 +105,32 @@ export class JobQueueWorker {
         metadata: { currentStage: 'Sonara Prompt Engine: Analyzing prompt & Genre Lock...' }
       });
 
-      const promptOptimization = await AceStepPromptEngine.generatePrompt(userPrompt, userGenre);
+      const vocalRequest: VocalProductionRequest = {
+        mode: payload.vocalMode,
+        timbre: payload.vocalTimbre,
+        register: payload.vocalRegister,
+        delivery: payload.vocalDelivery,
+        harmony: payload.vocalHarmony,
+        lyricsPresent: Boolean(String(payload.lyrics || '').trim())
+      };
+      const promptOptimization = await AceStepPromptEngine.generatePrompt(
+        userPrompt,
+        userGenre,
+        payload.bpm,
+        vocalRequest
+      );
       const genreProfile = promptOptimization.genreProfile;
       const genreLock = promptOptimization.genreLock;
+      const vocalProfile = promptOptimization.vocalProfile;
+      if (vocalProfile.requiresLyrics && !String(payload.lyrics || '').trim()) {
+        throw new Error(
+          'VOCAL_LYRICS_REQUIRED: add real lyrics or choose Instrumental.'
+        );
+      }
+      const effectiveLyrics = prepareLyricsForAceStep(
+        payload.lyrics || '',
+        vocalProfile
+      );
       const targetBpm = payload.bpm || genreLock.targetBpm || 124;
       const targetGenre = genreLock.subgenre || genreLock.primaryGenre || 'Melodic House';
 
@@ -111,24 +148,122 @@ export class JobQueueWorker {
         metadata: { currentStage: 'Pattern Generator: Synthesizing genre-authentic groove & grid...' }
       });
 
-      const patternResult = PatternGeneratorService.generatePattern(targetGenre);
+      const patternSeed = this.hashToSeed(jobId);
+      const patternResult = PatternGeneratorService.generatePattern(targetGenre, patternSeed);
+      const songPlan = SongPlannerService.planSong(
+        {
+          genre: targetGenre,
+          bpm: targetBpm,
+          timeSignature: genreProfile.timeSignature || '4/4'
+        },
+        durationSec
+      );
+
+      const fastLongFormEnabled = process.env.SONARA_FAST_LONG_FORM !== 'false';
+      const fastLongFormVocalsEnabled =
+        process.env.SONARA_FAST_LONG_FORM_VOCALS === 'true';
+      const useFastLongForm =
+        fastLongFormEnabled &&
+        songPlan.alignedDurationSec > 90 &&
+        (vocalProfile.isInstrumental || fastLongFormVocalsEnabled);
+      const configuredCoreDurationSec = Number(
+        process.env.SONARA_LONG_FORM_CORE_SEC || 60
+      );
+      const coreDurationSec = Math.max(
+        30,
+        Math.min(90, Number.isFinite(configuredCoreDurationSec) ? configuredCoreDurationSec : 60)
+      );
+      const neuralPlan = useFastLongForm
+        ? SongPlannerService.planSong(
+            {
+              genre: targetGenre,
+              bpm: targetBpm,
+              timeSignature: genreProfile.timeSignature || '4/4'
+            },
+            coreDurationSec
+          )
+        : songPlan;
+
+      const productionPrompt = [
+        promptOptimization.optimizedPrompt,
+        patternResult.promptDirective,
+        neuralPlan.promptDirective,
+        useFastLongForm
+          ? 'FAST_LONG_FORM_CORE: create a complete, loopable production core with a clean phrase-boundary ending; preserve groove, harmony and instrumentation for seamless long-form expansion.'
+          : ''
+      ].filter(Boolean).join(' | ');
+
+      // Instrumentals can reuse a phrase-aligned neural core. Vocal songs use
+      // full-length diffusion by default so lyrics, breaths and phrasing are
+      // not duplicated mechanically. The old shortcut can be explicitly
+      // re-enabled for vocals with SONARA_FAST_LONG_FORM_VOCALS=true.
+      const generationTimeoutMs = Math.min(
+        1_800_000,
+        Math.max(300_000, Math.ceil(neuralPlan.alignedDurationSec * 7_500))
+      );
 
       // PIPELINE STEP 4: Rendering Engine (ACE-Step Neural Audio / Python Inference)
       JobManager.updateJobStatus(jobId, 'PROCESSING', {
         progress: 60,
-        metadata: { currentStage: 'ACE-Step Rendering Engine: Generating neural audio waveform...' }
+        metadata: {
+          currentStage: useFastLongForm
+            ? `ACE-Step Fast Long-Form: Generating the neural core with ${vocalProfile.isInstrumental ? 'strict instrumental control' : 'natural vocal performance'}...`
+            : `ACE-Step Rendering Engine: Generating waveform with ${vocalProfile.isInstrumental ? 'strict instrumental control' : 'natural vocal performance'}...`
+        }
       });
 
       const execResult = await MusicGenerationService.executePythonEngine(
-        promptOptimization.optimizedPrompt,
+        productionPrompt,
         targetGenre,
         payload.mood || 'Energetic',
-        payload.lyrics || '',
+        effectiveLyrics,
         payload.title || 'Sonara AI Track',
-        30000,
-        durationSec,
-        targetBpm
+        generationTimeoutMs,
+        neuralPlan.alignedDurationSec,
+        targetBpm,
+        {
+          totalBars: neuralPlan.totalBars,
+          structurePrompt: neuralPlan.promptDirective,
+          groovePrompt: patternResult.promptDirective,
+          seed: patternSeed,
+          inferStep: useFastLongForm ? 36 : 60,
+          overlappedDecode: useFastLongForm,
+          beatsPerBar: neuralPlan.beatsPerBar,
+          timeSignature: neuralPlan.timeSignature,
+          vocalProfile,
+          vocalPrompt: promptOptimization.injectedVocalKeywords.join(', ')
+        }
       );
+
+      const rawAudioBuffer = execResult.audioBuffer;
+      if (!rawAudioBuffer || !MusicGenerationService.validateAudioBuffer(rawAudioBuffer)) {
+        const reason = execResult.metadata?.error || 'Neural audio engine unavailable (ENGINE_NOT_AVAILABLE)';
+        throw new Error(`ENGINE_NOT_AVAILABLE: ${reason}`);
+      }
+
+      let productionAudioBuffer = rawAudioBuffer;
+      let longFormExpansion: ReturnType<typeof LongFormAudioExpansionService.expand>['report'] | null = null;
+
+      if (useFastLongForm) {
+        JobManager.updateJobStatus(jobId, 'PROCESSING', {
+          progress: 72,
+          metadata: {
+            currentStage: 'Fast Long-Form Arranger: Expanding sections on phrase boundaries...'
+          }
+        });
+
+        const expansionResult = LongFormAudioExpansionService.expand(
+          rawAudioBuffer,
+          songPlan.alignedDurationSec,
+          songPlan.sections.map(section => ({
+            startSec: section.startSec,
+            durationSec: section.durationSec,
+            energy: section.energy
+          }))
+        );
+        productionAudioBuffer = expansionResult.processedBuffer;
+        longFormExpansion = expansionResult.report;
+      }
 
       // PIPELINE STEP 5: DSP Engine, Mixing & Mastering (14-Stage DSP)
       JobManager.updateJobStatus(jobId, 'PROCESSING', {
@@ -136,10 +271,16 @@ export class JobQueueWorker {
         metadata: { currentStage: '14-Stage DSP Engine: Mixing & Mastering (-14.0 LUFS, -1.0 dBTP)...' }
       });
 
-      const audioBuffer = execResult.audioBuffer;
-      if (!audioBuffer) {
-        const reason = execResult.metadata?.error || 'Neural audio engine unavailable (ENGINE_NOT_AVAILABLE)';
-        throw new Error(`ENGINE_NOT_AVAILABLE: ${reason}`);
+      const masteringResult = MixingMasteringEngineService.processBuffer(
+        productionAudioBuffer,
+        -14.0,
+        -1.0,
+        targetBpm
+      );
+      if (!masteringResult.report.inputSupported) {
+        throw new Error(
+          `MASTERING_FAILED: ${masteringResult.report.bypassReason || 'unsupported neural WAV format'}`
+        );
       }
 
       // Store in storage directory
@@ -148,13 +289,35 @@ export class JobQueueWorker {
 
       const audioFileName = `musicgen-${jobId}.wav`;
       const finalAudioPath = path.join(storageAudioDir, audioFileName);
-      fs.writeFileSync(finalAudioPath, audioBuffer);
+      const deliveryFormat = await AudioDeliveryFormatService.writeProductionWav(
+        masteringResult.processedBuffer,
+        finalAudioPath
+      );
 
       const audioUrl = `/storage/audio/${audioFileName}`;
 
-      // PIPELINE STEP 6: Quality Audit & Music Brain Continuous Learning
+      // PIPELINE STEP 6: Real GPU Neural Stem Separation (no synthetic stems)
       JobManager.updateJobStatus(jobId, 'PROCESSING', {
-        progress: 92,
+        progress: 88,
+        metadata: { currentStage: 'Demucs v4 GPU: Separating drums, bass, vocals and other...' }
+      });
+
+      let stemSeparation: Awaited<ReturnType<typeof StemSeparationService.separate>> | null = null;
+      try {
+        stemSeparation = await StemSeparationService.separate(finalAudioPath, jobId);
+      } catch (stemError) {
+        if (StemSeparationService.isRequired()) {
+          throw stemError;
+        }
+        console.warn(
+          `[JOB_QUEUE_WORKER] Stem separation unavailable for ${jobId}:`,
+          stemError instanceof Error ? stemError.message : String(stemError)
+        );
+      }
+
+      // PIPELINE STEP 7: Quality Audit & Music Brain Continuous Learning
+      JobManager.updateJobStatus(jobId, 'PROCESSING', {
+        progress: 95,
         metadata: { currentStage: 'Music Brain: Evaluating track quality score & logging DNA...' }
       });
 
@@ -167,39 +330,84 @@ export class JobQueueWorker {
         swingPct: patternResult.swingPct,
         chords: patternResult.chordProgression,
         audioQuality: {
-          lufs: -14.0,
-          truePeakDbtp: -1.0,
-          stereoPhaseCorrelation: 0.95,
+          lufs: masteringResult.report.integratedLufs,
+          truePeakDbtp: masteringResult.report.truePeakDbtp,
+          stereoPhaseCorrelation: masteringResult.report.stereoPhaseCorrelation,
           noiseFloorDbfs: -85.0
         }
       });
 
-      // PIPELINE STEP 7: Final Job State Update
+      // PIPELINE STEP 8: Final Job State Update
       const finalMetadata = {
         title: payload.title || `${targetGenre} Track`,
         genre: targetGenre,
+        genreFamily: genreProfile.primaryGenre,
+        genreFamilyId: genreProfile.familyId || 'custom',
         bpm: targetBpm,
         keySignature: genreProfile.keySignature,
         prompt: userPrompt,
-        optimizedPrompt: promptOptimization.optimizedPrompt,
+        optimizedPrompt: productionPrompt,
         engine: `Sonara V12 ACE-Step Engine (${genreProfile.modelTier} Tier)`,
         status: 'COMPLETED',
         audioUrl,
         genreLock,
         acousticProfile: genreProfile.acousticKeywords,
+        vocalProduction: {
+          ...vocalProfile,
+          lyricsProvided: Boolean(String(payload.lyrics || '').trim()),
+          lyricsStructuredForAceStep: !vocalProfile.isInstrumental,
+          promptDirectives: promptOptimization.injectedVocalKeywords
+        },
         recalledDnaId: brainRecall.recalledDna?.id,
         qualityScore: loggedRecord?.scores?.overallScore || 9.5,
         pattern: {
+          seed: patternSeed,
+          grid: patternResult.grid,
           swingPct: patternResult.swingPct,
+          rhythm: patternResult.rhythm,
           chords: patternResult.chordProgression,
           melodyScale: patternResult.melodyScale
         },
-        dspMastering: {
-          integratedLufs: -14.0,
-          truePeakDbtp: -1.0,
-          stereoPhaseCorrelation: 0.95,
-          status: 'MASTERED'
+        arrangement: {
+          timeSignature: songPlan.timeSignature,
+          totalBars: songPlan.totalBars,
+          requestedDurationSec: songPlan.requestedDurationSec,
+          alignedDurationSec: songPlan.alignedDurationSec,
+          sections: songPlan.sections
         },
+        generationStrategy: useFastLongForm
+          ? {
+              mode: 'FAST_LONG_FORM',
+              neuralCoreDurationSec: neuralPlan.alignedDurationSec,
+              neuralCoreBars: neuralPlan.totalBars,
+              finalDurationSec: songPlan.alignedDurationSec,
+              diffusionSteps: 36,
+              expansion: longFormExpansion
+            }
+          : {
+              mode: 'FULL_NEURAL',
+              neuralCoreDurationSec: songPlan.alignedDurationSec,
+              neuralCoreBars: songPlan.totalBars,
+              finalDurationSec: songPlan.alignedDurationSec,
+              diffusionSteps: 60
+            },
+        dspMastering: {
+          ...masteringResult.report,
+          status: masteringResult.report.status
+        },
+        deliveryFormat,
+        stemSeparation: stemSeparation
+          ? {
+              status: stemSeparation.status,
+              engine: stemSeparation.engine,
+              model: stemSeparation.model,
+              device: stemSeparation.device,
+              stems: stemSeparation.stems
+            }
+          : {
+              status: 'NOT_AVAILABLE',
+              stems: {}
+            },
         completedAt: new Date().toISOString()
       };
 
@@ -242,5 +450,13 @@ export class JobQueueWorker {
     }
     return JobManager.getJob(jobId) || null;
   }
-}
 
+  private static hashToSeed(value: string): number {
+    let hash = 2166136261;
+    for (let index = 0; index < value.length; index++) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+  }
+}

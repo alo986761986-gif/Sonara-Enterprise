@@ -31,6 +31,7 @@ resampy==0.4.3
 
 # AudioCraft & Optional Plugin Ecosystem
 audiocraft==1.3.0
+demucs==4.0.1
 einops==0.8.0
 flash-attn==2.5.8; platform_system == "Linux"
 julius==0.2.7

@@ -35,6 +35,10 @@ export class PythonEnvironmentManager {
    */
   public getPythonBinaryPath(): string {
     const cwd = process.cwd();
+    const configuredPython = String(process.env.SONARA_PYTHON_BIN || '').trim();
+    if (configuredPython) {
+      return path.resolve(configuredPython);
+    }
     const primaryEnv = path.join(cwd, 'python_env', 'bin', 'python');
     const secondaryEnv = path.join(cwd, 'venv', 'bin', 'python');
 
@@ -122,7 +126,7 @@ export class PythonEnvironmentManager {
           pythonVersionOk: true,
           pythonBinary: pythonBin,
           packages: {},
-          missingPackages: ['torch', 'torchaudio', 'transformers', 'audiocraft'],
+          missingPackages: ['torch', 'torchaudio', 'transformers', 'audiocraft', 'demucs'],
           checkpointStatus: 'UNAVAILABLE',
           installRequired: true,
           isReady: false,

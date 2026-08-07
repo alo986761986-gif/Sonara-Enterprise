@@ -124,7 +124,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
       };
     }
 
-    const durationSec = Math.max(
+    const requestedDurationSec = Math.max(
       5,
       Math.min(240, Number(params.durationSec || 15))
     );
@@ -134,12 +134,27 @@ export class AceStepEngine extends IAudioGenerationEngine {
       Math.min(240, Number(params.bpm || 128))
     );
 
+    const requestedBeatsPerBar = Number((params as any).beatsPerBar);
+    const beatsPerBar = Number.isFinite(requestedBeatsPerBar) && requestedBeatsPerBar > 0
+      ? Math.max(1, Math.min(16, Math.round(requestedBeatsPerBar)))
+      : 4;
+    const timeSignature = String(
+      (params as any).timeSignature || `${beatsPerBar}/4`
+    );
+    const secondsPerBar = (60 / bpm) * beatsPerBar;
+    const requestedBars = Number((params as any).totalBars);
+    const totalBars = Number.isFinite(requestedBars) && requestedBars > 0
+      ? Math.max(4, Math.round(requestedBars))
+      : Math.max(4, Math.round((requestedDurationSec / secondsPerBar) / 4) * 4);
+    const durationSec = Number((totalBars * secondsPerBar).toFixed(3));
+
     const timeoutMs = Math.max(
       Number(params.timeoutMs || 300_000),
       60_000
     );
 
     const prompt = this.buildPrompt(params, bpm);
+    const vocalProfile = (params as any).vocalProfile || null;
 
     const payload = {
       checkpoint_path:
@@ -147,9 +162,9 @@ export class AceStepEngine extends IAudioGenerationEngine {
         '/workspace/ACE-Step/checkpoints',
 
       bf16: true,
-      torch_compile: false,
+      torch_compile: Boolean((params as any).torchCompile ?? false),
       cpu_offload: false,
-      overlapped_decode: false,
+      overlapped_decode: Boolean((params as any).overlappedDecode ?? false),
       device_id: Number(process.env.ACE_STEP_DEVICE_ID || 0),
 
       audio_duration: durationSec,
@@ -183,7 +198,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
 
       use_erg_lyric:
         (params as any).useErgLyric ??
-        Boolean(params.lyrics),
+        Boolean(params.lyrics && !vocalProfile?.isInstrumental),
 
       use_erg_diffusion:
         (params as any).useErgDiffusion ?? true,
@@ -265,8 +280,14 @@ export class AceStepEngine extends IAudioGenerationEngine {
           engine: 'ACE-Step',
           apiUrl: this.apiBaseUrl,
           durationSec,
+          requestedDurationSec,
           bpm,
+          totalBars,
+          beatsPerBar,
+          timeSignature,
+          secondsPerBar: Number(secondsPerBar.toFixed(6)),
           prompt,
+          vocalProfile,
           remoteOutputPath:
             response.output_path,
           audioUrl:
@@ -312,6 +333,10 @@ export class AceStepEngine extends IAudioGenerationEngine {
     params: GenerationParams,
     bpm: number
   ): string {
+    const vocalProfile = (params as any).vocalProfile || null;
+    const embeddedVocalPrompt = String((params as any).vocalPrompt || '');
+    const promptAlreadyContainsVocalProfile = String(params.prompt || '')
+      .includes('Vocal Production:');
     const parts = [
       params.genre || 'House',
       `track at ${bpm} BPM`,
@@ -320,7 +345,13 @@ export class AceStepEngine extends IAudioGenerationEngine {
         : '',
       params.prompt ||
         'Modern electronic dance track',
-      'clear musical structure, defined kick, bassline, percussion and harmonic progression'
+      (params as any).structurePrompt || '',
+      (params as any).groovePrompt || '',
+      promptAlreadyContainsVocalProfile ? '' : embeddedVocalPrompt,
+      vocalProfile?.isInstrumental
+        ? 'MIX_ARCHITECTURE: drums transient-clear; bass mono-compatible below 100 Hz; no vocal or voice-like layer; lead instruments frequency-carved and spatially separated'
+        : 'MIX_ARCHITECTURE: drums centered and transient-clear; bass mono-compatible below 100 Hz; natural lead vocal centered with chest warmth, intelligible presence, controlled sibilance and preserved dynamics; backing voices separated; harmonic instruments frequency-carved around the vocal',
+      'MASTER_REQUIREMENTS: real stereo image, high transient definition, no clipping, no frequency masking, clean sub-bass, complete final bar'
     ];
 
     return parts

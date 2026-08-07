@@ -1,3 +1,18 @@
+import {
+  GENRE_CATALOG_NAMES,
+  normalizeGenreName,
+  resolveGenreSelection
+} from '../../../shared/genreCatalog';
+import {
+  genreProductionPromptKeywords,
+  resolveGenreProductionBlueprint
+} from '../../../shared/genreProductionBlueprints';
+import {
+  resolveVocalProductionProfile,
+  VocalProductionRequest,
+  vocalProductionPromptKeywords
+} from '../../../shared/vocalProfiles';
+
 export interface GenreLockProfile {
   primaryGenre: string;
   subgenre: string;
@@ -7,6 +22,18 @@ export interface GenreLockProfile {
   acousticKeywords: string[];
   bannedKeywords: string[];
   modelTier: string;
+  familyId?: string;
+  timeSignature?: string;
+  isCatalogEntry?: boolean;
+  styleBlueprint?: {
+    atmosphere: string;
+    groove: string;
+    bass: string;
+    harmony: string;
+    soundPalette: string;
+    arrangement: string;
+    vocalStyle: string;
+  };
 }
 
 export class AceStepPromptEngine {
@@ -79,6 +106,16 @@ export class AceStepPromptEngine {
       keySignature: 'C Major',
       acousticKeywords: ['classic 4/4 four-on-the-floor kick', 'driving bassline', 'upbeat 16th hats', 'funky synth stabs'],
       bannedKeywords: ['country', 'metal', 'screamo'],
+      modelTier: 'GOLD'
+    },
+    'pop edm': {
+      primaryGenre: 'Electronic',
+      subgenre: 'Pop EDM',
+      recommendedBpm: 126,
+      bpmRange: [120, 130],
+      keySignature: 'C Minor',
+      acousticKeywords: ['radio-ready dance groove', 'bright melodic synth hook', 'clean four-on-the-floor kick', 'sidechained bass', 'polished pop arrangement', 'uplifting festival chorus'],
+      bannedKeywords: ['industrial techno rumble', 'raw acid techno', 'country twang', 'heavy metal distortion'],
       modelTier: 'GOLD'
     },
     'trance': {
@@ -163,14 +200,204 @@ export class AceStepPromptEngine {
     }
   };
 
-  public static detectGenreProfile(query: string, explicitGenre?: string): GenreLockProfile {
-    const text = `${query || ''} ${explicitGenre || ''}`.toLowerCase();
+  private static readonly GENRE_ALIASES: Record<string, string> = {
+    'techno house': 'tech house',
+    'classic house': 'house',
+    'edm': 'pop edm',
+    'edm pop': 'pop edm',
+    'dance pop': 'pop edm',
+    'uplifting trance': 'trance',
+    'peak time techno': 'techno',
+    'melodic techno': 'techno',
+    'dnb': 'drum & bass',
+    'drum and bass': 'drum & bass',
+    'hip-hop': 'hip hop',
+    'hiphop': 'hip hop',
+    'rap': 'hip hop',
+    'lofi': 'lo-fi',
+    'lo fi': 'lo-fi',
+    'chillhop': 'lo-fi',
+    'film score': 'cinematic',
+    'orchestral': 'cinematic'
+  };
 
-    // Direct multi-word subgenre matching first
-    for (const [key, profile] of Object.entries(this.GENRE_PROFILES)) {
-      if (text.includes(key)) {
-        return profile;
+  private static normalizeGenre(value: string): string {
+    return normalizeGenreName(value);
+  }
+
+  private static resolveExactGenreKey(value: string): string | null {
+    const normalized = this.normalizeGenre(value);
+    if (!normalized) return null;
+    if (this.GENRE_PROFILES[normalized]) return normalized;
+    return this.GENRE_ALIASES[normalized] || null;
+  }
+
+  private static resolveGenreKey(value: string): string | null {
+    const normalized = this.normalizeGenre(value);
+    if (!normalized) return null;
+    if (this.GENRE_PROFILES[normalized]) return normalized;
+    if (this.GENRE_ALIASES[normalized]) return this.GENRE_ALIASES[normalized];
+
+    const candidates = [
+      ...Object.keys(this.GENRE_PROFILES),
+      ...Object.keys(this.GENRE_ALIASES)
+    ].sort((left, right) => right.length - left.length);
+
+    const matched = candidates.find(candidate => normalized.includes(candidate));
+    if (!matched) return null;
+    return this.GENRE_ALIASES[matched] || matched;
+  }
+
+  private static escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  private static enrichProfile(
+    profile: GenreLockProfile,
+    selectedGenre: string
+  ): GenreLockProfile {
+    const selection = resolveGenreSelection(selectedGenre || profile.subgenre);
+    return {
+      ...profile,
+      familyId: selection.familyId,
+      timeSignature: selection.timeSignature,
+      isCatalogEntry: selection.isCatalogEntry
+    };
+  }
+
+  private static createOpenGenreProfile(selectedGenre: string): GenreLockProfile {
+    const selection = resolveGenreSelection(selectedGenre);
+    const exactGenre = String(selectedGenre || selection.matchedGenre || 'Custom Genre').trim();
+    return {
+      primaryGenre: selection.familyName,
+      subgenre: exactGenre,
+      recommendedBpm: selection.recommendedBpm,
+      bpmRange: selection.bpmRange,
+      keySignature: selection.keySignature,
+      acousticKeywords: selection.acousticKeywords,
+      bannedKeywords: [],
+      modelTier: selection.isCatalogEntry ? 'GOLD' : 'OPEN',
+      familyId: selection.familyId,
+      timeSignature: selection.timeSignature,
+      isCatalogEntry: selection.isCatalogEntry
+    };
+  }
+
+  private static createCatalogGenreProfile(selectedGenre: string): GenreLockProfile | null {
+    const blueprint = resolveGenreProductionBlueprint(selectedGenre);
+    if (!blueprint.isCatalogEntry) return null;
+
+    return {
+      primaryGenre: blueprint.familyName,
+      subgenre: blueprint.canonicalName,
+      recommendedBpm: blueprint.recommendedBpm,
+      bpmRange: blueprint.bpmRange,
+      keySignature: blueprint.keySignature,
+      acousticKeywords: [
+        `authentic ${blueprint.canonicalName} style`,
+        ...genreProductionPromptKeywords(blueprint)
+      ],
+      bannedKeywords: blueprint.bannedKeywords,
+      modelTier: 'GOLD',
+      familyId: blueprint.familyId,
+      timeSignature: blueprint.timeSignature,
+      isCatalogEntry: blueprint.isCatalogEntry,
+      styleBlueprint: {
+        atmosphere: blueprint.atmosphere,
+        groove: blueprint.groove,
+        bass: blueprint.bass,
+        harmony: blueprint.harmony,
+        soundPalette: blueprint.soundPalette,
+        arrangement: blueprint.arrangement,
+        vocalStyle: blueprint.vocalStyle
       }
+    };
+  }
+
+  private static profileForExactSelection(selectedGenre: string): GenreLockProfile {
+    // Every catalogued genre now has the same complete production blueprint:
+    // atmosphere, groove, bass, harmony, timbre, arrangement and voice.
+    const catalogProfile = this.createCatalogGenreProfile(selectedGenre);
+    if (catalogProfile) return catalogProfile;
+
+    const exactKey = this.resolveExactGenreKey(selectedGenre);
+    const existingProfile = exactKey ? this.GENRE_PROFILES[exactKey] : null;
+
+    // Reuse a handcrafted acoustic profile only when it describes the exact
+    // selected style. Broad aliases such as "Trance" must not silently become
+    // "Uplifting Trance", nor may "Techno" become "Peak Time Techno".
+    if (
+      existingProfile &&
+      this.normalizeGenre(existingProfile.subgenre) === this.normalizeGenre(selectedGenre)
+    ) {
+      return this.enrichProfile(existingProfile, selectedGenre);
+    }
+
+    return this.createOpenGenreProfile(selectedGenre);
+  }
+
+  private static removeConflictingGenres(
+    query: string,
+    lockedKey: string,
+    profile: GenreLockProfile
+  ): string {
+    let cleaned = String(query || '');
+    const primaryGenre = this.normalizeGenre(profile.primaryGenre);
+    const conflictingTerms = [
+      ...Object.keys(this.GENRE_PROFILES),
+      ...Object.keys(this.GENRE_ALIASES),
+      ...GENRE_CATALOG_NAMES.map(name => this.normalizeGenre(name))
+    ]
+      .filter(term => {
+        const resolved = this.GENRE_ALIASES[term] || term;
+        return resolved !== lockedKey && this.normalizeGenre(term) !== primaryGenre;
+      })
+      .sort((left, right) => right.length - left.length);
+
+    for (const term of conflictingTerms) {
+      cleaned = cleaned.replace(
+        new RegExp(`\\b${this.escapeRegExp(term)}\\b`, 'gi'),
+        ' '
+      );
+    }
+
+    return cleaned
+      .replace(/\s*[,;/|]+\s*/g, ', ')
+      .replace(/\b(?:and|plus)\s+with\b/gi, 'with')
+      .replace(/\bwith\s+influence\b/gi, ' ')
+      .replace(/\b(and|with|plus)\s*(?=,|$)/gi, ' ')
+      .replace(/\s+,/g, ',')
+      .replace(/,\s*,+/g, ', ')
+      .replace(/^\s*,|,\s*$/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  public static detectGenreProfile(query: string, explicitGenre?: string): GenreLockProfile {
+    // The user's explicit selector is authoritative. Prompt text can describe
+    // instruments and influences, but it must never silently replace the
+    // selected primary genre.
+    const explicitSelection = String(explicitGenre || '').trim();
+    if (explicitSelection) {
+      return this.profileForExactSelection(explicitSelection);
+    }
+
+    const text = this.normalizeGenre(query);
+
+    const catalogSelection = resolveGenreSelection(text);
+    if (catalogSelection.matchedGenre) {
+      return this.profileForExactSelection(catalogSelection.matchedGenre);
+    }
+
+    // Legacy aliases remain supported when the text is not part of the open
+    // catalog (for example shorthand such as DnB or hiphop).
+    const detectedKey = this.resolveGenreKey(text);
+    if (detectedKey) {
+      const detectedCatalogProfile = this.createCatalogGenreProfile(detectedKey);
+      return detectedCatalogProfile || this.enrichProfile(
+        this.GENRE_PROFILES[detectedKey],
+        detectedKey
+      );
     }
 
     // Single token genre fallback
@@ -185,7 +412,10 @@ export class AceStepPromptEngine {
     if (text.includes('house')) return this.GENRE_PROFILES['house'];
 
     // Default fallback to Melodic House if electronic dance vibe is present
-    return this.GENRE_PROFILES['melodic house'];
+    return this.enrichProfile(
+      this.GENRE_PROFILES['melodic house'],
+      'Melodic House'
+    );
   }
 
   static formatPrompt(prompt: string) {
@@ -196,24 +426,55 @@ export class AceStepPromptEngine {
    * Generates a genre-locked optimized prompt by automatically injecting high-fidelity
    * acoustic profiles and removing banned anti-genre keywords.
    */
-  static async generatePrompt(query: string, explicitGenre?: string) {
+  static async generatePrompt(
+    query: string,
+    explicitGenre?: string,
+    explicitBpm?: number,
+    vocalRequest: VocalProductionRequest = {}
+  ) {
     const originalQuery = query || 'Melodic House';
 
     const profile = this.detectGenreProfile(originalQuery, explicitGenre);
+    const explicitSelection = String(explicitGenre || '').trim();
+    const lockedGenreKey = this.normalizeGenre(
+      explicitSelection || profile.subgenre || 'Melodic House'
+    );
 
-    // Filter out banned words from original query
-    let cleanedQuery = originalQuery;
+    // Remove competing genre labels before the model sees the prompt. The
+    // selected genre remains the only primary style; the rest of the user's
+    // musical description is preserved.
+    let cleanedQuery = this.removeConflictingGenres(
+      originalQuery,
+      lockedGenreKey,
+      profile
+    );
     profile.bannedKeywords.forEach(banned => {
-      const reg = new RegExp(`\\b${banned}\\b`, 'gi');
+      const reg = new RegExp(`\\b${this.escapeRegExp(banned)}\\b`, 'gi');
       cleanedQuery = cleanedQuery.replace(reg, '');
     });
     cleanedQuery = cleanedQuery.replace(/\s+/g, ' ').trim();
+    if (!cleanedQuery) {
+      cleanedQuery = `Authentic ${profile.subgenre} instrumental production`;
+    }
+
+    const parsedBpm = Number(explicitBpm);
+    const selectedBpm = Number.isFinite(parsedBpm) && parsedBpm >= 40 && parsedBpm <= 240
+      ? Math.round(parsedBpm)
+      : profile.recommendedBpm;
 
     // Build Genre Lock Prompt Payload
-    const genreLockTag = `GENRE_LOCK: [${profile.primaryGenre.toUpperCase()} -> ${profile.subgenre.toUpperCase()}]`;
-    const tempoTag = `TEMPO: ${profile.recommendedBpm} BPM (${profile.bpmRange[0]}-${profile.bpmRange[1]} BPM)`;
+    const genreLockTag = `HARD_GENRE_LOCK: [${profile.primaryGenre.toUpperCase()} -> ${profile.subgenre.toUpperCase()}]`;
+    const genreConstraint = `HARD_CONSTRAINT: the output must remain unmistakably ${profile.subgenre}; the selected genre overrides every genre word in user details; never substitute, merge, or relabel the primary genre`;
+    const tempoTag = `HARD_TEMPO: exactly ${selectedBpm} BPM`;
     const keyTag = `KEY: ${profile.keySignature}`;
     const acousticString = profile.acousticKeywords.join(', ');
+    const vocalProfile = resolveVocalProductionProfile({
+      ...vocalRequest,
+      genreVocalDirection:
+        vocalRequest.genreVocalDirection || profile.styleBlueprint?.vocalStyle
+    });
+    const vocalKeywords = vocalProductionPromptKeywords(vocalProfile);
+    const vocalString = vocalKeywords.join(', ');
 
     const coreProduction = [
       'High Fidelity Master',
@@ -224,7 +485,7 @@ export class AceStepPromptEngine {
       'Zero Phase Distortion'
     ].join(', ');
 
-    const optimizedBody = `${genreLockTag} | ${tempoTag} | ${keyTag} | ${cleanedQuery} | Style Elements: ${acousticString} | Mix Quality: ${coreProduction}`;
+    const optimizedBody = `${genreLockTag} | ${genreConstraint} | ${tempoTag} | ${keyTag} | USER_DETAILS_SECONDARY: ${cleanedQuery} | Style Elements: ${acousticString} | Vocal Production: ${vocalString} | Mix Quality: ${coreProduction}`;
     const optimizedPrompt = this.formatPrompt(optimizedBody);
 
     return {
@@ -234,9 +495,14 @@ export class AceStepPromptEngine {
       optimizedPrompt,
       genreLock: {
         locked: true,
+        requestedGenre: explicitSelection || profile.subgenre,
+        selectionWasExplicit: Boolean(explicitSelection),
         primaryGenre: profile.primaryGenre,
         subgenre: profile.subgenre,
-        targetBpm: profile.recommendedBpm,
+        familyId: profile.familyId || 'custom',
+        timeSignature: profile.timeSignature || '4/4',
+        isCatalogEntry: Boolean(profile.isCatalogEntry),
+        targetBpm: selectedBpm,
         bpmBounds: profile.bpmRange,
         keySignature: profile.keySignature,
         fidelityScore: 100.0
@@ -247,7 +513,9 @@ export class AceStepPromptEngine {
         transientEngine: 'Natural Dynamics, Balanced Compression, De-clicked High Frequencies',
         stereoField: 'Wide Stereo space, Symphonic Panning'
       },
-      injectedKeywords: profile.acousticKeywords
+      vocalProfile,
+      injectedKeywords: profile.acousticKeywords,
+      injectedVocalKeywords: vocalKeywords
     };
   }
 }
