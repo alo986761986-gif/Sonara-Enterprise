@@ -154,6 +154,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
     );
 
     const prompt = this.buildPrompt(params, bpm);
+    const vocalProfile = (params as any).vocalProfile || null;
 
     const payload = {
       checkpoint_path:
@@ -197,7 +198,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
 
       use_erg_lyric:
         (params as any).useErgLyric ??
-        Boolean(params.lyrics),
+        Boolean(params.lyrics && !vocalProfile?.isInstrumental),
 
       use_erg_diffusion:
         (params as any).useErgDiffusion ?? true,
@@ -286,6 +287,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
           timeSignature,
           secondsPerBar: Number(secondsPerBar.toFixed(6)),
           prompt,
+          vocalProfile,
           remoteOutputPath:
             response.output_path,
           audioUrl:
@@ -331,6 +333,10 @@ export class AceStepEngine extends IAudioGenerationEngine {
     params: GenerationParams,
     bpm: number
   ): string {
+    const vocalProfile = (params as any).vocalProfile || null;
+    const embeddedVocalPrompt = String((params as any).vocalPrompt || '');
+    const promptAlreadyContainsVocalProfile = String(params.prompt || '')
+      .includes('Vocal Production:');
     const parts = [
       params.genre || 'House',
       `track at ${bpm} BPM`,
@@ -341,7 +347,10 @@ export class AceStepEngine extends IAudioGenerationEngine {
         'Modern electronic dance track',
       (params as any).structurePrompt || '',
       (params as any).groovePrompt || '',
-      'MIX_ARCHITECTURE: drums centered and transient-clear; bass mono-compatible below 100 Hz; vocals centered with clean presence; harmonic instruments frequency-carved and spatially separated',
+      promptAlreadyContainsVocalProfile ? '' : embeddedVocalPrompt,
+      vocalProfile?.isInstrumental
+        ? 'MIX_ARCHITECTURE: drums transient-clear; bass mono-compatible below 100 Hz; no vocal or voice-like layer; lead instruments frequency-carved and spatially separated'
+        : 'MIX_ARCHITECTURE: drums centered and transient-clear; bass mono-compatible below 100 Hz; natural lead vocal centered with chest warmth, intelligible presence, controlled sibilance and preserved dynamics; backing voices separated; harmonic instruments frequency-carved around the vocal',
       'MASTER_REQUIREMENTS: real stereo image, high transient definition, no clipping, no frequency masking, clean sub-bass, complete final bar'
     ];
 
