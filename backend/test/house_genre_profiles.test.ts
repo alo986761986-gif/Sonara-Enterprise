@@ -60,7 +60,7 @@ async function run() {
     assert.equal(pattern.grid.timeSignature, '4/4');
     assert.equal(pattern.grid.enforceStepGrid, true);
     assert.ok(pattern.styleDirectives.length >= 8);
-    assert.match(pattern.promptDirective, /HOUSE_STYLE_BLUEPRINT:/);
+    assert.match(pattern.promptDirective, /GENRE_STYLE_BLUEPRINT:/);
     assert.match(pattern.promptDirective, new RegExp(profile.name, 'i'));
   }
 
