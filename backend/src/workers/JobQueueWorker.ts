@@ -12,6 +12,10 @@ import { MixingMasteringEngineService } from '../services/MixingMasteringEngineS
 import { StemSeparationService } from '../services/StemSeparationService';
 import { AudioDeliveryFormatService } from '../services/AudioDeliveryFormatService';
 import { LongFormAudioExpansionService } from '../services/LongFormAudioExpansionService';
+import {
+  prepareLyricsForAceStep,
+  VocalProductionRequest
+} from '../../../shared/vocalProfiles';
 
 export interface GenerationPayload {
   prompt: string;
@@ -21,6 +25,11 @@ export interface GenerationPayload {
   title: string;
   bpm?: number;
   duration?: number;
+  vocalMode?: string;
+  vocalTimbre?: string;
+  vocalRegister?: string;
+  vocalDelivery?: string;
+  vocalHarmony?: string;
 }
 
 export class JobQueueWorker {
@@ -96,13 +105,32 @@ export class JobQueueWorker {
         metadata: { currentStage: 'Sonara Prompt Engine: Analyzing prompt & Genre Lock...' }
       });
 
+      const vocalRequest: VocalProductionRequest = {
+        mode: payload.vocalMode,
+        timbre: payload.vocalTimbre,
+        register: payload.vocalRegister,
+        delivery: payload.vocalDelivery,
+        harmony: payload.vocalHarmony,
+        lyricsPresent: Boolean(String(payload.lyrics || '').trim())
+      };
       const promptOptimization = await AceStepPromptEngine.generatePrompt(
         userPrompt,
         userGenre,
-        payload.bpm
+        payload.bpm,
+        vocalRequest
       );
       const genreProfile = promptOptimization.genreProfile;
       const genreLock = promptOptimization.genreLock;
+      const vocalProfile = promptOptimization.vocalProfile;
+      if (vocalProfile.requiresLyrics && !String(payload.lyrics || '').trim()) {
+        throw new Error(
+          'VOCAL_LYRICS_REQUIRED: add real lyrics or choose Instrumental.'
+        );
+      }
+      const effectiveLyrics = prepareLyricsForAceStep(
+        payload.lyrics || '',
+        vocalProfile
+      );
       const targetBpm = payload.bpm || genreLock.targetBpm || 124;
       const targetGenre = genreLock.subgenre || genreLock.primaryGenre || 'Melodic House';
 
@@ -132,8 +160,12 @@ export class JobQueueWorker {
       );
 
       const fastLongFormEnabled = process.env.SONARA_FAST_LONG_FORM !== 'false';
+      const fastLongFormVocalsEnabled =
+        process.env.SONARA_FAST_LONG_FORM_VOCALS === 'true';
       const useFastLongForm =
-        fastLongFormEnabled && songPlan.alignedDurationSec > 90;
+        fastLongFormEnabled &&
+        songPlan.alignedDurationSec > 90 &&
+        (vocalProfile.isInstrumental || fastLongFormVocalsEnabled);
       const configuredCoreDurationSec = Number(
         process.env.SONARA_LONG_FORM_CORE_SEC || 60
       );
@@ -161,10 +193,10 @@ export class JobQueueWorker {
           : ''
       ].filter(Boolean).join(' | ');
 
-      // The fast long-form profile asks ACE-Step for only a high-quality neural
-      // core, so a four-minute song no longer requires four minutes of direct
-      // diffusion. Full-length rendering remains available with
-      // SONARA_FAST_LONG_FORM=false.
+      // Instrumentals can reuse a phrase-aligned neural core. Vocal songs use
+      // full-length diffusion by default so lyrics, breaths and phrasing are
+      // not duplicated mechanically. The old shortcut can be explicitly
+      // re-enabled for vocals with SONARA_FAST_LONG_FORM_VOCALS=true.
       const generationTimeoutMs = Math.min(
         1_800_000,
         Math.max(300_000, Math.ceil(neuralPlan.alignedDurationSec * 7_500))
@@ -175,8 +207,8 @@ export class JobQueueWorker {
         progress: 60,
         metadata: {
           currentStage: useFastLongForm
-            ? 'ACE-Step Fast Long-Form: Generating the neural production core...'
-            : 'ACE-Step Rendering Engine: Generating neural audio waveform...'
+            ? `ACE-Step Fast Long-Form: Generating the neural core with ${vocalProfile.isInstrumental ? 'strict instrumental control' : 'natural vocal performance'}...`
+            : `ACE-Step Rendering Engine: Generating waveform with ${vocalProfile.isInstrumental ? 'strict instrumental control' : 'natural vocal performance'}...`
         }
       });
 
@@ -184,7 +216,7 @@ export class JobQueueWorker {
         productionPrompt,
         targetGenre,
         payload.mood || 'Energetic',
-        payload.lyrics || '',
+        effectiveLyrics,
         payload.title || 'Sonara AI Track',
         generationTimeoutMs,
         neuralPlan.alignedDurationSec,
@@ -197,7 +229,9 @@ export class JobQueueWorker {
           inferStep: useFastLongForm ? 36 : 60,
           overlappedDecode: useFastLongForm,
           beatsPerBar: neuralPlan.beatsPerBar,
-          timeSignature: neuralPlan.timeSignature
+          timeSignature: neuralPlan.timeSignature,
+          vocalProfile,
+          vocalPrompt: promptOptimization.injectedVocalKeywords.join(', ')
         }
       );
 
@@ -318,6 +352,12 @@ export class JobQueueWorker {
         audioUrl,
         genreLock,
         acousticProfile: genreProfile.acousticKeywords,
+        vocalProduction: {
+          ...vocalProfile,
+          lyricsProvided: Boolean(String(payload.lyrics || '').trim()),
+          lyricsStructuredForAceStep: !vocalProfile.isInstrumental,
+          promptDirectives: promptOptimization.injectedVocalKeywords
+        },
         recalledDnaId: brainRecall.recalledDna?.id,
         qualityScore: loggedRecord?.scores?.overallScore || 9.5,
         pattern: {
