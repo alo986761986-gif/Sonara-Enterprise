@@ -10,6 +10,15 @@ import {
   Sparkles,
   Zap
 } from 'lucide-react';
+import { SONARA_MUSIC_DNA } from './core/musicDNA';
+const [genre, setGenre] = useState('Tech House');
+const [selectedGenre, setSelectedGenre] = useState('Electronic');
+const [selectedSubgenre, setSelectedSubgenre] = useState('Tech House');
+const [selectedMood, setSelectedMood] = useState('Energetic');
+
+const selectedDNA = SONARA_MUSIC_DNA.find(
+  item => item.genre === selectedGenre
+);
 
 type JobStatus = 'IDLE' | 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
@@ -298,50 +307,81 @@ Take me higher through the night...`}
             </div>
           </div>
 
-          <div className="mt-4 grid gap-4 sm:grid-cols-3">
-            <label className="space-y-1 text-xs text-slate-400">
-              <span>Genre</span>
-              <select
-                value={genre}
-                onChange={event => setGenre(event.target.value)}
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-slate-100"
-              >
-                <option>Deep House</option>
-                <option>Tech House</option>
-                <option>Afro House</option>
-                <option>Melodic House</option>
-                <option>Pop EDM</option>
-              </select>
-            </label>
+        <label className="space-y-1 text-xs text-slate-400">
+  <span>Genre DNA</span>
+  <select
+    value={selectedGenre}
+    onChange={event => {
+      const value = event.target.value;
+      setSelectedGenre(value);
 
-            <label className="space-y-1 text-xs text-slate-400">
-              <span>BPM: {bpm}</span>
-              <input
-                type="range"
-                min={60}
-                max={180}
-                value={bpm}
-                onChange={event => setBpm(Number(event.target.value))}
-                className="w-full accent-purple-500"
-              />
-            </label>
+      const dna = SONARA_MUSIC_DNA.find(
+        item => item.genre === value
+      );
 
-            <label className="space-y-1 text-xs text-slate-400">
-              <span>Duration</span>
-              <select
-                value={durationSec}
-                onChange={event => setDurationSec(Number(event.target.value))}
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-slate-100"
-              >
-                <option value={15}>15 seconds</option>
-                <option value={30}>30 seconds</option>
-                <option value={60}>60 seconds</option>
-                <option value={120}>2 minutes</option>
-                <option value={180}>3 minutes</option>
-                <option value={240}>4 minutes</option>
-              </select>
-            </label>
-          </div>
+      if (dna) {
+        setSelectedSubgenre(dna.subgenres[0]);
+        setSelectedMood(dna.moods[0]);
+        setGenre(dna.subgenres[0]);
+      }
+    }}
+    className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-slate-100"
+  >
+    {SONARA_MUSIC_DNA.map(item => (
+      <option key={item.genre} value={item.genre}>
+        {item.genre}
+      </option>
+    ))}
+  </select>
+</label>
+
+<label className="space-y-1 text-xs text-slate-400">
+  <span>Subgenre</span>
+  <select
+    value={selectedSubgenre}
+    onChange={event => {
+      setSelectedSubgenre(event.target.value);
+      setGenre(event.target.value);
+    }}
+    className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-slate-100"
+  >
+    {(selectedDNA?.subgenres || []).map(sub => (
+      <option key={sub} value={sub}>
+        {sub}
+      </option>
+    ))}
+  </select>
+</label>
+
+<label className="space-y-1 text-xs text-slate-400">
+  <span>Mood</span>
+  <select
+    value={selectedMood}
+    onChange={event => setSelectedMood(event.target.value)}
+    className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-slate-100"
+  >
+    {(selectedDNA?.moods || []).map(mood => (
+      <option key={mood} value={mood}>
+        {mood}
+      </option>
+    ))}
+  </select>
+</label>
+
+  <label className="space-y-1 text-xs text-slate-400">
+    <span>Mood</span>
+    <select
+      value={selectedMood}
+      onChange={event => setSelectedMood(event.target.value)}
+      className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-slate-100"
+    >
+      {(selectedDNA?.moods || []).map(mood => (
+        <option key={mood} value={mood}>
+          {mood}
+        </option>
+      ))}
+    </select>
+  </label>  
 
           <button
             type="button"
