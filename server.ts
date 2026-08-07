@@ -8,6 +8,7 @@ import engineRouter from './backend/src/routes/engine';
 import orchestratorRouter from './backend/src/routes/orchestrator';
 import creatorRouter from './backend/src/routes/creator';
 import musicRouter from './backend/src/routes/music';
+import authRouter from './backend/src/routes/auth';
 
 const startTime = Date.now();
 
@@ -46,6 +47,7 @@ async function startServer() {
   });
 
   // API Routes
+  app.use('/api/auth', authRouter);
   app.use('/api/engine', engineRouter);
   app.use('/api/orchestrator', orchestratorRouter);
   app.use('/api/creator', creatorRouter);
