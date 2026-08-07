@@ -20,6 +20,7 @@
     "test:intelligence": "tsx backend/test/music_intelligence.test.ts",
     "test:music-quality": "node --import tsx backend/test/music_production_quality.test.ts",
     "test:house-profiles": "node --import tsx backend/test/house_genre_profiles.test.ts",
+    "test:all-genre-profiles": "node --import tsx backend/test/all_genre_profiles.test.ts",
     "test:10k": "tsx backend/test/load_test_10k.ts",
     "lint": "echo 'Sonara Linter Passed with zero errors.'"
   },
