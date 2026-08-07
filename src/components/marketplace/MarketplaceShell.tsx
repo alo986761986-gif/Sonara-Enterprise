@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { BarChart3, Download, Package, ShieldCheck, ShoppingBag, Sparkles, Store, Star } from 'lucide-react';
+import { BarChart3, Download, Layers, Package, ShieldCheck, ShoppingBag, Sparkles, Store, Star } from 'lucide-react';
 
 import { MarketplaceAnalytics } from './MarketplaceAnalytics';
 import MarketplaceDownloads from './MarketplaceDownloads';
