@@ -7,6 +7,11 @@ import {
   genreProductionPromptKeywords,
   resolveGenreProductionBlueprint
 } from '../../../shared/genreProductionBlueprints';
+import {
+  resolveVocalProductionProfile,
+  VocalProductionRequest,
+  vocalProductionPromptKeywords
+} from '../../../shared/vocalProfiles';
 
 export interface GenreLockProfile {
   primaryGenre: string;
@@ -424,7 +429,8 @@ export class AceStepPromptEngine {
   static async generatePrompt(
     query: string,
     explicitGenre?: string,
-    explicitBpm?: number
+    explicitBpm?: number,
+    vocalRequest: VocalProductionRequest = {}
   ) {
     const originalQuery = query || 'Melodic House';
 
@@ -462,6 +468,13 @@ export class AceStepPromptEngine {
     const tempoTag = `HARD_TEMPO: exactly ${selectedBpm} BPM`;
     const keyTag = `KEY: ${profile.keySignature}`;
     const acousticString = profile.acousticKeywords.join(', ');
+    const vocalProfile = resolveVocalProductionProfile({
+      ...vocalRequest,
+      genreVocalDirection:
+        vocalRequest.genreVocalDirection || profile.styleBlueprint?.vocalStyle
+    });
+    const vocalKeywords = vocalProductionPromptKeywords(vocalProfile);
+    const vocalString = vocalKeywords.join(', ');
 
     const coreProduction = [
       'High Fidelity Master',
@@ -472,7 +485,7 @@ export class AceStepPromptEngine {
       'Zero Phase Distortion'
     ].join(', ');
 
-    const optimizedBody = `${genreLockTag} | ${genreConstraint} | ${tempoTag} | ${keyTag} | USER_DETAILS_SECONDARY: ${cleanedQuery} | Style Elements: ${acousticString} | Mix Quality: ${coreProduction}`;
+    const optimizedBody = `${genreLockTag} | ${genreConstraint} | ${tempoTag} | ${keyTag} | USER_DETAILS_SECONDARY: ${cleanedQuery} | Style Elements: ${acousticString} | Vocal Production: ${vocalString} | Mix Quality: ${coreProduction}`;
     const optimizedPrompt = this.formatPrompt(optimizedBody);
 
     return {
@@ -500,7 +513,9 @@ export class AceStepPromptEngine {
         transientEngine: 'Natural Dynamics, Balanced Compression, De-clicked High Frequencies',
         stereoField: 'Wide Stereo space, Symphonic Panning'
       },
-      injectedKeywords: profile.acousticKeywords
+      vocalProfile,
+      injectedKeywords: profile.acousticKeywords,
+      injectedVocalKeywords: vocalKeywords
     };
   }
 }
