@@ -629,14 +629,25 @@ export function resolveGenreSelection(value: string): ResolvedGenreSelection {
   }
 
   if (!matchedFamily) {
+    // Prefer an exact subgenre over a family alias. This matters for names
+    // such as "Rhythm and Blues", which is both a catalogued style and an
+    // alias of the broader R&B family.
+    const exactSubgenre = GENRE_FAMILIES
+      .flatMap(family => family.subgenres.map(candidate => ({ family, candidate })))
+      .find(({ candidate }) => normalizeGenreName(candidate) === normalized);
+    if (exactSubgenre) {
+      matchedFamily = exactSubgenre.family;
+      matchedGenre = exactSubgenre.candidate;
+    }
+  }
+
+  if (!matchedFamily) {
     for (const family of GENRE_FAMILIES) {
-      const exactCandidate = [family.name, ...family.aliases, ...family.subgenres]
+      const exactFamilyName = [family.name, ...family.aliases]
         .find(candidate => normalizeGenreName(candidate) === normalized);
-      if (exactCandidate) {
+      if (exactFamilyName) {
         matchedFamily = family;
-        matchedGenre = family.subgenres.find(
-          candidate => normalizeGenreName(candidate) === normalized
-        ) || exactCandidate;
+        matchedGenre = exactFamilyName;
         break;
       }
     }
