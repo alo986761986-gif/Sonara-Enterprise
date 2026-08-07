@@ -1,4 +1,5 @@
 import { SONARA_MUSIC_DNA, type MusicDNAProfile } from './musicDNA';
+import { resolveRecommendedEqPresetId } from './eqPresetMap';
 
 export interface MusicBrainInput {
   prompt: string;
@@ -14,6 +15,7 @@ export interface MusicBrainEnhancedContext {
   recommendedSubgenre: string;
   recommendedMood: string;
   recommendedEQPreset: string;
+  recommendedEQPresetId: string;
 }
 
 interface RecalledDnaRecord {
@@ -130,13 +132,17 @@ const buildEnhancedPrompt = (inputPrompt: string, recalled?: RecalledDnaRecord |
   return `${base} Keep the original intent, but enhance production details with ${hints.join('; ')}.`;
 };
 
-const fallbackContext = (input: MusicBrainInput, profile?: MusicDNAProfile): MusicBrainEnhancedContext => ({
-  enhancedPrompt: input.prompt.trim(),
-  recommendedGenre: input.genre,
-  recommendedSubgenre: input.subgenre,
-  recommendedMood: input.mood || inferMoodFromPrompt(input.prompt) || profile?.moods[0] || 'Energetic',
-  recommendedEQPreset: profile?.eqPreset || 'Club Master'
-});
+const fallbackContext = (input: MusicBrainInput, profile?: MusicDNAProfile): MusicBrainEnhancedContext => {
+  const recommendedEQPreset = profile?.eqPreset || 'Club Master';
+  return {
+    enhancedPrompt: input.prompt.trim(),
+    recommendedGenre: input.genre,
+    recommendedSubgenre: input.subgenre,
+    recommendedMood: input.mood || inferMoodFromPrompt(input.prompt) || profile?.moods[0] || 'Energetic',
+    recommendedEQPreset,
+    recommendedEQPresetId: resolveRecommendedEqPresetId(recommendedEQPreset, input.genre, input.subgenre)
+  };
+};
 
 export const resolveMusicBrainContext = async (
   input: MusicBrainInput
@@ -180,13 +186,19 @@ export const resolveMusicBrainContext = async (
       'Energetic';
 
     const recommendedEQPreset = profile?.eqPreset || 'Club Master';
+    const recommendedEQPresetId = resolveRecommendedEqPresetId(
+      recommendedEQPreset,
+      recommendedGenre,
+      recommendedSubgenre
+    );
 
     return {
       enhancedPrompt: buildEnhancedPrompt(input.prompt, recalled),
       recommendedGenre,
       recommendedSubgenre,
       recommendedMood,
-      recommendedEQPreset
+      recommendedEQPreset,
+      recommendedEQPresetId
     };
   } catch {
     return fallback;

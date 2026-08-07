@@ -110,6 +110,9 @@ export default function App() {
   const [recommendedEQPreset, setRecommendedEQPreset] =
     useState('');
 
+  const [recommendedEQPresetId, setRecommendedEQPresetId] =
+    useState('');
+
   const [health, setHealth] =
     useState('CHECKING');
 
@@ -226,6 +229,10 @@ export default function App() {
 
       setRecommendedEQPreset(
         brainContext.recommendedEQPreset || ''
+      );
+
+      setRecommendedEQPresetId(
+        brainContext.recommendedEQPresetId || ''
       );
 
       setStage(
@@ -880,6 +887,8 @@ export default function App() {
               <ProfessionalAudioEqualizer
 
                 audioUrl={audioUrl}
+
+                defaultPresetId={recommendedEQPresetId}
 
                 isEmbedded={true}
 

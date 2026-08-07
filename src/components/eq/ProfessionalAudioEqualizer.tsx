@@ -85,12 +85,14 @@ const INITIAL_BANDS: EqBandConfig[] = [
 
 export interface ProfessionalAudioEqualizerProps {
   audioUrl?: string;
+  defaultPresetId?: string;
   onProcessedAudio?: (newAudioUrl: string, metrics: any) => void;
   isEmbedded?: boolean;
 }
 
 export function ProfessionalAudioEqualizer({
   audioUrl,
+  defaultPresetId,
   onProcessedAudio,
   isEmbedded = false
 }: ProfessionalAudioEqualizerProps = {}) {
@@ -141,6 +143,7 @@ export function ProfessionalAudioEqualizer({
   const outputGainNodeRef = useRef<GainNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const mediaSourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const hasAutoAppliedPresetRef = useRef<boolean>(false);
 
   // Load Presets on Mount
   useEffect(() => {
@@ -153,6 +156,8 @@ export function ProfessionalAudioEqualizer({
       })
       .catch(err => console.error('Failed to load EQ presets:', err));
   }, []);
+
+  const normalizePresetId = (value?: string): string => (value || '').trim().toLowerCase();
 
   // Web Audio Context Setup
   const initWebAudio = () => {
@@ -278,6 +283,26 @@ export function ProfessionalAudioEqualizer({
       })
     );
   };
+
+  useEffect(() => {
+    if (hasAutoAppliedPresetRef.current) return;
+    if (presets.length === 0) return;
+
+    const requestedId = normalizePresetId(defaultPresetId);
+    const resolvedPreset =
+      presets.find(p => normalizePresetId(p.id) === requestedId) ||
+      presets.find(p => normalizePresetId(p.id) === 'mastering') ||
+      presets.find(p => normalizePresetId(p.id) === 'flat');
+
+    if (!resolvedPreset) {
+      hasAutoAppliedPresetRef.current = true;
+      return;
+    }
+
+    // Apply only once so user manual changes are never overwritten.
+    applyPreset(resolvedPreset);
+    hasAutoAppliedPresetRef.current = true;
+  }, [defaultPresetId, presets]);
 
   // Single Band Parameter Handlers
   const updateBand = (id: string, updates: Partial<EqBandConfig>) => {
