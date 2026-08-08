@@ -125,8 +125,11 @@ export function requireSonaraAuthentication(
   res: Response,
   next: NextFunction
 ) {
-  if (process.env.SONARA_REQUIRE_AUTH !== 'true') return next();
   const session = readSession(parseCookies(req)[SESSION_COOKIE]);
+  if (session) {
+    res.locals.sonaraUser = session;
+  }
+  if (process.env.SONARA_REQUIRE_AUTH !== 'true') return next();
   if (!session) {
     return res.status(401).json({
       status: 'error',
@@ -134,7 +137,6 @@ export function requireSonaraAuthentication(
       error: 'An authenticated Sonara session is required.'
     });
   }
-  res.locals.sonaraUser = session;
   return next();
 }
 

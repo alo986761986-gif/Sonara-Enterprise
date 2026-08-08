@@ -7,6 +7,8 @@ import {
 
 import { ProfessionalAudioEqualizer } from './components/eq/ProfessionalAudioEqualizer';
 import { EmberAssistantPanel } from './components/ember/EmberAssistantPanel';
+import { useEmberConversation } from './hooks/useEmberConversation';
+import { useEmberVoice } from './hooks/useEmberVoice';
 
 import {
   Activity,
@@ -127,6 +129,18 @@ export default function App() {
     SONARA_MUSIC_DNA.find(
       item => item.genre === selectedGenre
     );
+
+  const emberConversation = useEmberConversation({
+    prompt,
+    genre,
+    subgenre: selectedSubgenre,
+    mood: selectedMood,
+    bpm,
+    currentJobId: jobId || undefined,
+    hasAudio: Boolean(audioUrl),
+    recommendedEqPresetId: recommendedEQPresetId || undefined
+  });
+  const emberVoice = useEmberVoice(emberConversation.messages);
 
 
   useEffect(() => {
@@ -963,6 +977,13 @@ export default function App() {
           <div className="min-w-0 lg:sticky lg:top-6">
             <EmberAssistantPanel
               insight={recommendedEQPreset ? `Music Brain EQ recommendation: ${recommendedEQPreset}` : null}
+              status={emberConversation.status}
+              messages={emberConversation.messages}
+              isSending={emberConversation.isSending}
+              error={emberConversation.error}
+              toolTrace={emberConversation.toolTrace}
+              onSendMessage={emberConversation.sendMessage}
+              voice={emberVoice}
             />
           </div>
 
