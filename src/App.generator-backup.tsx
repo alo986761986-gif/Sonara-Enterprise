@@ -6,6 +6,7 @@ import {
 } from './components/songwriter/AISongwriter';
 
 import { ProfessionalAudioEqualizer } from './components/eq/ProfessionalAudioEqualizer';
+import { EmberAssistantPanel } from './components/ember/EmberAssistantPanel';
 
 import {
   Activity,
@@ -448,7 +449,7 @@ export default function App() {
 
       <header className="border-b border-slate-800 bg-[#0d1322] px-6 py-4">
 
-        <div className="mx-auto flex max-w-5xl items-center justify-between">
+        <div className="mx-auto flex max-w-7xl items-center justify-between">
 
           <div className="flex items-center gap-3">
 
@@ -490,7 +491,11 @@ export default function App() {
 
 
 
-      <main className="mx-auto max-w-5xl space-y-6 p-6">
+      <main className="mx-auto max-w-7xl p-6">
+
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+
+          <div className="min-w-0 space-y-6">
 
 
         <AISongwriter
@@ -952,6 +957,16 @@ export default function App() {
           </section>
 
         )}
+
+          </div>
+
+          <div className="min-w-0 lg:sticky lg:top-6">
+            <EmberAssistantPanel
+              insight={recommendedEQPreset ? `Music Brain EQ recommendation: ${recommendedEQPreset}` : null}
+            />
+          </div>
+
+        </div>
 
 
       </main>
