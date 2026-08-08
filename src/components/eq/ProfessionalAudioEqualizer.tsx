@@ -115,6 +115,7 @@ export function ProfessionalAudioEqualizer({
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [isProcessingBackend, setIsProcessingBackend] = useState<boolean>(false);
   const [backendNotice, setBackendNotice] = useState<string | null>(null);
+  const [isBackendError, setIsBackendError] = useState<boolean>(false);
 
   // Active audio URL
   const [currentAudioUrl, setCurrentAudioUrl] = useState<string>(audioUrl || '');
@@ -491,6 +492,7 @@ export function ProfessionalAudioEqualizer({
   const processServerAudio = async () => {
     setIsProcessingBackend(true);
     setBackendNotice(null);
+    setIsBackendError(false);
     try {
       const res = await fetch('/api/music/eq/process', {
         method: 'POST',
@@ -500,29 +502,26 @@ export function ProfessionalAudioEqualizer({
           audioUrl: currentAudioUrl || audioUrl
         })
       });
-      const data = await res.json();
-      if (data.status === 'success') {
-        setMetrics({
-          lufs: data.metrics.lufs,
-          truePeakDbtp: data.metrics.truePeakDbtp,
-          peakL: data.metrics.peakL,
-          peakR: data.metrics.peakR,
-          gainReductionDb: 0.0,
-          stereoPhaseCorrelation: data.metrics.stereoPhaseCorrelation
-        });
-
-        if (data.audioUrl) {
-          setCurrentAudioUrl(data.audioUrl);
-          if (onProcessedAudio) {
-            onProcessedAudio(data.audioUrl, data.metrics);
-          }
-        }
-
-        setBackendNotice(`EQ Processing Complete! Audio rendered & mastered at ${data.metrics.lufs} LUFS, ${data.metrics.truePeakDbtp} dBTP (${data.metrics.activeBandsCount} active filters applied). Saved to ${data.audioUrl}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.status !== 'success' || !data.audioUrl || !data.metrics) {
+        throw new Error(data.error || 'Server EQ processing failed. Please try again.');
       }
+
+      setMetrics({
+        lufs: data.metrics.lufs,
+        truePeakDbtp: data.metrics.truePeakDbtp,
+        peakL: data.metrics.peakL,
+        peakR: data.metrics.peakR,
+        gainReductionDb: 0.0,
+        stereoPhaseCorrelation: data.metrics.stereoPhaseCorrelation
+      });
+      setCurrentAudioUrl(data.audioUrl);
+      onProcessedAudio?.(data.audioUrl, data.metrics);
+      setBackendNotice(`EQ Processing Complete! Audio rendered & mastered at ${data.metrics.lufs} LUFS, ${data.metrics.truePeakDbtp} dBTP (${data.metrics.activeBandsCount} active filters applied). Saved to ${data.audioUrl}`);
     } catch (e) {
       console.error('EQ process failed', e);
-      setBackendNotice('Server EQ processing failed. Please try again.');
+      setIsBackendError(true);
+      setBackendNotice(e instanceof Error ? e.message : 'Server EQ processing failed. Please try again.');
     } finally {
       setIsProcessingBackend(false);
     }
@@ -631,8 +630,8 @@ export function ProfessionalAudioEqualizer({
       </div>
 
       {backendNotice && (
-        <div className="flex items-center space-x-2 p-3 bg-emerald-950/50 border border-emerald-500/40 rounded-lg text-xs text-emerald-300">
-          <CheckCircle2 className="h-4 w-4 text-emerald-400 flex-shrink-0" />
+        <div className={`flex items-center space-x-2 p-3 rounded-lg text-xs ${isBackendError ? 'bg-red-950/50 border border-red-500/40 text-red-300' : 'bg-emerald-950/50 border border-emerald-500/40 text-emerald-300'}`}>
+          {isBackendError ? <AlertCircle className="h-4 w-4 text-red-400 flex-shrink-0" /> : <CheckCircle2 className="h-4 w-4 text-emerald-400 flex-shrink-0" />}
           <span>{backendNotice}</span>
         </div>
       )}

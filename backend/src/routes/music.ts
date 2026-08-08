@@ -182,59 +182,55 @@ router.get('/eq/presets', (_req: Request, res: Response) => {
 router.post('/eq/process', async (req: Request, res: Response) => {
   try {
     const { bands, filePath, audioUrl } = req.body;
-    
-    let resolvedPath = filePath;
-    if (!resolvedPath && audioUrl) {
-      const cleanUrl = audioUrl.split('?')[0];
-      const relativePath = cleanUrl.startsWith('/') ? cleanUrl.substring(1) : cleanUrl;
-      resolvedPath = path.join(process.cwd(), relativePath);
+    const storageAudioDir = path.resolve(process.cwd(), 'storage', 'audio');
+    const requestedSource = typeof filePath === 'string' ? filePath : audioUrl;
+
+    if (typeof requestedSource !== 'string' || !requestedSource.trim()) {
+      return res.status(400).json({ error: 'An audio source under /storage/audio is required for EQ processing.' });
     }
 
-    if (!resolvedPath) {
-      // Fallback search in storage/audio
-      const storageAudioDir = path.join(process.cwd(), 'storage', 'audio');
-      if (fs.existsSync(storageAudioDir)) {
-        const wavFiles = fs.readdirSync(storageAudioDir).filter(f => f.endsWith('.wav'));
-        if (wavFiles.length > 0) {
-          resolvedPath = path.join(storageAudioDir, wavFiles[0]);
-        }
-      }
+    const source = requestedSource.trim();
+    if (/^(?:https?:)?\/\//i.test(source)) {
+      return res.status(400).json({ error: 'Remote audio URLs are not supported for EQ processing.' });
+    }
+
+    const cleanSource = source.split(/[?#]/, 1)[0];
+    const relativeSource = cleanSource.replace(/^\/+/, '');
+    const resolvedPath = path.resolve(
+      cleanSource.startsWith('/') ? process.cwd() : storageAudioDir,
+      cleanSource.startsWith('/') ? relativeSource : cleanSource
+    );
+    const relativeToAudioDir = path.relative(storageAudioDir, resolvedPath);
+
+    if (relativeToAudioDir.startsWith('..') || path.isAbsolute(relativeToAudioDir)) {
+      return res.status(400).json({ error: 'EQ processing only accepts audio files stored under /storage/audio.' });
+    }
+
+    if (!fs.existsSync(resolvedPath)) {
+      return res.status(404).json({ error: 'The requested audio source was not found.' });
     }
 
     let buffer: Buffer;
-    if (resolvedPath && fs.existsSync(resolvedPath)) {
+    try {
       buffer = fs.readFileSync(resolvedPath);
-    } else {
-      // Create valid 44.1kHz 16-bit PCM stereo WAV
-      const sampleRate = 44100;
-      const numSamples = sampleRate * 5;
-      buffer = Buffer.alloc(44 + numSamples * 4);
-      buffer.write('RIFF', 0);
-      buffer.writeUInt32LE(36 + numSamples * 4, 4);
-      buffer.write('WAVE', 8);
-      buffer.write('fmt ', 12);
-      buffer.writeUInt32LE(16, 16);
-      buffer.writeUInt16LE(1, 20); // PCM
-      buffer.writeUInt16LE(2, 22); // Stereo
-      buffer.writeUInt32LE(sampleRate, 24);
-      buffer.writeUInt32LE(sampleRate * 4, 28);
-      buffer.writeUInt16LE(4, 32);
-      buffer.writeUInt16LE(16, 34);
-      buffer.write('data', 36);
-      buffer.writeUInt32LE(numSamples * 4, 40);
+    } catch {
+      return res.status(422).json({ error: 'The requested audio source could not be read.' });
+    }
 
-      for (let i = 0; i < numSamples; i++) {
-        const val = Math.round((Math.sin(2 * Math.PI * 220 * (i / sampleRate)) + Math.sin(2 * Math.PI * 440 * (i / sampleRate)) * 0.5) * 12000);
-        buffer.writeInt16LE(val, 44 + i * 4);
-        buffer.writeInt16LE(val, 44 + i * 4 + 2);
-      }
+    if (
+      buffer.length < 44 ||
+      buffer.toString('ascii', 0, 4) !== 'RIFF' ||
+      buffer.toString('ascii', 8, 12) !== 'WAVE' ||
+      buffer.readUInt16LE(22) !== 2 ||
+      buffer.readUInt16LE(34) !== 16
+    ) {
+      return res.status(422).json({ error: 'EQ processing supports 16-bit stereo PCM WAV audio only.' });
     }
 
     const bandConfigs = bands && Array.isArray(bands) ? bands : DEFAULT_EQ_BANDS;
     const result = ParametricEqService.processWavBuffer(buffer, bandConfigs);
     
     // Save processed WAV file into storage/audio
-    const storageAudioDir = path.join(process.cwd(), 'storage', 'audio');
     if (!fs.existsSync(storageAudioDir)) {
       fs.mkdirSync(storageAudioDir, { recursive: true });
     }
