@@ -1,9 +1,12 @@
 import { Router, Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
 import { AceStepPromptEngine } from '../services/AceStepPromptEngine';
 import { JobQueueWorker } from '../workers/JobQueueWorker';
 import { EngineDiagnosticService } from '../engine/EngineDiagnosticService';
 import { PythonEnvironmentManager } from '../engine/PythonEnvironmentManager';
 import { AceStepEngine } from '../engine/AceStepEngine';
+import { JobManager } from '../jobs/JobManager';
 
 const router = Router();
 
@@ -103,6 +106,55 @@ router.get('/ace-step/health', async (_req: Request, res: Response) => {
       version: null,
       apiUrl: process.env.ACE_STEP_API_URL || null,
       error: err?.message || String(err)
+    });
+  }
+});
+
+// Persistent generation history. The WAV files on disk are the source of truth,
+// so the history survives a Node/React restart even though JobManager is in-memory.
+router.get('/history', (_req: Request, res: Response) => {
+  try {
+    const storageAudioDir = path.join(process.cwd(), 'storage', 'audio');
+
+    if (!fs.existsSync(storageAudioDir)) {
+      return res.json({ status: 'success', total: 0, items: [] });
+    }
+
+    const items = fs.readdirSync(storageAudioDir)
+      .filter(fileName => /^musicgen-.*\.wav$/i.test(fileName))
+      .map(fileName => {
+        const fullPath = path.join(storageAudioDir, fileName);
+        const stats = fs.statSync(fullPath);
+        const jobId = fileName.replace(/^musicgen-/, '').replace(/\.wav$/i, '');
+        const job = JobManager.getJob(jobId);
+        const metadata = job?.metadata || {};
+        const payload = job?.payload || {};
+
+        return {
+          jobId,
+          fileName,
+          audioUrl: `/storage/audio/${encodeURIComponent(fileName)}`,
+          title: metadata.title || payload.title || 'Sonara Track',
+          genre: metadata.genre || payload.genre || null,
+          bpm: metadata.bpm || payload.bpm || null,
+          durationSec: payload.duration || null,
+          engine: metadata.engine || 'ACE-Step 1.5',
+          qualityScore: metadata.qualityScore || null,
+          sizeBytes: stats.size,
+          createdAt: metadata.completedAt || stats.mtime.toISOString()
+        };
+      })
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+
+    return res.json({
+      status: 'success',
+      total: items.length,
+      items
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      status: 'error',
+      message: err?.message || String(err)
     });
   }
 });
