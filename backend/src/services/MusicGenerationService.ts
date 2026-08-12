@@ -179,6 +179,16 @@ export class MusicGenerationService {
     bpm: number = 128
   ): Promise<{ audioBuffer: Buffer | null; audioPath: string | null; metadata: Record<string, any> | null }> {
     const engine = AceStepEngine.getInstance();
+
+    // ACE-Step Turbo speed profile for long renders on a T4.
+    // Short clips keep the full 8-step profile; 2-4 minute tracks use fewer
+    // denoising steps so long-form generation finishes materially faster.
+    const inferenceSteps = durationSec >= 120 ? 6 : 8;
+
+    console.log(
+      `[ENTERPRISE_LOG] [ACE_STEP_FAST_PROFILE] ${durationSec}s render -> ${inferenceSteps} inference steps, batch 1, guidance 1.0`
+    );
+
     const result = await engine.generate({
       prompt: promptStr,
       genre: genreStr,
@@ -187,7 +197,11 @@ export class MusicGenerationService {
       title: titleStr,
       timeoutMs,
       durationSec,
-      bpm
+      bpm,
+      inferenceSteps,
+      guidanceScale: 1.0,
+      batchSize: 1,
+      thinking: false
     });
 
     return {
@@ -227,4 +241,3 @@ export class MusicGenerationService {
     }
   }
 }
-
