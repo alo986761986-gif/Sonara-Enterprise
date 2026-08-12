@@ -299,7 +299,12 @@ export class MusicGenerationService {
       `PRIMARY GENRE: ${exactGenre}.`,
       `STRICT GENRE LOCK: make the track unmistakably ${exactGenre}; the selected genre must dominate the rhythm, bass, percussion, harmony and arrangement.`,
       `TEMPO: exactly ${bpm} BPM.`,
+      `METER: strict 4/4 with coherent bar-aligned phrasing and transitions.`,
+      `RHYTHMIC PRECISION: lock drums, bass notes, percussion, stabs, arpeggios and fills to a coherent musical grid at ${bpm} BPM; preserve intentional genre swing but avoid accidental timing drift, loose attacks, unwanted flams or off-beat instrument entrances.`,
+      `MUSICAL COHERENCE: bass, harmony and melodic instruments must share a compatible tonal center and phrase together; avoid random notes, clashing layers and rhythmically disconnected parts.`,
       `CORE ${exactGenre.toUpperCase()} FINGERPRINT: ${fingerprint}.`,
+      `HIGH-FIDELITY MIX TARGET: crystal-clear, pristine and pure production; clean transients, defined instrument separation, tight controlled low end, smooth non-harsh highs, stable stereo image, no clipping, crackle, muddy masking, digital artifacts or excessive distortion.`,
+      `PRODUCTION PRIORITY: timing, clarity, groove and musical coherence are more important than unnecessary density.`,
       moodStr ? `MOOD / ATMOSPHERE: ${moodStr}.` : '',
       userDirection ? `USER DIRECTION: ${userDirection}.` : '',
       `Maintain ${exactGenre} identity from beginning to end. Avoid stylistic drift or hybridization unless the user explicitly requests it after the selected genre.`
@@ -318,14 +323,14 @@ export class MusicGenerationService {
   ): Promise<{ audioBuffer: Buffer | null; audioPath: string | null; metadata: Record<string, any> | null }> {
     const engine = AceStepEngine.getInstance();
 
-    // ACE-Step Turbo speed profile for long renders on a T4.
-    // Short clips keep the full 8-step profile; 2-4 minute tracks use fewer
-    // denoising steps so long-form generation finishes materially faster.
-    const inferenceSteps = durationSec >= 120 ? 6 : 8;
+    // ACE-Step 1.5 Turbo quality-first profile.
+    // Keep the official recommended 8 denoising steps for every duration instead
+    // of reducing long tracks to 6 steps: fidelity and coherence now win over speed.
+    const inferenceSteps = 8;
     const strictGenrePrompt = this.buildStrictGenrePrompt(promptStr, genreStr, moodStr, bpm);
 
     console.log(
-      `[ENTERPRISE_LOG] [ACE_STEP_FAST_PROFILE] ${durationSec}s render -> ${inferenceSteps} inference steps, batch 1, guidance 1.0`
+      `[ENTERPRISE_LOG] [ACE_STEP_QUALITY_PROFILE] ${durationSec}s render -> ${inferenceSteps} inference steps, batch 1, lossless WAV, guidance 1.0`
     );
     console.log(
       `[ENTERPRISE_LOG] [ACE_STEP_GENRE_LOCK] Exact selected genre: ${genreStr} | BPM: ${bpm}`
@@ -343,7 +348,8 @@ export class MusicGenerationService {
       inferenceSteps,
       guidanceScale: 1.0,
       batchSize: 1,
-      thinking: false
+      thinking: false,
+      audioFormat: 'wav'
     });
 
     return {
