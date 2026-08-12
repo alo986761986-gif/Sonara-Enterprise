@@ -80,11 +80,24 @@ router.get('/active', (_req: Request, res: Response) => {
   });
 });
 
-// Live remote ACE-Step status used by the generator UI.
-// This never exposes the API key; it only reports connectivity and service metadata.
-router.get('/ace-step/health', async (_req: Request, res: Response) => {
+// Change only the public ACE-Step endpoint at runtime. The API key remains
+// backend-only and is never accepted from or returned to the browser.
+router.post('/ace-step/config', async (req: Request, res: Response) => {
+  const apiUrl = req.body?.apiUrl;
+
+  if (!apiUrl || typeof apiUrl !== 'string') {
+    return res.status(400).json({
+      status: 'error',
+      isAvailable: false,
+      error: 'apiUrl must be a non-empty string.'
+    });
+  }
+
+  const engine = AceStepEngine.getInstance();
+
   try {
-    const health = await AceStepEngine.getInstance().healthCheck();
+    const normalizedUrl = engine.setApiBaseUrl(apiUrl);
+    const health = await engine.healthCheck();
     const details = health.details || {};
     const response = (details.response || {}) as any;
 
@@ -94,7 +107,41 @@ router.get('/ace-step/health', async (_req: Request, res: Response) => {
       engineName: health.engineName,
       service: response?.data?.service || 'ACE-Step',
       version: response?.data?.version || null,
-      apiUrl: details.apiUrl || null,
+      apiUrl: normalizedUrl,
+      error: health.error || null,
+      message: health.isAvailable
+        ? 'ACE-Step endpoint updated and connected.'
+        : 'ACE-Step endpoint updated, but the remote service is not reachable yet.'
+    });
+  } catch (err: any) {
+    return res.status(400).json({
+      status: 'error',
+      isAvailable: false,
+      engineName: 'AceStepEngine',
+      service: 'ACE-Step',
+      apiUrl: engine.getApiBaseUrl(),
+      error: err?.message || String(err)
+    });
+  }
+});
+
+// Live remote ACE-Step status used by the generator UI.
+// This never exposes the API key; it only reports connectivity and service metadata.
+router.get('/ace-step/health', async (_req: Request, res: Response) => {
+  const engine = AceStepEngine.getInstance();
+
+  try {
+    const health = await engine.healthCheck();
+    const details = health.details || {};
+    const response = (details.response || {}) as any;
+
+    return res.status(health.isAvailable ? 200 : 503).json({
+      status: health.status,
+      isAvailable: health.isAvailable,
+      engineName: health.engineName,
+      service: response?.data?.service || 'ACE-Step',
+      version: response?.data?.version || null,
+      apiUrl: details.apiUrl || engine.getApiBaseUrl(),
       error: health.error || null
     });
   } catch (err: any) {
@@ -104,7 +151,7 @@ router.get('/ace-step/health', async (_req: Request, res: Response) => {
       engineName: 'AceStepEngine',
       service: 'ACE-Step',
       version: null,
-      apiUrl: process.env.ACE_STEP_API_URL || null,
+      apiUrl: engine.getApiBaseUrl(),
       error: err?.message || String(err)
     });
   }
