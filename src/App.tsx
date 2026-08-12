@@ -11,6 +11,13 @@ import {
   Zap
 } from 'lucide-react';
 import { ProfessionalAudioEqualizer } from './components/eq/ProfessionalAudioEqualizer';
+import {
+  DEFAULT_GENRE_FAMILY_ID,
+  DEFAULT_GENRE_STYLE,
+  MUSIC_GENRE_CATALOG,
+  getGenreFamily,
+  getGenreStyle
+} from './data/musicGenreCatalog';
 
 type JobStatus = 'IDLE' | 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 type EngineHealth = 'CHECKING' | 'READY' | 'OFFLINE';
@@ -82,7 +89,8 @@ export default function App() {
   const [prompt, setPrompt] = useState(
     'Deep House and Tech House with Afro House influence, 124 BPM, deep rolling bassline, punchy four-on-the-floor kick, organic tribal percussion, congas, bongos, shakers, hypnotic groove, warm piano chords, atmospheric pads and a polished club mix.'
   );
-  const [genre, setGenre] = useState('Tech House');
+  const [genreFamilyId, setGenreFamilyId] = useState(DEFAULT_GENRE_FAMILY_ID);
+  const [genre, setGenre] = useState(DEFAULT_GENRE_STYLE);
   const [bpm, setBpm] = useState(124);
   const [durationSec, setDurationSec] = useState(15);
 
@@ -101,6 +109,7 @@ export default function App() {
   const [historyError, setHistoryError] = useState('');
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const selectedGenreFamily = getGenreFamily(genreFamilyId);
 
   useEffect(() => {
     void checkHealth();
@@ -181,6 +190,20 @@ export default function App() {
     setError('');
     setIsPlaying(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleGenreFamilyChange = (familyId: string) => {
+    const family = getGenreFamily(familyId);
+    const firstStyle = family.styles[0];
+    setGenreFamilyId(family.id);
+    setGenre(firstStyle.name);
+    setBpm(firstStyle.bpm);
+  };
+
+  const handleGenreChange = (styleName: string) => {
+    const selected = getGenreStyle(genreFamilyId, styleName);
+    setGenre(selected.name);
+    setBpm(selected.bpm);
   };
 
   const generate = async () => {
@@ -369,17 +392,28 @@ export default function App() {
 
           <textarea value={prompt} onChange={event => setPrompt(event.target.value)} rows={5} placeholder="Describe the track..." className="w-full rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm outline-none focus:border-purple-500" />
 
-          <div className="mt-4 grid gap-4 sm:grid-cols-3">
+          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <label className="space-y-1 text-xs text-slate-400">
-              <span>Genre</span>
-              <select value={genre} onChange={event => setGenre(event.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-slate-100">
-                <option>Deep House</option><option>Tech House</option><option>Afro House</option><option>Melodic House</option><option>Pop EDM</option>
+              <span>Genre Family</span>
+              <select value={genreFamilyId} onChange={event => handleGenreFamilyChange(event.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-slate-100">
+                {MUSIC_GENRE_CATALOG.map(family => (
+                  <option key={family.id} value={family.id}>{family.label}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="space-y-1 text-xs text-slate-400">
+              <span>Genre / Subgenre</span>
+              <select value={genre} onChange={event => handleGenreChange(event.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-slate-100">
+                {selectedGenreFamily.styles.map(entry => (
+                  <option key={entry.name} value={entry.name}>{entry.name}</option>
+                ))}
               </select>
             </label>
 
             <label className="space-y-1 text-xs text-slate-400">
               <span>BPM: {bpm}</span>
-              <input type="range" min={60} max={180} value={bpm} onChange={event => setBpm(Number(event.target.value))} className="w-full accent-purple-500" />
+              <input type="range" min={40} max={260} value={bpm} onChange={event => setBpm(Number(event.target.value))} className="w-full accent-purple-500" />
             </label>
 
             <label className="space-y-1 text-xs text-slate-400">
@@ -393,6 +427,10 @@ export default function App() {
                 <option value={240}>4 minutes</option>
               </select>
             </label>
+          </div>
+
+          <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-[11px] text-slate-500">
+            Selected style: <span className="font-medium text-purple-300">{selectedGenreFamily.label} → {genre}</span>. Changing style loads its suggested BPM, which you can still adjust manually.
           </div>
 
           <button type="button" onClick={() => void generate()} disabled={busy || !prompt.trim() || !engineReady} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 px-6 py-3.5 font-semibold disabled:cursor-not-allowed disabled:opacity-50">
