@@ -119,13 +119,14 @@ export class JobQueueWorker {
         metadata: { currentStage: 'ACE-Step Rendering Engine: Generating neural audio waveform...' }
       });
 
+      const aceStepTimeoutMs = 4 * 60 * 1000;
       const execResult = await MusicGenerationService.executePythonEngine(
         promptOptimization.optimizedPrompt,
         targetGenre,
         payload.mood || 'Energetic',
         payload.lyrics || '',
         payload.title || 'Sonara AI Track',
-        30000,
+        aceStepTimeoutMs,
         durationSec,
         targetBpm
       );
@@ -243,4 +244,3 @@ export class JobQueueWorker {
     return JobManager.getJob(jobId) || null;
   }
 }
-
