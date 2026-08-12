@@ -7,18 +7,43 @@ import {
 import http from 'http';
 import https from 'https';
 
-interface AceStepHealthResponse {
-  status?: string;
-  engine?: string;
-  api?: string;
+interface AceStepApiEnvelope<T> {
+  data?: T;
+  code?: number;
+  error?: string | null;
+  timestamp?: number;
+  extra?: unknown;
 }
 
-interface AceStepGenerateResponse {
+interface AceStepHealthData {
   status?: string;
-  output_path?: string;
-  audio_url?: string;
-  message?: string;
-  detail?: string;
+  service?: string;
+  version?: string;
+}
+
+interface AceStepReleaseTaskData {
+  task_id?: string;
+  status?: string;
+}
+
+interface AceStepQueryItem {
+  task_id?: string;
+  status?: number;
+  result?: string;
+}
+
+interface AceStepAudioResult {
+  file?: string;
+  url?: string;
+  status?: number;
+  seed?: number;
+  caption?: string;
+  lyrics?: string;
+  bpm?: number | null;
+  duration?: number | null;
+  keyscale?: string;
+  timesignature?: string;
+  vocal_language?: string;
 }
 
 export class AceStepEngine extends IAudioGenerationEngine {
@@ -31,7 +56,9 @@ export class AceStepEngine extends IAudioGenerationEngine {
   private static instance: AceStepEngine | null = null;
 
   private readonly apiBaseUrl =
-    (process.env.ACE_STEP_API_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '');
+    (process.env.ACE_STEP_API_URL || 'http://127.0.0.1:8001').replace(/\/+$/, '');
+
+  private readonly apiKey = (process.env.ACE_STEP_API_KEY || '').trim();
 
   public static getInstance(): AceStepEngine {
     if (!AceStepEngine.instance) {
@@ -61,19 +88,22 @@ export class AceStepEngine extends IAudioGenerationEngine {
 
   public async healthCheck(): Promise<EngineHealthStatus> {
     try {
-      const response = await this.requestJson<AceStepHealthResponse>(
+      const response = await this.requestJson<AceStepApiEnvelope<AceStepHealthData>>(
         'GET',
         '/health',
         undefined,
-        10_000
+        10_000,
+        false
       );
 
-      const ready = response.status === 'healthy';
+      const ready =
+        response.code === 200 &&
+        (response.data?.status === 'ok' || response.data?.status === 'healthy');
 
       this.isAvailable = ready;
       this.lastError = ready
         ? null
-        : `Unexpected ACE-Step health response: ${JSON.stringify(response)}`;
+        : response.error || `Unexpected ACE-Step health response: ${JSON.stringify(response)}`;
 
       return {
         isAvailable: ready,
@@ -125,103 +155,60 @@ export class AceStepEngine extends IAudioGenerationEngine {
     }
 
     const durationSec = Math.max(
-      5,
-      Math.min(240, Number(params.durationSec || 15))
+      10,
+      Math.min(600, Number(params.durationSec || 15))
     );
 
     const bpm = Math.max(
-      60,
-      Math.min(240, Number(params.bpm || 128))
+      30,
+      Math.min(300, Number(params.bpm || 128))
     );
 
     const timeoutMs = Math.max(
-      Number(params.timeoutMs || 300_000),
-      60_000
+      Number(params.timeoutMs || 900_000),
+      120_000
     );
 
     const prompt = this.buildPrompt(params, bpm);
+    const lyrics = String(params.lyrics || '');
 
-    const payload = {
-      checkpoint_path:
-        process.env.ACE_STEP_CHECKPOINT_PATH ||
-        '/workspace/ACE-Step/checkpoints',
-
-      bf16: true,
-      torch_compile: false,
-      cpu_offload: false,
-      overlapped_decode: false,
-      device_id: Number(process.env.ACE_STEP_DEVICE_ID || 0),
-
-      audio_duration: durationSec,
+    const payload: Record<string, unknown> = {
       prompt,
-      lyrics: params.lyrics || '',
-
-      infer_step: Number((params as any).inferStep || 60),
-      guidance_scale: Number((params as any).guidanceScale || 15),
-      scheduler_type: (params as any).schedulerType || 'euler',
-      cfg_type: (params as any).cfgType || 'apg',
-      omega_scale: Number((params as any).omegaScale || 10),
-
-      actual_seeds: [
-        Number((params as any).seed || 42)
-      ],
-
-      guidance_interval: Number(
-        (params as any).guidanceInterval ?? 0.5
-      ),
-
-      guidance_interval_decay: Number(
-        (params as any).guidanceIntervalDecay ?? 0
-      ),
-
-      min_guidance_scale: Number(
-        (params as any).minGuidanceScale || 3
-      ),
-
-      use_erg_tag:
-        (params as any).useErgTag ?? true,
-
-      use_erg_lyric:
-        (params as any).useErgLyric ??
-        Boolean(params.lyrics),
-
-      use_erg_diffusion:
-        (params as any).useErgDiffusion ?? true,
-
-      oss_steps:
-        Array.isArray((params as any).ossSteps)
-          ? (params as any).ossSteps
-          : [],
-
-      guidance_scale_text: Number(
-        (params as any).guidanceScaleText || 0
-      ),
-
-      guidance_scale_lyric: Number(
-        (params as any).guidanceScaleLyric || 0
-      )
+      lyrics,
+      thinking: Boolean((params as any).thinking ?? false),
+      bpm,
+      audio_duration: durationSec,
+      inference_steps: Number((params as any).inferenceSteps || (params as any).inferStep || 8),
+      guidance_scale: Number((params as any).guidanceScale ?? 1.0),
+      batch_size: Number((params as any).batchSize || 1),
+      audio_format: (params as any).audioFormat || 'wav',
+      use_random_seed: (params as any).useRandomSeed ?? true
     };
 
+    const seed = Number((params as any).seed);
+    if (Number.isFinite(seed) && seed >= 0) {
+      payload.use_random_seed = false;
+      payload.seed = seed;
+    }
+
     console.log(
-      `[ENTERPRISE_LOG] [AceStepEngine] Generating ${durationSec}s through ${this.apiBaseUrl}/generate`
+      `[ENTERPRISE_LOG] [AceStepEngine] Generating ${durationSec}s through ${this.apiBaseUrl}/release_task`
     );
 
     try {
-      const response = await this.requestJson<AceStepGenerateResponse>(
+      const releaseResponse = await this.requestJson<AceStepApiEnvelope<AceStepReleaseTaskData>>(
         'POST',
-        '/generate',
+        '/release_task',
         payload,
-        timeoutMs
+        timeoutMs,
+        true
       );
 
-      if (
-        response.status !== 'success' ||
-        !response.audio_url
-      ) {
+      const taskId = releaseResponse.data?.task_id;
+      if (releaseResponse.code !== 200 || !taskId) {
         const message =
-          response.detail ||
-          response.message ||
-          `Unexpected ACE-Step response: ${JSON.stringify(response)}`;
+          releaseResponse.error ||
+          `Unexpected ACE-Step release_task response: ${JSON.stringify(releaseResponse)}`;
 
         return {
           status: 'ERROR',
@@ -231,14 +218,70 @@ export class AceStepEngine extends IAudioGenerationEngine {
           metadata: {
             apiUrl: this.apiBaseUrl,
             request: payload,
-            response
+            releaseResponse
+          }
+        };
+      }
+
+      const queryResponse = await this.waitForResult(taskId, timeoutMs);
+      const queryItem = queryResponse.data?.[0];
+
+      if (!queryItem || queryItem.status !== 1 || !queryItem.result) {
+        const message =
+          queryResponse.error ||
+          `ACE-Step task ${taskId} did not complete successfully.`;
+
+        return {
+          status: 'ERROR',
+          audioBuffer: null,
+          audioPath: null,
+          error: message,
+          metadata: {
+            apiUrl: this.apiBaseUrl,
+            request: payload,
+            taskId,
+            queryResponse
+          }
+        };
+      }
+
+      let audioResults: AceStepAudioResult[] = [];
+      try {
+        const parsed = JSON.parse(queryItem.result);
+        audioResults = Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return {
+          status: 'ERROR',
+          audioBuffer: null,
+          audioPath: null,
+          error: 'ACE-Step returned an invalid query_result payload.',
+          metadata: {
+            apiUrl: this.apiBaseUrl,
+            taskId,
+            rawResult: queryItem.result
+          }
+        };
+      }
+
+      const firstAudio = audioResults.find(item => item?.url);
+      if (!firstAudio?.url) {
+        return {
+          status: 'ERROR',
+          audioBuffer: null,
+          audioPath: null,
+          error: 'ACE-Step completed the task but returned no downloadable audio URL.',
+          metadata: {
+            apiUrl: this.apiBaseUrl,
+            taskId,
+            audioResults
           }
         };
       }
 
       const audioBuffer = await this.requestBuffer(
-        response.audio_url,
-        Math.max(timeoutMs, 120_000)
+        firstAudio.url,
+        Math.max(timeoutMs, 120_000),
+        true
       );
 
       if (audioBuffer.length === 0) {
@@ -246,10 +289,11 @@ export class AceStepEngine extends IAudioGenerationEngine {
           status: 'ERROR',
           audioBuffer: null,
           audioPath: null,
-          error: 'ACE-Step returned an empty WAV file.',
+          error: 'ACE-Step returned an empty audio file.',
           metadata: {
             apiUrl: this.apiBaseUrl,
-            response
+            taskId,
+            firstAudio
           }
         };
       }
@@ -257,23 +301,20 @@ export class AceStepEngine extends IAudioGenerationEngine {
       return {
         status: 'SUCCESS',
         audioBuffer,
-        audioPath:
-          response.output_path ||
-          response.audio_url,
-
+        audioPath: firstAudio.file || firstAudio.url,
         metadata: {
-          engine: 'ACE-Step',
+          engine: 'ACE-Step 1.5',
           apiUrl: this.apiBaseUrl,
+          taskId,
           durationSec,
           bpm,
           prompt,
-          remoteOutputPath:
-            response.output_path,
-          audioUrl:
-            response.audio_url,
-          bytes:
-            audioBuffer.length,
-          response
+          audioUrl: firstAudio.url,
+          remoteOutputPath: firstAudio.file,
+          bytes: audioBuffer.length,
+          generation: firstAudio,
+          releaseResponse,
+          queryResponse
         }
       };
     } catch (error) {
@@ -308,6 +349,32 @@ export class AceStepEngine extends IAudioGenerationEngine {
     this.lastError = null;
   }
 
+  private async waitForResult(
+    taskId: string,
+    timeoutMs: number
+  ): Promise<AceStepApiEnvelope<AceStepQueryItem[]>> {
+    const start = Date.now();
+
+    while (Date.now() - start < timeoutMs) {
+      const response = await this.requestJson<AceStepApiEnvelope<AceStepQueryItem[]>>(
+        'POST',
+        '/query_result',
+        { task_id_list: [taskId] },
+        Math.min(60_000, timeoutMs),
+        true
+      );
+
+      const item = response.data?.[0];
+      if (item?.status === 1 || item?.status === 2) {
+        return response;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 1_000));
+    }
+
+    throw new Error(`ACE-Step task ${taskId} timed out after ${timeoutMs}ms`);
+  }
+
   private buildPrompt(
     params: GenerationParams,
     bpm: number
@@ -332,7 +399,8 @@ export class AceStepEngine extends IAudioGenerationEngine {
     method: 'GET' | 'POST',
     endpoint: string,
     body?: Record<string, unknown>,
-    timeoutMs = 30_000
+    timeoutMs = 30_000,
+    withAuth = true
   ): Promise<T> {
     return new Promise<T>(
       (resolve, reject) => {
@@ -349,19 +417,20 @@ export class AceStepEngine extends IAudioGenerationEngine {
           ? JSON.stringify(body)
           : undefined;
 
+        const headers: Record<string, string | number> = {};
+        if (payload) {
+          headers['Content-Type'] = 'application/json';
+          headers['Content-Length'] = Buffer.byteLength(payload);
+        }
+        if (withAuth && this.apiKey) {
+          headers.Authorization = `Bearer ${this.apiKey}`;
+        }
+
         const request = client.request(
           target,
           {
             method,
-            headers: payload
-              ? {
-                  'Content-Type':
-                    'application/json',
-
-                  'Content-Length':
-                    Buffer.byteLength(payload)
-                }
-              : undefined
+            headers: Object.keys(headers).length > 0 ? headers : undefined
           },
           (response) => {
             const chunks: Buffer[] = [];
@@ -406,6 +475,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
                   return reject(
                     new Error(
                       parsed.detail ||
+                        parsed.error ||
                         parsed.message ||
                         `ACE-Step HTTP ${response.statusCode}`
                     )
@@ -445,7 +515,8 @@ export class AceStepEngine extends IAudioGenerationEngine {
 
   private requestBuffer(
     endpoint: string,
-    timeoutMs: number
+    timeoutMs: number,
+    withAuth = true
   ): Promise<Buffer> {
     return new Promise<Buffer>(
       (resolve, reject) => {
@@ -462,8 +533,16 @@ export class AceStepEngine extends IAudioGenerationEngine {
             ? https
             : http;
 
+        const headers: Record<string, string> = {};
+        if (withAuth && this.apiKey) {
+          headers.Authorization = `Bearer ${this.apiKey}`;
+        }
+
         const request = client.get(
           target,
+          {
+            headers: Object.keys(headers).length > 0 ? headers : undefined
+          },
           (response) => {
             if (
               response.statusCode === undefined ||
