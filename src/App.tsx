@@ -12,6 +12,8 @@ import {
 
 type JobStatus = 'IDLE' | 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
+type EngineHealth = 'CHECKING' | 'READY' | 'OFFLINE';
+
 interface JobResponse {
   jobId?: string;
   status?: JobStatus | string;
@@ -39,6 +41,16 @@ interface JobResponse {
   message?: string;
 }
 
+interface AceStepHealthResponse {
+  status?: string;
+  isAvailable?: boolean;
+  engineName?: string;
+  service?: string;
+  version?: string | null;
+  apiUrl?: string | null;
+  error?: string | null;
+}
+
 const sleep = (milliseconds: number) =>
   new Promise(resolve => setTimeout(resolve, milliseconds));
 
@@ -60,13 +72,19 @@ export default function App() {
   const [jobId, setJobId] = useState('');
   const [audioUrl, setAudioUrl] = useState('');
   const [engine, setEngine] = useState('Sonara V12 ACE-Step Engine');
-  const [health, setHealth] = useState('CHECKING');
+  const [health, setHealth] = useState<EngineHealth>('CHECKING');
+  const [healthDetails, setHealthDetails] = useState<AceStepHealthResponse | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     void checkHealth();
+    const timer = window.setInterval(() => {
+      void checkHealth();
+    }, 15000);
+
+    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -84,17 +102,36 @@ export default function App() {
   }, [isPlaying, audioUrl]);
 
   const checkHealth = async () => {
+    setHealth(previous => previous === 'READY' ? previous : 'CHECKING');
+
     try {
-      const response = await fetch('/api/health', { cache: 'no-store' });
-      setHealth(response.ok ? 'READY' : `HTTP ${response.status}`);
+      const response = await fetch('/api/engine/ace-step/health', { cache: 'no-store' });
+      const data: AceStepHealthResponse = await response.json();
+      setHealthDetails(data);
+      setHealth(response.ok && data.isAvailable ? 'READY' : 'OFFLINE');
     } catch (healthError) {
-      console.error('Health check failed:', healthError);
+      console.error('ACE-Step health check failed:', healthError);
+      setHealthDetails({
+        isAvailable: false,
+        service: 'ACE-Step',
+        error: healthError instanceof Error ? healthError.message : String(healthError)
+      });
       setHealth('OFFLINE');
     }
   };
 
   const generate = async () => {
     if (!prompt.trim() || status === 'QUEUED' || status === 'PROCESSING') return;
+
+    if (health !== 'READY') {
+      setError(
+        healthDetails?.error ||
+        'ACE-Step is offline. Start the Colab/API service and refresh the engine status.'
+      );
+      setStatus('FAILED');
+      setStage('ACE-Step offline');
+      return;
+    }
 
     setStatus('QUEUED');
     setProgress(0);
@@ -150,7 +187,7 @@ export default function App() {
       setStatus('PROCESSING');
       setStage('ACE-Step is generating the track...');
 
-      const maximumAttempts = 1200; // 6 minutes, at 300 ms per check.
+      const maximumAttempts = 1200;
 
       for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
         await sleep(300);
@@ -217,39 +254,62 @@ export default function App() {
       setStatus('FAILED');
       setProgress(0);
       setStage('Generation failed');
+      void checkHealth();
     }
   };
 
   const busy = status === 'QUEUED' || status === 'PROCESSING';
+  const engineReady = health === 'READY';
 
   return (
     <div className="min-h-screen bg-[#090d16] text-slate-100">
       <header className="border-b border-slate-800 bg-[#0d1322] px-6 py-4">
-        <div className="mx-auto flex max-w-5xl items-center justify-between">
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-600">
               <Music className="h-5 w-5" />
             </div>
             <div>
               <h1 className="text-lg font-bold">SONARA AI</h1>
-              <p className="text-xs text-slate-400">
-                Clean ACE-Step Generator
-              </p>
+              <p className="text-xs text-slate-400">ACE-Step 1.5 Remote Generator</p>
             </div>
           </div>
 
           <button
             type="button"
             onClick={() => void checkHealth()}
-            className="flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs"
+            className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs ${
+              engineReady
+                ? 'border-emerald-800 bg-emerald-950/40 text-emerald-300'
+                : health === 'CHECKING'
+                  ? 'border-amber-800 bg-amber-950/40 text-amber-300'
+                  : 'border-red-900 bg-red-950/40 text-red-300'
+            }`}
+            title={healthDetails?.apiUrl || 'ACE-Step API status'}
           >
-            <Activity className="h-3.5 w-3.5 text-emerald-400" />
-            Engine {health}
+            <Activity className="h-3.5 w-3.5" />
+            ACE-Step {health}
           </button>
         </div>
       </header>
 
       <main className="mx-auto max-w-5xl space-y-6 p-6">
+        {health === 'OFFLINE' && (
+          <section className="rounded-xl border border-red-900 bg-red-950/30 p-4 text-sm text-red-200">
+            <div className="font-semibold">ACE-Step is offline</div>
+            <div className="mt-1 text-xs text-red-300/80">
+              {healthDetails?.error || 'The remote ACE-Step API cannot be reached.'}
+            </div>
+            <button
+              type="button"
+              onClick={() => void checkHealth()}
+              className="mt-3 rounded-lg border border-red-800 px-3 py-1.5 text-xs font-medium"
+            >
+              Retry connection
+            </button>
+          </section>
+        )}
+
         <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 shadow-xl">
           <div className="mb-5 flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-purple-400" />
@@ -267,11 +327,7 @@ export default function App() {
           <div className="mt-4 grid gap-4 sm:grid-cols-3">
             <label className="space-y-1 text-xs text-slate-400">
               <span>Genre</span>
-              <select
-                value={genre}
-                onChange={event => setGenre(event.target.value)}
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-slate-100"
-              >
+              <select value={genre} onChange={event => setGenre(event.target.value)} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-slate-100">
                 <option>Deep House</option>
                 <option>Tech House</option>
                 <option>Afro House</option>
@@ -282,23 +338,12 @@ export default function App() {
 
             <label className="space-y-1 text-xs text-slate-400">
               <span>BPM: {bpm}</span>
-              <input
-                type="range"
-                min={60}
-                max={180}
-                value={bpm}
-                onChange={event => setBpm(Number(event.target.value))}
-                className="w-full accent-purple-500"
-              />
+              <input type="range" min={60} max={180} value={bpm} onChange={event => setBpm(Number(event.target.value))} className="w-full accent-purple-500" />
             </label>
 
             <label className="space-y-1 text-xs text-slate-400">
               <span>Duration</span>
-              <select
-                value={durationSec}
-                onChange={event => setDurationSec(Number(event.target.value))}
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-slate-100"
-              >
+              <select value={durationSec} onChange={event => setDurationSec(Number(event.target.value))} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-slate-100">
                 <option value={15}>15 seconds</option>
                 <option value={30}>30 seconds</option>
                 <option value={60}>60 seconds</option>
@@ -309,19 +354,13 @@ export default function App() {
           <button
             type="button"
             onClick={() => void generate()}
-            disabled={busy || !prompt.trim()}
+            disabled={busy || !prompt.trim() || !engineReady}
             className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 px-6 py-3.5 font-semibold disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy ? (
-              <>
-                <RefreshCw className="h-5 w-5 animate-spin" />
-                Generating...
-              </>
+              <><RefreshCw className="h-5 w-5 animate-spin" />Generating...</>
             ) : (
-              <>
-                <Zap className="h-5 w-5" />
-                Generate Track
-              </>
+              <><Zap className="h-5 w-5" />Generate Track</>
             )}
           </button>
         </section>
@@ -332,25 +371,11 @@ export default function App() {
               <span>{stage}</span>
               <span className="font-mono text-purple-300">{progress}%</span>
             </div>
-
             <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-800">
-              <div
-                className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all"
-                style={{ width: `${Math.max(0, Math.min(100, progress))}%` }}
-              />
+              <div className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all" style={{ width: `${Math.max(0, Math.min(100, progress))}%` }} />
             </div>
-
-            {jobId && (
-              <p className="mt-2 text-[11px] text-slate-500">
-                Job: {jobId}
-              </p>
-            )}
-
-            {error && (
-              <pre className="mt-4 whitespace-pre-wrap rounded-lg border border-red-900 bg-red-950/40 p-3 text-xs text-red-300">
-                {error}
-              </pre>
-            )}
+            {jobId && <p className="mt-2 text-[11px] text-slate-500">Job: {jobId}</p>}
+            {error && <pre className="mt-4 whitespace-pre-wrap rounded-lg border border-red-900 bg-red-950/40 p-3 text-xs text-red-300">{error}</pre>}
           </section>
         )}
 
@@ -358,56 +383,22 @@ export default function App() {
           <section className="rounded-2xl border border-emerald-800/60 bg-slate-900/80 p-6 shadow-xl">
             <div className="mb-5 flex items-center justify-between">
               <div>
-                <h2 className="font-semibold text-emerald-300">
-                  Generation Complete
-                </h2>
-                <p className="mt-1 text-xs text-slate-400">
-                  {engine}
-                </p>
+                <h2 className="font-semibold text-emerald-300">Generation Complete</h2>
+                <p className="mt-1 text-xs text-slate-400">{engine}</p>
               </div>
-
-              <span className="rounded-full border border-emerald-800 bg-emerald-950 px-3 py-1 text-xs text-emerald-300">
-                WAV READY
-              </span>
+              <span className="rounded-full border border-emerald-800 bg-emerald-950 px-3 py-1 text-xs text-emerald-300">WAV READY</span>
             </div>
 
-            <audio
-              ref={audioRef}
-              controls
-              preload="metadata"
-              src={audioUrl}
-              onEnded={() => setIsPlaying(false)}
-              className="w-full"
-            >
+            <audio ref={audioRef} controls preload="metadata" src={audioUrl} onEnded={() => setIsPlaying(false)} className="w-full">
               Your browser does not support audio playback.
             </audio>
 
             <div className="mt-5 flex flex-wrap gap-3">
-              <button
-                type="button"
-                onClick={() => setIsPlaying(previous => !previous)}
-                className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium"
-              >
-                {isPlaying ? (
-                  <>
-                    <Pause className="h-4 w-4" />
-                    Pause
-                  </>
-                ) : (
-                  <>
-                    <Play className="h-4 w-4" />
-                    Play
-                  </>
-                )}
+              <button type="button" onClick={() => setIsPlaying(previous => !previous)} className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium">
+                {isPlaying ? <><Pause className="h-4 w-4" />Pause</> : <><Play className="h-4 w-4" />Play</>}
               </button>
-
-              <a
-                href={audioUrl}
-                download={`Sonara-${jobId || 'track'}.wav`}
-                className="flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium"
-              >
-                <Download className="h-4 w-4" />
-                Download WAV
+              <a href={audioUrl} download={`Sonara-${jobId || 'track'}.wav`} className="flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium">
+                <Download className="h-4 w-4" />Download WAV
               </a>
             </div>
           </section>
