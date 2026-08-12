@@ -7,6 +7,7 @@ import { EngineDiagnosticService } from '../engine/EngineDiagnosticService';
 import { PythonEnvironmentManager } from '../engine/PythonEnvironmentManager';
 import { AceStepEngine } from '../engine/AceStepEngine';
 import { JobManager } from '../jobs/JobManager';
+import { MockAudioGenerationService } from '../services/MockAudioGenerationService';
 
 const router = Router();
 
@@ -60,6 +61,144 @@ const ENGINE_MODELS = [
 ];
 
 let activeEngineId = 'sonara_ace_step_v12';
+
+const sleep = (milliseconds: number) =>
+  new Promise(resolve => setTimeout(resolve, milliseconds));
+
+interface MockGenerationPayload {
+  title: string;
+  genre: string;
+  mood: string;
+  lyrics: string;
+  prompt: string;
+  bpm: number;
+  duration: number;
+}
+
+async function runMockGeneration(
+  jobId: string,
+  payload: MockGenerationPayload,
+  optimizationResult: any
+): Promise<void> {
+  try {
+    JobManager.updateJobStatus(jobId, 'PROCESSING', {
+      progress: 10,
+      metadata: {
+        currentStage: 'DEV Mock: analyzing prompt and genre locally...',
+        mockMode: true
+      }
+    });
+    await sleep(350);
+
+    JobManager.updateJobStatus(jobId, 'PROCESSING', {
+      progress: 28,
+      metadata: {
+        currentStage: 'DEV Mock: simulating Music Brain recall (no learning is written)...',
+        mockMode: true
+      }
+    });
+    await sleep(350);
+
+    JobManager.updateJobStatus(jobId, 'PROCESSING', {
+      progress: 46,
+      metadata: {
+        currentStage: 'DEV Mock: building a local test groove...',
+        mockMode: true
+      }
+    });
+    await sleep(350);
+
+    JobManager.updateJobStatus(jobId, 'PROCESSING', {
+      progress: 64,
+      metadata: {
+        currentStage: 'DEV Mock: rendering GPU-free WAV audio on this PC...',
+        mockMode: true
+      }
+    });
+
+    const generated = MockAudioGenerationService.generate({
+      durationSec: payload.duration,
+      bpm: payload.bpm,
+      genre: payload.genre,
+      mood: payload.mood
+    });
+
+    JobManager.updateJobStatus(jobId, 'PROCESSING', {
+      progress: 82,
+      metadata: {
+        currentStage: 'DEV Mock: writing WAV and preparing EQ/player test...',
+        mockMode: true
+      }
+    });
+
+    const storageAudioDir = path.join(process.cwd(), 'storage', 'audio');
+    if (!fs.existsSync(storageAudioDir)) {
+      fs.mkdirSync(storageAudioDir, { recursive: true });
+    }
+
+    const audioFileName = `musicgen-${jobId}.wav`;
+    const finalAudioPath = path.join(storageAudioDir, audioFileName);
+    fs.writeFileSync(finalAudioPath, generated.audioBuffer);
+    const audioUrl = `/storage/audio/${audioFileName}`;
+
+    await sleep(300);
+
+    JobManager.updateJobStatus(jobId, 'PROCESSING', {
+      progress: 94,
+      audioUrl,
+      metadata: {
+        currentStage: 'DEV Mock: finalizing local test track...',
+        mockMode: true
+      }
+    });
+    await sleep(250);
+
+    const targetGenre =
+      optimizationResult?.genreLock?.subgenre ||
+      optimizationResult?.genreLock?.primaryGenre ||
+      payload.genre;
+
+    JobManager.updateJobStatus(jobId, 'COMPLETED', {
+      progress: 100,
+      audioUrl,
+      metadata: {
+        title: payload.title || `${targetGenre} Mock Track`,
+        genre: targetGenre,
+        bpm: payload.bpm,
+        prompt: payload.prompt,
+        optimizedPrompt: optimizationResult?.optimizedPrompt || payload.prompt,
+        engine: 'Sonara DEV Mock Engine (LOCAL - NO GPU)',
+        status: 'COMPLETED',
+        audioUrl,
+        mockMode: true,
+        sampleRate: generated.sampleRate,
+        channels: generated.channels,
+        bitDepth: generated.bitDepth,
+        currentStage: 'DEV Mock generation complete - local WAV ready.',
+        completedAt: new Date().toISOString()
+      }
+    });
+
+    console.log(
+      `[MOCK_ENGINE] Completed GPU-free mock job ${jobId} (${generated.durationSec}s, ${payload.bpm} BPM)`
+    );
+  } catch (err: any) {
+    const errorMessage = err?.message || String(err);
+    console.error(`[MOCK_ENGINE] Job ${jobId} failed:`, errorMessage);
+
+    JobManager.updateJobStatus(jobId, 'FAILED', {
+      progress: 0,
+      audioUrl: null,
+      metadata: {
+        title: payload.title || 'Sonara Mock Track',
+        status: 'MOCK_ERROR',
+        mockMode: true,
+        error: errorMessage,
+        completedAt: new Date().toISOString()
+      }
+    });
+  }
+}
 
 router.get('/models', (_req: Request, res: Response) => {
   const active = ENGINE_MODELS.find(m => m.id === activeEngineId) || ENGINE_MODELS[1];
@@ -267,53 +406,93 @@ router.post('/select', (req: Request, res: Response) => {
 
 router.post('/generate', async (req: Request, res: Response) => {
   try {
-    const { prompt, durationSec, genre, bpm, key, engineId, title, mood, lyrics } = req.body;
+    const {
+      prompt,
+      durationSec,
+      genre,
+      bpm,
+      key,
+      engineId,
+      title,
+      mood,
+      lyrics,
+      mode
+    } = req.body;
 
     if (!prompt || typeof prompt !== 'string') {
       return res.status(400).json({ error: 'Prompt must be a non-empty string.' });
     }
 
+    const generationMode = String(mode || 'real').toLowerCase() === 'mock' ? 'mock' : 'real';
     const currentEngineId = engineId || activeEngineId;
     const plugin = ENGINE_MODELS.find(m => m.id === currentEngineId) || ENGINE_MODELS[1];
 
-    // Automatically inject production instructions & genre lock via AceStepPromptEngine
+    // Prompt/genre optimization is local and remains active in both REAL and MOCK mode.
     const optimizationResult = await AceStepPromptEngine.generatePrompt(prompt, genre);
-
-    // Enqueue job in centralized JobQueueWorker
+    const resolvedGenre = genre || optimizationResult.genreLock.subgenre || 'Melodic House';
+    const resolvedBpm = Number(bpm || optimizationResult.genreLock.targetBpm || 124);
+    const resolvedDuration = Math.max(1, Math.min(240, Number(durationSec || 30)));
+    const resolvedTitle = title || `${resolvedGenre} Track`;
     const jobId = `job-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-    const jobRecord = JobQueueWorker.enqueueJob(jobId, {
-      title: title || `${genre || 'Melodic House'} Track`,
-      genre: genre || optimizationResult.genreLock.subgenre || 'Melodic House',
+
+    const payload = {
+      title: resolvedTitle,
+      genre: resolvedGenre,
       mood: mood || 'Energetic',
       lyrics: lyrics || '',
-      prompt: prompt,
-      bpm: bpm || optimizationResult.genreLock.targetBpm || 124,
-      duration: durationSec || 30
-    });
+      prompt,
+      bpm: resolvedBpm,
+      duration: resolvedDuration
+    };
+
+    let jobRecord;
+
+    if (generationMode === 'mock') {
+      jobRecord = JobManager.registerJob(
+        jobId,
+        {
+          title: resolvedTitle,
+          genre: resolvedGenre,
+          mockMode: true,
+          engine: 'Sonara DEV Mock Engine (LOCAL - NO GPU)'
+        },
+        payload
+      );
+
+      void runMockGeneration(jobId, payload, optimizationResult);
+    } else {
+      jobRecord = JobQueueWorker.enqueueJob(jobId, payload);
+    }
+
+    const responseEngine = generationMode === 'mock'
+      ? 'Sonara DEV Mock Engine (LOCAL - NO GPU)'
+      : plugin.name;
 
     res.json({
       status: 'success',
       jobId,
       job: jobRecord,
-      engine: plugin.name,
-      engineId: plugin.id,
-      version: plugin.version,
+      mode: generationMode,
+      engine: responseEngine,
+      engineId: generationMode === 'mock' ? 'sonara_dev_mock' : plugin.id,
+      version: generationMode === 'mock' ? 'DEV-MOCK-1.0' : plugin.version,
       result: {
         jobId,
+        mode: generationMode,
         prompt: optimizationResult.optimizedPrompt,
         originalPrompt: prompt,
         genreLock: optimizationResult.genreLock,
         optimizationLayer: optimizationResult.layers,
         injectedKeywords: optimizationResult.injectedKeywords,
-        genre: optimizationResult.genreLock.subgenre || genre || 'Melodic House',
-        bpm: bpm || optimizationResult.genreLock.targetBpm || 124,
+        genre: optimizationResult.genreLock.subgenre || resolvedGenre,
+        bpm: resolvedBpm,
         key: key || optimizationResult.genreLock.keySignature || 'F Minor',
-        durationSec: durationSec || 30,
+        durationSec: resolvedDuration,
         sampleRate: 44100,
         bitDepth: 16,
         channels: 2,
-        targetLufs: -14.0,
-        truePeakDb: -1.0,
+        targetLufs: generationMode === 'mock' ? null : -14.0,
+        truePeakDb: generationMode === 'mock' ? null : -1.0,
         audioUrl: `/storage/audio/musicgen-${jobId}.wav`,
         stems: ['Drums', 'Bass', 'Lead Synthesizer', 'Atmospheric Pads']
       }
