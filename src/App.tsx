@@ -246,7 +246,8 @@ export default function App() {
       setStatus('PROCESSING');
       setStage('ACE-Step is generating the track...');
 
-      const maximumAttempts = 1200;
+      // Up to 15 minutes of polling so long 4-minute renders can finish on slower GPUs.
+      const maximumAttempts = 3000;
 
       for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
         await sleep(300);
@@ -383,7 +384,12 @@ export default function App() {
             <label className="space-y-1 text-xs text-slate-400">
               <span>Duration</span>
               <select value={durationSec} onChange={event => setDurationSec(Number(event.target.value))} className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-slate-100">
-                <option value={15}>15 seconds</option><option value={30}>30 seconds</option><option value={60}>60 seconds</option>
+                <option value={15}>15 seconds</option>
+                <option value={30}>30 seconds</option>
+                <option value={60}>1 minute</option>
+                <option value={120}>2 minutes</option>
+                <option value={180}>3 minutes</option>
+                <option value={240}>4 minutes</option>
               </select>
             </label>
           </div>
@@ -441,7 +447,7 @@ export default function App() {
                     <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
                       {item.genre && <span>{item.genre}</span>}
                       {item.bpm && <span>{item.bpm} BPM</span>}
-                      {item.durationSec && <span>{item.durationSec}s</span>}
+                      {item.durationSec && <span>{item.durationSec >= 60 ? `${item.durationSec / 60} min` : `${item.durationSec}s`}</span>}
                       {typeof item.qualityScore === 'number' && <span>Score {item.qualityScore.toFixed(2)}</span>}
                       <span>{new Date(item.createdAt).toLocaleString()}</span>
                     </div>
