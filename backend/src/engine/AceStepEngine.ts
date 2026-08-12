@@ -4,6 +4,8 @@ import {
   GenerationResult,
   EngineHealthStatus
 } from './IAudioGenerationEngine';
+import fs from 'fs';
+import path from 'path';
 import http from 'http';
 import https from 'https';
 
@@ -56,8 +58,14 @@ export class AceStepEngine extends IAudioGenerationEngine {
 
   private static instance: AceStepEngine | null = null;
 
+  private readonly endpointStatePath = path.join(
+    process.cwd(),
+    'storage',
+    'ace-step-endpoint.json'
+  );
+
   private apiBaseUrl = this.normalizeApiBaseUrl(
-    process.env.ACE_STEP_API_URL || 'http://127.0.0.1:8001'
+    this.loadInitialApiBaseUrl()
   );
 
   // The API key stays backend-only. The frontend can change the public endpoint,
@@ -92,6 +100,8 @@ export class AceStepEngine extends IAudioGenerationEngine {
       this.lastError = null;
       this.lastSuccessfulHealthAt = 0;
     }
+
+    this.persistApiBaseUrl(normalized);
 
     return this.apiBaseUrl;
   }
@@ -467,6 +477,58 @@ export class AceStepEngine extends IAudioGenerationEngine {
     return parts
       .filter(Boolean)
       .join(', ');
+  }
+
+  private loadInitialApiBaseUrl(): string {
+    try {
+      if (fs.existsSync(this.endpointStatePath)) {
+        const raw = fs.readFileSync(this.endpointStatePath, 'utf8');
+        const parsed = JSON.parse(raw) as { apiUrl?: unknown };
+        const persisted = typeof parsed.apiUrl === 'string'
+          ? parsed.apiUrl.trim()
+          : '';
+
+        if (persisted) {
+          console.log(
+            `[ENTERPRISE_LOG] [AceStepEngine] Restoring persisted API endpoint: ${persisted}`
+          );
+          return persisted;
+        }
+      }
+    } catch (error) {
+      console.warn(
+        `[ENTERPRISE_LOG] [AceStepEngine] Could not restore persisted endpoint: ${this.errorMessage(error)}`
+      );
+    }
+
+    const environmentUrl = String(process.env.ACE_STEP_API_URL || '').trim();
+    return environmentUrl || 'http://127.0.0.1:8001';
+  }
+
+  private persistApiBaseUrl(apiUrl: string): void {
+    try {
+      const directory = path.dirname(this.endpointStatePath);
+      if (!fs.existsSync(directory)) {
+        fs.mkdirSync(directory, { recursive: true });
+      }
+
+      fs.writeFileSync(
+        this.endpointStatePath,
+        JSON.stringify(
+          {
+            apiUrl,
+            updatedAt: new Date().toISOString()
+          },
+          null,
+          2
+        ),
+        'utf8'
+      );
+    } catch (error) {
+      console.warn(
+        `[ENTERPRISE_LOG] [AceStepEngine] Could not persist API endpoint: ${this.errorMessage(error)}`
+      );
+    }
   }
 
   private normalizeApiBaseUrl(value: string): string {
