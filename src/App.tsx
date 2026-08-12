@@ -64,6 +64,10 @@ interface AceStepHealthResponse {
   error?: string | null;
 }
 
+interface AceStepConfigResponse extends AceStepHealthResponse {
+  message?: string;
+}
+
 interface HistoryItem {
   jobId: string;
   fileName: string;
@@ -111,6 +115,9 @@ export default function App() {
   const [engine, setEngine] = useState('Sonara V12 ACE-Step Engine');
   const [health, setHealth] = useState<EngineHealth>('CHECKING');
   const [healthDetails, setHealthDetails] = useState<AceStepHealthResponse | null>(null);
+  const [aceStepUrl, setAceStepUrl] = useState('');
+  const [connectionBusy, setConnectionBusy] = useState(false);
+  const [connectionNotice, setConnectionNotice] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -152,6 +159,9 @@ export default function App() {
       const response = await fetch('/api/engine/ace-step/health', { cache: 'no-store' });
       const data: AceStepHealthResponse = await response.json();
       setHealthDetails(data);
+      if (data.apiUrl) {
+        setAceStepUrl(previous => previous || data.apiUrl || '');
+      }
       setHealth(response.ok && data.isAvailable ? 'READY' : 'OFFLINE');
     } catch (healthError) {
       console.error('ACE-Step health check failed:', healthError);
@@ -161,6 +171,60 @@ export default function App() {
         error: healthError instanceof Error ? healthError.message : String(healthError)
       });
       setHealth('OFFLINE');
+    }
+  };
+
+  const connectAceStep = async () => {
+    const nextApiUrl = aceStepUrl.trim();
+
+    if (!nextApiUrl || connectionBusy || status === 'QUEUED' || status === 'PROCESSING') {
+      return;
+    }
+
+    setConnectionBusy(true);
+    setConnectionNotice('Connecting to ACE-Step...');
+
+    try {
+      const response = await fetch('/api/engine/ace-step/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiUrl: nextApiUrl })
+      });
+
+      let data: AceStepConfigResponse;
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error(`The Sonara backend returned invalid JSON (HTTP ${response.status}).`);
+      }
+
+      if (response.status === 400) {
+        setConnectionNotice(data.error || 'The ACE-Step URL is not valid.');
+        return;
+      }
+
+      if (data.apiUrl) {
+        setAceStepUrl(data.apiUrl);
+      }
+
+      setHealthDetails(data);
+      setHealth(data.isAvailable ? 'READY' : 'OFFLINE');
+
+      if (data.isAvailable) {
+        setConnectionNotice('Connected. ACE-Step is READY.');
+        setError('');
+      } else {
+        setConnectionNotice(
+          data.error || data.message || 'The endpoint was updated, but ACE-Step is still offline.'
+        );
+      }
+    } catch (connectionError) {
+      console.error('ACE-Step connection update failed:', connectionError);
+      setConnectionNotice(
+        connectionError instanceof Error ? connectionError.message : String(connectionError)
+      );
+    } finally {
+      setConnectionBusy(false);
     }
   };
 
@@ -351,6 +415,9 @@ export default function App() {
 
   const busy = status === 'QUEUED' || status === 'PROCESSING';
   const engineReady = health === 'READY';
+  const offlineMessage = healthDetails?.error?.includes('No interface is running')
+    ? 'The current Gradio link has expired or no interface is running. Start ACE-Step in Colab, paste the new .gradio.live URL above, then press Connect.'
+    : healthDetails?.error || 'The remote ACE-Step API cannot be reached.';
 
   return (
     <div className="min-h-screen bg-[#090d16] text-slate-100">
@@ -385,11 +452,65 @@ export default function App() {
       </header>
 
       <main className="mx-auto max-w-5xl space-y-6 p-6">
+        <section className="rounded-2xl border border-purple-900/70 bg-slate-900/80 p-5 shadow-xl">
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <Activity className="h-4 w-4 text-purple-400" />
+                <h2 className="text-sm font-semibold text-purple-200">ACE-Step Connection</h2>
+                <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                  engineReady
+                    ? 'border-emerald-800 bg-emerald-950/40 text-emerald-300'
+                    : 'border-slate-700 bg-slate-950 text-slate-400'
+                }`}>
+                  {health}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-slate-500">
+                Paste the new public Gradio URL here. The ACE-Step API key stays private in the Sonara backend.
+              </p>
+              <input
+                type="url"
+                value={aceStepUrl}
+                onChange={event => {
+                  setAceStepUrl(event.target.value);
+                  setConnectionNotice('');
+                }}
+                onKeyDown={event => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    void connectAceStep();
+                  }
+                }}
+                placeholder="https://xxxxxxxx.gradio.live"
+                className="mt-3 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm text-slate-100 outline-none focus:border-purple-500"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void connectAceStep()}
+              disabled={connectionBusy || busy || !aceStepUrl.trim()}
+              className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-purple-600 px-5 py-2.5 text-sm font-semibold hover:bg-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <RefreshCw className={`h-4 w-4 ${connectionBusy ? 'animate-spin' : ''}`} />
+              {connectionBusy ? 'Connecting...' : 'Connect'}
+            </button>
+          </div>
+
+          <div className="mt-3 flex flex-col gap-1 text-[11px] text-slate-500">
+            <span>Current endpoint: <span className="break-all text-slate-300">{healthDetails?.apiUrl || aceStepUrl || 'not configured'}</span></span>
+            {connectionNotice && (
+              <span className={engineReady ? 'text-emerald-300' : 'text-amber-300'}>{connectionNotice}</span>
+            )}
+          </div>
+        </section>
+
         {health === 'OFFLINE' && (
           <section className="rounded-xl border border-red-900 bg-red-950/30 p-4 text-sm text-red-200">
             <div className="font-semibold">ACE-Step is offline</div>
             <div className="mt-1 text-xs text-red-300/80">
-              {healthDetails?.error || 'The remote ACE-Step API cannot be reached.'}
+              {offlineMessage}
             </div>
             <button type="button" onClick={() => void checkHealth()} className="mt-3 rounded-lg border border-red-800 px-3 py-1.5 text-xs font-medium">
               Retry connection
