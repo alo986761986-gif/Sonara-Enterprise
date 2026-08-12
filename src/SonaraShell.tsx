@@ -14,6 +14,7 @@ import { OverviewDashboard } from './components/analytics/OverviewDashboard';
 import DiscoveryWorkspace from './components/discovery/DiscoveryWorkspace';
 import EmberWorkspace from './components/ember/EmberWorkspace';
 import MarketplaceWorkspace from './components/marketplace/MarketplaceWorkspace';
+import VocalStudioPanel from './components/studio/VocalStudioPanel';
 
 type SonaraView = 'dashboard' | 'studio' | 'ember' | 'discovery' | 'marketplace';
 
@@ -94,7 +95,14 @@ export default function SonaraShell() {
         );
       case 'studio':
       default:
-        return <StudioGenerator />;
+        return (
+          <>
+            <div className="mx-auto max-w-5xl px-6 pt-6">
+              <VocalStudioPanel />
+            </div>
+            <StudioGenerator />
+          </>
+        );
     }
   };
 
