@@ -168,6 +168,144 @@ export class MusicGenerationService {
     return { audioBuffer: processedBuffer, audioPath };
   }
 
+  private static extractUserDirection(promptStr: string): string {
+    const prompt = String(promptStr || '').trim();
+    if (!prompt) return '';
+
+    // AceStepPromptEngine currently wraps the user text in a pipe-delimited
+    // optimization envelope. For neural generation we keep the actual user
+    // direction, but rebuild the genre instructions from the selected UI genre
+    // so stale/mixed genre tags cannot steer ACE-Step away from the selection.
+    if (prompt.includes('[SONARA V12 ACE-STEP]') && prompt.includes(' | Style Elements:')) {
+      const beforeStyleElements = prompt.split(' | Style Elements:')[0];
+      const fields = beforeStyleElements.split(' | ');
+      if (fields.length >= 4) {
+        return fields.slice(3).join(' | ').trim();
+      }
+    }
+
+    return prompt;
+  }
+
+  private static escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  private static sanitizeCompetingHouseStyles(userDirection: string, selectedGenre: string): string {
+    const selected = selectedGenre.trim().toLowerCase();
+    let cleaned = String(userDirection || '');
+
+    const houseStyles = [
+      'Afro Tech House', 'Progressive House', 'Melodic House', 'Organic House',
+      'Soulful House', 'Tropical House', 'Minimal House', 'Electro House',
+      'Big Room House', 'Future House', 'Garage House', 'Tribal House',
+      'Deep House', 'Tech House', 'Afro House', 'Funky House', 'Disco House',
+      'French House', 'Filter House', 'Jackin House', 'Chicago House',
+      'Acid House', 'Detroit House', 'Latin House', 'Bass House', 'Slap House',
+      'Piano House', 'Vocal House', 'Lo-Fi House', 'Microhouse', 'Hard House',
+      'Speed House', 'Techno House', 'Balearic House', 'Ibiza House',
+      'Beach House', 'Amapiano House', 'Kwaito House', 'G-House'
+    ];
+
+    if (!selected.includes('house')) return cleaned.trim();
+
+    for (const styleName of houseStyles) {
+      if (styleName.toLowerCase() === selected) continue;
+      cleaned = cleaned.replace(new RegExp(`\\b${this.escapeRegExp(styleName)}\\b`, 'gi'), ' ');
+    }
+
+    return cleaned
+      .replace(/\s*,\s*,+/g, ', ')
+      .replace(/\s+/g, ' ')
+      .replace(/^\s*(?:and|with|,|-)+\s*/i, '')
+      .replace(/\b(?:and|with)\s*(?=,|\.|$)/gi, '')
+      .replace(/\s+([,.])/g, '$1')
+      .trim();
+  }
+
+  private static genreFingerprint(genreStr: string): string[] {
+    const genre = genreStr.trim().toLowerCase();
+
+    if (genre.includes('afro tech house')) {
+      return ['deep tech-house kick', 'rolling sub bass', 'Afro polyrhythmic percussion', 'congas and shakers', 'hypnotic dark club groove', 'minimal melodic content'];
+    }
+    if (genre.includes('tribal house')) {
+      return ['dominant tribal percussion', 'layered congas and bongos', 'toms and shakers', 'syncopated polyrhythmic groove', 'deep four-on-the-floor kick', 'repetitive hypnotic club arrangement'];
+    }
+    if (genre.includes('tech house')) {
+      return ['dry punchy four-on-the-floor kick', 'rolling percussive bassline', 'tight syncopated percussion', 'open hats', 'short funky stabs', 'minimal club-tool arrangement'];
+    }
+    if (genre.includes('deep house')) {
+      return ['warm round sub bass', 'soulful Rhodes chords', 'mellow four-on-the-floor kick', 'shuffled hats', 'dubby atmospheric pads', 'smooth late-night groove'];
+    }
+    if (genre.includes('afro house')) {
+      return ['organic African percussion', 'congas and djembes', 'deep warm bass', 'hypnotic shaker patterns', 'spiritual atmospheric pads', 'rolling dancefloor groove'];
+    }
+    if (genre.includes('organic house')) {
+      return ['warm organic percussion', 'natural plucked instruments', 'soft four-on-the-floor kick', 'rounded bass', 'earthy melodic textures', 'spacious flowing arrangement'];
+    }
+    if (genre.includes('melodic house')) {
+      return ['emotional minor-key harmony', 'layered synth arpeggios', 'sidechained bass', 'clean four-on-the-floor kick', 'wide atmospheric pads', 'progressive melodic development'];
+    }
+    if (genre.includes('progressive house')) {
+      return ['driving four-on-the-floor groove', 'long tension-and-release build', 'layered synth progression', 'controlled sidechained bass', 'evolving automation', 'large club arrangement'];
+    }
+    if (genre.includes('soulful house')) {
+      return ['soulful piano or Rhodes chords', 'warm grooving bassline', 'classic house drums', 'gospel-influenced harmony', 'smooth percussion', 'uplifting club groove'];
+    }
+    if (genre.includes('funky house') || genre.includes('jackin house')) {
+      return ['funky syncopated bassline', 'punchy house kick', 'disco-influenced chord stabs', 'claps and open hats', 'sample-driven groove', 'energetic dancefloor swing'];
+    }
+    if (genre.includes('disco house') || genre.includes('french house') || genre.includes('filter house')) {
+      return ['disco-derived groove', 'filtered sample-style chords', 'funky bassline', 'steady house kick', 'bright open hats', 'sidechained pumping feel'];
+    }
+    if (genre.includes('acid house')) {
+      return ['303-style acid bass sequence', 'classic house drum machine groove', 'four-on-the-floor kick', 'resonant filter movement', 'raw repetitive club structure', 'minimal harmonic clutter'];
+    }
+    if (genre.includes('latin house')) {
+      return ['Latin percussion', 'congas and timbales', 'syncopated house groove', 'warm bassline', 'four-on-the-floor kick', 'bright rhythmic stabs'];
+    }
+    if (genre.includes('minimal house') || genre.includes('microhouse')) {
+      return ['minimal four-on-the-floor kick', 'micro-edited percussion', 'subtle bass groove', 'sparse stabs', 'small rhythmic variations', 'restrained hypnotic arrangement'];
+    }
+    if (genre.includes('piano house')) {
+      return ['bright house piano chords', 'steady four-on-the-floor kick', 'grooving bassline', 'open hats and claps', 'uplifting chord rhythm', 'clean club arrangement'];
+    }
+    if (genre === 'house' || genre.endsWith(' house')) {
+      return ['classic four-on-the-floor kick', 'grooving bassline', 'offbeat open hi-hats', 'syncopated percussion', 'house chord stabs', 'club-focused arrangement'];
+    }
+
+    return [
+      `unmistakable ${genreStr} rhythm and instrumentation`,
+      `genre-authentic ${genreStr} drum programming`,
+      `genre-authentic ${genreStr} bass movement`,
+      `genre-authentic ${genreStr} arrangement`,
+      'coherent production with no stylistic drift'
+    ];
+  }
+
+  private static buildStrictGenrePrompt(
+    promptStr: string,
+    genreStr: string,
+    moodStr: string,
+    bpm: number
+  ): string {
+    const exactGenre = String(genreStr || 'House').trim() || 'House';
+    const rawUserDirection = this.extractUserDirection(promptStr);
+    const userDirection = this.sanitizeCompetingHouseStyles(rawUserDirection, exactGenre);
+    const fingerprint = this.genreFingerprint(exactGenre).join(', ');
+
+    return [
+      `PRIMARY GENRE: ${exactGenre}.`,
+      `STRICT GENRE LOCK: make the track unmistakably ${exactGenre}; the selected genre must dominate the rhythm, bass, percussion, harmony and arrangement.`,
+      `TEMPO: exactly ${bpm} BPM.`,
+      `CORE ${exactGenre.toUpperCase()} FINGERPRINT: ${fingerprint}.`,
+      moodStr ? `MOOD / ATMOSPHERE: ${moodStr}.` : '',
+      userDirection ? `USER DIRECTION: ${userDirection}.` : '',
+      `Maintain ${exactGenre} identity from beginning to end. Avoid stylistic drift or hybridization unless the user explicitly requests it after the selected genre.`
+    ].filter(Boolean).join(' ');
+  }
+
   public static async executePythonEngine(
     promptStr: string,
     genreStr: string,
@@ -184,13 +322,17 @@ export class MusicGenerationService {
     // Short clips keep the full 8-step profile; 2-4 minute tracks use fewer
     // denoising steps so long-form generation finishes materially faster.
     const inferenceSteps = durationSec >= 120 ? 6 : 8;
+    const strictGenrePrompt = this.buildStrictGenrePrompt(promptStr, genreStr, moodStr, bpm);
 
     console.log(
       `[ENTERPRISE_LOG] [ACE_STEP_FAST_PROFILE] ${durationSec}s render -> ${inferenceSteps} inference steps, batch 1, guidance 1.0`
     );
+    console.log(
+      `[ENTERPRISE_LOG] [ACE_STEP_GENRE_LOCK] Exact selected genre: ${genreStr} | BPM: ${bpm}`
+    );
 
     const result = await engine.generate({
-      prompt: promptStr,
+      prompt: strictGenrePrompt,
       genre: genreStr,
       mood: moodStr,
       lyrics: lyricsStr,
