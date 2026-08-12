@@ -99,6 +99,20 @@ const normalizeJob = (value: JobResponse): JobResponse =>
 const normalizeEndpoint = (value: string) =>
   value.trim().replace(/\/+$/, '');
 
+const ACE_STEP_ENDPOINT_STORAGE_KEY = 'sonara.aceStepEndpoint';
+
+const readStoredAceStepEndpoint = (): string => {
+  if (typeof window === 'undefined') return '';
+
+  try {
+    return normalizeEndpoint(
+      window.localStorage.getItem(ACE_STEP_ENDPOINT_STORAGE_KEY) || ''
+    );
+  } catch {
+    return '';
+  }
+};
+
 export default function App() {
   const [prompt, setPrompt] = useState(
     'Deep House and Tech House with Afro House influence, 124 BPM, deep rolling bassline, punchy four-on-the-floor kick, organic tribal percussion, congas, bongos, shakers, hypnotic groove, warm piano chords, atmospheric pads and a polished club mix.'
@@ -120,7 +134,7 @@ export default function App() {
   const [engine, setEngine] = useState('Sonara V12 ACE-Step Engine');
   const [health, setHealth] = useState<EngineHealth>('CHECKING');
   const [healthDetails, setHealthDetails] = useState<AceStepHealthResponse | null>(null);
-  const [aceStepUrl, setAceStepUrl] = useState('');
+  const [aceStepUrl, setAceStepUrl] = useState(readStoredAceStepEndpoint);
   const [connectionBusy, setConnectionBusy] = useState(false);
   const [connectionNotice, setConnectionNotice] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
@@ -142,6 +156,20 @@ export default function App() {
 
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    const normalized = normalizeEndpoint(aceStepUrl);
+    if (!normalized) return;
+
+    try {
+      window.localStorage.setItem(
+        ACE_STEP_ENDPOINT_STORAGE_KEY,
+        normalized
+      );
+    } catch (storageError) {
+      console.warn('Could not persist ACE-Step endpoint in browser storage:', storageError);
+    }
+  }, [aceStepUrl]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -572,7 +600,7 @@ export default function App() {
           </div>
 
           <div className="mt-3 flex flex-col gap-1 text-[11px] text-slate-500">
-            <span>Current endpoint: <span className="break-all text-slate-300">{healthDetails?.apiUrl || aceStepUrl || 'not configured'}</span></span>
+            <span>Current endpoint: <span className="break-all text-slate-300">{aceStepUrl || healthDetails?.apiUrl || 'not configured'}</span></span>
             {connectionNotice && (
               <span className={engineReady ? 'text-emerald-300' : 'text-amber-300'}>{connectionNotice}</span>
             )}
