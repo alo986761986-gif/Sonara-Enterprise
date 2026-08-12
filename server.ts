@@ -9,6 +9,8 @@ import orchestratorRouter from './backend/src/routes/orchestrator';
 import creatorRouter from './backend/src/routes/creator';
 import musicRouter from './backend/src/routes/music';
 import emberRouter from './backend/src/routes/ember';
+import vocalsRouter from './backend/src/routes/vocals';
+import { applyVocalGenerationConfig } from './backend/src/middleware/applyVocalGenerationConfig';
 
 const startTime = Date.now();
 
@@ -47,7 +49,8 @@ async function startServer() {
   });
 
   // API Routes
-  app.use('/api/engine', engineRouter);
+  app.use('/api/vocals', vocalsRouter);
+  app.use('/api/engine', applyVocalGenerationConfig, engineRouter);
   app.use('/api/orchestrator', orchestratorRouter);
   app.use('/api/creator', creatorRouter);
   app.use('/api/music', musicRouter);
