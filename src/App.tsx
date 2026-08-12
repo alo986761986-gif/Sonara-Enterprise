@@ -410,36 +410,40 @@ export default function App() {
         )}
 
         {status === 'COMPLETED' && audioUrl && (
-          <>
-            <section className="rounded-2xl border border-emerald-800/60 bg-slate-900/80 p-6 shadow-xl">
-              <div className="mb-5 flex items-center justify-between">
-                <div><h2 className="font-semibold text-emerald-300">Generation Complete</h2><p className="mt-1 text-xs text-slate-400">{engine}</p></div>
-                <span className="rounded-full border border-emerald-800 bg-emerald-950 px-3 py-1 text-xs text-emerald-300">WAV READY</span>
+          <section className="rounded-2xl border border-emerald-800/60 bg-slate-900/80 p-6 shadow-xl">
+            <div className="mb-5 flex items-center justify-between">
+              <div><h2 className="font-semibold text-emerald-300">Generation Complete</h2><p className="mt-1 text-xs text-slate-400">{engine}</p></div>
+              <span className="rounded-full border border-emerald-800 bg-emerald-950 px-3 py-1 text-xs text-emerald-300">WAV READY</span>
+            </div>
+
+            <audio ref={audioRef} controls preload="metadata" src={audioUrl} onEnded={() => setIsPlaying(false)} className="w-full">Your browser does not support audio playback.</audio>
+
+            <div className="mt-5 flex flex-wrap gap-3">
+              <button type="button" onClick={() => setIsPlaying(previous => !previous)} className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium">
+                {isPlaying ? <><Pause className="h-4 w-4" />Pause</> : <><Play className="h-4 w-4" />Play</>}
+              </button>
+              <a href={audioUrl} download={`Sonara-${jobId || 'track'}.wav`} className="flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium"><Download className="h-4 w-4" />Download WAV</a>
+            </div>
+          </section>
+        )}
+
+        <section className="overflow-hidden rounded-2xl border border-purple-800/50 bg-slate-900/80 shadow-xl">
+          <div className="border-b border-slate-800 px-6 py-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="font-semibold text-purple-200">Professional EQ & Mastering</h2>
+                <p className="mt-1 text-xs text-slate-400">26-band realtime EQ with presets, metering and processed WAV export.</p>
               </div>
+              <span className={`rounded-full border px-3 py-1 text-xs ${audioUrl ? 'border-purple-800 bg-purple-950/40 text-purple-300' : 'border-slate-700 bg-slate-900 text-slate-400'}`}>
+                {audioUrl ? 'EQ LIVE' : 'EQ STANDBY'}
+              </span>
+            </div>
+          </div>
 
-              <audio ref={audioRef} controls preload="metadata" src={audioUrl} onEnded={() => setIsPlaying(false)} className="w-full">Your browser does not support audio playback.</audio>
-
-              <div className="mt-5 flex flex-wrap gap-3">
-                <button type="button" onClick={() => setIsPlaying(previous => !previous)} className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium">
-                  {isPlaying ? <><Pause className="h-4 w-4" />Pause</> : <><Play className="h-4 w-4" />Play</>}
-                </button>
-                <a href={audioUrl} download={`Sonara-${jobId || 'track'}.wav`} className="flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium"><Download className="h-4 w-4" />Download WAV</a>
-              </div>
-            </section>
-
-            <section className="overflow-hidden rounded-2xl border border-purple-800/50 bg-slate-900/80 shadow-xl">
-              <div className="border-b border-slate-800 px-6 py-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h2 className="font-semibold text-purple-200">Professional EQ & Mastering</h2>
-                    <p className="mt-1 text-xs text-slate-400">26-band realtime EQ with presets, metering and processed WAV export.</p>
-                  </div>
-                  <span className="rounded-full border border-purple-800 bg-purple-950/40 px-3 py-1 text-xs text-purple-300">EQ LIVE</span>
-                </div>
-              </div>
-
+          <div className="relative p-4">
+            <div className={!audioUrl ? 'pointer-events-none select-none opacity-40' : ''}>
               <ProfessionalAudioEqualizer
-                audioUrl={audioUrl}
+                audioUrl={audioUrl || undefined}
                 isEmbedded
                 onProcessedAudio={(processedAudioUrl) => {
                   setAudioUrl(processedAudioUrl);
@@ -448,9 +452,20 @@ export default function App() {
                   void loadHistory();
                 }}
               />
-            </section>
-          </>
-        )}
+            </div>
+
+            {!audioUrl && (
+              <div className="absolute inset-0 flex items-start justify-center p-8">
+                <div className="mt-16 max-w-lg rounded-xl border border-purple-800/60 bg-[#090d16]/95 p-5 text-center shadow-2xl">
+                  <div className="text-sm font-semibold text-purple-200">EQ pronto</div>
+                  <p className="mt-2 text-xs leading-5 text-slate-400">
+                    Genera una traccia oppure premi Open nella Generation History. Appena un WAV viene caricato, tutti i controlli dell'equalizzatore diventano attivi.
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 shadow-xl">
           <div className="mb-5 flex items-center justify-between gap-3">
