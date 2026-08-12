@@ -119,7 +119,9 @@ export class JobQueueWorker {
         metadata: { currentStage: 'ACE-Step Rendering Engine: Generating neural audio waveform...' }
       });
 
-      const aceStepTimeoutMs = 4 * 60 * 1000;
+      // Long tracks (up to 4 minutes in the UI) need a render timeout that is
+      // comfortably longer than the requested audio duration, especially on a T4.
+      const aceStepTimeoutMs = 15 * 60 * 1000;
       const execResult = await MusicGenerationService.executePythonEngine(
         promptOptimization.optimizedPrompt,
         targetGenre,
