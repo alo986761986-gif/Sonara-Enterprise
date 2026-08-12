@@ -116,8 +116,37 @@ export class JobQueueWorker {
       // PIPELINE STEP 4: Rendering Engine (ACE-Step Neural Audio / Python Inference)
       JobManager.updateJobStatus(jobId, 'PROCESSING', {
         progress: 60,
-        metadata: { currentStage: 'ACE-Step Rendering Engine: Generating neural audio waveform...' }
+        metadata: {
+          currentStage: `ACE-Step Rendering Engine: Starting ${durationSec}s GPU render...`
+        }
       });
+
+      // Long tracks can spend most of their runtime inside ACE-Step. Keep the UI
+      // moving with conservative estimated progress while the remote GPU renders,
+      // but cap it below the next real pipeline stage so it never reports completion early.
+      const renderStartedAt = Date.now();
+      let renderProgress = 60;
+      const estimatedRenderMs = Math.max(
+        25_000,
+        Math.min(180_000, 18_000 + (durationSec * 450))
+      );
+
+      const renderProgressTimer = setInterval(() => {
+        const elapsedMs = Date.now() - renderStartedAt;
+        const elapsedSec = Math.floor(elapsedMs / 1000);
+        const estimatedRatio = Math.min(0.98, elapsedMs / estimatedRenderMs);
+        const nextProgress = Math.min(78, 60 + Math.floor(estimatedRatio * 18));
+
+        if (nextProgress > renderProgress) {
+          renderProgress = nextProgress;
+          JobManager.updateJobStatus(jobId, 'PROCESSING', {
+            progress: renderProgress,
+            metadata: {
+              currentStage: `ACE-Step Rendering Engine: GPU rendering ${durationSec}s track... ${elapsedSec}s elapsed (estimated progress)`
+            }
+          });
+        }
+      }, 2_000);
 
       // Long tracks (up to 4 minutes in the UI) need a render timeout that is
       // comfortably longer than the requested audio duration, especially on a T4.
@@ -131,7 +160,9 @@ export class JobQueueWorker {
         aceStepTimeoutMs,
         durationSec,
         targetBpm
-      );
+      ).finally(() => {
+        clearInterval(renderProgressTimer);
+      });
 
       // PIPELINE STEP 5: DSP Engine, Mixing & Mastering (14-Stage DSP)
       JobManager.updateJobStatus(jobId, 'PROCESSING', {
