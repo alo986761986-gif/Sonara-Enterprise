@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+﻿import React, { useEffect, useRef, useState } from 'react';
 import {
   Activity,
   Download,
@@ -287,7 +287,7 @@ export default function App() {
 
         if (healthResponse.ok && healthData.isAvailable && !targetUrl) {
           setHealth('READY');
-          setConnectionNotice('ACE-Step READY — automatic check complete.');
+          setConnectionNotice('ACE-Step READY â€” automatic check complete.');
           return;
         }
       }
@@ -325,7 +325,7 @@ export default function App() {
       }
 
       setHealth('READY');
-      setConnectionNotice('ACE-Step READY — connected automatically by Generate.');
+      setConnectionNotice('ACE-Step READY â€” connected automatically by Generate.');
       setError('');
     } finally {
       setConnectionBusy(false);
@@ -385,6 +385,53 @@ export default function App() {
     setGenre(selected.name);
     setAtmosphereId(recommendedAtmosphere.id);
     setBpm(selected.bpm);
+  };
+
+  const generateRandomPrompt = () => {
+    const pick = (items: string[]) =>
+      items[Math.floor(Math.random() * items.length)];
+
+    const grooves = [
+      'tight and infectious groove with precise rhythmic timing',
+      'warm driving groove with natural movement and strong pulse',
+      'deep hypnotic groove with controlled syncopation',
+      'energetic danceable groove with clean rhythmic separation',
+      'smooth sophisticated groove with human feel and stable timing'
+    ];
+
+    const instruments = [
+      'warm bass, punchy drums, expressive chords and subtle melodic details',
+      'deep bassline, clean percussion, atmospheric textures and memorable melodic accents',
+      'tight drums, rich harmonic layers, warm bass and tasteful lead elements',
+      'organic percussion, controlled low end, elegant chords and spacious synth textures',
+      'defined rhythm section, musical bass movement, expressive harmony and refined melodic phrases'
+    ];
+
+    const arrangements = [
+      'clear intro, progressive build, strong main section, controlled breakdown and clean outro',
+      'coherent 8-bar and 16-bar phrases with smooth transitions and a memorable main section',
+      'DJ-friendly structure with gradual energy development and precisely aligned transitions',
+      'balanced arrangement with clear sections, musical tension and satisfying releases',
+      'simple professional arrangement with strong repetition, variation and clean section changes'
+    ];
+
+    const productions = [
+      'crystal-clear professional mix with tight low end and excellent instrument separation',
+      'warm modern studio production with punchy transients and balanced stereo image',
+      'clean high-fidelity production with controlled bass, smooth highs and strong dynamics',
+      'polished premium production with clear mids, defined drums and spacious depth',
+      'natural professional mix with musical dynamics, clarity and no unnecessary distortion'
+    ];
+
+    setPrompt(
+      `${genre} at exactly ${bpm} BPM. ` +
+      `${selectedAtmosphere.name} atmosphere. ` +
+      `${pick(grooves)}. ` +
+      `${pick(instruments)}. ` +
+      `${pick(arrangements)}. ` +
+      `${pick(productions)}. ` +
+      `Keep the musical identity clearly ${genre}, maintain coherent timing and create a polished original track.`
+    );
   };
 
   const generate = async () => {
@@ -487,7 +534,7 @@ export default function App() {
           setAudioUrl(currentAudioUrl);
           setProgress(100);
           setStatus('COMPLETED');
-          setStage('Generation complete — audio ready.');
+          setStage('Generation complete â€” audio ready.');
           void loadHistory();
           return;
         }
@@ -644,7 +691,39 @@ export default function App() {
             )}
           </div>
 
-          <textarea value={prompt} onChange={event => setPrompt(event.target.value)} rows={5} placeholder="Describe the track..." className="w-full rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm outline-none focus:border-purple-500" />
+          <div className="relative">
+            <textarea
+              value={prompt}
+              onChange={event => setPrompt(event.target.value)}
+              rows={5}
+              placeholder="Describe the track..."
+              className="w-full rounded-xl border border-slate-700 bg-slate-950 p-4 pr-36 text-sm outline-none focus:border-purple-500"
+            />
+
+            <div className="absolute right-3 top-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={generateRandomPrompt}
+                title="Generate random prompt"
+                className="flex h-7 items-center gap-1.5 rounded-md border border-purple-800 bg-purple-950/70 px-2.5 text-[11px] font-semibold text-purple-300 transition hover:bg-purple-900"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                Random
+              </button>
+
+              {prompt && (
+                <button
+                  type="button"
+                  onClick={() => setPrompt('')}
+                  title="Clear prompt"
+                  aria-label="Clear prompt"
+                  className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-700 bg-slate-900 text-xs font-bold text-slate-400 transition hover:border-red-700 hover:bg-red-950 hover:text-red-300"
+                >
+                  X
+                </button>
+              )}
+            </div>
+          </div>
 
           <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <label className="space-y-1 text-xs text-slate-400">
@@ -698,10 +777,10 @@ export default function App() {
 
           <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-[11px] text-slate-500">
             <div>
-              Selected style: <span className="font-medium text-purple-300">{selectedGenreFamily.label} → {genre}</span>. Changing style loads its suggested BPM and a recommended atmosphere.
+              Selected style: <span className="font-medium text-purple-300">{selectedGenreFamily.label} â†’ {genre}</span>. Changing style loads its suggested BPM and a recommended atmosphere.
             </div>
             <div className="mt-1">
-              Atmosphere: <span className="font-medium text-emerald-300">{selectedAtmosphere.name}</span> — {selectedAtmosphere.description}
+              Atmosphere: <span className="font-medium text-emerald-300">{selectedAtmosphere.name}</span> â€” {selectedAtmosphere.description}
             </div>
           </div>
 
@@ -762,7 +841,7 @@ export default function App() {
                 onProcessedAudio={(processedAudioUrl) => {
                   setAudioUrl(processedAudioUrl);
                   setIsPlaying(false);
-                  setStage('EQ processed — mastered audio ready.');
+                  setStage('EQ processed â€” mastered audio ready.');
                   void loadHistory();
                 }}
               />
@@ -821,3 +900,5 @@ export default function App() {
     </div>
   );
 }
+
+

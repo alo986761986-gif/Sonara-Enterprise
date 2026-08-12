@@ -1,4 +1,4 @@
-import {
+﻿import {
   IAudioGenerationEngine,
   GenerationParams,
   GenerationResult,
@@ -487,7 +487,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
   ): string {
     const parts = [
       params.genre || 'House',
-      `track at ${bpm} BPM`,
+      `track at exactly ${bpm} BPM in strict 4/4 meter`,
       params.mood
         ? `${params.mood} mood`
         : '',
@@ -855,3 +855,4 @@ export class AceStepEngine extends IAudioGenerationEngine {
       : String(error);
   }
 }
+
