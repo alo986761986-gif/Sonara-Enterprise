@@ -1,4 +1,4 @@
-﻿import {
+import {
   IAudioGenerationEngine,
   GenerationParams,
   GenerationResult,

@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Activity,
   Download,
@@ -287,7 +287,7 @@ export default function App() {
 
         if (healthResponse.ok && healthData.isAvailable && !targetUrl) {
           setHealth('READY');
-          setConnectionNotice('ACE-Step READY â€” automatic check complete.');
+          setConnectionNotice('ACE-Step READY — automatic check complete.');
           return;
         }
       }
@@ -325,7 +325,7 @@ export default function App() {
       }
 
       setHealth('READY');
-      setConnectionNotice('ACE-Step READY â€” connected automatically by Generate.');
+      setConnectionNotice('ACE-Step READY — connected automatically by Generate.');
       setError('');
     } finally {
       setConnectionBusy(false);
@@ -534,7 +534,7 @@ export default function App() {
           setAudioUrl(currentAudioUrl);
           setProgress(100);
           setStatus('COMPLETED');
-          setStage('Generation complete â€” audio ready.');
+          setStage('Generation complete — audio ready.');
           void loadHistory();
           return;
         }
@@ -777,10 +777,10 @@ export default function App() {
 
           <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-[11px] text-slate-500">
             <div>
-              Selected style: <span className="font-medium text-purple-300">{selectedGenreFamily.label} â†’ {genre}</span>. Changing style loads its suggested BPM and a recommended atmosphere.
+              Selected style: <span className="font-medium text-purple-300">{selectedGenreFamily.label} → {genre}</span>. Changing style loads its suggested BPM and a recommended atmosphere.
             </div>
             <div className="mt-1">
-              Atmosphere: <span className="font-medium text-emerald-300">{selectedAtmosphere.name}</span> â€” {selectedAtmosphere.description}
+              Atmosphere: <span className="font-medium text-emerald-300">{selectedAtmosphere.name}</span> — {selectedAtmosphere.description}
             </div>
           </div>
 
@@ -841,7 +841,7 @@ export default function App() {
                 onProcessedAudio={(processedAudioUrl) => {
                   setAudioUrl(processedAudioUrl);
                   setIsPlaying(false);
-                  setStage('EQ processed â€” mastered audio ready.');
+                  setStage('EQ processed — mastered audio ready.');
                   void loadHistory();
                 }}
               />
