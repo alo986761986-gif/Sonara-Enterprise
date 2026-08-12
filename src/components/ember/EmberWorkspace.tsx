@@ -43,16 +43,42 @@ const INITIAL_ENTRIES: EmberEntry[] = [
   {
     id: 'ember-welcome',
     role: 'ember',
-    content: 'Ciao, sono Ember. La mia interfaccia e pronta. In questa build il motore AI esterno non e collegato: nessun servizio a pagamento viene attivato automaticamente.'
+    content: 'Ciao, sono Ember. La mia intelligenza locale e pronta: posso dare indicazioni creative senza usare servizi AI esterni o a pagamento.'
   }
 ];
+
+const buildLocalResponse = (message: string): string => {
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes('prompt') || normalized.includes('raffin')) {
+    return 'Mantieni il genere scelto come vincolo principale e descrivi solo elementi compatibili: groove, basso, batteria, atmosfera, struttura e qualita del mix. Evita di aggiungere generi secondari non richiesti. Una forma efficace e: [genere esatto] + [groove] + [basso] + [percussioni] + [atmosfera] + [arrangiamento] + [mix], senza voci se vuoi un brano strumentale.';
+  }
+
+  if (normalized.includes('genere') || normalized.includes('genre') || normalized.includes('sottogenere')) {
+    return 'Per proteggere il genre lock, tratta genere e sottogenere selezionati come identita primaria del brano. Gli altri termini devono descrivere solo atmosfera, energia o tecnica di produzione, non nuovi generi. Se il risultato tende a ibridarsi troppo, riduci gli aggettivi stilistici e rafforza ritmo, timbri e arrangiamento tipici del genere scelto.';
+  }
+
+  if (normalized.includes('arrang') || normalized.includes('struttura') || normalized.includes('club')) {
+    return 'Struttura club consigliata: intro ritmica pulita, ingresso progressivo del basso, prima sezione principale, breve breakdown, ricostruzione della tensione, seconda sezione principale piu piena e outro DJ-friendly. Mantieni pochi elementi simultanei e fai evolvere il groove con automazioni, variazioni percussive e micro-pause invece di cambiare stile.';
+  }
+
+  if (normalized.includes('eq') || normalized.includes('master') || normalized.includes('mix')) {
+    return 'Direzione prudente: controlla prima il bilanciamento, poi usa EQ sottrattiva leggera. Proteggi sub e kick da sovrapposizioni, riduci eventuale fango nei low-mid solo se realmente presente, conserva presenza e aria senza rendere il master aggressivo. Sul master evita correzioni drastiche: piccoli interventi, headroom sufficiente e confronto continuo con il segnale non processato.';
+  }
+
+  if (normalized.includes('bpm') || normalized.includes('tempo')) {
+    return 'Usa il BPM selezionato come vincolo ritmico stabile. Invece di cambiare tempo, lavora su densita delle percussioni, sincopi, pause e durata delle sezioni per aumentare o ridurre la sensazione di energia.';
+  }
+
+  return 'Posso aiutarti localmente con prompt, coerenza di genere, arrangiamento, BPM, EQ e mastering. In questa modalita non invio dati a provider esterni e non attivo costi.';
+};
 
 export default function EmberWorkspace() {
   const [draft, setDraft] = useState('');
   const [entries, setEntries] = useState<EmberEntry[]>(INITIAL_ENTRIES);
 
   const statusText = useMemo(
-    () => 'UI READY · AI BACKEND OFFLINE',
+    () => 'LOCAL INTELLIGENCE READY',
     []
   );
 
@@ -68,7 +94,7 @@ export default function EmberWorkspace() {
       {
         id: `ember-${timestamp}`,
         role: 'ember',
-        content: 'Richiesta salvata nella UI. Il collegamento al motore conversazionale di Ember verra attivato in una fase separata, mantenendo il vincolo zero-spesa.'
+        content: buildLocalResponse(content)
       }
     ]);
     setDraft('');
@@ -113,10 +139,10 @@ export default function EmberWorkspace() {
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-500/10 text-orange-300">
                   <Icon className="h-5 w-5" />
                 </div>
-                <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#e9dfd4]/35">Preview</span>
+                <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#e9dfd4]/35">Local</span>
               </div>
               <h2 className="mt-4 text-sm font-bold text-[#f5eee6]">{label}</h2>
-              <p className="mt-2 text-xs leading-5 text-[#e9dfd4]/55">Precarica una richiesta nel composer di Ember senza eseguire chiamate esterne.</p>
+              <p className="mt-2 text-xs leading-5 text-[#e9dfd4]/55">Precarica una richiesta che Ember elabora localmente, senza chiamate esterne.</p>
             </button>
           ))}
         </div>
@@ -127,7 +153,7 @@ export default function EmberWorkspace() {
             Creative direction
           </div>
           <p className="max-w-3xl text-sm leading-6 text-[#e9dfd4]/60">
-            Ember viene mantenuta separata dal motore ACE-Step: puo guidare prompt, genere, arrangiamento ed EQ senza alterare la pipeline audio stabile. Il collegamento AI verra aggiunto solo quando scegliamo un backend compatibile con il vincolo di costo.
+            Ember resta separata dal motore ACE-Step: puo guidare prompt, genere, arrangiamento, BPM ed EQ senza alterare la pipeline audio stabile. Questa prima intelligenza locale funziona senza provider esterni e senza costi.
           </p>
         </div>
       </section>
@@ -138,7 +164,7 @@ export default function EmberWorkspace() {
             <MessageCircle className="h-4 w-4 text-orange-300" />
             <h2 className="text-sm font-bold text-white">Conversation</h2>
           </div>
-          <span className="text-[10px] uppercase tracking-[0.14em] text-white/35">Local UI</span>
+          <span className="text-[10px] uppercase tracking-[0.14em] text-white/35">Local intelligence</span>
         </div>
 
         <div className="flex-1 space-y-3 overflow-y-auto p-5">
@@ -168,12 +194,12 @@ export default function EmberWorkspace() {
             <button
               type="submit"
               className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-500 text-white transition hover:bg-orange-400"
-              title="Salva richiesta nella UI"
+              title="Invia a Ember locale"
             >
               <Send className="h-4 w-4" />
             </button>
           </div>
-          <p className="mt-2 text-[10px] leading-4 text-white/30">Nessuna richiesta viene inviata a provider AI esterni in questa fase.</p>
+          <p className="mt-2 text-[10px] leading-4 text-white/30">Elaborazione locale: nessun dato inviato a provider AI esterni.</p>
         </form>
       </aside>
     </div>
