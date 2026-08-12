@@ -10,6 +10,7 @@ import {
   Sparkles,
   Zap
 } from 'lucide-react';
+import { ProfessionalAudioEqualizer } from './components/eq/ProfessionalAudioEqualizer';
 
 type JobStatus = 'IDLE' | 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 type EngineHealth = 'CHECKING' | 'READY' | 'OFFLINE';
@@ -409,21 +410,46 @@ export default function App() {
         )}
 
         {status === 'COMPLETED' && audioUrl && (
-          <section className="rounded-2xl border border-emerald-800/60 bg-slate-900/80 p-6 shadow-xl">
-            <div className="mb-5 flex items-center justify-between">
-              <div><h2 className="font-semibold text-emerald-300">Generation Complete</h2><p className="mt-1 text-xs text-slate-400">{engine}</p></div>
-              <span className="rounded-full border border-emerald-800 bg-emerald-950 px-3 py-1 text-xs text-emerald-300">WAV READY</span>
-            </div>
+          <>
+            <section className="rounded-2xl border border-emerald-800/60 bg-slate-900/80 p-6 shadow-xl">
+              <div className="mb-5 flex items-center justify-between">
+                <div><h2 className="font-semibold text-emerald-300">Generation Complete</h2><p className="mt-1 text-xs text-slate-400">{engine}</p></div>
+                <span className="rounded-full border border-emerald-800 bg-emerald-950 px-3 py-1 text-xs text-emerald-300">WAV READY</span>
+              </div>
 
-            <audio ref={audioRef} controls preload="metadata" src={audioUrl} onEnded={() => setIsPlaying(false)} className="w-full">Your browser does not support audio playback.</audio>
+              <audio ref={audioRef} controls preload="metadata" src={audioUrl} onEnded={() => setIsPlaying(false)} className="w-full">Your browser does not support audio playback.</audio>
 
-            <div className="mt-5 flex flex-wrap gap-3">
-              <button type="button" onClick={() => setIsPlaying(previous => !previous)} className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium">
-                {isPlaying ? <><Pause className="h-4 w-4" />Pause</> : <><Play className="h-4 w-4" />Play</>}
-              </button>
-              <a href={audioUrl} download={`Sonara-${jobId || 'track'}.wav`} className="flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium"><Download className="h-4 w-4" />Download WAV</a>
-            </div>
-          </section>
+              <div className="mt-5 flex flex-wrap gap-3">
+                <button type="button" onClick={() => setIsPlaying(previous => !previous)} className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium">
+                  {isPlaying ? <><Pause className="h-4 w-4" />Pause</> : <><Play className="h-4 w-4" />Play</>}
+                </button>
+                <a href={audioUrl} download={`Sonara-${jobId || 'track'}.wav`} className="flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium"><Download className="h-4 w-4" />Download WAV</a>
+              </div>
+            </section>
+
+            <section className="overflow-hidden rounded-2xl border border-purple-800/50 bg-slate-900/80 shadow-xl">
+              <div className="border-b border-slate-800 px-6 py-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h2 className="font-semibold text-purple-200">Professional EQ & Mastering</h2>
+                    <p className="mt-1 text-xs text-slate-400">26-band realtime EQ with presets, metering and processed WAV export.</p>
+                  </div>
+                  <span className="rounded-full border border-purple-800 bg-purple-950/40 px-3 py-1 text-xs text-purple-300">EQ LIVE</span>
+                </div>
+              </div>
+
+              <ProfessionalAudioEqualizer
+                audioUrl={audioUrl}
+                isEmbedded
+                onProcessedAudio={(processedAudioUrl) => {
+                  setAudioUrl(processedAudioUrl);
+                  setIsPlaying(false);
+                  setStage('EQ processed — mastered audio ready.');
+                  void loadHistory();
+                }}
+              />
+            </section>
+          </>
         )}
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 shadow-xl">
