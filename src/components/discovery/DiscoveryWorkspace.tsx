@@ -130,9 +130,11 @@ export default function DiscoveryWorkspace() {
               className="group absolute z-20 -translate-x-1/2 -translate-y-1/2"
               title={`${hub.city} · ${hub.genre}`}
             >
-              <span className={selected.id === hub.id
-                ? 'absolute -inset-3 rounded-full bg-cyan-400/20 blur-sm'
-                : 'absolute -inset-2 rounded-full bg-violet-400/10 opacity-0 blur-sm transition group-hover:opacity-100'}
+              <span
+                className={selected.id === hub.id
+                  ? 'absolute -inset-3 rounded-full bg-cyan-400/20 blur-sm'
+                  : 'absolute -inset-2 rounded-full bg-violet-400/10 opacity-0 blur-sm transition group-hover:opacity-100'}
+              />
               <span className={selected.id === hub.id
                 ? 'relative flex h-8 w-8 items-center justify-center rounded-full border border-cyan-200 bg-cyan-400 text-slate-950 shadow-[0_0_24px_rgba(34,211,238,0.7)]'
                 : 'relative flex h-7 w-7 items-center justify-center rounded-full border border-violet-300/70 bg-violet-500/80 text-white shadow-[0_0_18px_rgba(139,92,246,0.5)] transition group-hover:scale-110'}
