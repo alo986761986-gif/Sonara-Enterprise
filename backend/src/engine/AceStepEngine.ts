@@ -48,6 +48,14 @@ interface AceStepAudioResult {
   vocal_language?: string;
 }
 
+interface SonaraVocalEnvelope {
+  lyrics: string;
+  language: string;
+  instrumental: boolean;
+  mode?: string;
+  style?: string;
+}
+
 export class AceStepEngine extends IAudioGenerationEngine {
   readonly name = 'AceStepEngine';
 
@@ -253,7 +261,15 @@ export class AceStepEngine extends IAudioGenerationEngine {
     );
 
     const prompt = this.buildPrompt(params, bpm);
-    const lyrics = String(params.lyrics || '');
+    const vocalEnvelope = this.extractSonaraVocalEnvelope(
+      String(params.lyrics || ''),
+      String((params as any).vocalLanguage || 'unknown'),
+      Boolean((params as any).instrumental ?? false)
+    );
+    const lyrics = vocalEnvelope.lyrics;
+    const vocalLanguage = vocalEnvelope.instrumental
+      ? 'unknown'
+      : vocalEnvelope.language;
 
     const payload: Record<string, unknown> = {
       prompt,
@@ -265,6 +281,8 @@ export class AceStepEngine extends IAudioGenerationEngine {
       guidance_scale: Number((params as any).guidanceScale ?? 1.0),
       batch_size: Number((params as any).batchSize || 1),
       audio_format: (params as any).audioFormat || 'wav',
+      vocal_language: vocalLanguage,
+      instrumental: vocalEnvelope.instrumental,
       use_random_seed: (params as any).useRandomSeed ?? true
     };
 
@@ -275,7 +293,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
     }
 
     console.log(
-      `[ENTERPRISE_LOG] [AceStepEngine] Generating ${durationSec}s through ${this.apiBaseUrl}/release_task`
+      `[ENTERPRISE_LOG] [AceStepEngine] Generating ${durationSec}s through ${this.apiBaseUrl}/release_task | vocals=${vocalEnvelope.instrumental ? 'instrumental' : vocalEnvelope.mode || 'vocal'} | language=${vocalLanguage}`
     );
 
     try {
@@ -392,6 +410,10 @@ export class AceStepEngine extends IAudioGenerationEngine {
           durationSec,
           bpm,
           prompt,
+          vocalLanguage,
+          instrumental: vocalEnvelope.instrumental,
+          vocalMode: vocalEnvelope.mode || null,
+          vocalStyle: vocalEnvelope.style || null,
           audioUrl: firstAudio.url,
           remoteOutputPath: firstAudio.file,
           bytes: audioBuffer.length,
@@ -477,6 +499,44 @@ export class AceStepEngine extends IAudioGenerationEngine {
     return parts
       .filter(Boolean)
       .join(', ');
+  }
+
+  private extractSonaraVocalEnvelope(
+    rawLyrics: string,
+    fallbackLanguage: string,
+    fallbackInstrumental: boolean
+  ): SonaraVocalEnvelope {
+    const normalizedLyrics = String(rawLyrics || '');
+    const lines = normalizedLyrics.split(/\r?\n/);
+    const firstLine = (lines[0] || '').trim();
+    const marker = firstLine.match(
+      /^\[SONARA_VOCAL_CONFIG\s+language=(unknown|[a-z]{2})\s+mode=(instrumental|female|male|duet)\s+style=(natural|warm|intimate|powerful|airy|raspy)\s+instrumental=(true|false)\]$/i
+    );
+
+    if (!marker) {
+      const cleanLanguage = /^(unknown|[a-z]{2})$/i.test(fallbackLanguage)
+        ? fallbackLanguage.toLowerCase()
+        : 'unknown';
+      const cleanLyrics = normalizedLyrics.trim();
+      const instrumental = fallbackInstrumental || cleanLyrics.toLowerCase() === '[instrumental]';
+
+      return {
+        lyrics: instrumental && !cleanLyrics ? '[Instrumental]' : normalizedLyrics,
+        language: instrumental ? 'unknown' : cleanLanguage,
+        instrumental
+      };
+    }
+
+    const strippedLyrics = lines.slice(1).join('\n').trim();
+    const instrumental = marker[4].toLowerCase() === 'true' || marker[2].toLowerCase() === 'instrumental';
+
+    return {
+      lyrics: instrumental ? '[Instrumental]' : strippedLyrics,
+      language: instrumental ? 'unknown' : marker[1].toLowerCase(),
+      instrumental,
+      mode: marker[2].toLowerCase(),
+      style: marker[3].toLowerCase()
+    };
   }
 
   private loadInitialApiBaseUrl(): string {
