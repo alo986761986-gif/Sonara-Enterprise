@@ -172,10 +172,9 @@ export class MusicGenerationService {
     const prompt = String(promptStr || '').trim();
     if (!prompt) return '';
 
-    // AceStepPromptEngine currently wraps the user text in a pipe-delimited
-    // optimization envelope. For neural generation we keep the actual user
-    // direction, but rebuild the genre instructions from the selected UI genre
-    // so stale/mixed genre tags cannot steer ACE-Step away from the selection.
+    // AceStepPromptEngine wraps the user's text in a pipe-delimited optimization
+    // envelope. Preserve the actual user direction so intentional hybrid genre
+    // choices survive the second-stage ACE-Step prompt construction.
     if (prompt.includes('[SONARA V12 ACE-STEP]') && prompt.includes(' | Style Elements:')) {
       const beforeStyleElements = prompt.split(' | Style Elements:')[0];
       const fields = beforeStyleElements.split(' | ');
@@ -191,41 +190,41 @@ export class MusicGenerationService {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
-  private static sanitizeCompetingHouseStyles(userDirection: string, selectedGenre: string): string {
+  private static detectExplicitGenreInfluences(userDirection: string, selectedGenre: string): string[] {
     const selected = selectedGenre.trim().toLowerCase();
-    let cleaned = String(userDirection || '');
+    const candidates = [
+      'Classic Vocal House', 'Afro Tech House', 'Progressive House', 'Melodic House',
+      'Organic House', 'Soulful House', 'Tropical House', 'Minimal House',
+      'Electro House', 'Big Room House', 'Future House', 'Garage House',
+      'Tribal House', 'Deep House', 'Tech House', 'Afro House', 'Funky House',
+      'Disco House', 'French House', 'Filter House', 'Jackin House',
+      'Chicago House', 'Acid House', 'Detroit House', 'Latin House',
+      'Bass House', 'Slap House', 'Piano House', 'Vocal House', 'Lo-Fi House',
+      'Microhouse', 'Hard House', 'Speed House', 'Techno House',
+      'Balearic House', 'Ibiza House', 'Beach House', 'Amapiano House',
+      'Kwaito House', 'G-House', 'Afrobeats', 'Amapiano', 'Techno', 'Trance',
+      'Disco', 'Funk', 'R&B', 'Soul', 'Jazz', 'Latin', 'Reggae', 'Pop', 'Rock'
+    ].sort((a, b) => b.length - a.length);
 
-    const houseStyles = [
-      'Afro Tech House', 'Progressive House', 'Melodic House', 'Organic House',
-      'Soulful House', 'Tropical House', 'Minimal House', 'Electro House',
-      'Big Room House', 'Future House', 'Garage House', 'Tribal House',
-      'Deep House', 'Tech House', 'Afro House', 'Funky House', 'Disco House',
-      'French House', 'Filter House', 'Jackin House', 'Chicago House',
-      'Acid House', 'Detroit House', 'Latin House', 'Bass House', 'Slap House',
-      'Piano House', 'Vocal House', 'Lo-Fi House', 'Microhouse', 'Hard House',
-      'Speed House', 'Techno House', 'Balearic House', 'Ibiza House',
-      'Beach House', 'Amapiano House', 'Kwaito House', 'G-House'
-    ];
+    const found: string[] = [];
 
-    if (!selected.includes('house')) return cleaned.trim();
-
-    for (const styleName of houseStyles) {
-      if (styleName.toLowerCase() === selected) continue;
-      cleaned = cleaned.replace(new RegExp(`\\b${this.escapeRegExp(styleName)}\\b`, 'gi'), ' ');
+    for (const candidate of candidates) {
+      if (candidate.toLowerCase() === selected) continue;
+      const expression = new RegExp(`\\b${this.escapeRegExp(candidate)}\\b`, 'i');
+      if (expression.test(userDirection) && !found.some(item => item.toLowerCase() === candidate.toLowerCase())) {
+        found.push(candidate);
+      }
     }
 
-    return cleaned
-      .replace(/\s*,\s*,+/g, ', ')
-      .replace(/\s+/g, ' ')
-      .replace(/^\s*(?:and|with|,|-)+\s*/i, '')
-      .replace(/\b(?:and|with)\s*(?=,|\.|$)/gi, '')
-      .replace(/\s+([,.])/g, '$1')
-      .trim();
+    return found.slice(0, 6);
   }
 
   private static genreFingerprint(genreStr: string): string[] {
     const genre = genreStr.trim().toLowerCase();
 
+    if (genre.includes('classic vocal house') || genre.includes('vocal house')) {
+      return ['classic four-on-the-floor house kick', 'warm grooving bassline', 'soulful piano or Rhodes chords', 'natural expressive lead vocal', 'gospel and soul-informed backing harmonies when appropriate', 'uplifting vocal-house club arrangement'];
+    }
     if (genre.includes('afro tech house')) {
       return ['deep tech-house kick', 'rolling sub bass', 'Afro polyrhythmic percussion', 'congas and shakers', 'hypnotic dark club groove', 'minimal melodic content'];
     }
@@ -284,7 +283,7 @@ export class MusicGenerationService {
     ];
   }
 
-  private static buildStrictGenrePrompt(
+  private static buildGenreDirectorPrompt(
     promptStr: string,
     genreStr: string,
     moodStr: string,
@@ -292,22 +291,35 @@ export class MusicGenerationService {
   ): string {
     const exactGenre = String(genreStr || 'House').trim() || 'House';
     const rawUserDirection = this.extractUserDirection(promptStr);
-    const userDirection = this.sanitizeCompetingHouseStyles(rawUserDirection, exactGenre);
+    const legacyDefaultPrompt = 'Deep House and Tech House with Afro House influence, 124 BPM, deep rolling bassline, punchy four-on-the-floor kick, organic tribal percussion, congas, bongos, shakers, hypnotic groove, warm piano chords, atmospheric pads and a polished club mix.';
+    const userDirection = rawUserDirection.trim() === legacyDefaultPrompt ? '' : rawUserDirection.trim();
+    const requestedInfluences = this.detectExplicitGenreInfluences(userDirection, exactGenre);
+    const hybridMode = requestedInfluences.length > 0;
     const fingerprint = this.genreFingerprint(exactGenre).join(', ');
+    const hybridRoleMap = requestedInfluences
+      .map(influence => `${influence}: ${this.genreFingerprint(influence).slice(0, 4).join(', ')}`)
+      .join(' | ');
 
     return [
-      `PRIMARY GENRE: ${exactGenre}.`,
-      `STRICT GENRE LOCK: make the track unmistakably ${exactGenre}; the selected genre must dominate the rhythm, bass, percussion, harmony and arrangement.`,
+      `PRIMARY FOUNDATION: ${exactGenre}.`,
+      hybridMode
+        ? `INTENTIONAL HYBRID GENRE MODE: use ${exactGenre} as the structural anchor while deliberately blending every user-requested genre influence. Do not delete, suppress or silently replace an explicitly requested influence.`
+        : `STRICT GENRE LOCK: make the track unmistakably ${exactGenre}; the selected genre must dominate the rhythm, bass, percussion, harmony and arrangement.`,
+      hybridMode ? `USER-REQUESTED GENRE INFLUENCES: ${requestedInfluences.join(', ')}.` : '',
+      hybridMode ? `HYBRID ROLE MAP: ${hybridRoleMap}.` : '',
+      hybridMode ? `BLEND RULE: each requested genre must contribute recognizable musical DNA to a single coherent production; blend roles intentionally rather than switching randomly between unrelated styles.` : '',
       `TEMPO: exactly ${bpm} BPM.`,
       `METER: strict 4/4 with coherent bar-aligned phrasing and transitions.`,
       `RHYTHMIC PRECISION: lock drums, bass notes, percussion, stabs, arpeggios and fills to a coherent musical grid at ${bpm} BPM; preserve intentional genre swing but avoid accidental timing drift, loose attacks, unwanted flams or off-beat instrument entrances.`,
       `MUSICAL COHERENCE: bass, harmony and melodic instruments must share a compatible tonal center and phrase together; avoid random notes, clashing layers and rhythmically disconnected parts.`,
-      `CORE ${exactGenre.toUpperCase()} FINGERPRINT: ${fingerprint}.`,
+      `CORE PRIMARY ${exactGenre.toUpperCase()} FINGERPRINT: ${fingerprint}.`,
       `HIGH-FIDELITY MIX TARGET: crystal-clear, pristine and pure production; clean transients, defined instrument separation, tight controlled low end, smooth non-harsh highs, stable stereo image, no clipping, crackle, muddy masking, digital artifacts or excessive distortion.`,
       `PRODUCTION PRIORITY: timing, clarity, groove and musical coherence are more important than unnecessary density.`,
       moodStr ? `MOOD / ATMOSPHERE: ${moodStr}.` : '',
-      userDirection ? `USER DIRECTION: ${userDirection}.` : '',
-      `Maintain ${exactGenre} identity from beginning to end. Avoid stylistic drift or hybridization unless the user explicitly requests it after the selected genre.`
+      userDirection ? `USER DIRECTION (AUTHORITATIVE): ${userDirection}.` : '',
+      hybridMode
+        ? `FINAL STYLE RULE: preserve the ${exactGenre} foundation and every explicitly requested genre influence from beginning to end. The user's intentional hybrid choices are authoritative; never collapse the result back to a single style.`
+        : `Maintain ${exactGenre} identity from beginning to end. Avoid stylistic drift unless the user explicitly requests additional genre influences.`
     ].filter(Boolean).join(' ');
   }
 
@@ -327,17 +339,17 @@ export class MusicGenerationService {
     // Keep the official recommended 8 denoising steps for every duration instead
     // of reducing long tracks to 6 steps: fidelity and coherence now win over speed.
     const inferenceSteps = 8;
-    const strictGenrePrompt = this.buildStrictGenrePrompt(promptStr, genreStr, moodStr, bpm);
+    const directedGenrePrompt = this.buildGenreDirectorPrompt(promptStr, genreStr, moodStr, bpm);
 
     console.log(
       `[ENTERPRISE_LOG] [ACE_STEP_QUALITY_PROFILE] ${durationSec}s render -> ${inferenceSteps} inference steps, batch 1, lossless WAV, guidance 1.0`
     );
     console.log(
-      `[ENTERPRISE_LOG] [ACE_STEP_GENRE_LOCK] Exact selected genre: ${genreStr} | BPM: ${bpm}`
+      `[ENTERPRISE_LOG] [ACE_STEP_GENRE_DIRECTOR] Primary selected genre: ${genreStr} | BPM: ${bpm}`
     );
 
     const result = await engine.generate({
-      prompt: strictGenrePrompt,
+      prompt: directedGenrePrompt,
       genre: genreStr,
       mood: moodStr,
       lyrics: lyricsStr,
