@@ -55,9 +55,12 @@ export class AceStepEngine extends IAudioGenerationEngine {
 
   private static instance: AceStepEngine | null = null;
 
-  private readonly apiBaseUrl =
-    (process.env.ACE_STEP_API_URL || 'http://127.0.0.1:8001').replace(/\/+$/, '');
+  private apiBaseUrl = this.normalizeApiBaseUrl(
+    process.env.ACE_STEP_API_URL || 'http://127.0.0.1:8001'
+  );
 
+  // The API key stays backend-only. The frontend can change the public endpoint,
+  // but it never receives or modifies this secret.
   private readonly apiKey = (process.env.ACE_STEP_API_KEY || '').trim();
 
   public static getInstance(): AceStepEngine {
@@ -66,6 +69,26 @@ export class AceStepEngine extends IAudioGenerationEngine {
     }
 
     return AceStepEngine.instance;
+  }
+
+  public getApiBaseUrl(): string {
+    return this.apiBaseUrl;
+  }
+
+  public setApiBaseUrl(apiUrl: string): string {
+    const normalized = this.normalizeApiBaseUrl(apiUrl);
+
+    if (normalized !== this.apiBaseUrl) {
+      console.log(
+        `[ENTERPRISE_LOG] [AceStepEngine] Updating API endpoint: ${this.apiBaseUrl} -> ${normalized}`
+      );
+    }
+
+    this.apiBaseUrl = normalized;
+    this.isAvailable = false;
+    this.lastError = null;
+
+    return this.apiBaseUrl;
   }
 
   public async initialize(): Promise<void> {
@@ -393,6 +416,42 @@ export class AceStepEngine extends IAudioGenerationEngine {
     return parts
       .filter(Boolean)
       .join(', ');
+  }
+
+  private normalizeApiBaseUrl(value: string): string {
+    const trimmed = String(value || '').trim().replace(/\/+$/, '');
+
+    if (!trimmed) {
+      throw new Error('ACE-Step API URL is required.');
+    }
+
+    let target: URL;
+    try {
+      target = new URL(trimmed);
+    } catch {
+      throw new Error('ACE-Step API URL is not a valid URL.');
+    }
+
+    const hostname = target.hostname.toLowerCase();
+    const isLocalhost =
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '[::1]' ||
+      hostname === '::1';
+
+    if (target.username || target.password) {
+      throw new Error('ACE-Step API URL must not contain credentials.');
+    }
+
+    if (target.protocol !== 'https:' && !(isLocalhost && target.protocol === 'http:')) {
+      throw new Error('Remote ACE-Step URLs must use HTTPS. HTTP is allowed only for localhost.');
+    }
+
+    target.search = '';
+    target.hash = '';
+    target.pathname = target.pathname.replace(/\/+$/, '');
+
+    return target.toString().replace(/\/+$/, '');
   }
 
   private requestJson<T>(
