@@ -309,17 +309,22 @@ export class MusicGenerationService {
       hybridMode ? `HYBRID ROLE MAP: ${hybridRoleMap}.` : '',
       hybridMode ? `BLEND RULE: each requested genre must contribute recognizable musical DNA to a single coherent production; blend roles intentionally rather than switching randomly between unrelated styles.` : '',
       `TEMPO: exactly ${bpm} BPM.`,
-      `METER: strict 4/4 with coherent bar-aligned phrasing and transitions.`,
-      `RHYTHMIC PRECISION: lock drums, bass notes, percussion, stabs, arpeggios and fills to a coherent musical grid at ${bpm} BPM; preserve intentional genre swing but avoid accidental timing drift, loose attacks, unwanted flams or off-beat instrument entrances.`,
+      `MASTER CLOCK: maintain one immutable ${bpm} BPM clock from the first musical transient to the final decay; no tempo drift, rubato, accidental half-time or double-time reinterpretation, polymeter, meter changes or free-time passages.`,
+      `METER: strict 4/4. Every bar contains four stable quarter-note beats and the global downbeat remains unambiguous throughout the track.`,
+      `BAR GRID: all section starts, section endings, chord changes, bass phrases, drum fills, breaks, drops, risers and major arrangement events must align to the same 4/4 bar grid. Prefer exact 4, 8, 16 or 32 bar phrases and place major section changes on beat 1 of a new bar.`,
+      `BEAT DISCIPLINE: for House-based material, keep the four-on-the-floor kick anchored consistently to beats 1, 2, 3 and 4. Syncopated bass, percussion, hats, stabs and vocal rhythms may move around the grid only intentionally and must resolve cleanly inside the bar without shifting the master pulse.`,
+      `TRANSITION DISCIPLINE: fills, pickups, cymbal swells, risers and automation must finish exactly at the next bar boundary so the following section lands cleanly on beat 1; avoid early drops, late entrances, missing beats, extra beats or shortened/extended accidental bars.`,
+      `RHYTHMIC PRECISION: lock drums, bass notes, percussion, stabs, arpeggios and fills to coherent beat and subdivision positions at ${bpm} BPM; preserve intentional genre swing while preventing accidental timing drift, loose attacks, unwanted flams and rhythmically disconnected instrument entrances.`,
+      `PHRASE COHERENCE: melodies, chords, bass motifs and rhythmic patterns must repeat and develop in metrically consistent phrase lengths, with cadences and turnarounds resolving at bar boundaries rather than arbitrary points.`,
       `MUSICAL COHERENCE: bass, harmony and melodic instruments must share a compatible tonal center and phrase together; avoid random notes, clashing layers and rhythmically disconnected parts.`,
       `CORE PRIMARY ${exactGenre.toUpperCase()} FINGERPRINT: ${fingerprint}.`,
       `HIGH-FIDELITY MIX TARGET: crystal-clear, pristine and pure production; clean transients, defined instrument separation, tight controlled low end, smooth non-harsh highs, stable stereo image, no clipping, crackle, muddy masking, digital artifacts or excessive distortion.`,
-      `PRODUCTION PRIORITY: timing, clarity, groove and musical coherence are more important than unnecessary density.`,
+      `PRODUCTION PRIORITY: metrical accuracy, timing, groove, clarity and musical coherence are higher priority than ornamental complexity or unnecessary density.`,
       moodStr ? `MOOD / ATMOSPHERE: ${moodStr}.` : '',
       userDirection ? `USER DIRECTION (AUTHORITATIVE): ${userDirection}.` : '',
       hybridMode
-        ? `FINAL STYLE RULE: preserve the ${exactGenre} foundation and every explicitly requested genre influence from beginning to end. The user's intentional hybrid choices are authoritative; never collapse the result back to a single style.`
-        : `Maintain ${exactGenre} identity from beginning to end. Avoid stylistic drift unless the user explicitly requests additional genre influences.`
+        ? `FINAL STYLE RULE: preserve the ${exactGenre} foundation and every explicitly requested genre influence from beginning to end. The user's intentional hybrid choices are authoritative; never collapse the result back to a single style, and keep all hybrid layers locked to the same master tempo and bar grid.`
+        : `Maintain ${exactGenre} identity from beginning to end. Avoid stylistic drift unless the user explicitly requests additional genre influences, and keep the entire arrangement locked to the same master tempo and bar grid.`
     ].filter(Boolean).join(' ');
   }
 
