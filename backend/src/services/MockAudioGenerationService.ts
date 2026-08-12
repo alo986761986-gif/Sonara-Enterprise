@@ -34,48 +34,72 @@ export class MockAudioGenerationService {
     const rootMidi = 36 + (genreSeed % 12);
     const rootHz = 440 * Math.pow(2, (rootMidi - 69) / 12);
     const fifthHz = rootHz * Math.pow(2, 7 / 12);
-    const chordHz = rootHz * 2;
-    const secondsPerBeat = 60 / bpm;
-    const twoPi = Math.PI * 2;
+    const beatIncrement = bpm / (60 * sampleRate);
 
+    let beatPhase = 0;
+    let beatIndex = 0;
+    let kickPhase = 0;
+    let bassPhase = 0;
+    let padPhaseA = 0;
+    let padPhaseB = 0;
+    let padPhaseC = 0;
+    let pulsePhase = 0;
+    let stereoPhase = 0;
+    let noiseState = (genreSeed || 1) >>> 0;
     let offset = 44;
 
     for (let frame = 0; frame < totalFrames; frame += 1) {
-      const t = frame / sampleRate;
-      const beatPosition = (t / secondsPerBeat) % 1;
-      const halfBeatPosition = (t / (secondsPerBeat / 2)) % 1;
-      const barBeat = Math.floor(t / secondsPerBeat) % 4;
+      const halfBeatPhase = (beatPhase * 2) % 1;
+      const barBeat = beatIndex % 4;
 
-      const kickEnvelope = Math.exp(-beatPosition * 16);
-      const kickFrequency = 48 + 52 * kickEnvelope;
-      const kick = Math.sin(twoPi * kickFrequency * t) * kickEnvelope * 0.62;
+      let kickEnvelope = Math.max(0, 1 - beatPhase * 8);
+      kickEnvelope *= kickEnvelope;
+      const kickFrequency = 48 + 58 * kickEnvelope;
+      kickPhase = this.wrapPhase(kickPhase + kickFrequency / sampleRate);
+      const kick = this.triangle(kickPhase) * kickEnvelope * 0.62;
 
-      const bassGate = beatPosition < 0.78 ? 1 : Math.max(0, 1 - (beatPosition - 0.78) / 0.22);
       const bassFrequency = barBeat === 2 ? fifthHz : rootHz;
-      const bass = Math.sin(twoPi * bassFrequency * t) * 0.24 * bassGate;
+      bassPhase = this.wrapPhase(bassPhase + bassFrequency / sampleRate);
+      const bassGate = beatPhase < 0.78
+        ? 1
+        : Math.max(0, 1 - (beatPhase - 0.78) / 0.22);
+      const bass = this.triangle(bassPhase) * 0.22 * bassGate;
 
-      const chordEnvelope = 0.45 + 0.55 * Math.sin(Math.PI * Math.min(1, beatPosition));
+      padPhaseA = this.wrapPhase(padPhaseA + (rootHz * 2) / sampleRate);
+      padPhaseB = this.wrapPhase(padPhaseB + (rootHz * 2.5) / sampleRate);
+      padPhaseC = this.wrapPhase(padPhaseC + (rootHz * 3) / sampleRate);
+      const chordEnvelope = 0.45 + 0.55 * (1 - Math.abs(beatPhase * 2 - 1));
       const pad = (
-        Math.sin(twoPi * chordHz * t) +
-        0.55 * Math.sin(twoPi * chordHz * 1.25 * t) +
-        0.4 * Math.sin(twoPi * chordHz * 1.5 * t)
-      ) * 0.055 * chordEnvelope;
+        this.triangle(padPhaseA) +
+        0.55 * this.triangle(padPhaseB) +
+        0.4 * this.triangle(padPhaseC)
+      ) * 0.05 * chordEnvelope;
 
-      const hatEnvelope = halfBeatPosition < 0.08
-        ? Math.exp(-halfBeatPosition * 55)
+      const hatGate = halfBeatPhase < 0.09
+        ? Math.max(0, 1 - halfBeatPhase / 0.09)
         : 0;
-      const noise = this.pseudoNoise(frame + genreSeed);
-      const hat = noise * hatEnvelope * 0.09;
+      noiseState = (Math.imul(noiseState, 1664525) + 1013904223) >>> 0;
+      const noise = (noiseState / 0xffffffff) * 2 - 1;
+      const hat = noise * hatGate * 0.08;
 
-      const pulse = Math.sin(twoPi * (rootHz * 4) * t) * 0.025 * (0.5 + 0.5 * Math.sin(twoPi * 0.2 * t));
+      pulsePhase = this.wrapPhase(pulsePhase + (rootHz * 4) / sampleRate);
+      const pulse = this.triangle(pulsePhase) * 0.022;
+
+      stereoPhase = this.wrapPhase(stereoPhase + 0.12 / sampleRate);
+      const stereoMotion = this.triangle(stereoPhase) * 0.04;
       const mono = this.softClip(kick + bass + pad + hat + pulse);
-      const stereoMotion = Math.sin(twoPi * 0.12 * t) * 0.035;
       const left = this.softClip(mono + pad * stereoMotion);
       const right = this.softClip(mono - pad * stereoMotion);
 
       buffer.writeInt16LE(Math.round(left * 32767), offset);
       buffer.writeInt16LE(Math.round(right * 32767), offset + 2);
       offset += 4;
+
+      beatPhase += beatIncrement;
+      if (beatPhase >= 1) {
+        beatPhase -= 1;
+        beatIndex += 1;
+      }
     }
 
     return {
@@ -122,12 +146,15 @@ export class MockAudioGenerationService {
     return hash >>> 0;
   }
 
-  private static pseudoNoise(seed: number): number {
-    const value = Math.sin(seed * 12.9898 + 78.233) * 43758.5453;
-    return ((value - Math.floor(value)) * 2) - 1;
+  private static triangle(phase: number): number {
+    return 1 - 4 * Math.abs(phase - 0.5);
+  }
+
+  private static wrapPhase(phase: number): number {
+    return phase >= 1 ? phase - 1 : phase;
   }
 
   private static softClip(value: number): number {
-    return Math.max(-0.98, Math.min(0.98, Math.tanh(value * 1.15)));
+    return Math.max(-0.98, Math.min(0.98, value));
   }
 }
