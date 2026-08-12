@@ -96,6 +96,9 @@ const sleep = (milliseconds: number) =>
 const normalizeJob = (value: JobResponse): JobResponse =>
   value?.job || value?.data || value;
 
+const normalizeEndpoint = (value: string) =>
+  value.trim().replace(/\/+$/, '');
+
 export default function App() {
   const [prompt, setPrompt] = useState(
     'Deep House and Tech House with Afro House influence, 124 BPM, deep rolling bassline, punchy four-on-the-floor kick, organic tribal percussion, congas, bongos, shakers, hypnotic groove, warm piano chords, atmospheric pads and a polished club mix.'
@@ -177,14 +180,14 @@ export default function App() {
   };
 
   const connectAceStep = async () => {
-    const nextApiUrl = aceStepUrl.trim();
+    const nextApiUrl = normalizeEndpoint(aceStepUrl);
 
     if (!nextApiUrl || connectionBusy || status === 'QUEUED' || status === 'PROCESSING') {
       return;
     }
 
     setConnectionBusy(true);
-    setConnectionNotice('Connecting to ACE-Step...');
+    setConnectionNotice('Verifying ACE-Step endpoint...');
 
     try {
       const response = await fetch('/api/engine/ace-step/config', {
@@ -213,7 +216,7 @@ export default function App() {
       setHealth(data.isAvailable ? 'READY' : 'OFFLINE');
 
       if (data.isAvailable) {
-        setConnectionNotice('Connected. ACE-Step is READY.');
+        setConnectionNotice('ACE-Step is READY.');
         setError('');
       } else {
         setConnectionNotice(
@@ -225,6 +228,77 @@ export default function App() {
       setConnectionNotice(
         connectionError instanceof Error ? connectionError.message : String(connectionError)
       );
+    } finally {
+      setConnectionBusy(false);
+    }
+  };
+
+  const ensureAceStepReadyForGeneration = async (): Promise<void> => {
+    setConnectionBusy(true);
+    setConnectionNotice('Sonara is checking ACE-Step automatically...');
+
+    try {
+      let targetUrl = normalizeEndpoint(aceStepUrl);
+
+      if (!targetUrl) {
+        const healthResponse = await fetch('/api/engine/ace-step/health', { cache: 'no-store' });
+        let healthData: AceStepHealthResponse;
+
+        try {
+          healthData = await healthResponse.json();
+        } catch {
+          throw new Error(`The Sonara backend returned invalid JSON (HTTP ${healthResponse.status}).`);
+        }
+
+        setHealthDetails(healthData);
+        targetUrl = normalizeEndpoint(healthData.apiUrl || '');
+
+        if (targetUrl) {
+          setAceStepUrl(targetUrl);
+        }
+
+        if (healthResponse.ok && healthData.isAvailable && !targetUrl) {
+          setHealth('READY');
+          setConnectionNotice('ACE-Step READY — automatic check complete.');
+          return;
+        }
+      }
+
+      if (!targetUrl) {
+        throw new Error('No ACE-Step endpoint is configured. Paste the current Gradio URL once; Generate will handle the connection automatically.');
+      }
+
+      const response = await fetch('/api/engine/ace-step/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiUrl: targetUrl })
+      });
+
+      let data: AceStepConfigResponse;
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error(`The Sonara backend returned invalid JSON (HTTP ${response.status}).`);
+      }
+
+      if (data.apiUrl) {
+        setAceStepUrl(data.apiUrl);
+      }
+
+      setHealthDetails(data);
+
+      if (!response.ok || !data.isAvailable) {
+        setHealth('OFFLINE');
+        throw new Error(
+          data.error ||
+          data.message ||
+          'ACE-Step could not be reached automatically.'
+        );
+      }
+
+      setHealth('READY');
+      setConnectionNotice('ACE-Step READY — connected automatically by Generate.');
+      setError('');
     } finally {
       setConnectionBusy(false);
     }
@@ -288,25 +362,18 @@ export default function App() {
   const generate = async () => {
     if (!prompt.trim() || status === 'QUEUED' || status === 'PROCESSING') return;
 
-    if (health !== 'READY') {
-      setError(
-        healthDetails?.error ||
-        'ACE-Step is offline. Start the Colab/API service and refresh the engine status.'
-      );
-      setStatus('FAILED');
-      setStage('ACE-Step offline');
-      return;
-    }
-
     setStatus('QUEUED');
     setProgress(0);
-    setStage('Sending generation request to ACE-Step...');
+    setStage('Checking and connecting ACE-Step automatically...');
     setError('');
     setAudioUrl('');
     setJobId('');
     setIsPlaying(false);
 
     try {
+      await ensureAceStepReadyForGeneration();
+      setStage('Sending generation request to ACE-Step...');
+
       const response = await fetch('/api/engine/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -421,10 +488,9 @@ export default function App() {
 
   const busy = status === 'QUEUED' || status === 'PROCESSING';
   const engineReady = health === 'READY';
-  const generationAvailable = engineReady;
   const offlineMessage = healthDetails?.error?.includes('No interface is running')
-    ? 'The current Gradio link has expired or no interface is running. Start ACE-Step in Colab, paste the new .gradio.live URL above, then press Connect.'
-    : healthDetails?.error || 'The remote ACE-Step API cannot be reached.';
+    ? 'The current Gradio link has expired or no interface is running. Paste the new .gradio.live URL once; Generate will configure and verify it automatically.'
+    : healthDetails?.error || 'The remote ACE-Step API cannot be reached. Generate will retry the configured endpoint automatically.';
 
   return (
     <div className="min-h-screen bg-[#090d16] text-slate-100">
@@ -474,7 +540,7 @@ export default function App() {
                 </span>
               </div>
               <p className="mt-1 text-xs text-slate-500">
-                Paste the new public Gradio URL here. The ACE-Step API key stays private in the Sonara backend.
+                Generate verifies and reconnects this endpoint automatically. Change the URL only when Colab creates a new Gradio link.
               </p>
               <input
                 type="url"
@@ -501,7 +567,7 @@ export default function App() {
               className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-purple-600 px-5 py-2.5 text-sm font-semibold hover:bg-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <RefreshCw className={`h-4 w-4 ${connectionBusy ? 'animate-spin' : ''}`} />
-              {connectionBusy ? 'Connecting...' : 'Connect'}
+              {connectionBusy ? 'Checking...' : 'Verify now'}
             </button>
           </div>
 
@@ -520,7 +586,7 @@ export default function App() {
               {offlineMessage}
             </div>
             <button type="button" onClick={() => void checkHealth()} className="mt-3 rounded-lg border border-red-800 px-3 py-1.5 text-xs font-medium">
-              Retry connection
+              Retry status
             </button>
           </section>
         )}
@@ -544,8 +610,8 @@ export default function App() {
               </span>
             </div>
             {!engineReady && (
-              <div className="mt-3 rounded-lg border border-red-900/70 bg-red-950/30 px-3 py-2 text-[11px] text-red-300">
-                ACE-Step must be READY before generation can start.
+              <div className="mt-3 rounded-lg border border-amber-900/70 bg-amber-950/20 px-3 py-2 text-[11px] text-amber-300">
+                ACE-Step is not READY yet. Press Generate: Sonara will verify and reconnect it automatically before starting the track.
               </div>
             )}
           </div>
@@ -611,7 +677,7 @@ export default function App() {
             </div>
           </div>
 
-          <button type="button" onClick={() => void generate()} disabled={busy || !prompt.trim() || !generationAvailable} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 px-6 py-3.5 font-semibold disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="button" onClick={() => void generate()} disabled={busy || !prompt.trim()} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 px-6 py-3.5 font-semibold disabled:cursor-not-allowed disabled:opacity-50">
             {busy ? (
               <><RefreshCw className="h-5 w-5 animate-spin" />Generating...</>
             ) : (
