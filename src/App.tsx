@@ -26,6 +26,7 @@ import {
 
 type JobStatus = 'IDLE' | 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 type EngineHealth = 'CHECKING' | 'READY' | 'OFFLINE';
+type GenerationMode = 'REAL' | 'MOCK';
 
 interface JobResponse {
   jobId?: string;
@@ -33,6 +34,8 @@ interface JobResponse {
   progress?: number;
   audioUrl?: string | null;
   error?: string | null;
+  engine?: string;
+  mode?: string;
   metadata?: {
     currentStage?: string;
     engine?: string;
@@ -105,6 +108,7 @@ export default function App() {
   );
   const [bpm, setBpm] = useState(124);
   const [durationSec, setDurationSec] = useState(15);
+  const [generationMode, setGenerationMode] = useState<GenerationMode>('MOCK');
 
   const [status, setStatus] = useState<JobStatus>('IDLE');
   const [progress, setProgress] = useState(0);
@@ -286,7 +290,7 @@ export default function App() {
   const generate = async () => {
     if (!prompt.trim() || status === 'QUEUED' || status === 'PROCESSING') return;
 
-    if (health !== 'READY') {
+    if (generationMode === 'REAL' && health !== 'READY') {
       setError(
         healthDetails?.error ||
         'ACE-Step is offline. Start the Colab/API service and refresh the engine status.'
@@ -298,7 +302,11 @@ export default function App() {
 
     setStatus('QUEUED');
     setProgress(0);
-    setStage('Sending generation request...');
+    setStage(
+      generationMode === 'MOCK'
+        ? 'Starting local DEV Mock generation...'
+        : 'Sending generation request...'
+    );
     setError('');
     setAudioUrl('');
     setJobId('');
@@ -317,6 +325,7 @@ export default function App() {
           bpm,
           durationSec,
           duration: durationSec,
+          mode: generationMode.toLowerCase(),
           engineId: 'sonara_ace_step_v12'
         })
       });
@@ -343,9 +352,17 @@ export default function App() {
         throw new Error('The server did not return a job ID.');
       }
 
+      if (responseData.engine) {
+        setEngine(responseData.engine);
+      }
+
       setJobId(id);
       setStatus('PROCESSING');
-      setStage('ACE-Step is generating the track...');
+      setStage(
+        generationMode === 'MOCK'
+          ? 'DEV Mock is rendering local test audio...'
+          : 'ACE-Step is generating the track...'
+      );
 
       // Up to 15 minutes of polling so long 4-minute renders can finish on slower GPUs.
       const maximumAttempts = 3000;
@@ -386,7 +403,11 @@ export default function App() {
           setAudioUrl(currentAudioUrl);
           setProgress(100);
           setStatus('COMPLETED');
-          setStage('Generation complete — audio ready.');
+          setStage(
+            generationMode === 'MOCK'
+              ? 'DEV Mock complete — local WAV ready for player, history and EQ testing.'
+              : 'Generation complete — audio ready.'
+          );
           void loadHistory();
           return;
         }
@@ -409,12 +430,15 @@ export default function App() {
       setStatus('FAILED');
       setProgress(0);
       setStage('Generation failed');
-      void checkHealth();
+      if (generationMode === 'REAL') {
+        void checkHealth();
+      }
     }
   };
 
   const busy = status === 'QUEUED' || status === 'PROCESSING';
   const engineReady = health === 'READY';
+  const generationAvailable = generationMode === 'MOCK' || engineReady;
   const offlineMessage = healthDetails?.error?.includes('No interface is running')
     ? 'The current Gradio link has expired or no interface is running. Start ACE-Step in Colab, paste the new .gradio.live URL above, then press Connect.'
     : healthDetails?.error || 'The remote ACE-Step API cannot be reached.';
@@ -512,6 +536,11 @@ export default function App() {
             <div className="mt-1 text-xs text-red-300/80">
               {offlineMessage}
             </div>
+            {generationMode === 'MOCK' && (
+              <div className="mt-2 text-xs font-medium text-emerald-300">
+                DEV MOCK is active: you can still test generation, WAV playback, history and EQ locally without GPU.
+              </div>
+            )}
             <button type="button" onClick={() => void checkHealth()} className="mt-3 rounded-lg border border-red-800 px-3 py-1.5 text-xs font-medium">
               Retry connection
             </button>
@@ -522,6 +551,60 @@ export default function App() {
           <div className="mb-5 flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-purple-400" />
             <h2 className="font-semibold">Generate Music</h2>
+          </div>
+
+          <div className={`mb-4 rounded-xl border p-4 ${
+            generationMode === 'MOCK'
+              ? 'border-emerald-800/70 bg-emerald-950/20'
+              : 'border-purple-800/60 bg-purple-950/20'
+          }`}>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-300">Generation Mode</div>
+                <div className="mt-1 text-xs text-slate-500">
+                  REAL uses ACE-Step on the remote GPU. DEV MOCK creates a local test WAV and needs no Colab/GPU.
+                </div>
+              </div>
+
+              <div className="flex rounded-xl border border-slate-700 bg-slate-950 p-1">
+                <button
+                  type="button"
+                  onClick={() => setGenerationMode('REAL')}
+                  disabled={busy}
+                  className={`rounded-lg px-4 py-2 text-xs font-semibold transition ${
+                    generationMode === 'REAL'
+                      ? 'bg-purple-600 text-white'
+                      : 'text-slate-400 hover:text-slate-200'
+                  } disabled:opacity-50`}
+                >
+                  ACE-Step REAL
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGenerationMode('MOCK')}
+                  disabled={busy}
+                  className={`rounded-lg px-4 py-2 text-xs font-semibold transition ${
+                    generationMode === 'MOCK'
+                      ? 'bg-emerald-600 text-white'
+                      : 'text-slate-400 hover:text-slate-200'
+                  } disabled:opacity-50`}
+                >
+                  DEV MOCK
+                </button>
+              </div>
+            </div>
+
+            {generationMode === 'MOCK' && (
+              <div className="mt-3 rounded-lg border border-emerald-900/70 bg-slate-950/60 px-3 py-2 text-[11px] text-emerald-300">
+                GPU-free test mode. It generates an audible local WAV for UI/player/history/EQ testing, does not call ACE-Step, and does not write fake tracks into Music Brain learning.
+              </div>
+            )}
+
+            {generationMode === 'REAL' && !engineReady && (
+              <div className="mt-3 rounded-lg border border-red-900/70 bg-red-950/30 px-3 py-2 text-[11px] text-red-300">
+                REAL mode needs ACE-Step READY. Switch to DEV MOCK while Colab/GPU is unavailable.
+              </div>
+            )}
           </div>
 
           <textarea value={prompt} onChange={event => setPrompt(event.target.value)} rows={5} placeholder="Describe the track..." className="w-full rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm outline-none focus:border-purple-500" />
@@ -585,8 +668,14 @@ export default function App() {
             </div>
           </div>
 
-          <button type="button" onClick={() => void generate()} disabled={busy || !prompt.trim() || !engineReady} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 px-6 py-3.5 font-semibold disabled:cursor-not-allowed disabled:opacity-50">
-            {busy ? <><RefreshCw className="h-5 w-5 animate-spin" />Generating...</> : <><Zap className="h-5 w-5" />Generate Track</>}
+          <button type="button" onClick={() => void generate()} disabled={busy || !prompt.trim() || !generationAvailable} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-pink-600 px-6 py-3.5 font-semibold disabled:cursor-not-allowed disabled:opacity-50">
+            {busy ? (
+              <><RefreshCw className="h-5 w-5 animate-spin" />Generating...</>
+            ) : generationMode === 'MOCK' ? (
+              <><Zap className="h-5 w-5" />Generate Mock Track (No GPU)</>
+            ) : (
+              <><Zap className="h-5 w-5" />Generate Track with ACE-Step</>
+            )}
           </button>
         </section>
 
