@@ -3,6 +3,7 @@ import { AceStepPromptEngine } from '../services/AceStepPromptEngine';
 import { JobQueueWorker } from '../workers/JobQueueWorker';
 import { EngineDiagnosticService } from '../engine/EngineDiagnosticService';
 import { PythonEnvironmentManager } from '../engine/PythonEnvironmentManager';
+import { AceStepEngine } from '../engine/AceStepEngine';
 
 const router = Router();
 
@@ -74,6 +75,36 @@ router.get('/active', (_req: Request, res: Response) => {
     status: 'success',
     activeEngine: active,
   });
+});
+
+// Live remote ACE-Step status used by the generator UI.
+// This never exposes the API key; it only reports connectivity and service metadata.
+router.get('/ace-step/health', async (_req: Request, res: Response) => {
+  try {
+    const health = await AceStepEngine.getInstance().healthCheck();
+    const details = health.details || {};
+    const response = (details.response || {}) as any;
+
+    return res.status(health.isAvailable ? 200 : 503).json({
+      status: health.status,
+      isAvailable: health.isAvailable,
+      engineName: health.engineName,
+      service: response?.data?.service || 'ACE-Step',
+      version: response?.data?.version || null,
+      apiUrl: details.apiUrl || null,
+      error: health.error || null
+    });
+  } catch (err: any) {
+    return res.status(503).json({
+      status: 'ENGINE_NOT_AVAILABLE',
+      isAvailable: false,
+      engineName: 'AceStepEngine',
+      service: 'ACE-Step',
+      version: null,
+      apiUrl: process.env.ACE_STEP_API_URL || null,
+      error: err?.message || String(err)
+    });
+  }
 });
 
 router.get('/diagnostic', async (_req: Request, res: Response) => {
