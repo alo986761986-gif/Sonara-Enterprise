@@ -52,6 +52,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
   private isInitialized = false;
   private isAvailable = false;
   private lastError: string | null = null;
+  private lastSuccessfulHealthAt = 0;
 
   private static instance: AceStepEngine | null = null;
 
@@ -62,6 +63,9 @@ export class AceStepEngine extends IAudioGenerationEngine {
   // The API key stays backend-only. The frontend can change the public endpoint,
   // but it never receives or modifies this secret.
   private readonly apiKey = (process.env.ACE_STEP_API_KEY || '').trim();
+
+  private readonly healthReuseWindowMs = 45_000;
+  private readonly healthRetryAttempts = 3;
 
   public static getInstance(): AceStepEngine {
     if (!AceStepEngine.instance) {
@@ -82,11 +86,12 @@ export class AceStepEngine extends IAudioGenerationEngine {
       console.log(
         `[ENTERPRISE_LOG] [AceStepEngine] Updating API endpoint: ${this.apiBaseUrl} -> ${normalized}`
       );
-    }
 
-    this.apiBaseUrl = normalized;
-    this.isAvailable = false;
-    this.lastError = null;
+      this.apiBaseUrl = normalized;
+      this.isAvailable = false;
+      this.lastError = null;
+      this.lastSuccessfulHealthAt = 0;
+    }
 
     return this.apiBaseUrl;
   }
@@ -110,50 +115,95 @@ export class AceStepEngine extends IAudioGenerationEngine {
   }
 
   public async healthCheck(): Promise<EngineHealthStatus> {
-    try {
-      const response = await this.requestJson<AceStepApiEnvelope<AceStepHealthData>>(
-        'GET',
-        '/health',
-        undefined,
-        10_000,
-        false
-      );
+    const now = Date.now();
 
-      const ready =
-        response.code === 200 &&
-        (response.data?.status === 'ok' || response.data?.status === 'healthy');
-
-      this.isAvailable = ready;
-      this.lastError = ready
-        ? null
-        : response.error || `Unexpected ACE-Step health response: ${JSON.stringify(response)}`;
-
+    if (
+      this.isAvailable &&
+      this.lastSuccessfulHealthAt > 0 &&
+      now - this.lastSuccessfulHealthAt < this.healthReuseWindowMs
+    ) {
       return {
-        isAvailable: ready,
+        isAvailable: true,
         engineName: this.name,
-        status: ready ? 'READY' : 'ENGINE_NOT_AVAILABLE',
-        error: this.lastError || undefined,
+        status: 'READY',
         details: {
           apiUrl: this.apiBaseUrl,
-          response
-        }
-      };
-    } catch (error) {
-      const message = this.errorMessage(error);
-
-      this.isAvailable = false;
-      this.lastError = message;
-
-      return {
-        isAvailable: false,
-        engineName: this.name,
-        status: 'ENGINE_NOT_AVAILABLE',
-        error: message,
-        details: {
-          apiUrl: this.apiBaseUrl
+          cached: true,
+          lastSuccessfulHealthAt: this.lastSuccessfulHealthAt
         }
       };
     }
+
+    let lastMessage = 'ACE-Step health check failed.';
+
+    for (let attempt = 1; attempt <= this.healthRetryAttempts; attempt += 1) {
+      try {
+        const response = await this.requestJson<AceStepApiEnvelope<AceStepHealthData>>(
+          'GET',
+          '/health',
+          undefined,
+          12_000,
+          false
+        );
+
+        const ready =
+          response.code === 200 &&
+          (response.data?.status === 'ok' || response.data?.status === 'healthy');
+
+        if (ready) {
+          this.isAvailable = true;
+          this.lastError = null;
+          this.lastSuccessfulHealthAt = Date.now();
+
+          return {
+            isAvailable: true,
+            engineName: this.name,
+            status: 'READY',
+            details: {
+              apiUrl: this.apiBaseUrl,
+              response,
+              attempt
+            }
+          };
+        }
+
+        lastMessage =
+          response.error ||
+          `Unexpected ACE-Step health response: ${JSON.stringify(response)}`;
+
+        break;
+      } catch (error) {
+        lastMessage = this.errorMessage(error);
+
+        const shouldRetry =
+          attempt < this.healthRetryAttempts &&
+          this.isTransientNetworkError(lastMessage);
+
+        if (!shouldRetry) {
+          break;
+        }
+
+        console.warn(
+          `[ENTERPRISE_LOG] [AceStepEngine] Transient health failure (${attempt}/${this.healthRetryAttempts}): ${lastMessage}. Retrying...`
+        );
+
+        await new Promise(resolve => setTimeout(resolve, 750 * attempt));
+      }
+    }
+
+    this.isAvailable = false;
+    this.lastError = lastMessage;
+
+    return {
+      isAvailable: false,
+      engineName: this.name,
+      status: 'ENGINE_NOT_AVAILABLE',
+      error: this.lastError,
+      details: {
+        apiUrl: this.apiBaseUrl,
+        retryAttempts: this.healthRetryAttempts
+      }
+    };
   }
 
   public async generate(params: GenerationParams): Promise<GenerationResult> {
@@ -370,6 +420,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
     this.isInitialized = false;
     this.isAvailable = false;
     this.lastError = null;
+    this.lastSuccessfulHealthAt = 0;
   }
 
   private async waitForResult(
@@ -658,6 +709,20 @@ export class AceStepEngine extends IAudioGenerationEngine {
         );
       }
     );
+  }
+
+  private isTransientNetworkError(message: string): boolean {
+    const normalized = String(message || '').toLowerCase();
+
+    return [
+      'econnreset',
+      'etimedout',
+      'econnrefused',
+      'eai_again',
+      'socket hang up',
+      'network socket disconnected',
+      'timed out'
+    ].some(token => normalized.includes(token));
   }
 
   private errorMessage(
