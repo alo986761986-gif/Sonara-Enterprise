@@ -6,7 +6,6 @@ import { PythonEnvironmentManager } from '../engine/PythonEnvironmentManager';
 
 const router = Router();
 
-// Unified Engine Registry Data
 const ENGINE_MODELS = [
   {
     id: 'sonara_ace_step_v12',
@@ -22,6 +21,21 @@ const ENGINE_MODELS = [
     continuationSupport: true,
     inpaintSupport: true,
     qualityScore: 100
+  },
+  {
+    id: 'sonara_levo_v2',
+    name: 'Sonara LeVo Music Engine',
+    version: '2.0.0-SONARA',
+    provider: 'sonara_native',
+    vramRequiredMb: 15360,
+    ramRequiredMb: 16384,
+    averageTimeSec: 266,
+    stereoSupport: true,
+    maxDurationSec: 240,
+    stemsSupport: false,
+    continuationSupport: false,
+    inpaintSupport: false,
+    qualityScore: 98
   },
   {
     id: 'musicgen_stereo_large',
@@ -58,7 +72,7 @@ const ENGINE_MODELS = [
 let activeEngineId = 'sonara_ace_step_v12';
 
 router.get('/models', (_req: Request, res: Response) => {
-  const active = ENGINE_MODELS.find(m => m.id === activeEngineId) || ENGINE_MODELS[1];
+  const active = ENGINE_MODELS.find(m => m.id === activeEngineId) || ENGINE_MODELS[0];
   res.json({
     status: 'success',
     activeEngineId: active.id,
@@ -69,11 +83,8 @@ router.get('/models', (_req: Request, res: Response) => {
 });
 
 router.get('/active', (_req: Request, res: Response) => {
-  const active = ENGINE_MODELS.find(m => m.id === activeEngineId) || ENGINE_MODELS[1];
-  res.json({
-    status: 'success',
-    activeEngine: active,
-  });
+  const active = ENGINE_MODELS.find(m => m.id === activeEngineId) || ENGINE_MODELS[0];
+  res.json({ status: 'success', activeEngine: active });
 });
 
 router.get('/diagnostic', async (_req: Request, res: Response) => {
@@ -113,14 +124,11 @@ router.post('/select', (req: Request, res: Response) => {
         activeEngine: found,
       });
     }
-    return res.status(404).json({
-      status: 'error',
-      message: `Engine ID '${engineId}' not found in registry`,
-    });
+    return res.status(404).json({ status: 'error', message: `Engine ID '${engineId}' not found in registry` });
   }
 
   if (autoSelect) {
-    const selected = ENGINE_MODELS.find(m => m.provider === 'sonara_native') || ENGINE_MODELS[0];
+    const selected = ENGINE_MODELS.find(m => m.id === 'sonara_ace_step_v12') || ENGINE_MODELS[0];
     activeEngineId = selected.id;
     return res.json({
       status: 'success',
@@ -129,10 +137,7 @@ router.post('/select', (req: Request, res: Response) => {
     });
   }
 
-  res.status(400).json({
-    status: 'error',
-    message: 'Must provide either engineId or autoSelect in payload',
-  });
+  res.status(400).json({ status: 'error', message: 'Must provide either engineId or autoSelect in payload' });
 });
 
 router.post('/generate', async (req: Request, res: Response) => {
@@ -144,21 +149,23 @@ router.post('/generate', async (req: Request, res: Response) => {
     }
 
     const currentEngineId = engineId || activeEngineId;
-    const plugin = ENGINE_MODELS.find(m => m.id === currentEngineId) || ENGINE_MODELS[1];
+    const plugin = ENGINE_MODELS.find(m => m.id === currentEngineId);
+    if (!plugin) {
+      return res.status(404).json({ status: 'error', message: `Engine ID '${currentEngineId}' not found in registry` });
+    }
 
-    // Automatically inject production instructions & genre lock via AceStepPromptEngine
     const optimizationResult = await AceStepPromptEngine.generatePrompt(prompt, genre);
-
-    // Enqueue job in centralized JobQueueWorker
     const jobId = `job-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+
     const jobRecord = JobQueueWorker.enqueueJob(jobId, {
       title: title || `${genre || 'Melodic House'} Track`,
       genre: genre || optimizationResult.genreLock.subgenre || 'Melodic House',
       mood: mood || 'Energetic',
       lyrics: lyrics || '',
-      prompt: prompt,
+      prompt,
       bpm: bpm || optimizationResult.genreLock.targetBpm || 124,
-      duration: durationSec || 30
+      duration: durationSec || 30,
+      engineId: currentEngineId
     });
 
     res.json({
@@ -179,13 +186,13 @@ router.post('/generate', async (req: Request, res: Response) => {
         bpm: bpm || optimizationResult.genreLock.targetBpm || 124,
         key: key || optimizationResult.genreLock.keySignature || 'F Minor',
         durationSec: durationSec || 30,
-        sampleRate: 44100,
+        sampleRate: 48000,
         bitDepth: 16,
         channels: 2,
         targetLufs: -14.0,
         truePeakDb: -1.0,
-        audioUrl: `/storage/audio/musicgen-${jobId}.wav`,
-        stems: ['Drums', 'Bass', 'Lead Synthesizer', 'Atmospheric Pads']
+        audioUrl: null,
+        stems: plugin.stemsSupport ? ['Drums', 'Bass', 'Lead Synthesizer', 'Atmospheric Pads'] : []
       }
     });
   } catch (err: any) {
