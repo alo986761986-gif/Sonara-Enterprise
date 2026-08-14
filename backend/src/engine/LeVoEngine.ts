@@ -14,6 +14,8 @@ interface LeVoHealthResponse {
 
 interface LeVoGenerateResponse {
   status?: string;
+  job_id?: string;
+  status_url?: string;
   output_path?: string;
   audio_url?: string;
   message?: string;
@@ -103,20 +105,49 @@ export class LeVoEngine extends IAudioGenerationEngine {
     };
 
     try {
-      const response = await this.requestJson<LeVoGenerateResponse>('POST', '/generate', payload, timeoutMs);
+      const started = await this.requestJson<LeVoGenerateResponse>('POST', '/generate', payload, 30_000);
 
-      if (response.status !== 'success' || !response.audio_url) {
-        const message = response.detail || response.message || `Unexpected LeVo response: ${JSON.stringify(response)}`;
+      if (started.status !== 'accepted' || !started.job_id || !started.status_url) {
+        const message = started.detail || started.message || `Unexpected LeVo start response: ${JSON.stringify(started)}`;
         return {
           status: 'ERROR',
           audioBuffer: null,
           audioPath: null,
           error: message,
+          metadata: { apiUrl: this.apiBaseUrl, request: payload, response: started }
+        };
+      }
+
+      const deadline = Date.now() + timeoutMs;
+      let response: LeVoGenerateResponse = started;
+
+      while (Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 5_000));
+        response = await this.requestJson<LeVoGenerateResponse>('GET', started.status_url, undefined, 20_000);
+
+        if (response.status === 'success') break;
+        if (response.status === 'error') {
+          return {
+            status: 'ERROR',
+            audioBuffer: null,
+            audioPath: null,
+            error: response.detail || response.message || 'LeVo job failed.',
+            metadata: { apiUrl: this.apiBaseUrl, request: payload, response }
+          };
+        }
+      }
+
+      if (response.status !== 'success' || !response.audio_url) {
+        return {
+          status: 'ENGINE_NOT_AVAILABLE',
+          audioBuffer: null,
+          audioPath: null,
+          error: `LeVo job timed out after ${timeoutMs}ms`,
           metadata: { apiUrl: this.apiBaseUrl, request: payload, response }
         };
       }
 
-      const audioBuffer = await this.requestBuffer(response.audio_url, Math.max(timeoutMs, 120_000));
+      const audioBuffer = await this.requestBuffer(response.audio_url, 120_000);
       if (!audioBuffer.length) {
         return {
           status: 'ERROR',
@@ -136,6 +167,7 @@ export class LeVoEngine extends IAudioGenerationEngine {
           apiUrl: this.apiBaseUrl,
           durationSec,
           bpm,
+          remoteJobId: started.job_id,
           remoteOutputPath: response.output_path,
           audioUrl: response.audio_url,
           bytes: audioBuffer.length,
@@ -160,7 +192,9 @@ export class LeVoEngine extends IAudioGenerationEngine {
 
   private requestJson<T>(method: 'GET' | 'POST', endpoint: string, body?: Record<string, unknown>, timeoutMs = 30_000): Promise<T> {
     return new Promise<T>((resolve, reject) => {
-      const target = new URL(`${this.apiBaseUrl}${endpoint}`);
+      const target = endpoint.startsWith('http://') || endpoint.startsWith('https://')
+        ? new URL(endpoint)
+        : new URL(`${this.apiBaseUrl}${endpoint}`);
       const client = target.protocol === 'https:' ? https : http;
       const payload = body ? JSON.stringify(body) : undefined;
 
