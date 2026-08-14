@@ -18,7 +18,6 @@ async function startServer() {
   app.use(cors());
   app.use(express.json());
 
-  // Health Endpoint
   app.get('/api/health', (_req, res) => {
     const memory = process.memoryUsage();
     res.json({
@@ -45,13 +44,11 @@ async function startServer() {
     });
   });
 
-  // API Routes
   app.use('/api/engine', engineRouter);
   app.use('/api/orchestrator', orchestratorRouter);
   app.use('/api/creator', creatorRouter);
   app.use('/api/music', musicRouter);
 
-  // Serve storage files (generated audio, audio renders)
   const storagePath = path.join(process.cwd(), 'storage');
   if (!fs.existsSync(storagePath)) {
     fs.mkdirSync(storagePath, { recursive: true });
@@ -63,17 +60,19 @@ async function startServer() {
     }
   }));
 
-  // Vite Development / Production Middleware
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
+      server: {
+        middlewareMode: true,
+        hmr: false
+      },
+      appType: 'spa'
     });
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('/{*splat}', (req, res) => {
+    app.get('/{*splat}', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

@@ -5,7 +5,6 @@ import { MusicGenerationService } from '../services/MusicGenerationService';
 import { AceStepPromptEngine } from '../services/AceStepPromptEngine';
 import { MusicDnaLibraryService } from '../services/MusicDnaLibraryService';
 import { PatternGeneratorService } from '../services/PatternGeneratorService';
-import { SonaraDirectorService } from '../services/SonaraDirectorService';
 import { ContinuousLearningService } from '../services/ContinuousLearningService';
 
 export interface GenerationPayload {
@@ -16,6 +15,7 @@ export interface GenerationPayload {
   title: string;
   bpm?: number;
   duration?: number;
+  engineId?: string;
 }
 
 export class JobQueueWorker {
@@ -24,7 +24,6 @@ export class JobQueueWorker {
 
   public static init() {
     JobManager.init();
-    // Auto-enqueue any QUEUED jobs on startup
     const jobs = JobManager.listJobs();
     for (const j of jobs) {
       if (j.status === 'QUEUED' && !this.queue.includes(j.jobId)) {
@@ -40,9 +39,7 @@ export class JobQueueWorker {
   public static enqueueJob(jobId: string, payload: GenerationPayload, userId?: string, timeoutMs: number = 30000): JobRecord {
     this.init();
     const job = JobManager.registerJob(jobId, { title: payload.title, genre: payload.genre }, payload, userId);
-    if (!this.queue.includes(jobId)) {
-      this.queue.push(jobId);
-    }
+    if (!this.queue.includes(jobId)) this.queue.push(jobId);
     this.triggerProcessing();
     return job;
   }
@@ -57,10 +54,8 @@ export class JobQueueWorker {
     while (this.queue.length > 0) {
       const jobId = this.queue.shift();
       if (!jobId) continue;
-
       const job = JobManager.getJob(jobId);
       if (!job || job.status === 'COMPLETED') continue;
-
       console.log(`[JOB_QUEUE_WORKER] Picking up job ${jobId} (Retry ${job.retryCount || 0}/${job.maxRetries || 3})`);
       await this.executeJobWithRetries(jobId);
     }
@@ -78,17 +73,19 @@ export class JobQueueWorker {
         mood: job.metadata?.mood || 'Energetic',
         lyrics: job.metadata?.lyrics || '',
         prompt: job.metadata?.prompt || 'Melodic House track',
-        duration: 30
+        duration: 30,
+        engineId: 'sonara_ace_step_v12'
       };
 
       const userPrompt = payload.prompt || 'Melodic House track';
       const userGenre = payload.genre || 'House';
       const durationSec = payload.duration || 30;
+      const engineId = payload.engineId || 'sonara_ace_step_v12';
+      const isLeVo = engineId === 'sonara_levo_v2';
 
-      // PIPELINE STEP 1: Sonara Prompt Engine (AceStepPromptEngine) -> Genre Lock + Acoustic Profile
       JobManager.updateJobStatus(jobId, 'PROCESSING', {
         progress: 10,
-        metadata: { currentStage: 'Sonara Prompt Engine: Analyzing prompt & Genre Lock...' }
+        metadata: { currentStage: 'Sonara Prompt Engine: Analyzing prompt & Genre Lock...', engineId }
       });
 
       const promptOptimization = await AceStepPromptEngine.generatePrompt(userPrompt, userGenre);
@@ -96,44 +93,45 @@ export class JobQueueWorker {
       const genreLock = promptOptimization.genreLock;
       const targetBpm = payload.bpm || genreLock.targetBpm || 124;
       const targetGenre = genreLock.subgenre || genreLock.primaryGenre || 'Melodic House';
+      const executionPrompt = isLeVo
+        ? promptOptimization.optimizedPrompt.replace(/^\[SONARA V12 ACE-STEP\]\s*/i, '')
+        : promptOptimization.optimizedPrompt;
 
-      // PIPELINE STEP 2: ACE-Step + Music Brain Recall
       JobManager.updateJobStatus(jobId, 'PROCESSING', {
         progress: 25,
-        metadata: { currentStage: 'ACE-Step & Music Brain: Recalling optimal Music DNA reference...' }
+        metadata: { currentStage: 'Music Brain: Recalling optimal Music DNA reference...', engineId }
       });
-
       const brainRecall = MusicDnaLibraryService.recallOptimalDna(userPrompt, targetGenre);
 
-      // PIPELINE STEP 3: Pattern Generator Engine
       JobManager.updateJobStatus(jobId, 'PROCESSING', {
         progress: 40,
-        metadata: { currentStage: 'Pattern Generator: Synthesizing genre-authentic groove & grid...' }
+        metadata: { currentStage: 'Pattern Generator: Synthesizing genre-authentic groove & grid...', engineId }
       });
-
       const patternResult = PatternGeneratorService.generatePattern(targetGenre);
 
-      // PIPELINE STEP 4: Rendering Engine (ACE-Step Neural Audio / Python Inference)
       JobManager.updateJobStatus(jobId, 'PROCESSING', {
         progress: 60,
-        metadata: { currentStage: 'ACE-Step Rendering Engine: Generating neural audio waveform...' }
+        metadata: {
+          currentStage: `${isLeVo ? 'LeVo' : 'ACE-Step'} Rendering Engine: Generating neural audio waveform...`,
+          engineId
+        }
       });
 
       const execResult = await MusicGenerationService.executePythonEngine(
-        promptOptimization.optimizedPrompt,
+        executionPrompt,
         targetGenre,
         payload.mood || 'Energetic',
         payload.lyrics || '',
         payload.title || 'Sonara AI Track',
-        30000,
+        600_000,
         durationSec,
-        targetBpm
+        targetBpm,
+        engineId
       );
 
-      // PIPELINE STEP 5: DSP Engine, Mixing & Mastering (14-Stage DSP)
       JobManager.updateJobStatus(jobId, 'PROCESSING', {
         progress: 80,
-        metadata: { currentStage: '14-Stage DSP Engine: Mixing & Mastering (-14.0 LUFS, -1.0 dBTP)...' }
+        metadata: { currentStage: '14-Stage DSP Engine: Mixing & Mastering (-14.0 LUFS, -1.0 dBTP)...', engineId }
       });
 
       const audioBuffer = execResult.audioBuffer;
@@ -142,20 +140,19 @@ export class JobQueueWorker {
         throw new Error(`ENGINE_NOT_AVAILABLE: ${reason}`);
       }
 
-      // Store in storage directory
       const storageAudioDir = path.join(process.cwd(), 'storage', 'audio');
       if (!fs.existsSync(storageAudioDir)) fs.mkdirSync(storageAudioDir, { recursive: true });
 
-      const audioFileName = `musicgen-${jobId}.wav`;
+      const isFlac = audioBuffer.toString('utf8', 0, 4) === 'fLaC';
+      const extension = isFlac ? 'flac' : 'wav';
+      const audioFileName = `musicgen-${jobId}.${extension}`;
       const finalAudioPath = path.join(storageAudioDir, audioFileName);
       fs.writeFileSync(finalAudioPath, audioBuffer);
-
       const audioUrl = `/storage/audio/${audioFileName}`;
 
-      // PIPELINE STEP 6: Quality Audit & Music Brain Continuous Learning
       JobManager.updateJobStatus(jobId, 'PROCESSING', {
         progress: 92,
-        metadata: { currentStage: 'Music Brain: Evaluating track quality score & logging DNA...' }
+        metadata: { currentStage: 'Music Brain: Evaluating track quality score & logging DNA...', engineId }
       });
 
       const loggedRecord = ContinuousLearningService.logAndLearn({
@@ -174,17 +171,18 @@ export class JobQueueWorker {
         }
       });
 
-      // PIPELINE STEP 7: Final Job State Update
       const finalMetadata = {
         title: payload.title || `${targetGenre} Track`,
         genre: targetGenre,
         bpm: targetBpm,
         keySignature: genreProfile.keySignature,
         prompt: userPrompt,
-        optimizedPrompt: promptOptimization.optimizedPrompt,
-        engine: `Sonara V12 ACE-Step Engine (${genreProfile.modelTier} Tier)`,
+        optimizedPrompt: executionPrompt,
+        engineId,
+        engine: execResult.metadata?.engineName || (isLeVo ? 'LeVoEngine' : 'AceStepEngine'),
         status: 'COMPLETED',
         audioUrl,
+        audioFormat: extension,
         genreLock,
         acousticProfile: genreProfile.acousticKeywords,
         recalledDnaId: brainRecall.recalledDna?.id,
@@ -209,24 +207,22 @@ export class JobQueueWorker {
         metadata: finalMetadata
       });
 
-      console.log(`[JOB_QUEUE_WORKER] Successfully completed unified pipeline for job ${jobId} | Quality Score: ${loggedRecord?.scores?.overallScore || 9.5}/10`);
+      console.log(`[JOB_QUEUE_WORKER] Successfully completed unified pipeline for job ${jobId} via ${engineId} | Quality Score: ${loggedRecord?.scores?.overallScore || 9.5}/10`);
       return JobManager.getJob(jobId) || null;
-
     } catch (err: any) {
       console.error(`[JOB_QUEUE_WORKER] Critical error during job execution ${jobId}:`, err?.message || String(err));
       const errorMessage = err?.message || String(err);
-
       JobManager.updateJobStatus(jobId, 'FAILED', {
         progress: 0,
         audioUrl: null,
         metadata: {
           title: job.payload?.title || 'Sonara Track',
+          engineId: job.payload?.engineId,
           status: 'ENGINE_NOT_AVAILABLE',
           error: errorMessage,
           completedAt: new Date().toISOString()
         }
       });
-
       return JobManager.getJob(jobId) || null;
     }
   }
@@ -235,12 +231,9 @@ export class JobQueueWorker {
     const startTime = Date.now();
     while (Date.now() - startTime < timeoutMs) {
       const job = JobManager.getJob(jobId);
-      if (job && (job.status === 'COMPLETED' || job.status === 'FAILED')) {
-        return job;
-      }
+      if (job && (job.status === 'COMPLETED' || job.status === 'FAILED')) return job;
       await new Promise(r => setTimeout(r, 200));
     }
     return JobManager.getJob(jobId) || null;
   }
 }
-
