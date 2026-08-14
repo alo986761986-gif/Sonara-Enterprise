@@ -123,7 +123,7 @@ export class JobQueueWorker {
         payload.mood || 'Energetic',
         payload.lyrics || '',
         payload.title || 'Sonara AI Track',
-        isLeVo ? 600_000 : 30_000,
+        600_000,
         durationSec,
         targetBpm,
         engineId
