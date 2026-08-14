@@ -12,6 +12,19 @@ import {
 
 type JobStatus = 'IDLE' | 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
+interface EngineModel {
+  id: string;
+  name: string;
+  version?: string;
+  maxDurationSec?: number;
+  stemsSupport?: boolean;
+}
+
+interface EngineModelsResponse {
+  activeEngineId?: string;
+  models?: EngineModel[];
+}
+
 interface JobResponse {
   jobId?: string;
   status?: JobStatus | string;
@@ -21,7 +34,9 @@ interface JobResponse {
   metadata?: {
     currentStage?: string;
     engine?: string;
+    engineId?: string;
     audioUrl?: string;
+    audioFormat?: string;
     error?: string;
     title?: string;
     genre?: string;
@@ -45,6 +60,14 @@ const sleep = (milliseconds: number) =>
 const normalizeJob = (value: JobResponse): JobResponse =>
   value?.job || value?.data || value;
 
+const inferAudioFormat = (url: string, metadataFormat?: string): string => {
+  if (metadataFormat) return metadataFormat.toLowerCase();
+  const clean = url.split('?')[0].toLowerCase();
+  if (clean.endsWith('.flac')) return 'flac';
+  if (clean.endsWith('.mp3')) return 'mp3';
+  return 'wav';
+};
+
 export default function App() {
   const [prompt, setPrompt] = useState(
     'Deep House and Tech House with Afro House influence, 124 BPM, deep rolling bassline, punchy four-on-the-floor kick, organic tribal percussion, congas, bongos, shakers, hypnotic groove, warm piano chords, atmospheric pads and a polished club mix.'
@@ -52,6 +75,8 @@ export default function App() {
   const [genre, setGenre] = useState('Tech House');
   const [bpm, setBpm] = useState(124);
   const [durationSec, setDurationSec] = useState(15);
+  const [selectedEngineId, setSelectedEngineId] = useState('sonara_ace_step_v12');
+  const [engineModels, setEngineModels] = useState<EngineModel[]>([]);
 
   const [status, setStatus] = useState<JobStatus>('IDLE');
   const [progress, setProgress] = useState(0);
@@ -59,7 +84,8 @@ export default function App() {
   const [error, setError] = useState('');
   const [jobId, setJobId] = useState('');
   const [audioUrl, setAudioUrl] = useState('');
-  const [engine, setEngine] = useState('Sonara V12 ACE-Step Engine');
+  const [audioFormat, setAudioFormat] = useState('wav');
+  const [engine, setEngine] = useState('Sonara Multi-Engine');
   const [health, setHealth] = useState('CHECKING');
   const [isPlaying, setIsPlaying] = useState(false);
 
@@ -67,6 +93,7 @@ export default function App() {
 
   useEffect(() => {
     void checkHealth();
+    void loadEngines();
   }, []);
 
   useEffect(() => {
@@ -93,16 +120,53 @@ export default function App() {
     }
   };
 
+  const loadEngines = async () => {
+    try {
+      const response = await fetch('/api/engine/models', { cache: 'no-store' });
+      if (!response.ok) return;
+      const data = await response.json() as EngineModelsResponse;
+      const models = Array.isArray(data.models) ? data.models : [];
+      setEngineModels(models);
+
+      if (data.activeEngineId && models.some(model => model.id === data.activeEngineId)) {
+        setSelectedEngineId(data.activeEngineId);
+      }
+    } catch (engineError) {
+      console.error('Engine registry load failed:', engineError);
+    }
+  };
+
+  const selectEngine = async (engineId: string) => {
+    setSelectedEngineId(engineId);
+    const selected = engineModels.find(model => model.id === engineId);
+    if (selected) setEngine(selected.name);
+
+    try {
+      await fetch('/api/engine/select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ engineId })
+      });
+    } catch (selectionError) {
+      console.error('Engine selection sync failed:', selectionError);
+    }
+  };
+
   const generate = async () => {
     if (!prompt.trim() || status === 'QUEUED' || status === 'PROCESSING') return;
+
+    const selectedModel = engineModels.find(model => model.id === selectedEngineId);
+    const selectedEngineName = selectedModel?.name || selectedEngineId;
 
     setStatus('QUEUED');
     setProgress(0);
     setStage('Sending generation request...');
     setError('');
     setAudioUrl('');
+    setAudioFormat('wav');
     setJobId('');
     setIsPlaying(false);
+    setEngine(selectedEngineName);
 
     try {
       const response = await fetch('/api/engine/generate', {
@@ -117,7 +181,7 @@ export default function App() {
           bpm,
           durationSec,
           duration: durationSec,
-          engineId: 'sonara_ace_step_v12'
+          engineId: selectedEngineId
         })
       });
 
@@ -137,10 +201,7 @@ export default function App() {
       }
 
       const initial = normalizeJob(responseData);
-      const id =
-        responseData.jobId ||
-        responseData.result?.jobId ||
-        initial.jobId;
+      const id = responseData.jobId || responseData.result?.jobId || initial.jobId;
 
       if (!id) {
         throw new Error('The server did not return a job ID.');
@@ -148,20 +209,18 @@ export default function App() {
 
       setJobId(id);
       setStatus('PROCESSING');
-      setStage('ACE-Step is generating the track...');
+      setStage(`${selectedEngineName} is generating the track...`);
 
-      const maximumAttempts = 1200; // 6 minutes, at 300 ms per check.
+      const maximumAttempts = 720; // 12 minutes at one check per second.
 
       for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
-        await sleep(300);
+        await sleep(1000);
 
         const pollResponse = await fetch(`/api/music/job/${encodeURIComponent(id)}`, {
           cache: 'no-store'
         });
 
-        if (!pollResponse.ok) {
-          continue;
-        }
+        if (!pollResponse.ok) continue;
 
         const rawPollData: JobResponse = await pollResponse.json();
         const current = normalizeJob(rawPollData);
@@ -180,9 +239,7 @@ export default function App() {
           (currentStatus === 'COMPLETED' ? 'Generation complete' : 'Processing...')
         );
 
-        if (currentMetadata.engine) {
-          setEngine(currentMetadata.engine);
-        }
+        if (currentMetadata.engine) setEngine(currentMetadata.engine);
 
         if (currentStatus === 'COMPLETED') {
           if (!currentAudioUrl) {
@@ -190,6 +247,7 @@ export default function App() {
           }
 
           setAudioUrl(currentAudioUrl);
+          setAudioFormat(inferAudioFormat(currentAudioUrl, currentMetadata.audioFormat));
           setProgress(100);
           setStatus('COMPLETED');
           setStage('Generation complete — audio ready.');
@@ -207,10 +265,9 @@ export default function App() {
 
       throw new Error('Generation timed out while waiting for the audio file.');
     } catch (generationError) {
-      const message =
-        generationError instanceof Error
-          ? generationError.message
-          : String(generationError);
+      const message = generationError instanceof Error
+        ? generationError.message
+        : String(generationError);
 
       console.error('Generation failed:', generationError);
       setError(message);
@@ -221,6 +278,12 @@ export default function App() {
   };
 
   const busy = status === 'QUEUED' || status === 'PROCESSING';
+  const availableEngines = engineModels.length > 0
+    ? engineModels
+    : [
+        { id: 'sonara_ace_step_v12', name: 'Sonara ACE-Step' },
+        { id: 'sonara_levo_v2', name: 'Sonara LeVo Music Engine' }
+      ];
 
   return (
     <div className="min-h-screen bg-[#090d16] text-slate-100">
@@ -232,15 +295,13 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-lg font-bold">SONARA AI</h1>
-              <p className="text-xs text-slate-400">
-                Clean ACE-Step Generator
-              </p>
+              <p className="text-xs text-slate-400">Multi-Engine Music Generator</p>
             </div>
           </div>
 
           <button
             type="button"
-            onClick={() => void checkHealth()}
+            onClick={() => { void checkHealth(); void loadEngines(); }}
             className="flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs"
           >
             <Activity className="h-3.5 w-3.5 text-emerald-400" />
@@ -264,7 +325,20 @@ export default function App() {
             className="w-full rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm outline-none focus:border-purple-500"
           />
 
-          <div className="mt-4 grid gap-4 sm:grid-cols-3">
+          <div className="mt-4 grid gap-4 sm:grid-cols-4">
+            <label className="space-y-1 text-xs text-slate-400">
+              <span>Engine</span>
+              <select
+                value={selectedEngineId}
+                onChange={event => void selectEngine(event.target.value)}
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 p-2 text-slate-100"
+              >
+                {availableEngines.map(model => (
+                  <option key={model.id} value={model.id}>{model.name}</option>
+                ))}
+              </select>
+            </label>
+
             <label className="space-y-1 text-xs text-slate-400">
               <span>Genre</span>
               <select
@@ -341,9 +415,7 @@ export default function App() {
             </div>
 
             {jobId && (
-              <p className="mt-2 text-[11px] text-slate-500">
-                Job: {jobId}
-              </p>
+              <p className="mt-2 text-[11px] text-slate-500">Job: {jobId}</p>
             )}
 
             {error && (
@@ -358,16 +430,12 @@ export default function App() {
           <section className="rounded-2xl border border-emerald-800/60 bg-slate-900/80 p-6 shadow-xl">
             <div className="mb-5 flex items-center justify-between">
               <div>
-                <h2 className="font-semibold text-emerald-300">
-                  Generation Complete
-                </h2>
-                <p className="mt-1 text-xs text-slate-400">
-                  {engine}
-                </p>
+                <h2 className="font-semibold text-emerald-300">Generation Complete</h2>
+                <p className="mt-1 text-xs text-slate-400">{engine}</p>
               </div>
 
               <span className="rounded-full border border-emerald-800 bg-emerald-950 px-3 py-1 text-xs text-emerald-300">
-                WAV READY
+                {audioFormat.toUpperCase()} READY
               </span>
             </div>
 
@@ -403,11 +471,11 @@ export default function App() {
 
               <a
                 href={audioUrl}
-                download={`Sonara-${jobId || 'track'}.wav`}
+                download={`Sonara-${jobId || 'track'}.${audioFormat}`}
                 className="flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium"
               >
                 <Download className="h-4 w-4" />
-                Download WAV
+                Download {audioFormat.toUpperCase()}
               </a>
             </div>
           </section>
