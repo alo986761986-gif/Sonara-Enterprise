@@ -13,12 +13,6 @@ interface OfficialEnvelope<T> {
   error?: string | null;
 }
 
-interface OfficialHealthData {
-  status?: string;
-  service?: string;
-  version?: string;
-}
-
 interface OfficialReleaseData {
   task_id?: string;
   status?: string;
@@ -30,12 +24,6 @@ interface OfficialQueryItem {
   status?: number;
   result?: string;
   error?: string;
-}
-
-interface LegacyHealthResponse {
-  status?: string;
-  engine?: string;
-  api?: string;
 }
 
 interface LegacyGenerateResponse {
@@ -70,7 +58,6 @@ export class AceStepEngine extends IAudioGenerationEngine {
 
   public async initialize(): Promise<void> {
     this.isInitialized = true;
-    await this.healthCheck();
   }
 
   public async loadModel(_modelId?: string): Promise<boolean> {
@@ -79,8 +66,18 @@ export class AceStepEngine extends IAudioGenerationEngine {
   }
 
   public async healthCheck(): Promise<EngineHealthStatus> {
+    const healthTimeoutMs = Math.max(
+      Number(process.env.ACE_STEP_HEALTH_TIMEOUT_MS || 60_000),
+      10_000
+    );
+
     try {
-      const response = await this.requestJson<any>('GET', '/health', undefined, 10_000);
+      const response = await this.requestJson<any>(
+        'GET',
+        '/health',
+        undefined,
+        healthTimeoutMs
+      );
 
       const officialStatus = response?.data?.status;
       const legacyStatus = response?.status;
@@ -116,17 +113,17 @@ export class AceStepEngine extends IAudioGenerationEngine {
   }
 
   public async generate(params: GenerationParams): Promise<GenerationResult> {
-    if (!this.isInitialized) this.isInitialized = true;
+    if (!this.isInitialized) await this.initialize();
 
+    // Health is diagnostic only. During lazy model loading the single ACE-Step
+    // worker can temporarily stop answering /health even though the API process
+    // is alive. Do not reject a generation solely because this preflight times out.
     const health = await this.healthCheck();
     if (!health.isAvailable) {
-      return {
-        status: 'ENGINE_NOT_AVAILABLE',
-        audioBuffer: null,
-        audioPath: null,
-        error: `ACE-Step API is unavailable: ${health.error || 'health check failed'}`,
-        metadata: { apiUrl: this.apiBaseUrl, apiMode: this.apiMode, health }
-      };
+      console.warn(
+        `[AceStepEngine] Health preflight unavailable (${health.error || 'unknown'}). ` +
+        `Proceeding with generation request to ${this.apiBaseUrl}.`
+      );
     }
 
     return this.apiMode === 'official-v15'
@@ -137,7 +134,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
   private async generateOfficial(params: GenerationParams): Promise<GenerationResult> {
     const durationSec = Math.max(5, Math.min(600, Number(params.durationSec || 15)));
     const bpm = Math.max(30, Math.min(300, Number(params.bpm || 126)));
-    const timeoutMs = Math.max(Number(params.timeoutMs || 600_000), 120_000);
+    const timeoutMs = Math.max(Number(params.timeoutMs || 600_000), 600_000);
     const prompt = this.buildPrompt(params, bpm);
 
     const payload = {
@@ -158,7 +155,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
         'POST',
         '/release_task',
         payload,
-        30_000
+        Math.min(timeoutMs, 180_000)
       );
 
       if (released.code && released.code !== 200) {
@@ -166,7 +163,9 @@ export class AceStepEngine extends IAudioGenerationEngine {
       }
 
       const taskId = released.data?.task_id;
-      if (!taskId) throw new Error(`ACE-Step did not return task_id: ${JSON.stringify(released)}`);
+      if (!taskId) {
+        throw new Error(`ACE-Step did not return task_id: ${JSON.stringify(released)}`);
+      }
 
       const started = Date.now();
       while (Date.now() - started < timeoutMs) {
@@ -176,7 +175,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
           'POST',
           '/query_result',
           { task_id_list: [taskId] },
-          30_000
+          60_000
         );
 
         const item = queried.data?.find(entry => entry.task_id === taskId) || queried.data?.[0];
@@ -192,11 +191,15 @@ export class AceStepEngine extends IAudioGenerationEngine {
         try {
           results = item.result ? JSON.parse(item.result) : [];
         } catch {
-          throw new Error(`ACE-Step returned invalid task result JSON: ${String(item.result).slice(0, 500)}`);
+          throw new Error(
+            `ACE-Step returned invalid task result JSON: ${String(item.result).slice(0, 500)}`
+          );
         }
 
         const file = results?.[0]?.file;
-        if (!file) throw new Error(`ACE-Step task completed without audio file: ${item.result}`);
+        if (!file) {
+          throw new Error(`ACE-Step task completed without audio file: ${item.result}`);
+        }
 
         const audioBuffer = await this.requestBuffer(file, 120_000);
         if (!audioBuffer.length) throw new Error('ACE-Step returned an empty audio file');
@@ -229,7 +232,12 @@ export class AceStepEngine extends IAudioGenerationEngine {
         audioBuffer: null,
         audioPath: null,
         error: `ACE-Step generation failed: ${message}`,
-        metadata: { apiUrl: this.apiBaseUrl, apiMode: this.apiMode, request: payload, error: message }
+        metadata: {
+          apiUrl: this.apiBaseUrl,
+          apiMode: this.apiMode,
+          request: payload,
+          error: message
+        }
       };
     }
   }
@@ -259,12 +267,25 @@ export class AceStepEngine extends IAudioGenerationEngine {
     };
 
     try {
-      const response = await this.requestJson<LegacyGenerateResponse>('POST', '/generate', payload, timeoutMs);
+      const response = await this.requestJson<LegacyGenerateResponse>(
+        'POST',
+        '/generate',
+        payload,
+        timeoutMs
+      );
+
       if (response.status !== 'success' || !response.audio_url) {
-        throw new Error(response.detail || response.message || `Unexpected ACE-Step response: ${JSON.stringify(response)}`);
+        throw new Error(
+          response.detail ||
+          response.message ||
+          `Unexpected ACE-Step response: ${JSON.stringify(response)}`
+        );
       }
 
-      const audioBuffer = await this.requestBuffer(response.audio_url, Math.max(timeoutMs, 120_000));
+      const audioBuffer = await this.requestBuffer(
+        response.audio_url,
+        Math.max(timeoutMs, 120_000)
+      );
       if (!audioBuffer.length) throw new Error('ACE-Step returned an empty WAV file');
 
       return {
@@ -290,7 +311,12 @@ export class AceStepEngine extends IAudioGenerationEngine {
         audioBuffer: null,
         audioPath: null,
         error: `ACE-Step generation failed: ${message}`,
-        metadata: { apiUrl: this.apiBaseUrl, apiMode: this.apiMode, request: payload, error: message }
+        metadata: {
+          apiUrl: this.apiBaseUrl,
+          apiMode: this.apiMode,
+          request: payload,
+          error: message
+        }
       };
     }
   }
@@ -330,24 +356,45 @@ export class AceStepEngine extends IAudioGenerationEngine {
 
       const request = client.request(target, { method, headers }, response => {
         const chunks: Buffer[] = [];
-        response.on('data', chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+        response.on('data', chunk => {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        });
         response.on('end', () => {
           const raw = Buffer.concat(chunks).toString('utf8');
           let parsed: any = {};
+
           try {
             parsed = raw ? JSON.parse(raw) : {};
           } catch {
-            return reject(new Error(`ACE-Step returned invalid JSON (${response.statusCode}): ${raw.slice(0, 500)}`));
+            return reject(
+              new Error(
+                `ACE-Step returned invalid JSON (${response.statusCode}): ${raw.slice(0, 500)}`
+              )
+            );
           }
 
-          if (response.statusCode === undefined || response.statusCode < 200 || response.statusCode >= 300) {
-            return reject(new Error(parsed.error || parsed.detail || parsed.message || `ACE-Step HTTP ${response.statusCode}`));
+          if (
+            response.statusCode === undefined ||
+            response.statusCode < 200 ||
+            response.statusCode >= 300
+          ) {
+            return reject(
+              new Error(
+                parsed.error ||
+                parsed.detail ||
+                parsed.message ||
+                `ACE-Step HTTP ${response.statusCode}`
+              )
+            );
           }
+
           resolve(parsed as T);
         });
       });
 
-      request.setTimeout(timeoutMs, () => request.destroy(new Error(`ACE-Step request timed out after ${timeoutMs}ms`)));
+      request.setTimeout(timeoutMs, () => {
+        request.destroy(new Error(`ACE-Step request timed out after ${timeoutMs}ms`));
+      });
       request.on('error', reject);
       if (payload) request.write(payload);
       request.end();
@@ -356,24 +403,36 @@ export class AceStepEngine extends IAudioGenerationEngine {
 
   private requestBuffer(endpoint: string, timeoutMs: number): Promise<Buffer> {
     return new Promise<Buffer>((resolve, reject) => {
-      const target = endpoint.startsWith('http://') || endpoint.startsWith('https://')
-        ? new URL(endpoint)
-        : new URL(`${this.apiBaseUrl}${endpoint}`);
+      const target =
+        endpoint.startsWith('http://') || endpoint.startsWith('https://')
+          ? new URL(endpoint)
+          : new URL(`${this.apiBaseUrl}${endpoint}`);
       const client = target.protocol === 'https:' ? https : http;
       const headers: Record<string, string> = {};
       if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
 
       const request = client.get(target, { headers }, response => {
-        if (response.statusCode === undefined || response.statusCode < 200 || response.statusCode >= 300) {
+        if (
+          response.statusCode === undefined ||
+          response.statusCode < 200 ||
+          response.statusCode >= 300
+        ) {
           response.resume();
-          return reject(new Error(`ACE-Step audio download failed with HTTP ${response.statusCode}`));
+          return reject(
+            new Error(`ACE-Step audio download failed with HTTP ${response.statusCode}`)
+          );
         }
+
         const chunks: Buffer[] = [];
-        response.on('data', chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+        response.on('data', chunk => {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        });
         response.on('end', () => resolve(Buffer.concat(chunks)));
       });
 
-      request.setTimeout(timeoutMs, () => request.destroy(new Error(`ACE-Step audio download timed out after ${timeoutMs}ms`)));
+      request.setTimeout(timeoutMs, () => {
+        request.destroy(new Error(`ACE-Step audio download timed out after ${timeoutMs}ms`));
+      });
       request.on('error', reject);
     });
   }
