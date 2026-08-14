@@ -93,6 +93,9 @@ export class JobQueueWorker {
       const genreLock = promptOptimization.genreLock;
       const targetBpm = payload.bpm || genreLock.targetBpm || 124;
       const targetGenre = genreLock.subgenre || genreLock.primaryGenre || 'Melodic House';
+      const executionPrompt = isLeVo
+        ? promptOptimization.optimizedPrompt.replace(/^\[SONARA V12 ACE-STEP\]\s*/i, '')
+        : promptOptimization.optimizedPrompt;
 
       JobManager.updateJobStatus(jobId, 'PROCESSING', {
         progress: 25,
@@ -115,7 +118,7 @@ export class JobQueueWorker {
       });
 
       const execResult = await MusicGenerationService.executePythonEngine(
-        promptOptimization.optimizedPrompt,
+        executionPrompt,
         targetGenre,
         payload.mood || 'Energetic',
         payload.lyrics || '',
@@ -174,7 +177,7 @@ export class JobQueueWorker {
         bpm: targetBpm,
         keySignature: genreProfile.keySignature,
         prompt: userPrompt,
-        optimizedPrompt: promptOptimization.optimizedPrompt,
+        optimizedPrompt: executionPrompt,
         engineId,
         engine: execResult.metadata?.engineName || (isLeVo ? 'LeVoEngine' : 'AceStepEngine'),
         status: 'COMPLETED',
