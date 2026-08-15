@@ -1,10 +1,10 @@
-import { Router, Request, Response } from 'express';
+﻿import { Router, Request, Response } from 'express';
 import { exec } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import { verifyFirebaseToken, AuthenticatedRequest } from '../auth/FirebaseAuth';
 import { MusicGenerationService } from '../services/MusicGenerationService';
-import { AceStepPromptEngine } from '../services/AceStepPromptEngine';
+import { LevoPromptEngine } from '../services/LevoPromptEngine';
 import { JobManager } from '../jobs/JobManager';
 import { rateLimiterMiddleware, sanitizeInput } from '../middleware/SecurityHardening';
 import { GeminiBrainService } from '../services/GeminiBrainService';
@@ -57,7 +57,7 @@ function runPythonCommand(cmdString: string): Promise<any> {
 router.post('/prompt', async (req: Request, res: Response) => {
   try {
     const { query, genre } = req.body;
-    const result = await AceStepPromptEngine.generatePrompt(query || 'House estiva', genre);
+    const result = await LevoPromptEngine.generatePrompt(query || 'House estiva', genre);
     const pattern = PatternGeneratorService.generatePattern(result.genreLock.subgenre || genre || 'Melodic House');
     return res.status(200).json({
       ...result,
@@ -539,7 +539,7 @@ router.post('/generate', rateLimiterMiddleware, verifyFirebaseToken, async (req:
     const effectiveLyrics = sanitizedLyrics || '';
     const effectivePrompt = sanitizedPrompt || `${effectiveGenre} song with ${effectiveMood} vibe`;
 
-    const optimizationResult = await AceStepPromptEngine.generatePrompt(effectivePrompt, effectiveGenre);
+    const optimizationResult = await LevoPromptEngine.generatePrompt(effectivePrompt, effectiveGenre);
     const optimizedPrompt = optimizationResult.optimizedPrompt;
     const lockedBpm = optimizationResult.genreLock.targetBpm;
     const lockedGenre = optimizationResult.genreLock.subgenre || optimizationResult.genreLock.primaryGenre;
@@ -1196,3 +1196,4 @@ router.post('/style/reset', (_req: Request, res: Response) => {
 });
 
 export default router;
+
