@@ -98,7 +98,7 @@ export default function App() {
 
     setStatus('QUEUED');
     setProgress(0);
-    setStage('Sending generation request...');
+    setStage('Sending generation request to LeVo 2...');
     setError('');
     setAudioUrl('');
     setJobId('');
@@ -177,7 +177,7 @@ export default function App() {
         setProgress(Number(current.progress || 0));
         setStage(
           currentMetadata.currentStage ||
-          (currentStatus === 'COMPLETED' ? 'Generation complete' : 'Processing...')
+          (currentStatus === 'COMPLETED' ? 'Generation complete' : 'LeVo 2 processing...')
         );
 
         if (currentMetadata.engine) {
@@ -232,8 +232,8 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-lg font-bold">SONARA AI</h1>
-              <p className="text-xs text-slate-400">
-                LeVo 2 Music Generator
+              <p className="text-xs font-semibold text-purple-300">
+                LEVO 2 · SongGeneration-v2-large
               </p>
             </div>
           </div>
@@ -244,7 +244,7 @@ export default function App() {
             className="flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs"
           >
             <Activity className="h-3.5 w-3.5 text-emerald-400" />
-            Engine {health}
+            LeVo Engine {health}
           </button>
         </div>
       </header>
@@ -253,7 +253,7 @@ export default function App() {
         <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 shadow-xl">
           <div className="mb-5 flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-purple-400" />
-            <h2 className="font-semibold">Generate Music</h2>
+            <h2 className="font-semibold">Generate with LeVo 2</h2>
           </div>
 
           <textarea
@@ -315,12 +315,12 @@ export default function App() {
             {busy ? (
               <>
                 <RefreshCw className="h-5 w-5 animate-spin" />
-                Generating...
+                LeVo 2 Generating...
               </>
             ) : (
               <>
                 <Zap className="h-5 w-5" />
-                Generate Track
+                Generate with LeVo 2
               </>
             )}
           </button>
