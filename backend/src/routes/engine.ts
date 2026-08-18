@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { LevoPromptEngine } from '../services/LevoPromptEngine';
+import { SonaraPromptEngine } from '../services/SonaraPromptEngine';
 import { JobQueueWorker } from '../workers/JobQueueWorker';
 import { EngineDiagnosticService } from '../engine/EngineDiagnosticService';
 import { PythonEnvironmentManager } from '../engine/PythonEnvironmentManager';
@@ -8,8 +8,8 @@ const router = Router();
 
 const ENGINE_MODELS = [
   {
-    id: 'sonara_levo_v2',
-    name: 'Sonara AI Native Engine (LeVo 2 / SongGeneration-v2-large)',
+    id: 'acestep_v15_xl_sft',
+    name: 'Sonara AI Native Engine (ACE-Step 1.5 / acestep-v15-xl-sft)',
     version: '2.0.0-SONARA',
     provider: 'sonara_native',
     vramRequiredMb: 22000,
@@ -54,7 +54,7 @@ const ENGINE_MODELS = [
   }
 ];
 
-let activeEngineId = 'sonara_levo_v2';
+let activeEngineId = 'acestep_v15_xl_sft';
 
 router.get('/models', (_req: Request, res: Response) => {
   const active = ENGINE_MODELS.find(m => m.id === activeEngineId) || ENGINE_MODELS[0];
@@ -141,7 +141,7 @@ router.post('/generate', async (req: Request, res: Response) => {
 
     const currentEngineId = engineId || activeEngineId;
     const plugin = ENGINE_MODELS.find(m => m.id === currentEngineId) || ENGINE_MODELS[0];
-    const optimizationResult = await LevoPromptEngine.generatePrompt(prompt, genre);
+    const optimizationResult = await SonaraPromptEngine.generatePrompt(prompt, genre);
 
     const jobId = `job-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
     const jobRecord = JobQueueWorker.enqueueJob(jobId, {

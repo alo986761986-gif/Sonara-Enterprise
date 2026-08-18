@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   AudioLines,
@@ -53,7 +53,7 @@ export default function App() {
   const [title, setTitle] = useState('Sonara AI Track');
   const [lyrics, setLyrics] = useState('');
   const [bpm, setBpm] = useState(124);
-  const [durationSec, setDurationSec] = useState(30);
+  const [durationSec, setDurationSec] = useState(240);
   const [keySignature, setKeySignature] = useState('A Minor');
 
   const [status, setStatus] = useState<JobStatus>('IDLE');
@@ -62,7 +62,7 @@ export default function App() {
   const [error, setError] = useState('');
   const [jobId, setJobId] = useState('');
   const [audioUrl, setAudioUrl] = useState('');
-  const [engine, setEngine] = useState('Sonara LeVo 2 Engine');
+  const [engine, setEngine] = useState('ACE-Step 1.5 Engine');
   const [health, setHealth] = useState('CHECKING');
 
   const [eqLow, setEqLow] = useState(0);
@@ -151,7 +151,7 @@ export default function App() {
 
     setStatus('QUEUED');
     setProgress(0);
-    setStage('Sending request to LeVo 2...');
+    setStage('Sending request to ACE-Step 1.5...');
     setError('');
     setAudioUrl('');
     setJobId('');
@@ -171,7 +171,7 @@ export default function App() {
           key: keySignature,
           durationSec,
           duration: durationSec,
-          engineId: 'sonara_levo_v2'
+          engineId: 'acestep_v15_xl_sft'
         })
       });
 
@@ -196,7 +196,7 @@ export default function App() {
 
       setJobId(id);
       setStatus('PROCESSING');
-      setStage('LeVo 2 is generating the track...');
+      setStage('ACE-Step 1.5 is generating the track...');
 
       for (let attempt = 0; attempt < 1200; attempt++) {
         await sleep(500);
@@ -221,7 +221,7 @@ export default function App() {
           metadata.currentStage ||
             (currentStatus === 'COMPLETED'
               ? 'Generation complete'
-              : 'LeVo 2 processing...')
+              : 'ACE-Step 1.5 processing...')
         );
 
         if (metadata.engine) setEngine(metadata.engine);
@@ -246,7 +246,7 @@ export default function App() {
           throw new Error(
             current.error ||
               metadata.error ||
-              'LeVo 2 generation failed.'
+              'ACE-Step 1.5 generation failed.'
           );
         }
       }
@@ -330,7 +330,7 @@ export default function App() {
               </h1>
 
               <div className="text-xs font-semibold text-purple-300">
-                LEVO 2 · SongGeneration-v2-large
+                ACE-Step 1.5 Â· acestep-v15-xl-sft
               </div>
             </div>
           </div>
@@ -347,7 +347,7 @@ export default function App() {
 
             <div className="flex items-center gap-2 rounded-lg border border-emerald-900 bg-emerald-950/40 px-3 py-2 text-xs">
               <Activity className="h-4 w-4 text-emerald-400" />
-              LeVo Engine {statusLabel}
+              ACE-Step Engine {statusLabel}
             </div>
 
           </div>
@@ -410,7 +410,7 @@ export default function App() {
             <Card className="p-4">
               <Cpu className="mb-2 h-5 w-5 text-purple-400" />
               <div className="text-xs text-slate-500">ENGINE</div>
-              <div className="font-bold">LeVo 2</div>
+              <div className="font-bold">ACE-Step 1.5</div>
             </Card>
 
             <Card className="p-4">
@@ -438,15 +438,43 @@ export default function App() {
 
               <div className="mb-5 flex items-center gap-2">
                 <Sparkles className="h-5 w-5 text-purple-400" />
-                <h2 className="text-lg font-bold">LeVo 2 Music Generator</h2>
+                <h2 className="text-lg font-bold">ACE-Step 1.5 Music Generator</h2>
               </div>
 
-              <textarea
-                value={prompt}
-                onChange={e => setPrompt(e.target.value)}
-                rows={5}
-                className="w-full rounded-xl border border-slate-700 bg-slate-950 p-4"
-              />
+              <div className="mb-2 flex justify-end gap-2">
+  <button
+    type="button"
+    onClick={() =>
+      setPrompt(
+        [
+          'Underground House / Tech House, deep punchy four-on-the-floor kick, tight rolling bassline, shuffled hi-hats, hypnotic synth stabs, funky percussion, dark warehouse groove, professional club mix',
+          'Deep House, warm analog chords, deep sub bass, soulful atmospheric textures, crisp drums, elegant late-night groove, sophisticated underground club energy',
+          'Tech House, 126 BPM, punchy kick, rolling funky bassline, tribal percussion, minimal vocal chops, dry claps, hypnotic stabs, powerful DJ-friendly drop',
+          'Groovy House, jackin drums, funky bass groove, filtered disco textures, warm piano stabs, crisp percussion, energetic underground dancefloor feeling',
+          'Dark Tech House, massive controlled low end, tight kick, syncopated bassline, shuffled hats, percussive vocal chops, warehouse atmosphere, minimal hypnotic arrangement'
+        ][Math.floor(Math.random() * 5)]
+      )
+    }
+    className="rounded-lg border border-purple-500 bg-purple-950 px-3 py-2 text-xs font-bold text-purple-200"
+  >
+    RANDOM
+  </button>
+
+  <button
+    type="button"
+    onClick={() => setPrompt('')}
+    className="rounded-lg border border-red-500 bg-red-950 px-3 py-2 text-xs font-bold text-red-200"
+  >
+    X
+  </button>
+</div>
+
+<textarea
+  value={prompt}
+  onChange={e => setPrompt(e.target.value)}
+  rows={5}
+  className="w-full rounded-xl border border-slate-700 bg-slate-950 p-4"
+/>
 
               <div className="mt-4 grid gap-4 md:grid-cols-4">
 
@@ -505,10 +533,11 @@ export default function App() {
                     onChange={e => setDurationSec(Number(e.target.value))}
                     className="mt-1 w-full rounded-lg bg-slate-950 p-2"
                   >
-                    <option value={15}>15 sec</option>
                     <option value={30}>30 sec</option>
-                    <option value={60}>60 sec</option>
-                    <option value={120}>120 sec</option>
+<option value={60}>1 min</option>
+<option value={120}>2 min</option>
+<option value={180}>3 min</option>
+<option value={240}>4 min</option>
                   </select>
                 </label>
 
@@ -561,12 +590,12 @@ export default function App() {
                 {busy ? (
                   <>
                     <RefreshCw className="h-5 w-5 animate-spin" />
-                    LeVo 2 Generating...
+                    ACE-Step 1.5 Generating...
                   </>
                 ) : (
                   <>
                     <Zap className="h-5 w-5" />
-                    Generate with LeVo 2
+                    Generate with ACE-Step 1.5
                   </>
                 )}
               </button>
@@ -660,14 +689,14 @@ export default function App() {
                 <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
                   <div className="text-xs text-slate-500">MODEL</div>
                   <div className="mt-1 font-bold">
-                    SongGeneration-v2-large
+                    acestep-v15-xl-sft
                   </div>
                 </div>
 
                 <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
                   <div className="text-xs text-slate-500">ENGINE ID</div>
                   <div className="mt-1 font-mono text-sm">
-                    sonara_levo_v2
+                    acestep_v15_xl_sft
                   </div>
                 </div>
 

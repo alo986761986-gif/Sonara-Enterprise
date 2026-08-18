@@ -1,7 +1,7 @@
 import { GenerationPayload } from '../providers/StabilityProvider';
 import { JobQueueWorker } from '../workers/JobQueueWorker';
 import { MixingMasteringEngineService } from './MixingMasteringEngineService';
-import { LevoEngine } from '../engine/LevoEngine';
+import { AceStepEngine } from '../engine/AceStepEngine';
 import fs from 'fs';
 import path from 'path';
 
@@ -142,7 +142,7 @@ export class MusicGenerationService {
     durationSec: number = 30,
     bpm: number = 128
   ): Promise<{ audioBuffer: Buffer | null; audioPath: string | null; metadata: Record<string, any> | null }> {
-    const engine = LevoEngine.getInstance();
+    const engine = AceStepEngine.getInstance();
     const result = await engine.generate({
       prompt: promptStr,
       genre: genreStr,
@@ -166,7 +166,7 @@ export class MusicGenerationService {
     projCounter++;
     const jobId = `job_gen_${Date.now()}_${jobCounter}`;
 
-    console.log(`[ENTERPRISE_LOG] [MUSIC_GEN_SERVICE] Enqueuing LeVo Generation Request | JobId: ${jobId} | User: ${userId}`);
+    console.log(`[ENTERPRISE_LOG] [MUSIC_GEN_SERVICE] Enqueuing ACE-Step Generation Request | JobId: ${jobId} | User: ${userId}`);
     JobQueueWorker.enqueueJob(jobId, payload, userId, 900000);
     const completedJob = await JobQueueWorker.waitForCompletion(jobId, 900000);
 
@@ -183,7 +183,7 @@ export class MusicGenerationService {
       jobId,
       status: completedJob ? completedJob.status : 'QUEUED',
       audioUrl: completedJob?.audioUrl || null,
-      metadata: completedJob?.metadata || { error: completedJob?.error || 'LeVo job processing timeout' }
+      metadata: completedJob?.metadata || { error: completedJob?.error || 'ACE-Step job processing timeout' }
     };
   }
 }
