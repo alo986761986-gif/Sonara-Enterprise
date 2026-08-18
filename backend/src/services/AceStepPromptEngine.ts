@@ -9,7 +9,7 @@ export interface GenreLockProfile {
   modelTier: string;
 }
 
-export class LevoPromptEngine {
+export class AceStepPromptEngine {
   private static readonly GENRE_PROFILES: Record<string, GenreLockProfile> = {
     'melodic house': {
       primaryGenre: 'House',
@@ -166,10 +166,14 @@ export class LevoPromptEngine {
   public static detectGenreProfile(query: string, explicitGenre?: string): GenreLockProfile {
     const text = `${query || ''} ${explicitGenre || ''}`.toLowerCase();
 
+    // Direct multi-word subgenre matching first
     for (const [key, profile] of Object.entries(this.GENRE_PROFILES)) {
-      if (text.includes(key)) return profile;
+      if (text.includes(key)) {
+        return profile;
+      }
     }
 
+    // Single token genre fallback
     if (text.includes('techno')) return this.GENRE_PROFILES['techno'];
     if (text.includes('trance')) return this.GENRE_PROFILES['trance'];
     if (text.includes('dnb') || text.includes('drum and bass') || text.includes('drum & bass')) return this.GENRE_PROFILES['drum & bass'];
@@ -180,47 +184,54 @@ export class LevoPromptEngine {
     if (text.includes('cinematic') || text.includes('orchestral') || text.includes('film score')) return this.GENRE_PROFILES['cinematic'];
     if (text.includes('house')) return this.GENRE_PROFILES['house'];
 
+    // Default fallback to Melodic House if electronic dance vibe is present
     return this.GENRE_PROFILES['melodic house'];
   }
 
   static formatPrompt(prompt: string) {
-    return `[SONARA V12 LEVO 2] ${prompt}`;
+    return `[SONARA V12 ACE-STEP] ${prompt}`;
   }
 
+  /**
+   * Generates a genre-locked optimized prompt by automatically injecting high-fidelity
+   * acoustic profiles and removing banned anti-genre keywords.
+   */
   static async generatePrompt(query: string, explicitGenre?: string) {
     const originalQuery = query || 'Melodic House';
+
     const profile = this.detectGenreProfile(originalQuery, explicitGenre);
 
+    // Filter out banned words from original query
     let cleanedQuery = originalQuery;
     profile.bannedKeywords.forEach(banned => {
-      const escaped = banned.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      cleanedQuery = cleanedQuery.replace(new RegExp(escaped, 'gi'), '');
+      const reg = new RegExp(`\\b${banned}\\b`, 'gi');
+      cleanedQuery = cleanedQuery.replace(reg, '');
     });
     cleanedQuery = cleanedQuery.replace(/\s+/g, ' ').trim();
 
-    const levoDescriptionTags = [
-      profile.subgenre,
-      profile.primaryGenre,
-      `${profile.recommendedBpm} bpm`,
-      profile.keySignature,
-      cleanedQuery,
-      ...profile.acousticKeywords,
-      'high fidelity',
-      'professional studio mix',
-      'clean low end',
-      'wide stereo field'
-    ].filter(Boolean);
+    // Build Genre Lock Prompt Payload
+    const genreLockTag = `GENRE_LOCK: [${profile.primaryGenre.toUpperCase()} -> ${profile.subgenre.toUpperCase()}]`;
+    const tempoTag = `TEMPO: ${profile.recommendedBpm} BPM (${profile.bpmRange[0]}-${profile.bpmRange[1]} BPM)`;
+    const keyTag = `KEY: ${profile.keySignature}`;
+    const acousticString = profile.acousticKeywords.join(', ');
 
-    const optimizedPrompt = this.formatPrompt(Array.from(new Set(levoDescriptionTags)).join(', '));
+    const coreProduction = [
+      'High Fidelity Master',
+      'Professional Studio Separation',
+      'Clean Low End',
+      'Wide Stereo Field',
+      'Transparent Mastering',
+      'Zero Phase Distortion'
+    ].join(', ');
+
+    const optimizedBody = `${genreLockTag} | ${tempoTag} | ${keyTag} | ${cleanedQuery} | Style Elements: ${acousticString} | Mix Quality: ${coreProduction}`;
+    const optimizedPrompt = this.formatPrompt(optimizedBody);
 
     return {
       status: 'success',
-      engine: 'LeVo 2',
-      model: 'SongGeneration-v2-large',
       originalQuery,
       genreProfile: profile,
       optimizedPrompt,
-      levoDescriptions: levoDescriptionTags,
       genreLock: {
         locked: true,
         primaryGenre: profile.primaryGenre,
