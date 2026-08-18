@@ -5,6 +5,7 @@ import {
   Cpu,
   Download,
   Gauge,
+  LayoutDashboard,
   Library,
   Music,
   Pause,
@@ -16,6 +17,7 @@ import {
   Store,
   Zap
 } from 'lucide-react';
+import { OverviewDashboard } from './components/analytics/OverviewDashboard';
 
 type JobStatus = 'IDLE' | 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 
@@ -76,8 +78,8 @@ export default function App() {
   const [trainingStats, setTrainingStats] = useState<any>(null);
 
   const [activeTab, setActiveTab] = useState<
-    'generator' | 'eq' | 'marketplace' | 'pro'
-  >('generator');
+    'dashboard' | 'generator' | 'eq' | 'marketplace' | 'pro'
+  >('dashboard');
 
   const [isPlaying, setIsPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -330,7 +332,7 @@ export default function App() {
               </h1>
 
               <div className="text-xs font-semibold text-purple-300">
-                ACE-Step 1.5 Â· acestep-v15-xl-sft
+                ACE-Step 1.5 Ã‚Â· acestep-v15-xl-sft
               </div>
             </div>
           </div>
@@ -359,6 +361,7 @@ export default function App() {
         <aside className="space-y-3">
 
           {[
+            ['dashboard', 'Dashboard', LayoutDashboard],
             ['generator', 'Generator', Zap],
             ['eq', 'EQ / Master', SlidersHorizontal],
             ['marketplace', 'Marketplace', Store],
@@ -432,6 +435,8 @@ export default function App() {
             </Card>
 
           </div>
+
+          {activeTab === 'dashboard' && <OverviewDashboard />}
 
           {activeTab === 'generator' && (
             <Card className="p-6">
