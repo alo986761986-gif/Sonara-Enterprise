@@ -1,4 +1,4 @@
-﻿import crypto from 'crypto';
+import crypto from 'crypto';
 import { Request, Response, NextFunction } from 'express';
 
 interface SonaraSession {
@@ -99,7 +99,8 @@ export function requireSonaraSession(
   const session = getSonaraSession(req);
 
   if (!session) {
-    return res.status(401).json      status: 'UNAUTHORIZED',
+    return res.status(401).json({
+      status: 'UNAUTHORIZED',
       error: 'Sonara authentication required.'
     });
   }
