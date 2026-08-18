@@ -1,4 +1,4 @@
-﻿import React, { FormEvent, useEffect, useState } from 'react';
+import React, { FormEvent, useEffect, useState } from 'react';
 import {
   Loader2,
   LockKeyhole,
@@ -6,7 +6,7 @@ import {
   LogOut,
   Music
 } from 'lucide-react';
-import App from './App';
+import SonaraEnterpriseShell from './SonaraEnterpriseShell';
 
 type AuthState = 'CHECKING' | 'AUTHENTICATED' | 'ANONYMOUS';
 
@@ -86,12 +86,12 @@ export default function AuthApp() {
   if (state === 'AUTHENTICATED') {
     return (
       <>
-        <App />
+        <SonaraEnterpriseShell />
 
         <button
           type="button"
           onClick={() => void logout()}
-          className="fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-950/95 px-4 py-2 text-xs font-bold text-slate-300 shadow-xl hover:border-red-500 hover:text-red-300"
+          className="fixed bottom-5 right-5 z-[120] flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-950/95 px-4 py-2 text-xs font-bold text-slate-300 shadow-xl hover:border-red-500 hover:text-red-300"
         >
           <LogOut className="h-4 w-4" />
           LOGOUT
