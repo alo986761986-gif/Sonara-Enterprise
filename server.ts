@@ -3,6 +3,7 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
+import './backend/src/services/MusicDnaCompatibility';
 
 import engineRouter from './backend/src/routes/engine';
 import orchestratorRouter from './backend/src/routes/orchestrator';
