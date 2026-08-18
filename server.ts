@@ -9,6 +9,8 @@ import engineRouter from './backend/src/routes/engine';
 import orchestratorRouter from './backend/src/routes/orchestrator';
 import creatorRouter from './backend/src/routes/creator';
 import musicRouter from './backend/src/routes/music';
+import authRouter from './backend/src/routes/auth';
+import { requireSonaraSession } from './backend/src/auth/SonaraSessionAuth';
 
 const startTime = Date.now();
 
@@ -46,18 +48,21 @@ async function startServer() {
     });
   });
 
-  // API Routes
-  app.use('/api/engine', engineRouter);
-  app.use('/api/orchestrator', orchestratorRouter);
-  app.use('/api/creator', creatorRouter);
-  app.use('/api/music', musicRouter);
+  // Authentication
+  app.use('/api/auth', authRouter);
+
+  // Protected API Routes
+  app.use('/api/engine', requireSonaraSession, engineRouter);
+  app.use('/api/orchestrator', requireSonaraSession, orchestratorRouter);
+  app.use('/api/creator', requireSonaraSession, creatorRouter);
+  app.use('/api/music', requireSonaraSession, musicRouter);
 
   // Serve storage files (generated audio, audio renders)
   const storagePath = path.join(process.cwd(), 'storage');
   if (!fs.existsSync(storagePath)) {
     fs.mkdirSync(storagePath, { recursive: true });
   }
-  app.use('/storage', express.static(storagePath, {
+  app.use('/storage', requireSonaraSession, express.static(storagePath, {
     setHeaders: (res) => {
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Accept-Ranges', 'bytes');
