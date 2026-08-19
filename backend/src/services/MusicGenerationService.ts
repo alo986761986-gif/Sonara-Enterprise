@@ -1,7 +1,8 @@
-import { GenerationPayload } from '../providers/StabilityProvider';
-import { JobQueueWorker } from '../workers/JobQueueWorker';
+import { JobQueueWorker, type GenerationPayload } from '../workers/JobQueueWorker';
 import { MixingMasteringEngineService } from './MixingMasteringEngineService';
+import { AceStepEngine } from '../engine/AceStepEngine';
 import { LevoEngine } from '../engine/LevoEngine';
+import { IAudioGenerationEngine } from '../engine/IAudioGenerationEngine';
 import fs from 'fs';
 import path from 'path';
 
@@ -132,6 +133,16 @@ export class MusicGenerationService {
     return { audioBuffer: processedBuffer, audioPath };
   }
 
+  private static resolveEngine(engineId: string): IAudioGenerationEngine {
+    switch (engineId) {
+      case 'sonara_levo_v2':
+        return LevoEngine.getInstance();
+      case 'sonara_acestep_v15':
+      default:
+        return AceStepEngine.getInstance();
+    }
+  }
+
   public static async executePythonEngine(
     promptStr: string,
     genreStr: string,
@@ -140,9 +151,11 @@ export class MusicGenerationService {
     titleStr: string,
     timeoutMs: number = 900000,
     durationSec: number = 30,
-    bpm: number = 128
+    bpm: number = 128,
+    engineId: string = 'sonara_acestep_v15',
+    keyScale: string = ''
   ): Promise<{ audioBuffer: Buffer | null; audioPath: string | null; metadata: Record<string, any> | null }> {
-    const engine = LevoEngine.getInstance();
+    const engine = this.resolveEngine(engineId);
     const result = await engine.generate({
       prompt: promptStr,
       genre: genreStr,
@@ -151,13 +164,19 @@ export class MusicGenerationService {
       title: titleStr,
       timeoutMs,
       durationSec,
-      bpm
+      bpm,
+      key: keyScale
     });
 
     return {
       audioBuffer: result.audioBuffer,
       audioPath: result.audioPath,
-      metadata: result.metadata || { status: result.status, error: result.error }
+      metadata: {
+        ...(result.metadata || {}),
+        status: result.status,
+        error: result.error || null,
+        engineId
+      }
     };
   }
 
@@ -165,9 +184,10 @@ export class MusicGenerationService {
     jobCounter++;
     projCounter++;
     const jobId = `job_gen_${Date.now()}_${jobCounter}`;
+    const engineId = payload.engineId || 'sonara_acestep_v15';
 
-    console.log(`[ENTERPRISE_LOG] [MUSIC_GEN_SERVICE] Enqueuing LeVo Generation Request | JobId: ${jobId} | User: ${userId}`);
-    JobQueueWorker.enqueueJob(jobId, payload, userId, 900000);
+    console.log(`[ENTERPRISE_LOG] [MUSIC_GEN_SERVICE] Enqueuing ${engineId} Generation Request | JobId: ${jobId} | User: ${userId}`);
+    JobQueueWorker.enqueueJob(jobId, { ...payload, engineId }, userId, 900000);
     const completedJob = await JobQueueWorker.waitForCompletion(jobId, 900000);
 
     if (completedJob && completedJob.status === 'COMPLETED') {
@@ -183,7 +203,7 @@ export class MusicGenerationService {
       jobId,
       status: completedJob ? completedJob.status : 'QUEUED',
       audioUrl: completedJob?.audioUrl || null,
-      metadata: completedJob?.metadata || { error: completedJob?.error || 'LeVo job processing timeout' }
+      metadata: completedJob?.metadata || { error: completedJob?.error || `${engineId} job processing timeout` }
     };
   }
 }
