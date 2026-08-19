@@ -56,9 +56,9 @@ export class AceStepEngine extends IAudioGenerationEngine {
   public async healthCheck(): Promise<EngineHealthStatus> {
     try {
       const response = await this.request('/health', { method: 'GET' }, 5000);
-      const ready = response.ok;
       const payload = await this.readJsonSafe(response);
-      this.lastError = ready ? null : `HTTP ${response.status}`;
+      const ready = response.ok && (!payload?.data?.status || payload.data.status === 'ok');
+      this.lastError = ready ? null : (payload?.error || `HTTP ${response.status}`);
 
       return {
         isAvailable: ready,
@@ -208,7 +208,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
           bytes: audioBuffer.length,
           durationSec,
           bpm: completed?.metas?.bpm ?? bpm ?? null,
-          keyScale: completed?.metas?.keyscale ?? keyScale || null,
+          keyScale: completed?.metas?.keyscale ?? (keyScale || null),
           generationInfo: completed.generation_info || null,
           seedValue: completed.seed_value || null
         }
