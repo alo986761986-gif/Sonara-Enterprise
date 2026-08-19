@@ -1,146 +1,12 @@
 import { JobQueueWorker, type GenerationPayload } from '../workers/JobQueueWorker';
-import { MixingMasteringEngineService } from './MixingMasteringEngineService';
 import { AceStepEngine } from '../engine/AceStepEngine';
-import { LevoEngine } from '../engine/LevoEngine';
-import { IAudioGenerationEngine } from '../engine/IAudioGenerationEngine';
-import fs from 'fs';
-import path from 'path';
 
 let jobCounter = 1000;
-let projCounter = 500;
 
 export class MusicGenerationService {
   public static validateAudioBuffer(buffer: Buffer): boolean {
-    if (!buffer || buffer.length < 100000) return false;
-    const isWav = buffer.toString('utf8', 0, 4) === 'RIFF' && buffer.toString('utf8', 8, 12) === 'WAVE';
-    const isMp3 = buffer.toString('utf8', 0, 3) === 'ID3' || (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0);
-    return isWav || isMp3;
-  }
-
-  public static createFallbackAudio(
-    _titleStr: string = 'Sonara Track',
-    durationSec: number = 30,
-    targetBpm: number = 128
-  ): { audioBuffer: Buffer; audioPath: string } {
-    const outputDir = path.join(process.cwd(), 'output', `dsp_fallback_${Date.now()}`);
-    if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
-    const audioPath = path.join(outputDir, 'audio.wav');
-
-    const sampleRate = 44100;
-    const numChannels = 2;
-    const bitsPerSample = 16;
-    const numFrames = sampleRate * durationSec;
-    const bytesPerSample = bitsPerSample / 8;
-    const blockAlign = numChannels * bytesPerSample;
-    const dataSize = numFrames * blockAlign;
-    const buffer = Buffer.alloc(44 + dataSize);
-
-    buffer.write('RIFF', 0);
-    buffer.writeUInt32LE(36 + dataSize, 4);
-    buffer.write('WAVE', 8);
-    buffer.write('fmt ', 12);
-    buffer.writeUInt32LE(16, 16);
-    buffer.writeUInt16LE(1, 20);
-    buffer.writeUInt16LE(numChannels, 22);
-    buffer.writeUInt32LE(sampleRate, 24);
-    buffer.writeUInt32LE(sampleRate * blockAlign, 28);
-    buffer.writeUInt16LE(blockAlign, 32);
-    buffer.writeUInt16LE(bitsPerSample, 34);
-    buffer.write('data', 36);
-    buffer.writeUInt32LE(dataSize, 40);
-
-    const bpm = Math.max(60, Math.min(200, targetBpm));
-    const samplesPerBeat = (sampleRate * 60.0) / bpm;
-    const samplesPerTick = samplesPerBeat / 4.0;
-    const samplesPerBar = samplesPerBeat * 4.0;
-
-    let kickPhase = 0;
-    let bassPhase = 0;
-    let leadPhase = 0;
-    let offset = 44;
-
-    for (let i = 0; i < numFrames; i++) {
-      const tickIndex = Math.floor(i / samplesPerTick);
-      const tickSampleOffset = i % samplesPerTick;
-      const tickPhase = tickSampleOffset / samplesPerTick;
-      const beatIndex = Math.floor(i / samplesPerBeat);
-      const beatSampleOffset = i % samplesPerBeat;
-      const beatPhase = beatSampleOffset / samplesPerBeat;
-      const barIndex = Math.floor(i / samplesPerBar);
-      const totalBars = Math.max(1, Math.floor(numFrames / samplesPerBar));
-      const sectionProgress = barIndex / totalBars;
-
-      let kickWeight = 0.45;
-      let snareWeight = 0.30;
-      let hihatWeight = 0.20;
-      let bassWeight = 0.35;
-      let leadWeight = 0.25;
-
-      if (sectionProgress < 0.15) {
-        kickWeight = 0.25; snareWeight = 0.0; hihatWeight = 0.15; bassWeight = 0.20; leadWeight = 0.10;
-      } else if (sectionProgress < 0.35) {
-        kickWeight = 0.40; snareWeight = 0.25; hihatWeight = 0.20; bassWeight = 0.30; leadWeight = 0.15;
-      } else if (sectionProgress < 0.75) {
-        kickWeight = 0.50; snareWeight = 0.35; hihatWeight = 0.25; bassWeight = 0.35; leadWeight = 0.30;
-      } else if (sectionProgress < 0.88) {
-        kickWeight = 0.0; snareWeight = 0.10; hihatWeight = 0.15; bassWeight = 0.20; leadWeight = 0.40;
-      } else {
-        kickWeight = 0.30; snareWeight = 0.0; hihatWeight = 0.15; bassWeight = 0.20; leadWeight = 0.10;
-      }
-
-      const kickEnv = Math.exp(-15.0 * beatPhase);
-      const kickFreq = 45.0 + 75.0 * kickEnv;
-      kickPhase += (2.0 * Math.PI * kickFreq) / sampleRate;
-      const kickSignal = Math.sin(kickPhase) * kickEnv * kickWeight;
-
-      const isSnareBeat = (beatIndex % 2) === 1;
-      const snareEnv = isSnareBeat ? Math.exp(-18.0 * beatPhase) : 0.0;
-      const snareNoise = Math.sin(i * 0.1) * 0.5 + Math.sin(2.0 * Math.PI * 220.0 * (beatSampleOffset / sampleRate)) * 0.5;
-      const snareSignal = snareNoise * snareEnv * snareWeight;
-
-      const is16thTick = tickIndex % 2 === 1;
-      const hihatEnv = Math.exp(-35.0 * tickPhase);
-      const hihatNoise = Math.sin(i * 0.77);
-      const hihatSignal = hihatNoise * hihatEnv * (is16thTick ? hihatWeight * 1.2 : hihatWeight * 0.7);
-
-      const chordIdx = barIndex % 4;
-      const bassFreqs = [130.81, 98.00, 110.00, 87.31];
-      const currentBassFreq = bassFreqs[chordIdx];
-      bassPhase += (2.0 * Math.PI * currentBassFreq) / sampleRate;
-      const bassEnv = Math.exp(-7.0 * tickPhase);
-      const bassSignal = (Math.sin(bassPhase) + 0.3 * Math.sin(bassPhase * 2.0)) * bassEnv * bassWeight;
-
-      const arpNotes = [currentBassFreq * 2.0, currentBassFreq * 2.5, currentBassFreq * 3.0, currentBassFreq * 4.0];
-      const currentLeadFreq = arpNotes[tickIndex % 4];
-      leadPhase += (2.0 * Math.PI * currentLeadFreq) / sampleRate;
-      const leadEnv = Math.exp(-12.0 * tickPhase);
-      const leadSignal = Math.sin(leadPhase) * leadEnv * leadWeight;
-
-      const leftMix = kickSignal + snareSignal + (hihatSignal * 0.8) + bassSignal + (leadSignal * 1.15);
-      const rightMix = kickSignal + snareSignal + (hihatSignal * 1.2) + bassSignal + (leadSignal * 0.85);
-      const ceiling = 0.891;
-      const leftVal = Math.floor(Math.max(-ceiling, Math.min(ceiling, leftMix)) * 32767);
-      const rightVal = Math.floor(Math.max(-ceiling, Math.min(ceiling, rightMix)) * 32767);
-
-      buffer.writeInt16LE(leftVal, offset);
-      buffer.writeInt16LE(rightVal, offset + 2);
-      offset += 4;
-    }
-
-    const { processedBuffer, report } = MixingMasteringEngineService.processBuffer(buffer, -14.0, -1.0, bpm);
-    fs.writeFileSync(audioPath, processedBuffer);
-    console.log(`[ENTERPRISE_LOG] [DSP_MIX_MASTER_ENGINE] Applied Mix & Master (-14 LUFS, -1.0 dBTP, Phase Corr: ${report.stereoPhaseCorrelation}): ${audioPath}`);
-    return { audioBuffer: processedBuffer, audioPath };
-  }
-
-  private static resolveEngine(engineId: string): IAudioGenerationEngine {
-    switch (engineId) {
-      case 'sonara_levo_v2':
-        return LevoEngine.getInstance();
-      case 'sonara_acestep_v15':
-      default:
-        return AceStepEngine.getInstance();
-    }
+    if (!buffer || buffer.length < 44) return false;
+    return buffer.toString('ascii', 0, 4) === 'RIFF' && buffer.toString('ascii', 8, 12) === 'WAVE';
   }
 
   public static async executePythonEngine(
@@ -152,11 +18,10 @@ export class MusicGenerationService {
     timeoutMs: number = 900000,
     durationSec: number = 30,
     bpm: number = 128,
-    engineId: string = 'sonara_acestep_v15',
+    _engineId: string = 'sonara_acestep_v15',
     keyScale: string = ''
   ): Promise<{ audioBuffer: Buffer | null; audioPath: string | null; metadata: Record<string, any> | null }> {
-    const engine = this.resolveEngine(engineId);
-    const result = await engine.generate({
+    const result = await AceStepEngine.getInstance().generate({
       prompt: promptStr,
       genre: genreStr,
       mood: moodStr,
@@ -175,19 +40,20 @@ export class MusicGenerationService {
         ...(result.metadata || {}),
         status: result.status,
         error: result.error || null,
-        engineId
+        engineId: 'sonara_acestep_v15'
       }
     };
   }
 
   static async processGeneration(payload: GenerationPayload, userId: string): Promise<Record<string, any>> {
     jobCounter++;
-    projCounter++;
     const jobId = `job_gen_${Date.now()}_${jobCounter}`;
-    const engineId = payload.engineId || 'sonara_acestep_v15';
+    const acePayload: GenerationPayload = {
+      ...payload,
+      engineId: 'sonara_acestep_v15'
+    };
 
-    console.log(`[ENTERPRISE_LOG] [MUSIC_GEN_SERVICE] Enqueuing ${engineId} Generation Request | JobId: ${jobId} | User: ${userId}`);
-    JobQueueWorker.enqueueJob(jobId, { ...payload, engineId }, userId, 900000);
+    JobQueueWorker.enqueueJob(jobId, acePayload, userId, 900000);
     const completedJob = await JobQueueWorker.waitForCompletion(jobId, 900000);
 
     if (completedJob && completedJob.status === 'COMPLETED') {
@@ -203,7 +69,9 @@ export class MusicGenerationService {
       jobId,
       status: completedJob ? completedJob.status : 'QUEUED',
       audioUrl: completedJob?.audioUrl || null,
-      metadata: completedJob?.metadata || { error: completedJob?.error || `${engineId} job processing timeout` }
+      metadata: completedJob?.metadata || {
+        error: completedJob?.error || 'ACE-Step job processing timeout'
+      }
     };
   }
 }
