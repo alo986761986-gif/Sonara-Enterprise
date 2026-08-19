@@ -158,7 +158,11 @@ router.post('/generate', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Prompt must be a non-empty string.' });
     }
 
-    const currentEngineId = engineId || activeEngineId;
+    // The current UI still sends the historical LeVo id. Treat that value as
+    // "use active engine" unless LeVo was explicitly selected through /select.
+    const currentEngineId = engineId === 'sonara_levo_v2' && activeEngineId !== 'sonara_levo_v2'
+      ? activeEngineId
+      : (engineId || activeEngineId);
     const plugin = ENGINE_MODELS.find(m => m.id === currentEngineId);
     if (!plugin) {
       return res.status(400).json({ status: 'error', message: `Unsupported engine '${currentEngineId}'.` });
