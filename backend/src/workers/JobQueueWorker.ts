@@ -15,6 +15,8 @@ export interface GenerationPayload {
   title: string;
   bpm?: number;
   duration?: number;
+  engineId?: string;
+  key?: string;
 }
 
 export class JobQueueWorker {
@@ -79,16 +81,19 @@ export class JobQueueWorker {
         mood: job.metadata?.mood || 'Energetic',
         lyrics: job.metadata?.lyrics || '',
         prompt: job.metadata?.prompt || 'Melodic House track',
-        duration: 30
+        duration: 30,
+        engineId: 'sonara_acestep_v15'
       };
 
       const userPrompt = payload.prompt || 'Melodic House track';
       const userGenre = payload.genre || 'House';
       const durationSec = payload.duration || 30;
+      const engineId = payload.engineId || 'sonara_acestep_v15';
+      const engineLabel = engineId === 'sonara_levo_v2' ? 'LeVo 2' : 'ACE-Step 1.5';
 
       JobManager.updateJobStatus(jobId, 'PROCESSING', {
         progress: 10,
-        metadata: { currentStage: 'Sonara LeVo Prompt Engine: Analyzing prompt & Genre Lock...' }
+        metadata: { currentStage: 'Sonara Prompt Engine: Analyzing prompt & Genre Lock...' }
       });
 
       const promptOptimization = await LevoPromptEngine.generatePrompt(userPrompt, userGenre);
@@ -99,7 +104,7 @@ export class JobQueueWorker {
 
       JobManager.updateJobStatus(jobId, 'PROCESSING', {
         progress: 25,
-        metadata: { currentStage: 'LeVo 2 & Music Brain: Recalling optimal Music DNA reference...' }
+        metadata: { currentStage: 'Music Brain: Recalling optimal Music DNA reference...' }
       });
 
       const brainRecall = MusicDnaLibraryService.recallOptimalDna(userPrompt, targetGenre);
@@ -113,7 +118,7 @@ export class JobQueueWorker {
 
       JobManager.updateJobStatus(jobId, 'PROCESSING', {
         progress: 60,
-        metadata: { currentStage: 'LeVo 2 Rendering Engine: Generating neural audio waveform...' }
+        metadata: { currentStage: `${engineLabel} Rendering Engine: Generating neural audio waveform...` }
       });
 
       const execResult = await MusicGenerationService.executePythonEngine(
@@ -124,24 +129,29 @@ export class JobQueueWorker {
         payload.title || 'Sonara AI Track',
         900000,
         durationSec,
-        targetBpm
+        targetBpm,
+        engineId,
+        payload.key || genreProfile.keySignature
       );
 
       JobManager.updateJobStatus(jobId, 'PROCESSING', {
         progress: 80,
-        metadata: { currentStage: '14-Stage DSP Engine: Mixing & Mastering (-14.0 LUFS, -1.0 dBTP)...' }
+        metadata: { currentStage: '14-Stage DSP Engine: Finalizing generated audio...' }
       });
 
       const audioBuffer = execResult.audioBuffer;
       if (!audioBuffer) {
-        const reason = execResult.metadata?.error || 'LeVo neural audio engine unavailable (ENGINE_NOT_AVAILABLE)';
+        const reason = execResult.metadata?.error || `${engineLabel} neural audio engine unavailable (ENGINE_NOT_AVAILABLE)`;
         throw new Error(`ENGINE_NOT_AVAILABLE: ${reason}`);
       }
 
       const storageAudioDir = path.join(process.cwd(), 'storage', 'audio');
       if (!fs.existsSync(storageAudioDir)) fs.mkdirSync(storageAudioDir, { recursive: true });
 
-      const audioFileName = `musicgen-${jobId}.wav`;
+      const audioExtension = String(execResult.metadata?.audioExtension || '.wav').startsWith('.')
+        ? String(execResult.metadata?.audioExtension || '.wav')
+        : `.${String(execResult.metadata?.audioExtension || 'wav')}`;
+      const audioFileName = `musicgen-${jobId}${audioExtension}`;
       const finalAudioPath = path.join(storageAudioDir, audioFileName);
       fs.writeFileSync(finalAudioPath, audioBuffer);
       const audioUrl = `/storage/audio/${audioFileName}`;
@@ -174,7 +184,10 @@ export class JobQueueWorker {
         keySignature: genreProfile.keySignature,
         prompt: userPrompt,
         optimizedPrompt: promptOptimization.optimizedPrompt,
-        engine: `Sonara V12 LeVo 2 Engine / SongGeneration-v2-large (${genreProfile.modelTier} Tier)`,
+        engine: execResult.metadata?.engine || engineLabel,
+        engineId,
+        model: execResult.metadata?.model || null,
+        engineMetadata: execResult.metadata || null,
         status: 'COMPLETED',
         audioUrl,
         genreLock,
@@ -186,12 +199,6 @@ export class JobQueueWorker {
           chords: patternResult.chordProgression,
           melodyScale: patternResult.melodyScale
         },
-        dspMastering: {
-          integratedLufs: -14.0,
-          truePeakDbtp: -1.0,
-          stereoPhaseCorrelation: 0.95,
-          status: 'MASTERED'
-        },
         completedAt: new Date().toISOString()
       };
 
@@ -201,7 +208,7 @@ export class JobQueueWorker {
         metadata: finalMetadata
       });
 
-      console.log(`[JOB_QUEUE_WORKER] Successfully completed LeVo pipeline for job ${jobId} | Quality Score: ${loggedRecord?.scores?.overallScore || 9.5}/10`);
+      console.log(`[JOB_QUEUE_WORKER] Successfully completed ${engineLabel} pipeline for job ${jobId} | Quality Score: ${loggedRecord?.scores?.overallScore || 9.5}/10`);
       return JobManager.getJob(jobId) || null;
     } catch (err: any) {
       console.error(`[JOB_QUEUE_WORKER] Critical error during job execution ${jobId}:`, err?.message || String(err));
