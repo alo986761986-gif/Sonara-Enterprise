@@ -30,7 +30,9 @@ export class AceStepEngine extends IAudioGenerationEngine {
   private isInitialized = false;
   private lastError: string | null = null;
 
-  private readonly baseUrl = (process.env.ACESTEP_API_URL || 'http://127.0.0.1:8001').replace(/\/$/, '');
+  // ACE-Step is hosted remotely on Lightning for Sonara. Never silently fall back
+  // to localhost: a missing endpoint must fail loudly instead of hitting 127.0.0.1.
+  private readonly baseUrl = String(process.env.ACESTEP_API_URL || '').trim().replace(/\/$/, '');
   private readonly apiKey = process.env.ACESTEP_API_KEY || '';
   private readonly model = process.env.ACESTEP_MODEL || 'acestep-v15-turbo';
   private readonly pollIntervalMs = Math.max(Number(process.env.ACESTEP_POLL_INTERVAL_MS || 1000), 250);
@@ -54,6 +56,22 @@ export class AceStepEngine extends IAudioGenerationEngine {
   }
 
   public async healthCheck(): Promise<EngineHealthStatus> {
+    if (!this.baseUrl) {
+      const error = 'ACESTEP_API_URL is not configured. Set it to the Lightning ACE-Step endpoint.';
+      this.lastError = error;
+      return {
+        isAvailable: false,
+        engineName: this.name,
+        status: 'ENGINE_NOT_AVAILABLE',
+        error,
+        details: {
+          hosting: 'Lightning',
+          model: this.model,
+          requiredEnv: 'ACESTEP_API_URL'
+        }
+      };
+    }
+
     try {
       const response = await this.request('/health', { method: 'GET' }, 5000);
       const payload = await this.readJsonSafe(response);
@@ -66,6 +84,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
         status: ready ? 'READY' : 'ENGINE_NOT_AVAILABLE',
         error: this.lastError || undefined,
         details: {
+          hosting: 'Lightning',
           baseUrl: this.baseUrl,
           model: this.model,
           health: payload
@@ -79,7 +98,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
         engineName: this.name,
         status: 'ENGINE_NOT_AVAILABLE',
         error: message,
-        details: { baseUrl: this.baseUrl, model: this.model }
+        details: { hosting: 'Lightning', baseUrl: this.baseUrl, model: this.model }
       };
     }
   }
@@ -199,7 +218,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
         audioPath,
         metadata: {
           engine: 'Sonara ACE-Step 1.5 Engine',
-          provider: 'ACE-Step',
+          provider: 'ACE-Step on Lightning',
           model: completed.dit_model || requestBody.model,
           lmModel: completed.lm_model || null,
           taskId,
@@ -223,6 +242,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
         error: `ACE-Step generation failed: ${message}`,
         metadata: {
           engine: 'Sonara ACE-Step 1.5 Engine',
+          provider: 'ACE-Step on Lightning',
           model: requestBody.model,
           baseUrl: this.baseUrl,
           error: message
@@ -262,6 +282,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
 
   private resolveUrl(value: string): string {
     if (/^https?:\/\//i.test(value)) return value;
+    if (!this.baseUrl) throw new Error('ACESTEP_API_URL is not configured.');
     return `${this.baseUrl}${value.startsWith('/') ? '' : '/'}${value}`;
   }
 
