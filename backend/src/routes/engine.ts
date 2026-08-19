@@ -3,15 +3,31 @@ import { LevoPromptEngine } from '../services/LevoPromptEngine';
 import { JobQueueWorker } from '../workers/JobQueueWorker';
 import { EngineDiagnosticService } from '../engine/EngineDiagnosticService';
 import { PythonEnvironmentManager } from '../engine/PythonEnvironmentManager';
+import { AceStepEngine } from '../engine/AceStepEngine';
 
 const router = Router();
 
 const ENGINE_MODELS = [
   {
+    id: 'sonara_acestep_v15',
+    name: 'Sonara AI Native Engine (ACE-Step 1.5)',
+    version: '1.5-SONARA',
+    provider: 'sonara_native',
+    vramRequiredMb: 0,
+    ramRequiredMb: 0,
+    averageTimeSec: 60,
+    stereoSupport: true,
+    maxDurationSec: 600,
+    stemsSupport: false,
+    continuationSupport: true,
+    inpaintSupport: true,
+    qualityScore: 100
+  },
+  {
     id: 'sonara_levo_v2',
     name: 'Sonara AI Native Engine (LeVo 2 / SongGeneration-v2-large)',
     version: '2.0.0-SONARA',
-    provider: 'sonara_native',
+    provider: 'sonara_native_legacy',
     vramRequiredMb: 22000,
     ramRequiredMb: 16384,
     averageTimeSec: 60,
@@ -54,7 +70,7 @@ const ENGINE_MODELS = [
   }
 ];
 
-let activeEngineId = 'sonara_levo_v2';
+let activeEngineId = 'sonara_acestep_v15';
 
 router.get('/models', (_req: Request, res: Response) => {
   const active = ENGINE_MODELS.find(m => m.id === activeEngineId) || ENGINE_MODELS[0];
@@ -75,12 +91,15 @@ router.get('/active', (_req: Request, res: Response) => {
 router.get('/diagnostic', async (_req: Request, res: Response) => {
   try {
     const diagnostic = await EngineDiagnosticService.getInstance().runDiagnostics(true);
+    const aceStep = await AceStepEngine.getInstance().healthCheck();
     res.json({
-      status: diagnostic.isReady ? 'READY' : 'ENGINE_NOT_READY',
-      isReady: diagnostic.isReady,
+      status: aceStep.isAvailable ? 'READY' : (diagnostic.isReady ? 'READY' : 'ENGINE_NOT_READY'),
+      isReady: aceStep.isAvailable || diagnostic.isReady,
+      activeEngineId,
+      aceStep,
       checks: diagnostic.checks,
       formattedReport: diagnostic.formattedReport,
-      notReadyReason: diagnostic.notReadyReason
+      notReadyReason: aceStep.isAvailable ? undefined : (aceStep.error || diagnostic.notReadyReason)
     });
   } catch (err: any) {
     res.status(500).json({ status: 'error', message: err.message });
@@ -116,7 +135,7 @@ router.post('/select', (req: Request, res: Response) => {
   }
 
   if (autoSelect) {
-    const selected = ENGINE_MODELS.find(m => m.provider === 'sonara_native') || ENGINE_MODELS[0];
+    const selected = ENGINE_MODELS.find(m => m.id === 'sonara_acestep_v15') || ENGINE_MODELS[0];
     activeEngineId = selected.id;
     return res.json({
       status: 'success',
@@ -140,7 +159,11 @@ router.post('/generate', async (req: Request, res: Response) => {
     }
 
     const currentEngineId = engineId || activeEngineId;
-    const plugin = ENGINE_MODELS.find(m => m.id === currentEngineId) || ENGINE_MODELS[0];
+    const plugin = ENGINE_MODELS.find(m => m.id === currentEngineId);
+    if (!plugin) {
+      return res.status(400).json({ status: 'error', message: `Unsupported engine '${currentEngineId}'.` });
+    }
+
     const optimizationResult = await LevoPromptEngine.generatePrompt(prompt, genre);
 
     const jobId = `job-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
@@ -151,7 +174,9 @@ router.post('/generate', async (req: Request, res: Response) => {
       lyrics: lyrics || '',
       prompt,
       bpm: bpm || optimizationResult.genreLock.targetBpm || 124,
-      duration: durationSec || 30
+      duration: durationSec || 30,
+      engineId: currentEngineId,
+      key: key || optimizationResult.genreLock.keySignature || 'F Minor'
     });
 
     res.json({
@@ -177,7 +202,7 @@ router.post('/generate', async (req: Request, res: Response) => {
         channels: 2,
         targetLufs: -14.0,
         truePeakDb: -1.0,
-        audioUrl: `/storage/audio/musicgen-${jobId}.wav`
+        audioUrl: null
       }
     });
   } catch (err: any) {
