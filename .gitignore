@@ -37,6 +37,13 @@ output/
 *.wav
 *.mp3
 *.flac
+storage/generated_styles.json
+storage/musicgen_workers_state.json
+storage/dna_elements.json
+
+# Local UI backups
+src/App.tsx.before-*
+src/App.tsx.crashbak
 
 # Model and large files
 model_registry/

@@ -35,18 +35,24 @@ export class PythonEnvironmentManager {
    */
   public getPythonBinaryPath(): string {
     const cwd = process.cwd();
-    const primaryEnv = path.join(cwd, 'python_env', 'bin', 'python');
-    const secondaryEnv = path.join(cwd, 'venv', 'bin', 'python');
 
-    if (fs.existsSync(primaryEnv)) {
-      return primaryEnv;
-    }
-    if (fs.existsSync(secondaryEnv)) {
-      return secondaryEnv;
+    const candidates = process.platform === 'win32'
+      ? [
+          path.join(cwd, 'python_env', 'Scripts', 'python.exe'),
+          path.join(cwd, 'venv', 'Scripts', 'python.exe')
+        ]
+      : [
+          path.join(cwd, 'python_env', 'bin', 'python'),
+          path.join(cwd, 'venv', 'bin', 'python')
+        ];
+
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
     }
 
-    // Fallback: return python_env path so execution targets dedicated env
-    return primaryEnv;
+    return candidates[0];
   }
 
   /**
