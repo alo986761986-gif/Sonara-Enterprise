@@ -1,4 +1,5 @@
 {
+  // SONARA diagnostic rebuild marker: direct-api-duration-v1
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "sonara-enterprise",
   "main": "cloudflare/sonara-engine-rootcause-diagnostic.mjs",
