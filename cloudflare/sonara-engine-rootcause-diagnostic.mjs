@@ -52,7 +52,7 @@ async function textFetch(env, path, init = {}, timeoutMs = 15000) {
 
 async function rootCause(request, env, url) {
   const requested = Number(url.searchParams.get('duration') || 10);
-  const duration = Number.isFinite(requested) ? Math.max(10, Math.min(60, Math.round(requested))) : 10;
+  const duration = Number.isFinite(requested) ? Math.max(10, Math.min(240, Math.round(requested))) : 10;
   const health = await textFetch(env, '/health', { method: 'GET' }, 15000);
   const models = await textFetch(env, '/v1/models', { method: 'GET' }, 15000);
   const startedAt = Date.now();
