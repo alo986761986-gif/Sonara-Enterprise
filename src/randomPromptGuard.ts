@@ -1,5 +1,3 @@
-import { WORLD_MUSIC_GENRES } from './data/worldMusicGenres';
-
 const PROFESSIONAL_DETAILS = [
   'authentic genre-specific groove, precise rhythmic language, deep controlled low end, detailed percussion, expressive musical development, polished professional mix and master',
   'faithful genre aesthetics, sophisticated arrangement, strong musical identity, clean transients, rich harmonic depth, immersive stereo image, release-ready mastering',
@@ -14,32 +12,32 @@ function randomItem<T>(items: readonly T[]): T {
   return items[Math.floor(Math.random() * items.length)];
 }
 
-function selectedGenreAndSubgenre(): { genre: string; subgenre: string } {
-  const selects = Array.from(document.querySelectorAll('select')) as HTMLSelectElement[];
-  const allGenres = WORLD_MUSIC_GENRES.flatMap(group => group.genres);
-  const genreNames = new Set(allGenres.map(item => item.name));
-  const subgenreNames = new Set(allGenres.flatMap(item => item.subgenres));
+function currentGeneratorSelections(textarea: HTMLTextAreaElement) {
+  const generatorPanel = textarea.closest('section');
+  const selects = generatorPanel
+    ? Array.from(generatorPanel.querySelectorAll('select')) as HTMLSelectElement[]
+    : [];
 
-  const genreSelect = selects.find(select => genreNames.has(select.value));
-  const subgenreSelect = selects.find(select => subgenreNames.has(select.value));
-
-  const genre = genreSelect?.value || 'Music';
-  const genreEntry = allGenres.find(item => item.name === genre);
-  const fallbackSubgenre = genreEntry?.subgenres?.[0] || genre;
-  const subgenre = subgenreSelect?.value || fallbackSubgenre;
-
-  return { genre, subgenre };
+  return {
+    family: selects[0]?.value || 'Music',
+    genre: selects[1]?.value || 'Music',
+    subgenre: selects[2]?.value || selects[1]?.value || 'Music'
+  };
 }
 
-function buildProfessionalPrompt(): string {
-  const { genre, subgenre } = selectedGenreAndSubgenre();
+function buildProfessionalPrompt(textarea: HTMLTextAreaElement): string {
+  const { family, genre, subgenre } = currentGeneratorSelections(textarea);
   const detail = randomItem(PROFESSIONAL_DETAILS);
 
   return [
-    `Professional ${subgenre} production within the ${genre} genre`,
-    `strictly preserve the authentic musical identity of ${genre} and ${subgenre} without drifting into unrelated genres`,
+    `Professional ${subgenre} production`,
+    `music family: ${family}`,
+    `main genre: ${genre}`,
+    `subgenre: ${subgenre}`,
+    `strictly follow the authentic conventions, rhythm, instrumentation, groove and sound palette of ${subgenre} within ${genre}`,
+    `do not drift into unrelated genres or subgenres`,
     detail,
-    `the final track must clearly sound like ${subgenre} and remain fully coherent with ${genre}`
+    `the finished track must be immediately recognizable as professional ${subgenre}`
   ].join(', ');
 }
 
@@ -67,7 +65,7 @@ export function installRandomPromptGuard() {
       event.stopPropagation();
       event.stopImmediatePropagation();
 
-      setReactTextareaValue(textarea, buildProfessionalPrompt());
+      setReactTextareaValue(textarea, buildProfessionalPrompt(textarea));
       textarea.focus();
     },
     true
