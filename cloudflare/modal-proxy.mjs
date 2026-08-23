@@ -1,11 +1,30 @@
 const MODAL_DEFAULT_URL = 'https://alo986761986-gif--sonara-acestep-serve-acestep.modal.run';
+const PUBLIC_API_ORIGIN = 'https://api.sonaraenterprise.com';
+const ALLOWED_ORIGINS = new Set([
+  'https://sonaraenterprise.com',
+  'https://www.sonaraenterprise.com',
+  PUBLIC_API_ORIGIN
+]);
 
-function json(data, status = 200) {
+function corsHeaders(request) {
+  const origin = request.headers.get('Origin') || '';
+  const allowOrigin = ALLOWED_ORIGINS.has(origin) ? origin : 'https://sonaraenterprise.com';
+  return {
+    'Access-Control-Allow-Origin': allowOrigin,
+    'Access-Control-Allow-Methods': 'GET,HEAD,POST,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type,Range',
+    'Access-Control-Expose-Headers': 'Content-Length,Content-Range,Accept-Ranges',
+    'Vary': 'Origin'
+  };
+}
+
+function json(request, data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       'content-type': 'application/json; charset=UTF-8',
-      'cache-control': 'no-store'
+      'cache-control': 'no-store',
+      ...corsHeaders(request)
     }
   });
 }
@@ -76,13 +95,13 @@ function parseOutputs(value) {
 }
 
 async function generate(request, env) {
-  if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+  if (request.method !== 'POST') return json(request, { error: 'Method not allowed' }, 405);
 
   let body;
   try {
     body = await request.json();
   } catch {
-    return json({ error: 'Invalid JSON request body.' }, 400);
+    return json(request, { error: 'Invalid JSON request body.' }, 400);
   }
 
   const duration = clamp(body.durationSec ?? body.duration, 30, 5, 480);
@@ -112,9 +131,9 @@ async function generate(request, env) {
     });
 
     const taskId = data?.data?.task_id;
-    if (!taskId) return json({ error: 'Modal did not return a task_id.' }, 502);
+    if (!taskId) return json(request, { error: 'Modal did not return a task_id.' }, 502);
 
-    return json({
+    return json(request, {
       jobId: taskId,
       status: 'PROCESSING',
       progress: 10,
@@ -124,12 +143,12 @@ async function generate(request, env) {
       }
     }, 202);
   } catch (error) {
-    return json({ error: error instanceof Error ? error.message : String(error) }, 502);
+    return json(request, { error: error instanceof Error ? error.message : String(error) }, 502);
   }
 }
 
 async function job(request, env, jobId) {
-  if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405);
+  if (request.method !== 'GET') return json(request, { error: 'Method not allowed' }, 405);
 
   try {
     const data = await modalJson(env, '/query_result', {
@@ -140,7 +159,7 @@ async function job(request, env, jobId) {
 
     const item = data?.data?.[0];
     if (!item || Number(item.status) === 0) {
-      return json({
+      return json(request, {
         jobId,
         status: 'PROCESSING',
         progress: item ? 65 : 35,
@@ -152,20 +171,37 @@ async function job(request, env, jobId) {
     }
 
     if (Number(item.status) === 2) {
-      return json({ jobId, status: 'FAILED', progress: 0, error: item.error || 'ACE-Step generation failed.' });
+      return json(request, {
+        jobId,
+        status: 'FAILED',
+        progress: 0,
+        error: item.error || 'ACE-Step generation failed.'
+      });
     }
 
     const first = parseOutputs(item.result)[0] || {};
     const sourceUrl = first.url || first.file;
-    if (!sourceUrl) return json({ jobId, status: 'FAILED', error: 'ACE-Step completed without an audio URL.' }, 502);
+    if (!sourceUrl) {
+      return json(request, {
+        jobId,
+        status: 'FAILED',
+        error: 'ACE-Step completed without an audio URL.'
+      }, 502);
+    }
 
     const cfg = config(env);
     const parsed = new URL(sourceUrl, cfg.baseUrl);
     const audioPath = parsed.searchParams.get('path');
-    if (!audioPath) return json({ jobId, status: 'FAILED', error: 'ACE-Step audio URL has no path parameter.' }, 502);
+    if (!audioPath) {
+      return json(request, {
+        jobId,
+        status: 'FAILED',
+        error: 'ACE-Step audio URL has no path parameter.'
+      }, 502);
+    }
 
-    const audioUrl = `/api/modal/audio?path=${encodeURIComponent(audioPath)}`;
-    return json({
+    const audioUrl = `${PUBLIC_API_ORIGIN}/api/modal/audio?path=${encodeURIComponent(audioPath)}`;
+    return json(request, {
       jobId,
       status: 'COMPLETED',
       progress: 100,
@@ -179,7 +215,7 @@ async function job(request, env, jobId) {
       }
     });
   } catch (error) {
-    return json({
+    return json(request, {
       jobId,
       status: 'FAILED',
       progress: 0,
@@ -190,14 +226,16 @@ async function job(request, env, jobId) {
 
 async function audio(request, env, url) {
   if (request.method !== 'GET' && request.method !== 'HEAD') {
-    return json({ error: 'Method not allowed' }, 405);
+    return json(request, { error: 'Method not allowed' }, 405);
   }
 
   const audioPath = url.searchParams.get('path');
-  if (!audioPath) return json({ error: 'Missing audio path.' }, 400);
+  if (!audioPath) return json(request, { error: 'Missing audio path.' }, 400);
 
   const cfg = config(env);
-  if (!cfg.key || !cfg.secret) return json({ error: 'Modal proxy credentials are not configured.' }, 503);
+  if (!cfg.key || !cfg.secret) {
+    return json(request, { error: 'Modal proxy credentials are not configured.' }, 503);
+  }
 
   const headers = authHeaders(env);
   const range = request.headers.get('range');
@@ -210,7 +248,10 @@ async function audio(request, env, url) {
 
   if (!response.ok && response.status !== 206) {
     const text = await response.text();
-    return json({ error: `Modal audio HTTP ${response.status}`, message: text.slice(0, 180) }, response.status || 502);
+    return json(request, {
+      error: `Modal audio HTTP ${response.status}`,
+      message: text.slice(0, 180)
+    }, response.status || 502);
   }
 
   const out = new Headers();
@@ -219,6 +260,7 @@ async function audio(request, env, url) {
     if (value) out.set(name, value);
   }
   out.set('cache-control', 'private, no-store');
+  for (const [name, value] of Object.entries(corsHeaders(request))) out.set(name, value);
 
   return new Response(request.method === 'HEAD' ? null : response.body, {
     status: response.status,
@@ -228,14 +270,18 @@ async function audio(request, env, url) {
 
 export default {
   async fetch(request, env) {
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: corsHeaders(request) });
+    }
+
     const url = new URL(request.url);
     const path = url.pathname;
 
-    if (path === '/api/health') {
+    if (path === '/' || path === '/api/health') {
       const cfg = config(env);
       const hasModalProxyKey = Boolean(cfg.key);
       const hasModalProxySecret = Boolean(cfg.secret);
-      return json({
+      return json(request, {
         status: 'HEALTHY',
         service: 'sonara-production-modal-proxy',
         modalConfigured: hasModalProxyKey && hasModalProxySecret,
@@ -254,6 +300,6 @@ export default {
 
     if (path === '/api/modal/audio') return audio(request, env, url);
 
-    return json({ error: 'Not found', path }, 404);
+    return json(request, { error: 'Not found', path }, 404);
   }
 };
