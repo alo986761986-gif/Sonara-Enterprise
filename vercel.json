@@ -2,6 +2,10 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
     {
+      "source": "/api/health",
+      "destination": "https://api.sonaraenterprise.com/api/health"
+    },
+    {
       "source": "/api/engine/generate",
       "destination": "https://api.sonaraenterprise.com/api/engine/generate"
     },
@@ -15,6 +19,15 @@
     }
   ],
   "headers": [
+    {
+      "source": "/api/health",
+      "headers": [
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        }
+      ]
+    },
     {
       "source": "/api/engine/generate",
       "headers": [
