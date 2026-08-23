@@ -23,6 +23,10 @@
       "zone_name": "sonaraenterprise.com"
     },
     {
+      "pattern": "sonaraenterprise.com/api/diagnostic/*",
+      "zone_name": "sonaraenterprise.com"
+    },
+    {
       "pattern": "www.sonaraenterprise.com/api/engine/generate",
       "zone_name": "sonaraenterprise.com"
     },
@@ -32,6 +36,10 @@
     },
     {
       "pattern": "www.sonaraenterprise.com/api/modal/audio*",
+      "zone_name": "sonaraenterprise.com"
+    },
+    {
+      "pattern": "www.sonaraenterprise.com/api/diagnostic/*",
       "zone_name": "sonaraenterprise.com"
     }
   ]
