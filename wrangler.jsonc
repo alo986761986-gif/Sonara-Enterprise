@@ -3,5 +3,11 @@
   "name": "sonara-enterprise",
   "main": "cloudflare/modal-proxy.mjs",
   "compatibility_date": "2026-08-23",
-  "workers_dev": true
+  "workers_dev": true,
+  "secrets": {
+    "required": [
+      "MODAL_PROXY_KEY",
+      "MODAL_PROXY_SECRET"
+    ]
+  }
 }
