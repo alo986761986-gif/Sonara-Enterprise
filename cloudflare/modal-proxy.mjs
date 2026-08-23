@@ -5,6 +5,8 @@ const ALLOWED_ORIGINS = new Set([
   'https://www.sonaraenterprise.com',
   PUBLIC_API_ORIGIN
 ]);
+const RETRYABLE_MODAL_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526]);
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function corsHeaders(request) {
   const origin = request.headers.get('Origin') || '';
@@ -14,7 +16,7 @@ function corsHeaders(request) {
     'Access-Control-Allow-Methods': 'GET,HEAD,POST,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type,Range',
     'Access-Control-Expose-Headers': 'Content-Length,Content-Range,Accept-Ranges',
-    'Vary': 'Origin'
+    Vary: 'Origin'
   };
 }
 
@@ -51,33 +53,74 @@ function clamp(value, fallback, min, max) {
   return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
 }
 
-async function modalJson(env, path, init = {}) {
+class ModalRequestError extends Error {
+  constructor(message, status = 0, retryable = false) {
+    super(message);
+    this.name = 'ModalRequestError';
+    this.status = status;
+    this.retryable = retryable;
+  }
+}
+
+async function modalJsonOnce(env, path, init = {}) {
   const cfg = config(env);
   if (!cfg.key || !cfg.secret) {
-    throw new Error('Modal proxy credentials are not configured.');
+    throw new ModalRequestError('Modal proxy credentials are not configured.', 503, false);
   }
 
-  const response = await fetch(`${cfg.baseUrl}${path}`, {
-    ...init,
-    headers: {
-      ...authHeaders(env),
-      ...(init.headers || {})
-    }
-  });
+  let response;
+  try {
+    response = await fetch(`${cfg.baseUrl}${path}`, {
+      ...init,
+      headers: {
+        ...authHeaders(env),
+        ...(init.headers || {})
+      }
+    });
+  } catch (error) {
+    throw new ModalRequestError(`Modal network error: ${error instanceof Error ? error.message : String(error)}`, 0, true);
+  }
 
   const text = await response.text();
   let data = {};
-  try {
-    data = text ? JSON.parse(text) : {};
-  } catch {
-    throw new Error(`Modal returned non-JSON HTTP ${response.status}: ${text.slice(0, 180)}`);
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      const retryable = RETRYABLE_MODAL_STATUSES.has(response.status);
+      throw new ModalRequestError(
+        `Modal returned non-JSON HTTP ${response.status}: ${text.slice(0, 180)}`,
+        response.status,
+        retryable
+      );
+    }
   }
 
   if (!response.ok) {
-    throw new Error(`Modal HTTP ${response.status}: ${data?.detail || data?.error || data?.message || 'request failed'}`);
+    const retryable = RETRYABLE_MODAL_STATUSES.has(response.status);
+    throw new ModalRequestError(
+      `Modal HTTP ${response.status}: ${data?.detail || data?.error || data?.message || 'request failed'}`,
+      response.status,
+      retryable
+    );
   }
 
   return data;
+}
+
+async function modalJson(env, path, init = {}, retries = 0) {
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await modalJsonOnce(env, path, init);
+    } catch (error) {
+      lastError = error;
+      const retryable = error instanceof ModalRequestError && error.retryable;
+      if (!retryable || attempt >= retries) throw error;
+      await sleep(attempt === 0 ? 1500 : 4000);
+    }
+  }
+  throw lastError || new Error('Modal request failed.');
 }
 
 function parseOutputs(value) {
@@ -104,7 +147,7 @@ async function generate(request, env) {
     return json(request, { error: 'Invalid JSON request body.' }, 400);
   }
 
-  const duration = clamp(body.durationSec ?? body.duration, 30, 5, 480);
+  const duration = clamp(body.durationSec ?? body.duration, 30, 30, 240);
   const bpm = clamp(body.bpm, 124, 40, 240);
   const prompt = [body.genre, body.mood, body.key, body.prompt]
     .filter(Boolean)
@@ -128,7 +171,7 @@ async function generate(request, env) {
         audio_format: 'mp3',
         model: 'acestep-v15-turbo'
       })
-    });
+    }, 2);
 
     const taskId = data?.data?.task_id;
     if (!taskId) return json(request, { error: 'Modal did not return a task_id.' }, 502);
@@ -143,7 +186,12 @@ async function generate(request, env) {
       }
     }, 202);
   } catch (error) {
-    return json(request, { error: error instanceof Error ? error.message : String(error) }, 502);
+    const retryable = error instanceof ModalRequestError && error.retryable;
+    return json(request, {
+      error: error instanceof Error ? error.message : String(error),
+      retryable,
+      code: error instanceof ModalRequestError ? error.status : 0
+    }, retryable ? 503 : 502);
   }
 }
 
@@ -215,6 +263,20 @@ async function job(request, env, jobId) {
       }
     });
   } catch (error) {
+    const retryable = error instanceof ModalRequestError && error.retryable;
+    if (retryable) {
+      return json(request, {
+        jobId,
+        status: 'PROCESSING',
+        progress: 65,
+        transientError: true,
+        metadata: {
+          engine: 'ACE-Step 1.5 / Modal L4',
+          currentStage: 'ACE-Step Modal L4: GPU busy, retrying automatically'
+        }
+      });
+    }
+
     return json(request, {
       jobId,
       status: 'FAILED',
@@ -289,7 +351,8 @@ export default {
         hasModalProxySecret,
         keyFormatOk: hasModalProxyKey && cfg.key.startsWith('wk-'),
         secretFormatOk: hasModalProxySecret && cfg.secret.startsWith('ws-'),
-        engine: 'ACE-Step 1.5 / Modal L4'
+        engine: 'ACE-Step 1.5 / Modal L4',
+        resilience: 'modal-524-retry-v1'
       });
     }
 
