@@ -1,11 +1,10 @@
 const PROFESSIONAL_DETAILS = [
-  'authentic genre-specific groove, precise rhythmic language, deep controlled low end, detailed percussion, expressive musical development, polished professional mix and master',
-  'faithful genre aesthetics, sophisticated arrangement, strong musical identity, clean transients, rich harmonic depth, immersive stereo image, release-ready mastering',
-  'genre-correct drum programming, characteristic bass movement, refined sound design, evolving arrangement, balanced dynamics, premium studio production',
-  'authentic rhythmic patterns, distinctive genre instrumentation, tasteful melodic development, controlled sub frequencies, spacious mix, high-end professional master',
-  'strict stylistic coherence, detailed groove architecture, expressive textures, natural transitions, powerful but clean dynamics, modern professional production',
-  'recognizable genre identity, refined percussion, musical bass foundation, atmospheric depth, memorable motifs, precise mix balance, commercial-quality master',
-  'professional arrangement with clear intro, development, breakdown and climax, authentic genre vocabulary, detailed sound design, clean low end and polished master'
+  'authentic instrumentation and performance language, balanced dynamics, clear arrangement, polished studio mix and master',
+  'faithful stylistic phrasing, appropriate rhythmic feel, natural musical development, refined professional production',
+  'genre-appropriate instrumentation, characteristic groove, expressive arrangement, clean detailed mix and commercial-quality master',
+  'authentic musical vocabulary, precise rhythmic feel, tasteful dynamics, coherent arrangement, polished professional mastering',
+  'recognizable stylistic identity, appropriate instrumentation, natural transitions, balanced frequency spectrum and high-end studio finish',
+  'faithful genre character, expressive performance, controlled dynamics, clear structure, detailed mix and release-ready master'
 ] as const;
 
 function randomItem<T>(items: readonly T[]): T {
@@ -21,24 +20,23 @@ function currentGeneratorSelections(textarea: HTMLTextAreaElement) {
   return {
     family: selects[0]?.value || 'Music',
     genre: selects[1]?.value || 'Music',
-    subgenre: selects[2]?.value || selects[1]?.value || 'Music'
+    subgenre: selects[2]?.value || selects[1]?.value || 'Music',
+    mood: selects[3]?.value || ''
   };
 }
 
 function buildProfessionalPrompt(textarea: HTMLTextAreaElement): string {
-  const { family, genre, subgenre } = currentGeneratorSelections(textarea);
+  const { family, genre, subgenre, mood } = currentGeneratorSelections(textarea);
   const detail = randomItem(PROFESSIONAL_DETAILS);
 
   return [
-    `Professional ${subgenre} production`,
-    `music family: ${family}`,
-    `main genre: ${genre}`,
-    `subgenre: ${subgenre}`,
-    `strictly follow the authentic conventions, rhythm, instrumentation, groove and sound palette of ${subgenre} within ${genre}`,
-    `do not drift into unrelated genres or subgenres`,
-    detail,
-    `the finished track must be immediately recognizable as professional ${subgenre}`
-  ].join(', ');
+    subgenre,
+    genre,
+    family,
+    mood,
+    `professional ${subgenre} production`,
+    detail
+  ].filter(Boolean).join(', ');
 }
 
 function setReactTextareaValue(textarea: HTMLTextAreaElement, value: string) {
@@ -48,6 +46,12 @@ function setReactTextareaValue(textarea: HTMLTextAreaElement, value: string) {
 
   textarea.dispatchEvent(new Event('input', { bubbles: true }));
   textarea.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function refreshPromptFromSelections() {
+  const textarea = document.getElementById('sonara-prompt');
+  if (!(textarea instanceof HTMLTextAreaElement)) return;
+  setReactTextareaValue(textarea, buildProfessionalPrompt(textarea));
 }
 
 export function installRandomPromptGuard() {
@@ -67,6 +71,28 @@ export function installRandomPromptGuard() {
 
       setReactTextareaValue(textarea, buildProfessionalPrompt(textarea));
       textarea.focus();
+    },
+    true
+  );
+
+  document.addEventListener(
+    'change',
+    event => {
+      const target = event.target;
+      if (!(target instanceof HTMLSelectElement)) return;
+
+      const textarea = document.getElementById('sonara-prompt');
+      if (!(textarea instanceof HTMLTextAreaElement)) return;
+      const panel = textarea.closest('section');
+      if (!panel || !panel.contains(target)) return;
+
+      const selects = Array.from(panel.querySelectorAll('select')) as HTMLSelectElement[];
+      const index = selects.indexOf(target);
+      if (index < 0 || index > 2) return;
+
+      // Family/genre changes also update dependent selects in React.
+      // Wait one frame so the prompt always reads the final genre + subgenre pair.
+      requestAnimationFrame(refreshPromptFromSelections);
     },
     true
   );
