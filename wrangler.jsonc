@@ -7,18 +7,8 @@
   "keep_vars": true,
   "routes": [
     {
-      "pattern": "sonaraenterprise.com/api/*",
-      "zone_name": "sonaraenterprise.com"
-    },
-    {
-      "pattern": "www.sonaraenterprise.com/api/*",
-      "zone_name": "sonaraenterprise.com"
+      "pattern": "api.sonaraenterprise.com",
+      "custom_domain": true
     }
-  ],
-  "secrets": {
-    "required": [
-      "MODAL_PROXY_KEY",
-      "MODAL_PROXY_SECRET"
-    ]
-  }
+  ]
 }
