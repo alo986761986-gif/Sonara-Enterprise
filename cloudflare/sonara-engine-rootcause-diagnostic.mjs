@@ -50,9 +50,12 @@ async function textFetch(env, path, init = {}, timeoutMs = 15000) {
   }
 }
 
-async function rootCause(request, env) {
+async function rootCause(request, env, url) {
+  const requested = Number(url.searchParams.get('duration') || 10);
+  const duration = Number.isFinite(requested) ? Math.max(10, Math.min(60, Math.round(requested))) : 10;
   const health = await textFetch(env, '/health', { method: 'GET' }, 15000);
   const models = await textFetch(env, '/v1/models', { method: 'GET' }, 15000);
+  const startedAt = Date.now();
 
   const release = await textFetch(env, '/release_task', {
     method: 'POST',
@@ -63,7 +66,7 @@ async function rootCause(request, env) {
       vocal_language: 'unknown',
       bpm: 124,
       key_scale: 'A minor',
-      audio_duration: 10,
+      audio_duration: duration,
       inference_steps: 8,
       thinking: false,
       batch_size: 1,
@@ -76,6 +79,8 @@ async function rootCause(request, env) {
 
   return json({
     status: 'DIAGNOSTIC',
+    duration,
+    elapsedMs: Date.now() - startedAt,
     health,
     models,
     release
@@ -86,7 +91,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === '/api/diagnostic/rootcause' && request.method === 'GET') {
-      return rootCause(request, env);
+      return rootCause(request, env, url);
     }
     return safeDiagnostic.fetch(request, env, ctx);
   }
