@@ -7,6 +7,8 @@ const ALLOWED_ORIGINS = new Set([
 ]);
 const RETRYABLE_MODAL_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526]);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const GENERATION_SPEC_CACHE_URL = 'https://sonaraenterprise.com/__sonara_internal/generation-spec-v2';
+const GENERATION_SPEC_TTL_MS = 30 * 60 * 1000;
 
 let generationSpecCache = null;
 let generationSpecExpiresAt = 0;
@@ -56,6 +58,13 @@ function clamp(value, fallback, min, max) {
   return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
 }
 
+function timeoutLike(error) {
+  if (!(error instanceof Error)) return false;
+  const name = String(error.name || '').toLowerCase();
+  const message = String(error.message || '').toLowerCase();
+  return name.includes('abort') || name.includes('timeout') || message.includes('timeout') || message.includes('aborted');
+}
+
 class ModalRequestError extends Error {
   constructor(message, status = 0, retryable = false) {
     super(message);
@@ -65,7 +74,7 @@ class ModalRequestError extends Error {
   }
 }
 
-async function fetchModal(env, path, init = {}, timeoutMs = 12000) {
+async function fetchModal(env, path, init = {}, timeoutMs = 30000) {
   const cfg = config(env);
   if (!cfg.key || !cfg.secret) {
     throw new ModalRequestError('SONARA engine credentials are not configured.', 503, false);
@@ -82,6 +91,9 @@ async function fetchModal(env, path, init = {}, timeoutMs = 12000) {
       signal: AbortSignal.timeout(timeoutMs)
     });
   } catch (error) {
+    if (timeoutLike(error)) {
+      throw new ModalRequestError('SONARA engine is warming up.', 0, true);
+    }
     throw new ModalRequestError(
       `SONARA network error: ${error instanceof Error ? error.message : String(error)}`,
       0,
@@ -92,7 +104,7 @@ async function fetchModal(env, path, init = {}, timeoutMs = 12000) {
   return response;
 }
 
-async function modalJson(env, path, init = {}, timeoutMs = 12000) {
+async function modalJson(env, path, init = {}, timeoutMs = 30000) {
   const response = await fetchModal(env, path, init, timeoutMs);
   const text = await response.text();
   let data = {};
@@ -101,7 +113,7 @@ async function modalJson(env, path, init = {}, timeoutMs = 12000) {
       data = JSON.parse(text);
     } catch {
       throw new ModalRequestError(
-        `SONARA returned non-JSON HTTP ${response.status}: ${text.slice(0, 180)}`,
+        `SONARA returned an invalid response (HTTP ${response.status}).`,
         response.status,
         RETRYABLE_MODAL_STATUSES.has(response.status)
       );
@@ -119,29 +131,75 @@ async function modalJson(env, path, init = {}, timeoutMs = 12000) {
   return data;
 }
 
-async function loadGenerationSpec(env) {
+async function readCachedGenerationSpec() {
   if (generationSpecCache && Date.now() < generationSpecExpiresAt) return generationSpecCache;
+
+  try {
+    if (typeof caches === 'undefined' || !caches.default) return null;
+    const response = await caches.default.match(new Request(GENERATION_SPEC_CACHE_URL));
+    if (!response) return null;
+    const spec = await response.json();
+    if (!spec || !Array.isArray(spec.parameters)) return null;
+    generationSpecCache = spec;
+    generationSpecExpiresAt = Date.now() + GENERATION_SPEC_TTL_MS;
+    return spec;
+  } catch {
+    return null;
+  }
+}
+
+async function cacheGenerationSpec(spec) {
+  generationSpecCache = spec;
+  generationSpecExpiresAt = Date.now() + GENERATION_SPEC_TTL_MS;
+
+  try {
+    if (typeof caches === 'undefined' || !caches.default) return;
+    await caches.default.put(
+      new Request(GENERATION_SPEC_CACHE_URL),
+      new Response(JSON.stringify(spec), {
+        headers: {
+          'content-type': 'application/json; charset=UTF-8',
+          'cache-control': 'public, max-age=1800'
+        }
+      })
+    );
+  } catch {}
+}
+
+async function loadGenerationSpec(env) {
+  const cached = await readCachedGenerationSpec();
+  if (cached) return cached;
 
   let lastError;
   for (let attempt = 0; attempt < 6; attempt += 1) {
     try {
-      const info = await modalJson(env, '/gradio_api/info', { method: 'GET' }, 9000);
+      const info = await modalJson(env, '/gradio_api/info', { method: 'GET' }, 15000);
       const spec = info?.named_endpoints?.['/generation_wrapper'];
       if (!spec || !Array.isArray(spec.parameters)) {
         throw new ModalRequestError('SONARA generation endpoint is unavailable.', 502, false);
       }
-      generationSpecCache = spec;
-      generationSpecExpiresAt = Date.now() + 10 * 60 * 1000;
+      await cacheGenerationSpec(spec);
       return spec;
     } catch (error) {
       lastError = error;
       const retryable = error instanceof ModalRequestError && error.retryable;
       if (!retryable || attempt === 5) break;
-      await sleep(1500);
+      await sleep(attempt < 2 ? 1500 : 3000);
     }
   }
 
+  if (lastError instanceof ModalRequestError && lastError.retryable) {
+    throw new ModalRequestError('SONARA engine is still warming up. Please wait a moment and try again.', 503, true);
+  }
   throw lastError || new ModalRequestError('SONARA engine did not wake up in time.', 503, true);
+}
+
+async function warmSonaraEngine(env) {
+  try {
+    await loadGenerationSpec(env);
+  } catch {
+    // Background warm-up must never affect the dashboard response.
+  }
 }
 
 function setGradioValue(parameters, data, label, value) {
@@ -187,13 +245,13 @@ function buildGenerationData(spec, body) {
 
 async function submitGradioGeneration(env, data) {
   let lastError;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
     try {
       const response = await modalJson(env, '/gradio_api/call/generation_wrapper', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ data })
-      }, 10000);
+      }, 15000);
 
       const eventId = response?.event_id;
       if (!eventId) throw new ModalRequestError('SONARA did not return an event ID.', 502, false);
@@ -201,11 +259,14 @@ async function submitGradioGeneration(env, data) {
     } catch (error) {
       lastError = error;
       const retryable = error instanceof ModalRequestError && error.retryable;
-      if (!retryable || attempt === 2) break;
-      await sleep(1500);
+      if (!retryable || attempt === 5) break;
+      await sleep(attempt < 2 ? 1500 : 3000);
     }
   }
 
+  if (lastError instanceof ModalRequestError && lastError.retryable) {
+    throw new ModalRequestError('SONARA engine is still warming up. Please wait a moment and try again.', 503, true);
+  }
   throw lastError || new ModalRequestError('Unable to submit SONARA generation.', 503, true);
 }
 
@@ -238,10 +299,12 @@ async function generate(request, env) {
   } catch (error) {
     const retryable = error instanceof ModalRequestError && error.retryable;
     return json(request, {
-      error: error instanceof Error ? error.message : String(error),
+      error: retryable
+        ? 'SONARA engine is warming up. Please wait a moment and try again.'
+        : (error instanceof Error ? error.message : String(error)),
       retryable,
       code: error instanceof ModalRequestError ? error.status : 0,
-      stage: retryable ? 'SONARA: engine warming up, retry generation shortly' : 'SONARA request failed'
+      stage: retryable ? 'SONARA: engine warming up' : 'SONARA request failed'
     }, retryable ? 503 : 502);
   }
 }
@@ -319,7 +382,7 @@ async function readGradioEvent(env, eventId) {
       if (done) return { state: 'processing' };
     }
   } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') return { state: 'processing' };
+    if (timeoutLike(error)) return { state: 'processing' };
     if (error instanceof ModalRequestError && error.retryable) return { state: 'processing' };
     throw error;
   } finally {
@@ -383,7 +446,7 @@ async function legacyJob(request, env, jobId) {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ task_id_list: [jobId] })
-    }, 9000);
+    }, 12000);
 
     const item = data?.data?.[0];
     if (!item || Number(item.status) === 0) {
@@ -541,13 +604,14 @@ async function audio(request, env, url) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(request) });
 
     const url = new URL(request.url);
     const path = url.pathname;
 
     if (path === '/' || path === '/api/health') {
+      if (ctx?.waitUntil) ctx.waitUntil(warmSonaraEngine(env));
       const cfg = config(env);
       const hasModalProxyKey = Boolean(cfg.key);
       const hasModalProxySecret = Boolean(cfg.secret);
@@ -561,7 +625,7 @@ export default {
         secretFormatOk: hasModalProxySecret && cfg.secret.startsWith('ws-'),
         engine: 'SONARA',
         transport: 'async queue',
-        resilience: 'async-queue-v1'
+        resilience: 'warm-cache-retry-v2'
       });
     }
 
