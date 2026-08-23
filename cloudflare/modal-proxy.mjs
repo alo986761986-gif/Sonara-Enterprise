@@ -8,6 +8,9 @@ const ALLOWED_ORIGINS = new Set([
 const RETRYABLE_MODAL_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526]);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+let generationSpecCache = null;
+let generationSpecExpiresAt = 0;
+
 function corsHeaders(request) {
   const origin = request.headers.get('Origin') || '';
   const allowOrigin = ALLOWED_ORIGINS.has(origin) ? origin : 'https://sonaraenterprise.com';
@@ -62,7 +65,7 @@ class ModalRequestError extends Error {
   }
 }
 
-async function modalJsonOnce(env, path, init = {}) {
+async function fetchModal(env, path, init = {}, timeoutMs = 12000) {
   const cfg = config(env);
   if (!cfg.key || !cfg.secret) {
     throw new ModalRequestError('Modal proxy credentials are not configured.', 503, false);
@@ -75,66 +78,135 @@ async function modalJsonOnce(env, path, init = {}) {
       headers: {
         ...authHeaders(env),
         ...(init.headers || {})
-      }
+      },
+      signal: AbortSignal.timeout(timeoutMs)
     });
   } catch (error) {
-    throw new ModalRequestError(`Modal network error: ${error instanceof Error ? error.message : String(error)}`, 0, true);
+    throw new ModalRequestError(
+      `Modal network error: ${error instanceof Error ? error.message : String(error)}`,
+      0,
+      true
+    );
   }
 
+  return response;
+}
+
+async function modalJson(env, path, init = {}, timeoutMs = 12000) {
+  const response = await fetchModal(env, path, init, timeoutMs);
   const text = await response.text();
   let data = {};
   if (text) {
     try {
       data = JSON.parse(text);
     } catch {
-      const retryable = RETRYABLE_MODAL_STATUSES.has(response.status);
       throw new ModalRequestError(
         `Modal returned non-JSON HTTP ${response.status}: ${text.slice(0, 180)}`,
         response.status,
-        retryable
+        RETRYABLE_MODAL_STATUSES.has(response.status)
       );
     }
   }
 
   if (!response.ok) {
-    const retryable = RETRYABLE_MODAL_STATUSES.has(response.status);
     throw new ModalRequestError(
       `Modal HTTP ${response.status}: ${data?.detail || data?.error || data?.message || 'request failed'}`,
       response.status,
-      retryable
+      RETRYABLE_MODAL_STATUSES.has(response.status)
     );
   }
 
   return data;
 }
 
-async function modalJson(env, path, init = {}, retries = 0) {
+async function loadGenerationSpec(env) {
+  if (generationSpecCache && Date.now() < generationSpecExpiresAt) return generationSpecCache;
+
   let lastError;
-  for (let attempt = 0; attempt <= retries; attempt += 1) {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
     try {
-      return await modalJsonOnce(env, path, init);
+      const info = await modalJson(env, '/gradio_api/info', { method: 'GET' }, 9000);
+      const spec = info?.named_endpoints?.['/generation_wrapper'];
+      if (!spec || !Array.isArray(spec.parameters)) {
+        throw new ModalRequestError('ACE-Step Gradio generation endpoint is unavailable.', 502, false);
+      }
+      generationSpecCache = spec;
+      generationSpecExpiresAt = Date.now() + 10 * 60 * 1000;
+      return spec;
     } catch (error) {
       lastError = error;
       const retryable = error instanceof ModalRequestError && error.retryable;
-      if (!retryable || attempt >= retries) throw error;
-      await sleep(attempt === 0 ? 1500 : 4000);
+      if (!retryable || attempt === 5) break;
+      await sleep(1500);
     }
   }
-  throw lastError || new Error('Modal request failed.');
+
+  throw lastError || new ModalRequestError('ACE-Step Gradio API did not wake up in time.', 503, true);
 }
 
-function parseOutputs(value) {
-  if (!value) return [];
-  if (Array.isArray(value)) return value;
-  if (typeof value === 'string') {
+function setGradioValue(parameters, data, label, value) {
+  const index = parameters.findIndex(parameter => String(parameter?.label || '') === label);
+  if (index >= 0) data[index] = value;
+}
+
+function buildGenerationData(spec, body) {
+  const parameters = spec.parameters || [];
+  const data = parameters.map(parameter => (
+    parameter?.parameter_has_default ? parameter.parameter_default : null
+  ));
+
+  const duration = clamp(body.durationSec ?? body.duration, 30, 30, 240);
+  const bpm = clamp(body.bpm, 124, 40, 240);
+  const caption = [body.genre, body.mood, body.key, body.prompt]
+    .filter(Boolean)
+    .map(value => String(value).trim())
+    .filter(Boolean)
+    .join(', ') || 'Professional electronic music production';
+
+  setGradioValue(parameters, data, 'Music Caption', caption);
+  setGradioValue(parameters, data, 'Lyrics', body.lyrics || '');
+  setGradioValue(parameters, data, 'BPM (Beats Per Minute)', bpm);
+  setGradioValue(parameters, data, 'Key', body.key || '');
+  setGradioValue(parameters, data, 'Time Signature', body.timeSignature || '');
+  setGradioValue(parameters, data, 'Vocal Language', body.vocalLanguage || 'unknown');
+  setGradioValue(parameters, data, 'DiT Inference Steps', 8);
+  setGradioValue(parameters, data, 'Random Seed', true);
+  setGradioValue(parameters, data, 'Seed', '-1');
+  setGradioValue(parameters, data, 'Audio Duration (seconds)', duration);
+  setGradioValue(parameters, data, 'Batch Size', 1);
+  setGradioValue(parameters, data, 'Audio Format', 'mp3');
+  setGradioValue(parameters, data, 'MP3 Bitrate', '192k');
+  setGradioValue(parameters, data, 'MP3 Sample Rate', 48000);
+  setGradioValue(parameters, data, 'Think', true);
+  setGradioValue(parameters, data, 'Auto Score', false);
+  setGradioValue(parameters, data, 'Auto LRC', false);
+  setGradioValue(parameters, data, 'AutoGen', false);
+
+  return data;
+}
+
+async function submitGradioGeneration(env, data) {
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed : [parsed];
-    } catch {
-      return [];
+      const response = await modalJson(env, '/gradio_api/call/generation_wrapper', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ data })
+      }, 10000);
+
+      const eventId = response?.event_id;
+      if (!eventId) throw new ModalRequestError('Gradio did not return an event_id.', 502, false);
+      return String(eventId);
+    } catch (error) {
+      lastError = error;
+      const retryable = error instanceof ModalRequestError && error.retryable;
+      if (!retryable || attempt === 2) break;
+      await sleep(1500);
     }
   }
-  return [value];
+
+  throw lastError || new ModalRequestError('Unable to submit ACE-Step generation.', 503, true);
 }
 
 async function generate(request, env) {
@@ -147,42 +219,20 @@ async function generate(request, env) {
     return json(request, { error: 'Invalid JSON request body.' }, 400);
   }
 
-  const duration = clamp(body.durationSec ?? body.duration, 30, 30, 240);
-  const bpm = clamp(body.bpm, 124, 40, 240);
-  const prompt = [body.genre, body.mood, body.key, body.prompt]
-    .filter(Boolean)
-    .map(v => String(v).trim())
-    .filter(Boolean)
-    .join(', ');
-
   try {
-    const data = await modalJson(env, '/release_task', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        prompt: prompt || 'Professional electronic music production',
-        lyrics: body.lyrics || '',
-        thinking: true,
-        audio_duration: duration,
-        bpm,
-        inference_steps: 4,
-        batch_size: 1,
-        infer_method: 'ode',
-        audio_format: 'mp3',
-        model: 'acestep-v15-turbo'
-      })
-    }, 2);
-
-    const taskId = data?.data?.task_id;
-    if (!taskId) return json(request, { error: 'Modal did not return a task_id.' }, 502);
+    const spec = await loadGenerationSpec(env);
+    const data = buildGenerationData(spec, body);
+    const eventId = await submitGradioGeneration(env, data);
+    const jobId = `g_${eventId}`;
 
     return json(request, {
-      jobId: taskId,
+      jobId,
       status: 'PROCESSING',
       progress: 10,
       metadata: {
         engine: 'ACE-Step 1.5 / Modal L4',
-        currentStage: 'ACE-Step Modal L4: generation started'
+        transport: 'Gradio async queue',
+        currentStage: 'ACE-Step Modal L4: generation queued'
       }
     }, 202);
   } catch (error) {
@@ -190,20 +240,150 @@ async function generate(request, env) {
     return json(request, {
       error: error instanceof Error ? error.message : String(error),
       retryable,
-      code: error instanceof ModalRequestError ? error.status : 0
+      code: error instanceof ModalRequestError ? error.status : 0,
+      stage: retryable ? 'ACE-Step Modal L4: waking GPU, retry generation shortly' : 'ACE-Step request failed'
     }, retryable ? 503 : 502);
   }
 }
 
-async function job(request, env, jobId) {
-  if (request.method !== 'GET') return json(request, { error: 'Method not allowed' }, 405);
+function parseSseBlock(block) {
+  const lines = block.split(/\r?\n/);
+  const eventLine = lines.find(line => line.startsWith('event:'));
+  const dataLines = lines.filter(line => line.startsWith('data:'));
+  if (!eventLine) return null;
+  return {
+    event: eventLine.slice(6).trim(),
+    data: dataLines.map(line => line.slice(5).trimStart()).join('\n')
+  };
+}
 
+async function readGradioEvent(env, eventId) {
+  const cfg = config(env);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 9000);
+  let response;
+
+  try {
+    response = await fetch(`${cfg.baseUrl}/gradio_api/call/generation_wrapper/${encodeURIComponent(eventId)}`, {
+      method: 'GET',
+      headers: authHeaders(env),
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new ModalRequestError(
+        `Gradio result HTTP ${response.status}: ${text.slice(0, 180)}`,
+        response.status,
+        RETRYABLE_MODAL_STATUSES.has(response.status)
+      );
+    }
+
+    if (!response.body) return { state: 'processing' };
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (value) buffer += decoder.decode(value, { stream: true });
+
+      const parts = buffer.split(/\r?\n\r?\n/);
+      buffer = parts.pop() || '';
+      const events = parts.map(parseSseBlock).filter(Boolean);
+
+      const complete = events.find(item => item.event === 'complete');
+      if (complete) {
+        let data;
+        try {
+          data = JSON.parse(complete.data || 'null');
+        } catch {
+          throw new ModalRequestError('Gradio completed with invalid JSON output.', 502, false);
+        }
+        try { await reader.cancel(); } catch {}
+        return { state: 'complete', data };
+      }
+
+      const failure = events.find(item => item.event === 'error');
+      if (failure) {
+        try { await reader.cancel(); } catch {}
+        return { state: 'error', error: failure.data || 'ACE-Step Gradio generation failed.' };
+      }
+
+      if (events.some(item => item.event === 'generating' || item.event === 'heartbeat')) {
+        try { await reader.cancel(); } catch {}
+        return { state: 'processing' };
+      }
+
+      if (done) return { state: 'processing' };
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') return { state: 'processing' };
+    if (error instanceof ModalRequestError && error.retryable) return { state: 'processing' };
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function findAudioDescriptor(value) {
+  if (!value) return null;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findAudioDescriptor(item);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof value !== 'object') return null;
+
+  const url = typeof value.url === 'string' ? value.url : '';
+  const path = typeof value.path === 'string' ? value.path : '';
+  const mime = String(value.mime_type || value.mimeType || '');
+  const name = String(value.orig_name || value.name || '');
+  if (
+    mime.startsWith('audio/') ||
+    /\.(mp3|wav|flac|ogg|opus|aac)(?:$|\?)/i.test(url) ||
+    /\.(mp3|wav|flac|ogg|opus|aac)$/i.test(path) ||
+    /\.(mp3|wav|flac|ogg|opus|aac)$/i.test(name)
+  ) {
+    return { url, path };
+  }
+
+  for (const nested of Object.values(value)) {
+    const found = findAudioDescriptor(nested);
+    if (found) return found;
+  }
+  return null;
+}
+
+function publicAudioUrl(env, descriptor) {
+  const cfg = config(env);
+  let source = '';
+
+  if (descriptor?.url) {
+    try {
+      const parsed = new URL(descriptor.url, cfg.baseUrl);
+      source = `${parsed.pathname}${parsed.search}`;
+    } catch {}
+  }
+
+  if (!source && descriptor?.path) {
+    source = `/gradio_api/file=${encodeURIComponent(descriptor.path)}`;
+  }
+
+  if (!source) return '';
+  return `${PUBLIC_API_ORIGIN}/api/modal/audio?source=${encodeURIComponent(source)}`;
+}
+
+async function legacyJob(request, env, jobId) {
   try {
     const data = await modalJson(env, '/query_result', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ task_id_list: [jobId] })
-    });
+    }, 9000);
 
     const item = data?.data?.[0];
     if (!item || Number(item.status) === 0) {
@@ -211,44 +391,84 @@ async function job(request, env, jobId) {
         jobId,
         status: 'PROCESSING',
         progress: item ? 65 : 35,
+        metadata: { engine: 'ACE-Step 1.5 / Modal L4', currentStage: 'ACE-Step Modal L4: generating audio' }
+      });
+    }
+
+    if (Number(item.status) === 2) {
+      return json(request, { jobId, status: 'FAILED', progress: 0, error: item.error || 'ACE-Step generation failed.' });
+    }
+
+    let outputs = item.result;
+    if (typeof outputs === 'string') {
+      try { outputs = JSON.parse(outputs); } catch { outputs = []; }
+    }
+    const first = Array.isArray(outputs) ? outputs[0] : outputs || {};
+    const sourceUrl = first?.url || first?.file;
+    if (!sourceUrl) return json(request, { jobId, status: 'FAILED', error: 'ACE-Step completed without an audio URL.' }, 502);
+
+    const cfg = config(env);
+    const parsed = new URL(sourceUrl, cfg.baseUrl);
+    const audioPath = parsed.searchParams.get('path');
+    if (!audioPath) return json(request, { jobId, status: 'FAILED', error: 'ACE-Step audio URL has no path parameter.' }, 502);
+
+    const audioUrl = `${PUBLIC_API_ORIGIN}/api/modal/audio?path=${encodeURIComponent(audioPath)}`;
+    return json(request, {
+      jobId,
+      status: 'COMPLETED',
+      progress: 100,
+      audioUrl,
+      metadata: { engine: 'ACE-Step 1.5 / Modal L4', provider: 'Modal', model: 'acestep-v15-turbo', audioUrl, currentStage: 'Audio ready' }
+    });
+  } catch (error) {
+    const retryable = error instanceof ModalRequestError && error.retryable;
+    if (retryable) {
+      return json(request, {
+        jobId,
+        status: 'PROCESSING',
+        progress: 65,
+        transientError: true,
+        metadata: { engine: 'ACE-Step 1.5 / Modal L4', currentStage: 'ACE-Step Modal L4: GPU busy, retrying automatically' }
+      });
+    }
+    return json(request, { jobId, status: 'FAILED', progress: 0, error: error instanceof Error ? error.message : String(error) }, 502);
+  }
+}
+
+async function job(request, env, jobId) {
+  if (request.method !== 'GET') return json(request, { error: 'Method not allowed' }, 405);
+  if (!jobId.startsWith('g_')) return legacyJob(request, env, jobId);
+
+  try {
+    const result = await readGradioEvent(env, jobId.slice(2));
+    if (result.state === 'processing') {
+      return json(request, {
+        jobId,
+        status: 'PROCESSING',
+        progress: 65,
         metadata: {
           engine: 'ACE-Step 1.5 / Modal L4',
+          transport: 'Gradio async queue',
           currentStage: 'ACE-Step Modal L4: generating audio'
         }
       });
     }
 
-    if (Number(item.status) === 2) {
+    if (result.state === 'error') {
+      return json(request, { jobId, status: 'FAILED', progress: 0, error: result.error || 'ACE-Step generation failed.' });
+    }
+
+    const descriptor = findAudioDescriptor(result.data);
+    const audioUrl = publicAudioUrl(env, descriptor);
+    if (!audioUrl) {
       return json(request, {
         jobId,
         status: 'FAILED',
         progress: 0,
-        error: item.error || 'ACE-Step generation failed.'
-      });
-    }
-
-    const first = parseOutputs(item.result)[0] || {};
-    const sourceUrl = first.url || first.file;
-    if (!sourceUrl) {
-      return json(request, {
-        jobId,
-        status: 'FAILED',
-        error: 'ACE-Step completed without an audio URL.'
+        error: 'ACE-Step completed but no generated audio file was found.'
       }, 502);
     }
 
-    const cfg = config(env);
-    const parsed = new URL(sourceUrl, cfg.baseUrl);
-    const audioPath = parsed.searchParams.get('path');
-    if (!audioPath) {
-      return json(request, {
-        jobId,
-        status: 'FAILED',
-        error: 'ACE-Step audio URL has no path parameter.'
-      }, 502);
-    }
-
-    const audioUrl = `${PUBLIC_API_ORIGIN}/api/modal/audio?path=${encodeURIComponent(audioPath)}`;
     return json(request, {
       jobId,
       status: 'COMPLETED',
@@ -258,6 +478,7 @@ async function job(request, env, jobId) {
         engine: 'ACE-Step 1.5 / Modal L4',
         provider: 'Modal',
         model: 'acestep-v15-turbo',
+        transport: 'Gradio async queue',
         audioUrl,
         currentStage: 'Audio ready'
       }
@@ -270,50 +491,42 @@ async function job(request, env, jobId) {
         status: 'PROCESSING',
         progress: 65,
         transientError: true,
-        metadata: {
-          engine: 'ACE-Step 1.5 / Modal L4',
-          currentStage: 'ACE-Step Modal L4: GPU busy, retrying automatically'
-        }
+        metadata: { engine: 'ACE-Step 1.5 / Modal L4', currentStage: 'ACE-Step Modal L4: waiting for result' }
       });
     }
-
-    return json(request, {
-      jobId,
-      status: 'FAILED',
-      progress: 0,
-      error: error instanceof Error ? error.message : String(error)
-    }, 502);
+    return json(request, { jobId, status: 'FAILED', progress: 0, error: error instanceof Error ? error.message : String(error) }, 502);
   }
 }
 
 async function audio(request, env, url) {
-  if (request.method !== 'GET' && request.method !== 'HEAD') {
-    return json(request, { error: 'Method not allowed' }, 405);
-  }
-
-  const audioPath = url.searchParams.get('path');
-  if (!audioPath) return json(request, { error: 'Missing audio path.' }, 400);
+  if (request.method !== 'GET' && request.method !== 'HEAD') return json(request, { error: 'Method not allowed' }, 405);
 
   const cfg = config(env);
-  if (!cfg.key || !cfg.secret) {
-    return json(request, { error: 'Modal proxy credentials are not configured.' }, 503);
+  if (!cfg.key || !cfg.secret) return json(request, { error: 'Modal proxy credentials are not configured.' }, 503);
+
+  const source = url.searchParams.get('source');
+  const legacyPath = url.searchParams.get('path');
+  let target = '';
+
+  if (source) {
+    if (!/^\/gradio_api\/(?:file=|stream\/)/.test(source) && !/^\/file=/.test(source)) {
+      return json(request, { error: 'Invalid Gradio audio source.' }, 400);
+    }
+    target = `${cfg.baseUrl}${source}`;
+  } else if (legacyPath) {
+    target = `${cfg.baseUrl}/v1/audio?path=${encodeURIComponent(legacyPath)}`;
+  } else {
+    return json(request, { error: 'Missing audio source.' }, 400);
   }
 
   const headers = authHeaders(env);
   const range = request.headers.get('range');
   if (range) headers.Range = range;
 
-  const response = await fetch(`${cfg.baseUrl}/v1/audio?path=${encodeURIComponent(audioPath)}`, {
-    method: request.method,
-    headers
-  });
-
+  const response = await fetch(target, { method: request.method, headers });
   if (!response.ok && response.status !== 206) {
     const text = await response.text();
-    return json(request, {
-      error: `Modal audio HTTP ${response.status}`,
-      message: text.slice(0, 180)
-    }, response.status || 502);
+    return json(request, { error: `Modal audio HTTP ${response.status}`, message: text.slice(0, 180) }, response.status || 502);
   }
 
   const out = new Headers();
@@ -324,75 +537,12 @@ async function audio(request, env, url) {
   out.set('cache-control', 'private, no-store');
   for (const [name, value] of Object.entries(corsHeaders(request))) out.set(name, value);
 
-  return new Response(request.method === 'HEAD' ? null : response.body, {
-    status: response.status,
-    headers: out
-  });
-}
-
-function compactParameter(parameter) {
-  return {
-    label: parameter?.label || '',
-    name: parameter?.parameter_name || '',
-    hasDefault: Boolean(parameter?.parameter_has_default),
-    default: parameter?.parameter_default,
-    component: parameter?.component || '',
-    pythonType: parameter?.python_type?.type || ''
-  };
-}
-
-async function gradioDiagnostics(env) {
-  const cfg = config(env);
-  try {
-    const response = await fetch(`${cfg.baseUrl}/gradio_api/info`, {
-      method: 'GET',
-      headers: authHeaders(env),
-      signal: AbortSignal.timeout(12000)
-    });
-    const text = await response.text();
-    if (!response.ok) {
-      return { status: response.status, error: text.slice(0, 300) };
-    }
-    const info = JSON.parse(text || '{}');
-    const named = info?.named_endpoints || {};
-    const entries = Object.entries(named);
-    const candidates = entries.filter(([name, spec]) => {
-      const params = Array.isArray(spec?.parameters) ? spec.parameters : [];
-      const returns = Array.isArray(spec?.returns) ? spec.returns : [];
-      const haystack = [
-        name,
-        spec?.description || '',
-        ...params.flatMap(p => [p?.label || '', p?.parameter_name || '', p?.component || '']),
-        ...returns.flatMap(r => [r?.label || '', r?.component || ''])
-      ].join(' ');
-      return /(generate|music|audio|sample|caption|lyrics)/i.test(haystack);
-    }).map(([name, spec]) => ({
-      name,
-      description: spec?.description || '',
-      parameters: (spec?.parameters || []).map(compactParameter),
-      returns: (spec?.returns || []).map(r => ({
-        label: r?.label || '',
-        component: r?.component || '',
-        pythonType: r?.python_type?.type || ''
-      }))
-    }));
-
-    return {
-      status: response.status,
-      endpointCount: entries.length,
-      candidateCount: candidates.length,
-      candidates
-    };
-  } catch (error) {
-    return { status: 0, error: error instanceof Error ? error.message : String(error) };
-  }
+  return new Response(request.method === 'HEAD' ? null : response.body, { status: response.status, headers: out });
 }
 
 export default {
   async fetch(request, env) {
-    if (request.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: corsHeaders(request) });
-    }
+    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(request) });
 
     const url = new URL(request.url);
     const path = url.pathname;
@@ -401,7 +551,7 @@ export default {
       const cfg = config(env);
       const hasModalProxyKey = Boolean(cfg.key);
       const hasModalProxySecret = Boolean(cfg.secret);
-      const base = {
+      return json(request, {
         status: 'HEALTHY',
         service: 'sonara-production-modal-proxy',
         modalConfigured: hasModalProxyKey && hasModalProxySecret,
@@ -410,12 +560,9 @@ export default {
         keyFormatOk: hasModalProxyKey && cfg.key.startsWith('wk-'),
         secretFormatOk: hasModalProxySecret && cfg.secret.startsWith('ws-'),
         engine: 'ACE-Step 1.5 / Modal L4',
-        resilience: 'modal-524-retry-v1'
-      };
-      if (url.searchParams.get('diag') === 'gradio') {
-        return json(request, { ...base, gradio: await gradioDiagnostics(env) });
-      }
-      return json(request, base);
+        transport: 'Gradio async queue',
+        resilience: 'async-gradio-v1'
+      });
     }
 
     if (path === '/api/engine/generate') return generate(request, env);
