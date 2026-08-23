@@ -233,10 +233,16 @@ export default {
 
     if (path === '/api/health') {
       const cfg = config(env);
+      const hasModalProxyKey = Boolean(cfg.key);
+      const hasModalProxySecret = Boolean(cfg.secret);
       return json({
         status: 'HEALTHY',
         service: 'sonara-production-modal-proxy',
-        modalConfigured: Boolean(cfg.key && cfg.secret),
+        modalConfigured: hasModalProxyKey && hasModalProxySecret,
+        hasModalProxyKey,
+        hasModalProxySecret,
+        keyFormatOk: hasModalProxyKey && cfg.key.startsWith('wk-'),
+        secretFormatOk: hasModalProxySecret && cfg.secret.startsWith('ws-'),
         engine: 'ACE-Step 1.5 / Modal L4'
       });
     }
