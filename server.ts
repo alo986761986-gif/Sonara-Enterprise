@@ -33,8 +33,9 @@ function loadLocalEnvironment(): string | null {
         value = value.slice(1, -1);
       }
 
-      // Explicit process environment always wins. The local file only fills gaps.
-      if (!process.env[key]) process.env[key] = value;
+      // The local file is authoritative in local development. This prevents
+      // stale PowerShell environment variables from overriding valid Modal credentials.
+      process.env[key] = value;
     }
 
     return envPath;
