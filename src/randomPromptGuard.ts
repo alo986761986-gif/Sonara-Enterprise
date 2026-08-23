@@ -1,15 +1,46 @@
-const RANDOM_PROMPTS = [
-  'Professional music production, deep detailed low end, expressive rhythm, immersive stereo space, evolving arrangement, polished professional mix and master',
-  'Professional music production, warm musical dynamics, rich harmonic texture, organic movement, cinematic depth, clean transients, professional mastering',
-  'Professional music production, hypnotic groove, atmospheric layers, expressive melodic development, powerful dynamics, spacious mix, release-ready master',
-  'Professional music production, authentic musical character, modern sound design, detailed percussion, emotional harmonic movement, wide stereo image, premium mix and master',
-  'Professional music production, driving rhythm, textured ambience, memorable musical motifs, controlled bass, dynamic transitions, high-end studio production',
-  'Professional music production, deep immersive atmosphere, tight drums, warm bass, evolving textures, elegant transitions, balanced dynamics, polished club-ready master',
-  'Professional music production, sophisticated groove, punchy transients, rich spatial depth, subtle harmonic movement, detailed sound design, clean professional master'
+import { WORLD_MUSIC_GENRES } from './data/worldMusicGenres';
+
+const PROFESSIONAL_DETAILS = [
+  'authentic genre-specific groove, precise rhythmic language, deep controlled low end, detailed percussion, expressive musical development, polished professional mix and master',
+  'faithful genre aesthetics, sophisticated arrangement, strong musical identity, clean transients, rich harmonic depth, immersive stereo image, release-ready mastering',
+  'genre-correct drum programming, characteristic bass movement, refined sound design, evolving arrangement, balanced dynamics, premium studio production',
+  'authentic rhythmic patterns, distinctive genre instrumentation, tasteful melodic development, controlled sub frequencies, spacious mix, high-end professional master',
+  'strict stylistic coherence, detailed groove architecture, expressive textures, natural transitions, powerful but clean dynamics, modern professional production',
+  'recognizable genre identity, refined percussion, musical bass foundation, atmospheric depth, memorable motifs, precise mix balance, commercial-quality master',
+  'professional arrangement with clear intro, development, breakdown and climax, authentic genre vocabulary, detailed sound design, clean low end and polished master'
 ] as const;
 
-function randomPrompt(): string {
-  return RANDOM_PROMPTS[Math.floor(Math.random() * RANDOM_PROMPTS.length)];
+function randomItem<T>(items: readonly T[]): T {
+  return items[Math.floor(Math.random() * items.length)];
+}
+
+function selectedGenreAndSubgenre(): { genre: string; subgenre: string } {
+  const selects = Array.from(document.querySelectorAll('select')) as HTMLSelectElement[];
+  const allGenres = WORLD_MUSIC_GENRES.flatMap(group => group.genres);
+  const genreNames = new Set(allGenres.map(item => item.name));
+  const subgenreNames = new Set(allGenres.flatMap(item => item.subgenres));
+
+  const genreSelect = selects.find(select => genreNames.has(select.value));
+  const subgenreSelect = selects.find(select => subgenreNames.has(select.value));
+
+  const genre = genreSelect?.value || 'Music';
+  const genreEntry = allGenres.find(item => item.name === genre);
+  const fallbackSubgenre = genreEntry?.subgenres?.[0] || genre;
+  const subgenre = subgenreSelect?.value || fallbackSubgenre;
+
+  return { genre, subgenre };
+}
+
+function buildProfessionalPrompt(): string {
+  const { genre, subgenre } = selectedGenreAndSubgenre();
+  const detail = randomItem(PROFESSIONAL_DETAILS);
+
+  return [
+    `Professional ${subgenre} production within the ${genre} genre`,
+    `strictly preserve the authentic musical identity of ${genre} and ${subgenre} without drifting into unrelated genres`,
+    detail,
+    `the final track must clearly sound like ${subgenre} and remain fully coherent with ${genre}`
+  ].join(', ');
 }
 
 function setReactTextareaValue(textarea: HTMLTextAreaElement, value: string) {
@@ -34,7 +65,9 @@ export function installRandomPromptGuard() {
 
       event.preventDefault();
       event.stopPropagation();
-      setReactTextareaValue(textarea, randomPrompt());
+      event.stopImmediatePropagation();
+
+      setReactTextareaValue(textarea, buildProfessionalPrompt());
       textarea.focus();
     },
     true
