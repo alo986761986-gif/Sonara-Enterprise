@@ -9,7 +9,7 @@ export interface GenreLockProfile {
   modelTier: string;
 }
 
-export class LevoPromptEngine {
+export class SonaraPromptEngine {
   private static readonly GENRE_PROFILES: Record<string, GenreLockProfile> = {
     'melodic house': {
       primaryGenre: 'House',
@@ -184,7 +184,7 @@ export class LevoPromptEngine {
   }
 
   static formatPrompt(prompt: string) {
-    return `[SONARA V12 LEVO 2] ${prompt}`;
+    return `[SONARA V12 ACE-STEP 1.5] ${prompt}`;
   }
 
   static async generatePrompt(query: string, explicitGenre?: string) {
@@ -198,7 +198,7 @@ export class LevoPromptEngine {
     });
     cleanedQuery = cleanedQuery.replace(/\s+/g, ' ').trim();
 
-    const levoDescriptionTags = [
+    const aceStepDescriptionTags = [
       profile.subgenre,
       profile.primaryGenre,
       `${profile.recommendedBpm} bpm`,
@@ -211,16 +211,16 @@ export class LevoPromptEngine {
       'wide stereo field'
     ].filter(Boolean);
 
-    const optimizedPrompt = this.formatPrompt(Array.from(new Set(levoDescriptionTags)).join(', '));
+    const optimizedPrompt = this.formatPrompt(Array.from(new Set(aceStepDescriptionTags)).join(', '));
 
     return {
       status: 'success',
-      engine: 'LeVo 2',
-      model: 'SongGeneration-v2-large',
+      engine: 'ACE-Step 1.5',
+      model: 'acestep-v15-xl-sft',
       originalQuery,
       genreProfile: profile,
       optimizedPrompt,
-      levoDescriptions: levoDescriptionTags,
+      aceStepDescriptions: aceStepDescriptionTags,
       genreLock: {
         locked: true,
         primaryGenre: profile.primaryGenre,

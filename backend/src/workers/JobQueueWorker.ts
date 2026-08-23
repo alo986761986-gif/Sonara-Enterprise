@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { JobManager, JobRecord } from '../jobs/JobManager';
 import { MusicGenerationService } from '../services/MusicGenerationService';
-import { LevoPromptEngine } from '../services/LevoPromptEngine';
+import { SonaraPromptEngine } from '../services/SonaraPromptEngine';
 import { MusicDnaLibraryService } from '../services/MusicDnaLibraryService';
 import { PatternGeneratorService } from '../services/PatternGeneratorService';
 import { ContinuousLearningService } from '../services/ContinuousLearningService';
@@ -88,10 +88,10 @@ export class JobQueueWorker {
 
       JobManager.updateJobStatus(jobId, 'PROCESSING', {
         progress: 10,
-        metadata: { currentStage: 'Sonara LeVo Prompt Engine: Analyzing prompt & Genre Lock...' }
+        metadata: { currentStage: 'Sonara ACE-Step Prompt Engine: Analyzing prompt & Genre Lock...' }
       });
 
-      const promptOptimization = await LevoPromptEngine.generatePrompt(userPrompt, userGenre);
+      const promptOptimization = await SonaraPromptEngine.generatePrompt(userPrompt, userGenre);
       const genreProfile = promptOptimization.genreProfile;
       const genreLock = promptOptimization.genreLock;
       const targetBpm = payload.bpm || genreLock.targetBpm || 124;
@@ -99,7 +99,7 @@ export class JobQueueWorker {
 
       JobManager.updateJobStatus(jobId, 'PROCESSING', {
         progress: 25,
-        metadata: { currentStage: 'LeVo 2 & Music Brain: Recalling optimal Music DNA reference...' }
+        metadata: { currentStage: 'ACE-Step 1.5 & Music Brain: Recalling optimal Music DNA reference...' }
       });
 
       const brainRecall = MusicDnaLibraryService.recallOptimalDna(userPrompt, targetGenre);
@@ -113,7 +113,7 @@ export class JobQueueWorker {
 
       JobManager.updateJobStatus(jobId, 'PROCESSING', {
         progress: 60,
-        metadata: { currentStage: 'LeVo 2 Rendering Engine: Generating neural audio waveform...' }
+        metadata: { currentStage: 'ACE-Step 1.5 Rendering Engine: Generating neural audio waveform...' }
       });
 
       const execResult = await MusicGenerationService.executePythonEngine(
@@ -134,7 +134,7 @@ export class JobQueueWorker {
 
       const audioBuffer = execResult.audioBuffer;
       if (!audioBuffer) {
-        const reason = execResult.metadata?.error || 'LeVo neural audio engine unavailable (ENGINE_NOT_AVAILABLE)';
+        const reason = execResult.metadata?.error || 'ACE-Step neural audio engine unavailable (ENGINE_NOT_AVAILABLE)';
         throw new Error(`ENGINE_NOT_AVAILABLE: ${reason}`);
       }
 
@@ -174,7 +174,7 @@ export class JobQueueWorker {
         keySignature: genreProfile.keySignature,
         prompt: userPrompt,
         optimizedPrompt: promptOptimization.optimizedPrompt,
-        engine: `Sonara V12 LeVo 2 Engine / SongGeneration-v2-large (${genreProfile.modelTier} Tier)`,
+        engine: `Sonara V12 ACE-Step 1.5 Engine / acestep-v15-xl-sft (${genreProfile.modelTier} Tier)`,
         status: 'COMPLETED',
         audioUrl,
         genreLock,
@@ -201,7 +201,7 @@ export class JobQueueWorker {
         metadata: finalMetadata
       });
 
-      console.log(`[JOB_QUEUE_WORKER] Successfully completed LeVo pipeline for job ${jobId} | Quality Score: ${loggedRecord?.scores?.overallScore || 9.5}/10`);
+      console.log(`[JOB_QUEUE_WORKER] Successfully completed ACE-Step pipeline for job ${jobId} | Quality Score: ${loggedRecord?.scores?.overallScore || 9.5}/10`);
       return JobManager.getJob(jobId) || null;
     } catch (err: any) {
       console.error(`[JOB_QUEUE_WORKER] Critical error during job execution ${jobId}:`, err?.message || String(err));

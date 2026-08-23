@@ -1,4 +1,4 @@
-"""Sonara Generation Runtime - LeVo model selector."""
+"""Sonara Generation Runtime - ACE-Step model selector."""
 
 import threading
 from typing import Dict, List, Optional, Tuple
@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, ConfigDict
 
 
 class ModelCapability(BaseModel):
-    """Specification of a LeVo generation model capability."""
+    """Specification of a ACE-Step generation model capability."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -45,7 +45,7 @@ class ModelSelectionResult(BaseModel):
 
 
 class ModelSelector:
-    """Selects the active Sonara LeVo model."""
+    """Selects the active Sonara ACE-Step model."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -55,7 +55,7 @@ class ModelSelector:
     def _populate_default_catalog(self) -> None:
         defaults = [
             ModelCapability(
-                model_name="SongGeneration-v2-large",
+                model_name="acestep-v15-xl-sft",
                 quality_tier="GOLD",
                 genre_specializations=[
                     "house", "melodic house", "tech house", "afro house", "progressive house",
@@ -90,7 +90,7 @@ class ModelSelector:
             catalog_list = list(self._catalog.values())
 
         if not catalog_list:
-            raise ValueError("No LeVo models registered")
+            raise ValueError("No ACE-Step models registered")
 
         chosen = self._catalog.get(request.preferred_model or "") or catalog_list[0]
 
@@ -101,11 +101,11 @@ class ModelSelector:
                     f"only {request.max_vram_gb} GB was supplied"
                 )
             reason = (
-                f"Selected {chosen.model_name}; LEVO_LOW_MEM may be required because "
+                f"Selected {chosen.model_name}; ACESTEP_LOW_MEM may be required because "
                 f"reported VRAM is below {chosen.min_vram_gb} GB"
             )
         else:
-            reason = f"Selected Sonara native LeVo model {chosen.model_name}"
+            reason = f"Selected Sonara native ACE-Step model {chosen.model_name}"
 
         return ModelSelectionResult(
             selected_model=chosen,
