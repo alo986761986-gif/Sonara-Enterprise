@@ -68,7 +68,7 @@ class ModalRequestError extends Error {
 async function fetchModal(env, path, init = {}, timeoutMs = 12000) {
   const cfg = config(env);
   if (!cfg.key || !cfg.secret) {
-    throw new ModalRequestError('Modal proxy credentials are not configured.', 503, false);
+    throw new ModalRequestError('SONARA engine credentials are not configured.', 503, false);
   }
 
   let response;
@@ -83,7 +83,7 @@ async function fetchModal(env, path, init = {}, timeoutMs = 12000) {
     });
   } catch (error) {
     throw new ModalRequestError(
-      `Modal network error: ${error instanceof Error ? error.message : String(error)}`,
+      `SONARA network error: ${error instanceof Error ? error.message : String(error)}`,
       0,
       true
     );
@@ -101,7 +101,7 @@ async function modalJson(env, path, init = {}, timeoutMs = 12000) {
       data = JSON.parse(text);
     } catch {
       throw new ModalRequestError(
-        `Modal returned non-JSON HTTP ${response.status}: ${text.slice(0, 180)}`,
+        `SONARA returned non-JSON HTTP ${response.status}: ${text.slice(0, 180)}`,
         response.status,
         RETRYABLE_MODAL_STATUSES.has(response.status)
       );
@@ -110,7 +110,7 @@ async function modalJson(env, path, init = {}, timeoutMs = 12000) {
 
   if (!response.ok) {
     throw new ModalRequestError(
-      `Modal HTTP ${response.status}: ${data?.detail || data?.error || data?.message || 'request failed'}`,
+      `SONARA HTTP ${response.status}: ${data?.detail || data?.error || data?.message || 'request failed'}`,
       response.status,
       RETRYABLE_MODAL_STATUSES.has(response.status)
     );
@@ -128,7 +128,7 @@ async function loadGenerationSpec(env) {
       const info = await modalJson(env, '/gradio_api/info', { method: 'GET' }, 9000);
       const spec = info?.named_endpoints?.['/generation_wrapper'];
       if (!spec || !Array.isArray(spec.parameters)) {
-        throw new ModalRequestError('ACE-Step Gradio generation endpoint is unavailable.', 502, false);
+        throw new ModalRequestError('SONARA generation endpoint is unavailable.', 502, false);
       }
       generationSpecCache = spec;
       generationSpecExpiresAt = Date.now() + 10 * 60 * 1000;
@@ -141,7 +141,7 @@ async function loadGenerationSpec(env) {
     }
   }
 
-  throw lastError || new ModalRequestError('ACE-Step Gradio API did not wake up in time.', 503, true);
+  throw lastError || new ModalRequestError('SONARA engine did not wake up in time.', 503, true);
 }
 
 function setGradioValue(parameters, data, label, value) {
@@ -196,7 +196,7 @@ async function submitGradioGeneration(env, data) {
       }, 10000);
 
       const eventId = response?.event_id;
-      if (!eventId) throw new ModalRequestError('Gradio did not return an event_id.', 502, false);
+      if (!eventId) throw new ModalRequestError('SONARA did not return an event ID.', 502, false);
       return String(eventId);
     } catch (error) {
       lastError = error;
@@ -206,7 +206,7 @@ async function submitGradioGeneration(env, data) {
     }
   }
 
-  throw lastError || new ModalRequestError('Unable to submit ACE-Step generation.', 503, true);
+  throw lastError || new ModalRequestError('Unable to submit SONARA generation.', 503, true);
 }
 
 async function generate(request, env) {
@@ -230,9 +230,9 @@ async function generate(request, env) {
       status: 'PROCESSING',
       progress: 10,
       metadata: {
-        engine: 'ACE-Step 1.5 / Modal L4',
-        transport: 'Gradio async queue',
-        currentStage: 'ACE-Step Modal L4: generation queued'
+        engine: 'SONARA',
+        transport: 'async queue',
+        currentStage: 'SONARA: generation queued'
       }
     }, 202);
   } catch (error) {
@@ -241,7 +241,7 @@ async function generate(request, env) {
       error: error instanceof Error ? error.message : String(error),
       retryable,
       code: error instanceof ModalRequestError ? error.status : 0,
-      stage: retryable ? 'ACE-Step Modal L4: waking GPU, retry generation shortly' : 'ACE-Step request failed'
+      stage: retryable ? 'SONARA: engine warming up, retry generation shortly' : 'SONARA request failed'
     }, retryable ? 503 : 502);
   }
 }
@@ -273,7 +273,7 @@ async function readGradioEvent(env, eventId) {
     if (!response.ok) {
       const text = await response.text();
       throw new ModalRequestError(
-        `Gradio result HTTP ${response.status}: ${text.slice(0, 180)}`,
+        `SONARA result HTTP ${response.status}: ${text.slice(0, 180)}`,
         response.status,
         RETRYABLE_MODAL_STATUSES.has(response.status)
       );
@@ -299,7 +299,7 @@ async function readGradioEvent(env, eventId) {
         try {
           data = JSON.parse(complete.data || 'null');
         } catch {
-          throw new ModalRequestError('Gradio completed with invalid JSON output.', 502, false);
+          throw new ModalRequestError('SONARA completed with invalid JSON output.', 502, false);
         }
         try { await reader.cancel(); } catch {}
         return { state: 'complete', data };
@@ -308,7 +308,7 @@ async function readGradioEvent(env, eventId) {
       const failure = events.find(item => item.event === 'error');
       if (failure) {
         try { await reader.cancel(); } catch {}
-        return { state: 'error', error: failure.data || 'ACE-Step Gradio generation failed.' };
+        return { state: 'error', error: failure.data || 'SONARA generation failed.' };
       }
 
       if (events.some(item => item.event === 'generating' || item.event === 'heartbeat')) {
@@ -391,12 +391,12 @@ async function legacyJob(request, env, jobId) {
         jobId,
         status: 'PROCESSING',
         progress: item ? 65 : 35,
-        metadata: { engine: 'ACE-Step 1.5 / Modal L4', currentStage: 'ACE-Step Modal L4: generating audio' }
+        metadata: { engine: 'SONARA', currentStage: 'SONARA: generating audio' }
       });
     }
 
     if (Number(item.status) === 2) {
-      return json(request, { jobId, status: 'FAILED', progress: 0, error: item.error || 'ACE-Step generation failed.' });
+      return json(request, { jobId, status: 'FAILED', progress: 0, error: item.error || 'SONARA generation failed.' });
     }
 
     let outputs = item.result;
@@ -405,12 +405,12 @@ async function legacyJob(request, env, jobId) {
     }
     const first = Array.isArray(outputs) ? outputs[0] : outputs || {};
     const sourceUrl = first?.url || first?.file;
-    if (!sourceUrl) return json(request, { jobId, status: 'FAILED', error: 'ACE-Step completed without an audio URL.' }, 502);
+    if (!sourceUrl) return json(request, { jobId, status: 'FAILED', error: 'SONARA completed without an audio URL.' }, 502);
 
     const cfg = config(env);
     const parsed = new URL(sourceUrl, cfg.baseUrl);
     const audioPath = parsed.searchParams.get('path');
-    if (!audioPath) return json(request, { jobId, status: 'FAILED', error: 'ACE-Step audio URL has no path parameter.' }, 502);
+    if (!audioPath) return json(request, { jobId, status: 'FAILED', error: 'SONARA audio URL has no path parameter.' }, 502);
 
     const audioUrl = `${PUBLIC_API_ORIGIN}/api/modal/audio?path=${encodeURIComponent(audioPath)}`;
     return json(request, {
@@ -418,7 +418,7 @@ async function legacyJob(request, env, jobId) {
       status: 'COMPLETED',
       progress: 100,
       audioUrl,
-      metadata: { engine: 'ACE-Step 1.5 / Modal L4', provider: 'Modal', model: 'acestep-v15-turbo', audioUrl, currentStage: 'Audio ready' }
+      metadata: { engine: 'SONARA', provider: 'SONARA', model: 'SONARA', audioUrl, currentStage: 'Audio ready' }
     });
   } catch (error) {
     const retryable = error instanceof ModalRequestError && error.retryable;
@@ -428,7 +428,7 @@ async function legacyJob(request, env, jobId) {
         status: 'PROCESSING',
         progress: 65,
         transientError: true,
-        metadata: { engine: 'ACE-Step 1.5 / Modal L4', currentStage: 'ACE-Step Modal L4: GPU busy, retrying automatically' }
+        metadata: { engine: 'SONARA', currentStage: 'SONARA: engine busy, retrying automatically' }
       });
     }
     return json(request, { jobId, status: 'FAILED', progress: 0, error: error instanceof Error ? error.message : String(error) }, 502);
@@ -447,15 +447,15 @@ async function job(request, env, jobId) {
         status: 'PROCESSING',
         progress: 65,
         metadata: {
-          engine: 'ACE-Step 1.5 / Modal L4',
-          transport: 'Gradio async queue',
-          currentStage: 'ACE-Step Modal L4: generating audio'
+          engine: 'SONARA',
+          transport: 'async queue',
+          currentStage: 'SONARA: generating audio'
         }
       });
     }
 
     if (result.state === 'error') {
-      return json(request, { jobId, status: 'FAILED', progress: 0, error: result.error || 'ACE-Step generation failed.' });
+      return json(request, { jobId, status: 'FAILED', progress: 0, error: result.error || 'SONARA generation failed.' });
     }
 
     const descriptor = findAudioDescriptor(result.data);
@@ -465,7 +465,7 @@ async function job(request, env, jobId) {
         jobId,
         status: 'FAILED',
         progress: 0,
-        error: 'ACE-Step completed but no generated audio file was found.'
+        error: 'SONARA completed but no generated audio file was found.'
       }, 502);
     }
 
@@ -475,10 +475,10 @@ async function job(request, env, jobId) {
       progress: 100,
       audioUrl,
       metadata: {
-        engine: 'ACE-Step 1.5 / Modal L4',
-        provider: 'Modal',
-        model: 'acestep-v15-turbo',
-        transport: 'Gradio async queue',
+        engine: 'SONARA',
+        provider: 'SONARA',
+        model: 'SONARA',
+        transport: 'async queue',
         audioUrl,
         currentStage: 'Audio ready'
       }
@@ -491,7 +491,7 @@ async function job(request, env, jobId) {
         status: 'PROCESSING',
         progress: 65,
         transientError: true,
-        metadata: { engine: 'ACE-Step 1.5 / Modal L4', currentStage: 'ACE-Step Modal L4: waiting for result' }
+        metadata: { engine: 'SONARA', currentStage: 'SONARA: waiting for result' }
       });
     }
     return json(request, { jobId, status: 'FAILED', progress: 0, error: error instanceof Error ? error.message : String(error) }, 502);
@@ -502,7 +502,7 @@ async function audio(request, env, url) {
   if (request.method !== 'GET' && request.method !== 'HEAD') return json(request, { error: 'Method not allowed' }, 405);
 
   const cfg = config(env);
-  if (!cfg.key || !cfg.secret) return json(request, { error: 'Modal proxy credentials are not configured.' }, 503);
+  if (!cfg.key || !cfg.secret) return json(request, { error: 'SONARA engine credentials are not configured.' }, 503);
 
   const source = url.searchParams.get('source');
   const legacyPath = url.searchParams.get('path');
@@ -510,7 +510,7 @@ async function audio(request, env, url) {
 
   if (source) {
     if (!/^\/gradio_api\/(?:file=|stream\/)/.test(source) && !/^\/file=/.test(source)) {
-      return json(request, { error: 'Invalid Gradio audio source.' }, 400);
+      return json(request, { error: 'Invalid SONARA audio source.' }, 400);
     }
     target = `${cfg.baseUrl}${source}`;
   } else if (legacyPath) {
@@ -526,7 +526,7 @@ async function audio(request, env, url) {
   const response = await fetch(target, { method: request.method, headers });
   if (!response.ok && response.status !== 206) {
     const text = await response.text();
-    return json(request, { error: `Modal audio HTTP ${response.status}`, message: text.slice(0, 180) }, response.status || 502);
+    return json(request, { error: `SONARA audio HTTP ${response.status}`, message: text.slice(0, 180) }, response.status || 502);
   }
 
   const out = new Headers();
@@ -553,15 +553,15 @@ export default {
       const hasModalProxySecret = Boolean(cfg.secret);
       return json(request, {
         status: 'HEALTHY',
-        service: 'sonara-production-modal-proxy',
+        service: 'sonara-production-engine',
         modalConfigured: hasModalProxyKey && hasModalProxySecret,
         hasModalProxyKey,
         hasModalProxySecret,
         keyFormatOk: hasModalProxyKey && cfg.key.startsWith('wk-'),
         secretFormatOk: hasModalProxySecret && cfg.secret.startsWith('ws-'),
-        engine: 'ACE-Step 1.5 / Modal L4',
-        transport: 'Gradio async queue',
-        resilience: 'async-gradio-v1'
+        engine: 'SONARA',
+        transport: 'async queue',
+        resilience: 'async-queue-v1'
       });
     }
 
