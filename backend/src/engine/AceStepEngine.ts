@@ -37,15 +37,10 @@ export class AceStepEngine extends IAudioGenerationEngine {
   private static instance: AceStepEngine | null = null;
   private initialized = false;
   private lastError: string | null = null;
-  private readonly baseUrl = String(process.env.ACESTEP_API_URL || '').replace(/\/$/, '');
-  private readonly modalKey = String(process.env.MODAL_PROXY_KEY || '');
-  private readonly modalSecret = String(process.env.MODAL_PROXY_SECRET || '');
   private readonly client: AxiosInstance;
 
   private constructor() {
     this.client = axios.create({
-      baseURL: this.baseUrl || undefined,
-      headers: this.authHeaders(),
       timeout: 30_000,
       maxContentLength: Infinity,
       maxBodyLength: Infinity
@@ -55,6 +50,18 @@ export class AceStepEngine extends IAudioGenerationEngine {
   public static getInstance(): AceStepEngine {
     if (!AceStepEngine.instance) AceStepEngine.instance = new AceStepEngine();
     return AceStepEngine.instance;
+  }
+
+  private get baseUrl(): string {
+    return String(process.env.ACESTEP_API_URL || '').replace(/\/$/, '');
+  }
+
+  private get modalKey(): string {
+    return String(process.env.MODAL_PROXY_KEY || '').trim();
+  }
+
+  private get modalSecret(): string {
+    return String(process.env.MODAL_PROXY_SECRET || '').trim();
   }
 
   public async initialize(): Promise<void> {
@@ -88,13 +95,13 @@ export class AceStepEngine extends IAudioGenerationEngine {
     }
 
     try {
-      const response = await this.client.get('/health', { timeout: 60_000 });
+      const response = await this.requestWithColdStartRetry<any>('GET', '/health', undefined, 60_000);
       this.lastError = null;
       return {
-        isAvailable: response.status >= 200 && response.status < 300,
+        isAvailable: true,
         engineName: this.name,
         status: 'READY',
-        details: { baseUrl: this.baseUrl, health: response.data }
+        details: { baseUrl: this.baseUrl, health: response }
       };
     } catch (error) {
       const message = this.errorMessage(error);
@@ -148,10 +155,13 @@ export class AceStepEngine extends IAudioGenerationEngine {
     console.log(`[ENTERPRISE_LOG] [AceStepEngine] Submitting generation to Modal L4 | ${duration}s | ${bpm} BPM`);
 
     try {
-      const submit = await this.client.post<AceTaskResponse>('/release_task', requestBody, {
-        timeout: 90_000
-      });
-      const taskId = submit.data?.data?.task_id;
+      const submit = await this.requestWithColdStartRetry<AceTaskResponse>(
+        'POST',
+        '/release_task',
+        requestBody,
+        90_000
+      );
+      const taskId = submit?.data?.task_id;
       if (!taskId) throw new Error('ACE-Step did not return a task_id.');
 
       const deadline = Date.now() + timeoutMs;
@@ -159,12 +169,13 @@ export class AceStepEngine extends IAudioGenerationEngine {
 
       while (Date.now() < deadline) {
         await this.sleep(pollIntervalMs);
-        const query = await this.client.post<AceQueryResponse>(
+        const query = await this.requestWithColdStartRetry<AceQueryResponse>(
+          'POST',
           '/query_result',
           { task_id_list: [taskId] },
-          { timeout: 60_000 }
+          60_000
         );
-        const item = query.data?.data?.[0];
+        const item = query?.data?.[0];
         if (!item) continue;
         if (item.status === 1) {
           finalItem = item;
@@ -239,10 +250,45 @@ export class AceStepEngine extends IAudioGenerationEngine {
   }
 
   private authHeaders(): Record<string, string> {
-    const headers: Record<string, string> = {};
-    if (this.modalKey) headers['Modal-Key'] = this.modalKey;
-    if (this.modalSecret) headers['Modal-Secret'] = this.modalSecret;
-    return headers;
+    return {
+      'Modal-Key': this.modalKey,
+      'Modal-Secret': this.modalSecret
+    };
+  }
+
+  private async requestWithColdStartRetry<T>(
+    method: 'GET' | 'POST',
+    url: string,
+    data?: unknown,
+    timeout = 60_000
+  ): Promise<T> {
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= 12; attempt++) {
+      try {
+        const response = await this.client.request<T>({
+          method,
+          baseURL: this.baseUrl,
+          url,
+          data,
+          headers: this.authHeaders(),
+          timeout
+        });
+        return response.data;
+      } catch (error) {
+        lastError = error;
+        if (!axios.isAxiosError(error)) throw error;
+
+        const status = error.response?.status;
+        const retryable = status === 404 || status === 502 || status === 503 || status === 504;
+        if (!retryable || attempt === 12) throw error;
+
+        console.log(`[AceStepEngine] Modal cold start: ${url} returned ${status}; retry ${attempt}/12...`);
+        await this.sleep(5000);
+      }
+    }
+
+    throw lastError;
   }
 
   private parseResults(value: string | unknown[] | undefined): AceAudioResult[] {
