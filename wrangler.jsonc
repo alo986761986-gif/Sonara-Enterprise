@@ -9,6 +9,14 @@
     {
       "pattern": "api.sonaraenterprise.com",
       "custom_domain": true
+    },
+    {
+      "pattern": "sonaraenterprise.com/api/*",
+      "zone_name": "sonaraenterprise.com"
+    },
+    {
+      "pattern": "www.sonaraenterprise.com/api/*",
+      "zone_name": "sonaraenterprise.com"
     }
   ]
 }
