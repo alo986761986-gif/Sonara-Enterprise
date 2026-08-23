@@ -1,0 +1,62 @@
+name: Fix Random Prompt Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-random-prompt-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Keep RANDOM limited to prompt text
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('src/App.tsx')
+          text = path.read_text(encoding='utf-8')
+
+          old = """  const randomizePrompt = () => {
+            const nextFamily = randomItem(WORLD_MUSIC_GENRES);
+            const nextGenre = randomItem(nextFamily.genres);
+            const nextSubgenre = randomItem(nextGenre.subgenres.length ? nextGenre.subgenres : [nextGenre.name]);
+            const nextMood = randomItem(MOODS);
+            const nextKey = randomItem(KEYS);
+            const nextBpm = Math.floor(80 + Math.random() * 81);
+            const detail = randomItem(RANDOM_PRODUCTION_DETAILS);
+
+            setGenreFamily(nextFamily.family);
+            setGenre(nextGenre.name);
+            setSubgenre(nextSubgenre);
+            setMood(nextMood);
+            setKeySignature(nextKey);
+            setBpm(nextBpm);
+            setTitle(`Sonara ${nextSubgenre} Track`);
+            setPrompt(`Professional ${nextGenre.name} / ${nextSubgenre} production, ${nextMood.toLowerCase()} atmosphere, ${detail}`);
+          };"""
+
+          new = """  const randomizePrompt = () => {
+            const detail = randomItem(RANDOM_PRODUCTION_DETAILS);
+            setPrompt(`Professional ${genre} / ${subgenre} production, ${mood.toLowerCase()} atmosphere, ${keySignature}, ${bpm} BPM, ${detail}`);
+          };"""
+
+          if old not in text:
+              raise SystemExit('Expected randomizePrompt block not found; refusing to modify anything else.')
+
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+      - name: Commit correction
+        run: |
+          git config user.name "Sonara Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/App.tsx
+          git diff --cached --quiet && exit 0
+          git commit -m "Make RANDOM change prompt text only"
+          git push origin main
