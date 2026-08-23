@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
-  AudioLines,
   BarChart3,
   Bot,
   Building2,
@@ -12,6 +11,7 @@ import {
   Gauge,
   Globe2,
   Handshake,
+  Languages,
   Library,
   Music,
   Pause,
@@ -20,7 +20,6 @@ import {
   RefreshCw,
   Rocket,
   Settings2,
-  Share2,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
@@ -29,6 +28,15 @@ import {
   Users,
   Zap
 } from 'lucide-react';
+import { WORLD_MUSIC_GENRES, findGenre } from './data/worldMusicGenres';
+import {
+  LANGUAGE_METADATA,
+  RTL_LANGUAGES,
+  SUPPORTED_LANGUAGES,
+  detectDeviceLanguage,
+  type LanguageCode
+} from './i18n/locales';
+import { uiText } from './i18n/ui';
 
 type JobStatus = 'IDLE' | 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 type View =
@@ -52,13 +60,15 @@ interface JobResponse {
   progress?: number;
   audioUrl?: string | null;
   error?: string | null;
+  message?: string;
   metadata?: Record<string, any>;
   result?: Record<string, any>;
   job?: JobResponse;
   data?: JobResponse;
-  message?: string;
 }
 
+const LANGUAGE_KEY = 'sonara.language';
+const DURATION_KEY = 'sonara.defaultDuration';
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const normalizeJob = (value: JobResponse): JobResponse => value?.job || value?.data || value;
 
@@ -72,10 +82,24 @@ async function readJson<T>(response: Response): Promise<T> {
   }
 }
 
+function initialLanguage(): LanguageCode {
+  const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(LANGUAGE_KEY) : null;
+  if (saved && (SUPPORTED_LANGUAGES as readonly string[]).includes(saved)) return saved as LanguageCode;
+  return detectDeviceLanguage();
+}
+
 const Card = ({ children, className = '' }: any) => (
   <section className={`rounded-2xl border border-slate-800 bg-slate-900/75 shadow-xl ${className}`}>
     {children}
   </section>
+);
+
+const MiniCard = ({ icon: Icon, title, text }: any) => (
+  <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+    <Icon className="mb-3 h-5 w-5 text-purple-400" />
+    <div className="text-sm font-bold text-white">{title}</div>
+    <div className="mt-1 text-xs leading-5 text-slate-500">{text}</div>
+  </div>
 );
 
 const SectionTitle = ({ icon: Icon, title, subtitle }: any) => (
@@ -90,26 +114,32 @@ const SectionTitle = ({ icon: Icon, title, subtitle }: any) => (
   </div>
 );
 
-const StatusPill = ({ ok, children }: any) => (
-  <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${
-    ok
-      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-      : 'border-slate-700 bg-slate-950 text-slate-400'
-  }`}>
-    {children}
-  </span>
-);
+const DURATION_OPTIONS = [30, 45, 60, 90, 120, 150, 180, 210, 240];
+const MOODS = ['Energetic', 'Dark', 'Emotional', 'Uplifting', 'Melancholic', 'Hypnotic', 'Romantic', 'Aggressive', 'Dreamy', 'Cinematic', 'Peaceful', 'Epic', 'Groovy', 'Sexy', 'Nostalgic', 'Mysterious'];
+const KEYS = ['C Major', 'C Minor', 'C# Major', 'C# Minor', 'D Major', 'D Minor', 'D# Major', 'D# Minor', 'E Major', 'E Minor', 'F Major', 'F Minor', 'F# Major', 'F# Minor', 'G Major', 'G Minor', 'G# Major', 'G# Minor', 'A Major', 'A Minor', 'A# Major', 'A# Minor', 'B Major', 'B Minor'];
+
+function durationLabel(seconds: number, t: (key: Parameters<typeof uiText>[1]) => string) {
+  if (seconds < 60) return `${seconds} ${t('seconds')}`;
+  const minutes = seconds / 60;
+  return Number.isInteger(minutes) ? `${minutes} ${t('minutes')}` : `${minutes.toFixed(2)} ${t('minutes')}`;
+}
 
 export default function App() {
-  const [prompt, setPrompt] = useState(
-    'Deep House, Tech House, Afro House influence, deep rolling bassline, punchy club kick, tribal percussion, warm chords, atmospheric pads, polished professional mix'
-  );
-  const [genre, setGenre] = useState('Tech House');
+  const [language, setLanguage] = useState<LanguageCode>(initialLanguage);
+  const t = useMemo(() => (key: Parameters<typeof uiText>[1]) => uiText(language, key), [language]);
+
+  const [prompt, setPrompt] = useState('Professional House production, deep rolling bassline, punchy club kick, crisp percussion, warm chords, atmospheric pads, dynamic arrangement, polished professional mix and master');
+  const [genreFamily, setGenreFamily] = useState('Electronic / Dance');
+  const [genre, setGenre] = useState('House');
+  const [subgenre, setSubgenre] = useState('Deep House');
   const [mood, setMood] = useState('Energetic');
   const [title, setTitle] = useState('Sonara AI Track');
   const [lyrics, setLyrics] = useState('');
   const [bpm, setBpm] = useState(124);
-  const [durationSec, setDurationSec] = useState(30);
+  const [durationSec, setDurationSec] = useState(() => {
+    const saved = Number(localStorage.getItem(DURATION_KEY));
+    return DURATION_OPTIONS.includes(saved) ? saved : 30;
+  });
   const [keySignature, setKeySignature] = useState('A Minor');
 
   const [status, setStatus] = useState<JobStatus>('IDLE');
@@ -120,46 +150,53 @@ export default function App() {
   const [audioUrl, setAudioUrl] = useState('');
   const [engine, setEngine] = useState('ACE-Step 1.5 / Modal L4');
   const [health, setHealth] = useState('CHECKING');
-
+  const [activeTab, setActiveTab] = useState<View>('overview');
+  const [isPlaying, setIsPlaying] = useState(false);
   const [eqLow, setEqLow] = useState(0);
   const [eqMid, setEqMid] = useState(0);
   const [eqHigh, setEqHigh] = useState(0);
   const [masterGain, setMasterGain] = useState(0);
-
-  const [dnaCount, setDnaCount] = useState(0);
-  const [styleCount, setStyleCount] = useState(0);
-  const [workers, setWorkers] = useState<any[]>([]);
-  const [trainingStats, setTrainingStats] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<View>('overview');
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [assistantNote, setAssistantNote] = useState(
-    'ACE-Step is ready. I can help you refine prompt, arrangement, BPM, mood and production choices.'
-  );
+  const [assistantNote, setAssistantNote] = useState('Describe what you want to improve in your track and Sonara will help you shape the production.');
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const busy = status === 'QUEUED' || status === 'PROCESSING';
+  const statusLabel = health === 'READY' ? t('online') : health;
 
-  const statusLabel = useMemo(() => {
-    if (health === 'READY') return 'ONLINE';
-    if (health === 'CHECKING') return 'CHECKING';
-    return health;
-  }, [health]);
+  const family = useMemo(() => WORLD_MUSIC_GENRES.find(group => group.family === genreFamily) || WORLD_MUSIC_GENRES[0], [genreFamily]);
+  const genreEntry = useMemo(() => findGenre(genre), [genre]);
+  const genreCount = useMemo(() => WORLD_MUSIC_GENRES.reduce((sum, group) => sum + group.genres.length, 0), []);
+  const subgenreCount = useMemo(() => WORLD_MUSIC_GENRES.reduce((sum, group) => sum + group.genres.reduce((inner, item) => inner + item.subgenres.length, 0), 0), []);
 
-  const navigation: Array<[View, string, any]> = [
-    ['overview', 'Overview', Gauge],
-    ['generator', 'Generator', Zap],
-    ['production', 'Production', Cpu],
-    ['eq', 'EQ / Master', SlidersHorizontal],
-    ['publishing', 'Publishing', Rocket],
-    ['marketplace', 'Marketplace', Store],
-    ['discovery', 'Discovery', Globe2],
-    ['analytics', 'Analytics', BarChart3],
-    ['assistant', 'AI Assistant', Bot],
-    ['cloud', 'Sonara Cloud', Cloud],
-    ['collaboration', 'Collaboration', Handshake],
-    ['enterprise', 'Enterprise', Building2],
-    ['settings', 'Settings', Settings2]
+  const navigation: Array<[View, Parameters<typeof uiText>[1], any]> = [
+    ['overview', 'overview', Gauge],
+    ['generator', 'generator', Zap],
+    ['production', 'production', Cpu],
+    ['eq', 'eqMaster', SlidersHorizontal],
+    ['publishing', 'publishing', Rocket],
+    ['marketplace', 'marketplace', Store],
+    ['discovery', 'discovery', Globe2],
+    ['analytics', 'analytics', BarChart3],
+    ['assistant', 'assistant', Bot],
+    ['cloud', 'cloud', Cloud],
+    ['collaboration', 'collaboration', Handshake],
+    ['enterprise', 'enterprise', Building2],
+    ['settings', 'settings', Settings2]
   ];
+
+  useEffect(() => {
+    document.documentElement.lang = language;
+    document.documentElement.dir = RTL_LANGUAGES.includes(language) ? 'rtl' : 'ltr';
+    localStorage.setItem(LANGUAGE_KEY, language);
+  }, [language]);
+
+  useEffect(() => {
+    const languageHandler = (event: Event) => {
+      const code = (event as CustomEvent<LanguageCode>).detail;
+      if (code && (SUPPORTED_LANGUAGES as readonly string[]).includes(code)) setLanguage(code);
+    };
+    window.addEventListener('sonara:language', languageHandler);
+    return () => window.removeEventListener('sonara:language', languageHandler);
+  }, []);
 
   useEffect(() => {
     void refreshDashboard();
@@ -168,50 +205,48 @@ export default function App() {
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !audioUrl) return;
-    if (isPlaying) {
-      void audio.play().catch(() => setIsPlaying(false));
-    } else {
-      audio.pause();
-    }
+    if (isPlaying) void audio.play().catch(() => setIsPlaying(false));
+    else audio.pause();
   }, [isPlaying, audioUrl]);
 
   const refreshDashboard = async () => {
     try {
       const response = await fetch('/api/health', { cache: 'no-store' });
       setHealth(response.ok ? 'READY' : `HTTP ${response.status}`);
+      if (response.ok) {
+        const data = await readJson<any>(response);
+        if (data.engine) setEngine(data.engine);
+      }
     } catch {
       setHealth('OFFLINE');
     }
+  };
 
-    const optionalJson = async (url: string) => {
-      try {
-        const response = await fetch(url, { cache: 'no-store' });
-        if (!response.ok) return null;
-        return await readJson<any>(response);
-      } catch {
-        return null;
-      }
-    };
+  const updateFamily = (value: string) => {
+    setGenreFamily(value);
+    const nextFamily = WORLD_MUSIC_GENRES.find(group => group.family === value) || WORLD_MUSIC_GENRES[0];
+    const nextGenre = nextFamily.genres[0];
+    setGenre(nextGenre.name);
+    setSubgenre(nextGenre.subgenres[0] || nextGenre.name);
+  };
 
-    const dna = await optionalJson('/api/music/dna/elements');
-    if (dna) setDnaCount(Array.isArray(dna.elements) ? dna.elements.length : 0);
+  const updateGenre = (value: string) => {
+    setGenre(value);
+    const item = findGenre(value);
+    setSubgenre(item?.subgenres[0] || value);
+  };
 
-    const styles = await optionalJson('/api/music/style/all');
-    if (styles) setStyleCount(Array.isArray(styles.styles) ? styles.styles.length : 0);
-
-    const workerData = await optionalJson('/api/music/workers/status');
-    if (workerData) setWorkers(Array.isArray(workerData.workers) ? workerData.workers : []);
-
-    const training = await optionalJson('/api/music/training/dashboard');
-    if (training) setTrainingStats(training);
+  const updateDuration = (value: number) => {
+    const safe = Math.max(30, Math.min(240, value));
+    setDurationSec(safe);
+    localStorage.setItem(DURATION_KEY, String(safe));
   };
 
   const generate = async () => {
     if (!prompt.trim() || busy) return;
-
     setStatus('QUEUED');
-    setProgress(0);
-    setStage('Sending request to ACE-Step...');
+    setProgress(5);
+    setStage('Sending request to ACE-Step 1.5 / Modal L4...');
     setError('');
     setAudioUrl('');
     setJobId('');
@@ -223,7 +258,9 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt: prompt.trim(),
-          genre,
+          genre: `${genre} · ${subgenre}`,
+          genreFamily,
+          subgenre,
           mood,
           lyrics,
           title,
@@ -236,11 +273,7 @@ export default function App() {
       });
 
       const responseData = await readJson<JobResponse>(response);
-      if (!response.ok) {
-        throw new Error(
-          responseData.error || responseData.message || `Generation failed HTTP ${response.status}`
-        );
-      }
+      if (!response.ok) throw new Error(responseData.error || responseData.message || `Generation failed HTTP ${response.status}`);
 
       const initial = normalizeJob(responseData);
       const id = responseData.jobId || responseData.result?.jobId || initial.jobId;
@@ -248,489 +281,258 @@ export default function App() {
 
       setJobId(id);
       setStatus('PROCESSING');
-      setStage('ACE-Step 1.5 is generating the track on Modal L4...');
+      setProgress(10);
+      setStage(t('generating'));
 
       for (let attempt = 0; attempt < 1200; attempt += 1) {
         await sleep(500);
         const poll = await fetch(`/api/music/job/${encodeURIComponent(id)}`, { cache: 'no-store' });
         if (!poll.ok) continue;
-
-        const raw = await readJson<JobResponse>(poll);
-        const current = normalizeJob(raw);
+        const current = normalizeJob(await readJson<JobResponse>(poll));
         const currentStatus = String(current.status || 'PROCESSING').toUpperCase();
         const metadata = current.metadata || {};
-
         setProgress(Number(current.progress || 0));
-        setStage(
-          metadata.currentStage ||
-            (currentStatus === 'COMPLETED' ? 'Generation complete' : 'ACE-Step processing...')
-        );
+        setStage(metadata.currentStage || (currentStatus === 'COMPLETED' ? t('audioReady') : t('generating')));
         if (metadata.engine) setEngine(String(metadata.engine));
 
         if (currentStatus === 'COMPLETED') {
           const url = current.audioUrl || metadata.audioUrl || responseData.audioUrl || responseData.result?.audioUrl;
-          if (!url) throw new Error('ACE-Step completed without an audio URL.');
+          if (!url) throw new Error('ACE-Step finished without an audio URL.');
           setAudioUrl(String(url));
           setProgress(100);
           setStatus('COMPLETED');
-          setStage('Audio ready');
+          setStage(t('audioReady'));
           return;
         }
-
-        if (currentStatus === 'FAILED') {
-          throw new Error(current.error || metadata.error || 'ACE-Step generation failed.');
-        }
+        if (currentStatus === 'FAILED') throw new Error(current.error || metadata.error || 'ACE-Step generation failed.');
       }
-
-      throw new Error('ACE-Step generation timeout.');
-    } catch (err: any) {
+      throw new Error('Generation timeout.');
+    } catch (generationError) {
       setStatus('FAILED');
       setProgress(0);
       setStage('Generation failed');
-      setError(err?.message || String(err));
+      setError(generationError instanceof Error ? generationError.message : String(generationError));
     }
   };
 
-  const processEq = async () => {
-    if (!audioUrl) {
-      setError('Generate a track before applying EQ / Mastering.');
-      return;
-    }
-
-    setStage('Sonara EQ / Master processing...');
-    setError('');
-
-    try {
-      const bands = [
-        { type: 'lowshelf', frequency: 100, gain: eqLow, q: 0.7 },
-        { type: 'peaking', frequency: 1000, gain: eqMid, q: 1.0 },
-        { type: 'highshelf', frequency: 8000, gain: eqHigh, q: 0.7 }
-      ];
-
-      const response = await fetch('/api/music/eq/process', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bands, audioUrl, masterGain })
-      });
-      const data = await readJson<any>(response);
-      if (!response.ok) throw new Error(data.error || `EQ processing HTTP ${response.status}`);
-      if (data.audioUrl) setAudioUrl(data.audioUrl);
-      setStage('EQ / Mastering complete');
-    } catch (err: any) {
-      setError(err?.message || String(err));
-      setStage('EQ / Mastering unavailable');
-    }
-  };
-
-  const askAssistant = () => {
-    const note = `${genre} · ${mood} · ${bpm} BPM · ${keySignature}: keep the kick and bass separated, build contrast before the main drop, and use the prompt to specify arrangement, sound palette and mix character. ACE-Step will receive the exact production brief.`;
-    setAssistantNote(note);
-  };
-
-  const renderOverview = () => (
-    <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {[
-          ['ENGINE', 'ACE-Step 1.5', Cpu, true],
-          ['GPU', 'Modal L4', Activity, health === 'READY'],
-          ['GENERATION', status === 'IDLE' ? 'READY' : status, Zap, status !== 'FAILED'],
-          ['OUTPUT', audioUrl ? 'AUDIO READY' : 'WAITING', AudioLines, Boolean(audioUrl)]
-        ].map(([label, value, Icon, ok]: any) => (
-          <Card key={label} className="p-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">{label}</div>
-                <div className="mt-2 text-lg font-black text-white">{value}</div>
-              </div>
-              <Icon className={`h-6 w-6 ${ok ? 'text-emerald-400' : 'text-purple-400'}`} />
-            </div>
-          </Card>
-        ))}
+  const header = (
+    <header className="sticky top-0 z-30 border-b border-slate-800 bg-[#080d18]/95 backdrop-blur-xl">
+      <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-4 sm:px-6">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-purple-600 to-indigo-600"><Music className="h-6 w-6" /></div>
+          <div>
+            <h1 className="text-lg font-black tracking-wide text-white sm:text-xl">SONARA ENTERPRISE</h1>
+            <div className="text-[10px] font-semibold text-purple-300 sm:text-xs">ACE-Step 1.5 · Modal NVIDIA L4</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => void refreshDashboard()} className="hidden items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs sm:flex"><RefreshCw className="h-4 w-4" />{t('refresh')}</button>
+          <div className="flex items-center gap-2 rounded-lg border border-emerald-900 bg-emerald-950/40 px-3 py-2 text-[10px] sm:text-xs"><Activity className="h-4 w-4 text-emerald-400" />{statusLabel}</div>
+        </div>
       </div>
+    </header>
+  );
 
-      <Card className="p-6">
-        <SectionTitle icon={Sparkles} title="Sonara Enterprise Workspace" subtitle="All principal Sonara areas restored in one production dashboard." />
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {navigation.slice(1, 12).map(([id, label, Icon]) => (
-            <button
-              key={id}
-              onClick={() => setActiveTab(id)}
-              className="group flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-950/70 p-4 text-left transition hover:border-purple-500/40 hover:bg-slate-900"
-            >
-              <Icon className="h-5 w-5 text-purple-400" />
-              <div>
-                <div className="font-bold text-slate-100">{label}</div>
-                <div className="mt-1 text-[11px] text-slate-500">Open Sonara {label}</div>
-              </div>
-            </button>
-          ))}
+  const overviewView = (
+    <div className="space-y-6">
+      <Card className="overflow-hidden p-6 sm:p-8">
+        <div className="grid gap-8 lg:grid-cols-[1.3fr_0.7fr] lg:items-center">
+          <div>
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-purple-500/20 bg-purple-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-purple-300"><Sparkles className="h-3.5 w-3.5" />ACE-Step production workspace</div>
+            <h2 className="text-2xl font-black tracking-tight text-white sm:text-3xl">{t('overviewTitle')}</h2>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">{t('overviewSubtitle')}</p>
+            <button onClick={() => setActiveTab('generator')} className="mt-6 inline-flex items-center gap-2 rounded-xl bg-purple-600 px-5 py-3 text-sm font-bold"><Zap className="h-4 w-4" />{t('generateMusic')}</button>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <MiniCard icon={Globe2} title={`${genreCount}`} text="Global genre groups" />
+            <MiniCard icon={Library} title={`${subgenreCount}+`} text="Subgenres" />
+            <MiniCard icon={Languages} title={`${SUPPORTED_LANGUAGES.length}`} text="Interface languages" />
+            <MiniCard icon={Activity} title="4 min" text="Maximum generation" />
+          </div>
         </div>
       </Card>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card className="p-6">
-          <SectionTitle icon={ShieldCheck} title="Production Stack" subtitle="Current live generation path." />
-          <div className="space-y-3 text-sm">
-            {['sonaraenterprise.com', 'Cloudflare API routing', 'Modal Proxy Auth', 'ACE-Step 1.5', 'NVIDIA L4', 'MP3 audio delivery'].map((item, index) => (
-              <div key={item} className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-950 p-3">
-                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-purple-500/15 text-xs font-black text-purple-300">{index + 1}</span>
-                <span>{item}</span>
-              </div>
-            ))}
-          </div>
-        </Card>
-
-        <Card className="p-6">
-          <SectionTitle icon={Radio} title="Current Session" subtitle="Live generator state." />
-          <div className="space-y-3 text-sm text-slate-300">
-            <div className="flex justify-between border-b border-slate-800 pb-3"><span>Genre</span><b>{genre}</b></div>
-            <div className="flex justify-between border-b border-slate-800 pb-3"><span>Mood</span><b>{mood}</b></div>
-            <div className="flex justify-between border-b border-slate-800 pb-3"><span>BPM</span><b>{bpm}</b></div>
-            <div className="flex justify-between border-b border-slate-800 pb-3"><span>Duration</span><b>{durationSec}s</b></div>
-            <div className="flex justify-between"><span>Job</span><b className="max-w-[240px] truncate font-mono text-xs">{jobId || '—'}</b></div>
-          </div>
-        </Card>
+      <div className="grid gap-4 md:grid-cols-4">
+        <MiniCard icon={Cpu} title="ACE-Step 1.5" text="Turbo model on Modal NVIDIA L4" />
+        <MiniCard icon={SlidersHorizontal} title={t('eqMaster')} text="Production controls and mastering workspace" />
+        <MiniCard icon={Rocket} title={t('publishing')} text="Release metadata and distribution workflow" />
+        <MiniCard icon={Bot} title={t('assistant')} text="Creative production guidance" />
       </div>
     </div>
   );
 
-  const renderGenerator = () => (
-    <div className="space-y-6">
-      <Card className="p-6">
-        <SectionTitle icon={Sparkles} title="ACE-Step 1.5 Music Generator" subtitle="Sonara production generation powered exclusively by ACE-Step on Modal L4." />
+  const generatorView = (
+    <Card className="p-5 sm:p-6">
+      <SectionTitle icon={Sparkles} title={t('generateMusic')} subtitle={`${t('globalCatalog')} · ACE-Step 1.5 / Modal L4`} />
+      <label className="text-xs font-semibold text-slate-400">{t('prompt')}
+        <textarea value={prompt} onChange={event => setPrompt(event.target.value)} rows={5} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm text-white outline-none focus:border-purple-500" />
+      </label>
 
-        <textarea
-          value={prompt}
-          onChange={e => setPrompt(e.target.value)}
-          rows={5}
-          className="w-full rounded-xl border border-slate-700 bg-slate-950 p-4 outline-none focus:border-purple-500"
-        />
-
-        <div className="mt-4 grid gap-4 md:grid-cols-4">
-          <label className="text-xs text-slate-400">Genre
-            <select value={genre} onChange={e => setGenre(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2">
-              <option>Deep House</option><option>Tech House</option><option>Afro House</option><option>Melodic House</option><option>House</option><option>Techno</option><option>Trance</option><option>Hip Hop</option><option>Rap</option><option>Pop</option><option>Rock</option><option>Jazz</option><option>Blues</option>
-            </select>
-          </label>
-          <label className="text-xs text-slate-400">Mood
-            <select value={mood} onChange={e => setMood(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2">
-              <option>Energetic</option><option>Dark</option><option>Hypnotic</option><option>Emotional</option><option>Atmospheric</option><option>Romantic</option><option>Aggressive</option>
-            </select>
-          </label>
-          <label className="text-xs text-slate-400">Key
-            <select value={keySignature} onChange={e => setKeySignature(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2">
-              <option>A Minor</option><option>E Minor</option><option>F Minor</option><option>D Minor</option><option>C Minor</option><option>C Major</option><option>G Major</option>
-            </select>
-          </label>
-          <label className="text-xs text-slate-400">Duration
-            <select value={durationSec} onChange={e => setDurationSec(Number(e.target.value))} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2">
-              <option value={15}>15 sec</option><option value={30}>30 sec</option><option value={60}>60 sec</option><option value={120}>120 sec</option>
-            </select>
-          </label>
-        </div>
-
-        <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <label className="text-xs text-slate-400">BPM: {bpm}
-            <input type="range" min={60} max={180} value={bpm} onChange={e => setBpm(Number(e.target.value))} className="mt-3 w-full" />
-          </label>
-          <label className="text-xs text-slate-400">Title
-            <input value={title} onChange={e => setTitle(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2" />
-          </label>
-        </div>
-
-        <details className="mt-4 rounded-xl border border-slate-800 bg-slate-950 p-4">
-          <summary className="cursor-pointer font-semibold">Lyrics / Vocal mode</summary>
-          <textarea value={lyrics} onChange={e => setLyrics(e.target.value)} rows={5} placeholder="Leave empty for instrumental / BGM" className="mt-3 w-full rounded-lg border border-slate-800 bg-black/30 p-3" />
-        </details>
-
-        <button onClick={() => void generate()} disabled={busy} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 px-6 py-4 font-black disabled:opacity-60">
-          {busy ? <><RefreshCw className="h-5 w-5 animate-spin" /> ACE-Step Generating...</> : <><Zap className="h-5 w-5" /> Generate with ACE-Step</>}
-        </button>
-      </Card>
-
-      {(busy || status === 'FAILED' || status === 'COMPLETED') && (
-        <Card className="p-6">
-          <div className="flex items-center justify-between"><span className="font-semibold">{stage}</span><span>{progress}%</span></div>
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-800"><div className="h-full bg-purple-500 transition-all" style={{ width: `${progress}%` }} /></div>
-          {jobId && <div className="mt-2 text-xs text-slate-500">Job: {jobId}</div>}
-          {error && <pre className="mt-4 whitespace-pre-wrap rounded-lg bg-red-950/50 p-3 text-xs text-red-300">{error}</pre>}
-        </Card>
-      )}
-
-      {audioUrl && (
-        <Card className="p-6">
-          <SectionTitle icon={AudioLines} title="Generated Audio" subtitle={engine} />
-          <audio ref={audioRef} controls src={audioUrl} className="w-full" onEnded={() => setIsPlaying(false)} />
-          <div className="mt-4 flex flex-wrap gap-3">
-            <button onClick={() => setIsPlaying(v => !v)} className="flex items-center gap-2 rounded-lg bg-purple-600 px-4 py-2">
-              {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}{isPlaying ? 'Pause' : 'Play'}
-            </button>
-            <a href={audioUrl} download className="flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2"><Download className="h-4 w-4" />Download</a>
-            <button onClick={() => setActiveTab('production')} className="rounded-lg border border-slate-700 bg-slate-950 px-4 py-2">Send to Production</button>
-          </div>
-        </Card>
-      )}
-    </div>
-  );
-
-  const renderProduction = () => (
-    <div className="space-y-6">
-      <Card className="p-6">
-        <SectionTitle icon={Cpu} title="Production Center" subtitle="Mixing, stems, mastering and export workspace." />
-        {!audioUrl && <div className="mb-5 rounded-xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-200">Generate a track first to populate the production chain.</div>}
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {[
-            ['Mixing Console', 'Balance levels, space and stereo field.', SlidersHorizontal],
-            ['Stem Manager', 'Organize kick, bass, vocals, instruments and FX.', Disc3],
-            ['Mastering Chain', 'Final dynamics, tone and loudness preparation.', Gauge],
-            ['Export Center', 'Prepare the final audio for download and publishing.', Download]
-          ].map(([name, desc, Icon]: any) => (
-            <div key={name} className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-              <Icon className="mb-3 h-5 w-5 text-purple-400" /><div className="font-bold">{name}</div><p className="mt-2 text-xs leading-relaxed text-slate-500">{desc}</p>
-            </div>
-          ))}
-        </div>
-      </Card>
-      <Card className="p-6">
-        <SectionTitle icon={AudioLines} title="Current Production Asset" subtitle={audioUrl ? 'ACE-Step output loaded.' : 'No audio loaded yet.'} />
-        {audioUrl ? <audio controls src={audioUrl} className="w-full" /> : <button onClick={() => setActiveTab('generator')} className="rounded-xl bg-purple-600 px-4 py-3 font-bold">Open Generator</button>}
-      </Card>
-    </div>
-  );
-
-  const renderEq = () => (
-    <Card className="p-6">
-      <SectionTitle icon={SlidersHorizontal} title="Professional EQ / Mastering" subtitle="Tone shaping and final gain controls for the current Sonara track." />
-      {[
-        ['LOW', eqLow, setEqLow], ['MID', eqMid, setEqMid], ['HIGH', eqHigh, setEqHigh], ['MASTER', masterGain, setMasterGain]
-      ].map(([name, value, setter]: any) => (
-        <label key={name} className="mb-5 block">
-          <div className="mb-2 flex justify-between text-sm"><span>{name}</span><span>{value} dB</span></div>
-          <input type="range" min={-12} max={12} step={0.5} value={value} onChange={e => setter(Number(e.target.value))} className="w-full" />
+      <div className="mt-5 grid gap-4 md:grid-cols-3">
+        <label className="text-xs text-slate-400">{t('genreFamily')}
+          <select value={genreFamily} onChange={event => updateFamily(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2.5 text-slate-100">
+            {WORLD_MUSIC_GENRES.map(group => <option key={group.family} value={group.family}>{group.family}</option>)}
+          </select>
         </label>
-      ))}
-      <button onClick={() => void processEq()} className="w-full rounded-xl bg-indigo-600 px-4 py-3 font-bold">Apply EQ + Master</button>
-      {error && <pre className="mt-4 whitespace-pre-wrap rounded-lg bg-red-950/40 p-3 text-xs text-red-300">{error}</pre>}
+        <label className="text-xs text-slate-400">{t('genre')}
+          <select value={genre} onChange={event => updateGenre(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2.5 text-slate-100">
+            {family.genres.map(item => <option key={item.name} value={item.name}>{item.name}</option>)}
+          </select>
+        </label>
+        <label className="text-xs text-slate-400">{t('subgenre')}
+          <select value={subgenre} onChange={event => setSubgenre(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2.5 text-slate-100">
+            {(genreEntry?.subgenres || [genre]).map(item => <option key={item} value={item}>{item}</option>)}
+          </select>
+        </label>
+      </div>
+
+      <div className="mt-4 grid gap-4 md:grid-cols-4">
+        <label className="text-xs text-slate-400">{t('mood')}
+          <select value={mood} onChange={event => setMood(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2.5 text-slate-100">{MOODS.map(item => <option key={item}>{item}</option>)}</select>
+        </label>
+        <label className="text-xs text-slate-400">{t('key')}
+          <select value={keySignature} onChange={event => setKeySignature(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2.5 text-slate-100">{KEYS.map(item => <option key={item}>{item}</option>)}</select>
+        </label>
+        <label className="text-xs text-slate-400">{t('duration')}
+          <select value={durationSec} onChange={event => updateDuration(Number(event.target.value))} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2.5 text-slate-100">
+            {DURATION_OPTIONS.map(value => <option key={value} value={value}>{durationLabel(value, t)}</option>)}
+          </select>
+        </label>
+        <label className="text-xs text-slate-400">{t('title')}
+          <input value={title} onChange={event => setTitle(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2.5 text-slate-100" />
+        </label>
+      </div>
+
+      <label className="mt-4 block text-xs text-slate-400">{t('bpm')}: {bpm}
+        <input type="range" min={40} max={220} value={bpm} onChange={event => setBpm(Number(event.target.value))} className="mt-2 w-full accent-purple-500" />
+      </label>
+
+      <details className="mt-5 rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+        <summary className="cursor-pointer text-sm font-bold text-white">{t('lyrics')}</summary>
+        <textarea value={lyrics} onChange={event => setLyrics(event.target.value)} rows={7} placeholder="Instrumental: leave empty. Add lyrics for vocal generation." className="mt-4 w-full rounded-xl border border-slate-800 bg-[#060a12] p-4 text-sm outline-none focus:border-purple-500" />
+      </details>
+
+      <button onClick={() => void generate()} disabled={busy || !prompt.trim()} className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-fuchsia-600 via-purple-600 to-indigo-600 px-6 py-4 font-bold disabled:opacity-50">
+        {busy ? <><RefreshCw className="h-5 w-5 animate-spin" />{t('generating')}</> : <><Zap className="h-5 w-5" />{t('generate')}</>}
+      </button>
+
+      {(busy || progress > 0) && (
+        <div className="mt-4">
+          <div className="mb-2 flex justify-between text-[11px] text-slate-500"><span>{stage}</span><span>{progress}%</span></div>
+          <div className="h-2 overflow-hidden rounded-full bg-slate-950"><div className="h-full rounded-full bg-gradient-to-r from-purple-500 to-cyan-400 transition-all" style={{ width: `${Math.max(0, Math.min(100, progress))}%` }} /></div>
+        </div>
+      )}
+
+      {error && <div className="mt-4 rounded-xl border border-rose-500/20 bg-rose-500/10 p-3 text-xs text-rose-300">{error}</div>}
+
+      {status === 'COMPLETED' && audioUrl && (
+        <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5">
+          <div className="mb-4 flex items-center justify-between gap-4"><div><div className="font-bold text-emerald-300">{t('audioReady')}</div><div className="mt-1 text-xs text-slate-500">{title} · {genre} / {subgenre} · {durationLabel(durationSec, t)}</div></div><div className="text-[10px] text-slate-500">{engine}</div></div>
+          <audio ref={audioRef} controls src={audioUrl} className="w-full" />
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button onClick={() => setIsPlaying(value => !value)} className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs">{isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}{isPlaying ? t('pause') : t('play')}</button>
+            <a href={audioUrl} download={`${title || 'sonara-track'}.mp3`} className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs"><Download className="h-4 w-4" />{t('download')}</a>
+          </div>
+        </div>
+      )}
     </Card>
   );
 
-  const renderPublishing = () => (
-    <div className="space-y-6">
-      <Card className="p-6">
-        <SectionTitle icon={Rocket} title="Publishing Studio" subtitle="Prepare releases, metadata and distribution from the Sonara workspace." />
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="text-xs text-slate-400">Release title<input value={title} onChange={e => setTitle(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-3" /></label>
-          <label className="text-xs text-slate-400">Primary genre<input value={genre} onChange={e => setGenre(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-3" /></label>
+  const productionView = (
+    <Card className="p-6"><SectionTitle icon={Cpu} title={t('productionTitle')} subtitle={t('productionSubtitle')} /><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"><MiniCard icon={SlidersHorizontal} title="Mixing Console" text="Balance, panorama, dynamics and spatial processing." /><MiniCard icon={Disc3} title="Mastering" text="Loudness, tone, stereo image and delivery targets." /><MiniCard icon={Library} title="Stem Manager" text="Vocals, drums, bass, instruments and reusable stems." /><MiniCard icon={UploadCloud} title="Export Center" text="Master, stems and release-ready formats." /></div></Card>
+  );
+
+  const eqView = (
+    <Card className="p-6"><SectionTitle icon={SlidersHorizontal} title={t('eqMaster')} subtitle="Professional tone shaping for the generated track." />
+      <div className="grid gap-5 md:grid-cols-4">{[['Low', eqLow, setEqLow], ['Mid', eqMid, setEqMid], ['High', eqHigh, setEqHigh], ['Master', masterGain, setMasterGain]].map(([label, value, setter]: any) => <label key={label} className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-xs text-slate-400"><div className="mb-3 flex justify-between"><span>{label}</span><b className="text-white">{value} dB</b></div><input type="range" min={-12} max={12} step={0.5} value={value} onChange={event => setter(Number(event.target.value))} className="w-full accent-purple-500" /></label>)}</div>
+      {audioUrl ? <audio controls src={audioUrl} className="mt-6 w-full" /> : <div className="mt-6 rounded-xl border border-slate-800 bg-slate-950 p-4 text-xs text-slate-500">Generate a track first to preview it in the mastering workspace.</div>}
+    </Card>
+  );
+
+  const publishingView = (
+    <Card className="p-6"><SectionTitle icon={Rocket} title={t('publishingTitle')} subtitle={t('publishingSubtitle')} /><div className="grid gap-4 md:grid-cols-3"><MiniCard icon={Radio} title="Release Manager" text="Single, EP and album release workflow." /><MiniCard icon={ShieldCheck} title="Rights & Metadata" text="Credits, ISRC, ownership and royalty metadata." /><MiniCard icon={Globe2} title="Global Distribution" text="Prepare delivery to DSP and global channels." /></div></Card>
+  );
+
+  const marketplaceView = (
+    <Card className="p-6"><SectionTitle icon={Store} title={t('marketplaceTitle')} subtitle={t('marketplaceSubtitle')} /><div className="grid gap-4 md:grid-cols-3"><MiniCard icon={Music} title="Samples & Loops" text="Creator-ready musical assets." /><MiniCard icon={SlidersHorizontal} title="Presets & Templates" text="Production presets and session templates." /><MiniCard icon={Sparkles} title="AI Assets" text="Creative models and intelligent tools." /></div></Card>
+  );
+
+  const discoveryView = (
+    <Card className="p-6"><SectionTitle icon={Globe2} title={t('discoveryTitle')} subtitle={t('discoverySubtitle')} /><div className="mb-4 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4 text-xs text-cyan-200">{t('catalogHelp')} · {genreCount} genres · {subgenreCount}+ subgenres</div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{WORLD_MUSIC_GENRES.map(group => <div key={group.family} className="rounded-xl border border-slate-800 bg-slate-950 p-4"><div className="font-bold text-white">{group.family}</div><div className="mt-2 text-xs leading-5 text-slate-500">{group.genres.map(item => item.name).join(' · ')}</div></div>)}</div></Card>
+  );
+
+  const analyticsView = (
+    <Card className="p-6"><SectionTitle icon={BarChart3} title={t('analyticsTitle')} subtitle={t('analyticsSubtitle')} /><div className="grid gap-4 md:grid-cols-4"><MiniCard icon={Users} title="Audience" text="Listener growth and engagement." /><MiniCard icon={Radio} title="Streams" text="Cross-platform performance." /><MiniCard icon={Globe2} title="Territories" text="Worldwide audience signals." /><MiniCard icon={Gauge} title="Performance" text="Release and catalog intelligence." /></div></Card>
+  );
+
+  const assistantView = (
+    <Card className="p-6"><SectionTitle icon={Bot} title={t('assistantTitle')} subtitle={t('assistantSubtitle')} /><textarea value={assistantNote} onChange={event => setAssistantNote(event.target.value)} rows={8} className="w-full rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm outline-none focus:border-purple-500" /><div className="mt-4 rounded-xl border border-purple-500/20 bg-purple-500/10 p-4 text-xs leading-6 text-purple-200">ACE-Step creative context: {genreFamily} · {genre} · {subgenre} · {mood} · {bpm} BPM.</div></Card>
+  );
+
+  const cloudView = (
+    <Card className="p-6"><SectionTitle icon={Cloud} title={t('cloudTitle')} subtitle={t('cloudSubtitle')} /><div className="grid gap-4 md:grid-cols-3"><MiniCard icon={Cloud} title="Cloud Projects" text="Synced creative sessions." /><MiniCard icon={Library} title="Asset Library" text="Music, stems, artwork and metadata." /><MiniCard icon={ShieldCheck} title="Secure Storage" text="Enterprise-ready project organization." /></div></Card>
+  );
+
+  const collaborationView = (
+    <Card className="p-6"><SectionTitle icon={Handshake} title={t('collaborationTitle')} subtitle={t('collaborationSubtitle')} /><div className="grid gap-4 md:grid-cols-3"><MiniCard icon={Users} title="Teams" text="Invite artists, producers and collaborators." /><MiniCard icon={Music} title="Shared Sessions" text="Coordinate tracks, stems and revisions." /><MiniCard icon={ShieldCheck} title="Permissions" text="Control project and asset access." /></div></Card>
+  );
+
+  const enterpriseView = (
+    <Card className="p-6"><SectionTitle icon={Building2} title={t('enterpriseTitle')} subtitle={t('enterpriseSubtitle')} /><div className="grid gap-4 md:grid-cols-3"><MiniCard icon={ShieldCheck} title="Security" text="Access and workspace controls." /><MiniCard icon={Users} title="Organization" text="Team and creator administration." /><MiniCard icon={BarChart3} title="Enterprise Intelligence" text="Operational and creative analytics." /></div></Card>
+  );
+
+  const settingsView = (
+    <div className="space-y-5">
+      <Card className="p-6"><SectionTitle icon={Settings2} title={t('settingsTitle')} subtitle={t('settingsSubtitle')} />
+        <div className="grid gap-5 lg:grid-cols-2">
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-5">
+            <div className="mb-4 flex items-center gap-2 font-bold text-white"><Languages className="h-5 w-5 text-purple-400" />{t('language')}</div>
+            <p className="mb-4 text-xs leading-5 text-slate-500">{t('languageHelp')}</p>
+            <select value={language} onChange={event => { const code = event.target.value as LanguageCode; setLanguage(code); window.dispatchEvent(new CustomEvent('sonara:language', { detail: code })); }} className="w-full rounded-xl border border-slate-700 bg-[#060a12] p-3 text-sm text-white outline-none focus:border-purple-500">
+              {SUPPORTED_LANGUAGES.map(code => <option key={code} value={code}>{LANGUAGE_METADATA[code].nativeName} — {LANGUAGE_METADATA[code].name}</option>)}
+            </select>
+            <div className="mt-3 text-[10px] text-slate-600">{SUPPORTED_LANGUAGES.length} languages · RTL support · automatic device detection</div>
+          </div>
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-5">
+            <div className="mb-4 flex items-center gap-2 font-bold text-white"><Activity className="h-5 w-5 text-cyan-400" />{t('defaultDuration')}</div>
+            <select value={durationSec} onChange={event => updateDuration(Number(event.target.value))} className="w-full rounded-xl border border-slate-700 bg-[#060a12] p-3 text-sm text-white">{DURATION_OPTIONS.map(value => <option key={value} value={value}>{durationLabel(value, t)}</option>)}</select>
+            <div className="mt-3 text-[10px] text-slate-600">ACE-Step range: 30 seconds → 4 minutes</div>
+          </div>
         </div>
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {['Spotify', 'Apple Music', 'YouTube Music', 'Sonara Network'].map(platform => (
-            <div key={platform} className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-950 p-4"><span className="font-bold">{platform}</span><StatusPill ok={Boolean(audioUrl)}>{audioUrl ? 'Ready' : 'Waiting'}</StatusPill></div>
-          ))}
-        </div>
-        <div className="mt-5 rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm text-slate-400">Audio asset: <b className="text-white">{audioUrl ? 'Loaded and ready for release preparation' : 'Generate or load a track first'}</b></div>
       </Card>
+      <Card className="p-6"><div className="mb-3 font-bold text-white">{t('account')}</div><div className="flex flex-wrap items-center justify-between gap-4"><div className="text-xs text-slate-500">Boot authentication supports Email/Password, Google and guest session.</div><button onClick={() => window.dispatchEvent(new Event('sonara:logout'))} className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-2 text-xs font-bold text-rose-300">{t('logout')}</button></div></Card>
     </div>
   );
 
-  const renderMarketplace = () => (
-    <Card className="p-6">
-      <SectionTitle icon={Store} title="Sonara Marketplace" subtitle="Creator assets, styles, samples, presets and production resources." />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {[
-          ['Samples & Loops', 'Curated audio material for production.'],
-          ['Presets', 'Synth, mix and mastering presets.'],
-          ['Vocal Packs', 'Voice and vocal production resources.'],
-          ['Templates', 'DAW and arrangement templates.'],
-          ['AI Styles', 'Sonara style packs for creative direction.'],
-          ['Creator Library', 'Purchased and saved marketplace content.']
-        ].map(([name, desc]) => (
-          <div key={name} className="rounded-xl border border-slate-800 bg-slate-950 p-5"><Store className="mb-3 h-5 w-5 text-amber-400" /><div className="font-bold">{name}</div><p className="mt-2 text-xs text-slate-500">{desc}</p></div>
-        ))}
-      </div>
-    </Card>
-  );
-
-  const renderDiscovery = () => (
-    <Card className="p-6">
-      <SectionTitle icon={Globe2} title="Worldwide Discovery" subtitle="Explore creative directions, genres, creators and scenes." />
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {['House / Europe', 'Afro House / Global', 'Hip Hop / USA', 'Techno / Berlin', 'Pop / Global', 'Latin / Americas', 'Jazz / Worldwide', 'Electronic / Asia'].map(item => (
-          <button key={item} onClick={() => { setPrompt(`${item}, professional production, modern arrangement, polished mix`); setActiveTab('generator'); }} className="rounded-xl border border-slate-800 bg-slate-950 p-5 text-left hover:border-purple-500/40">
-            <Globe2 className="mb-3 h-5 w-5 text-cyan-400" /><div className="font-bold">{item}</div><div className="mt-2 text-[11px] text-slate-500">Use as generator direction</div>
-          </button>
-        ))}
-      </div>
-    </Card>
-  );
-
-  const renderAnalytics = () => (
-    <div className="space-y-6">
-      <Card className="p-6">
-        <SectionTitle icon={BarChart3} title="Analytics Center" subtitle="Live session and Sonara workspace telemetry." />
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {[
-            ['ENGINE STATUS', statusLabel], ['DNA ELEMENTS', dnaCount], ['STYLE PACKS', styleCount], ['WORKERS', workers.length]
-          ].map(([label, value]) => (
-            <div key={String(label)} className="rounded-xl border border-slate-800 bg-slate-950 p-5"><div className="text-[10px] font-bold tracking-wider text-slate-500">{label}</div><div className="mt-2 text-2xl font-black text-white">{value}</div></div>
-          ))}
-        </div>
-      </Card>
-      <Card className="p-6">
-        <SectionTitle icon={Activity} title="Generation Telemetry" subtitle="Current production job information." />
-        <div className="space-y-3 text-sm">
-          <div className="flex justify-between border-b border-slate-800 pb-3"><span>State</span><b>{status}</b></div>
-          <div className="flex justify-between border-b border-slate-800 pb-3"><span>Progress</span><b>{progress}%</b></div>
-          <div className="flex justify-between border-b border-slate-800 pb-3"><span>Engine</span><b>{engine}</b></div>
-          <div className="flex justify-between"><span>Training telemetry</span><b>{trainingStats ? 'Available' : 'Not connected'}</b></div>
-        </div>
-      </Card>
-    </div>
-  );
-
-  const renderAssistant = () => (
-    <Card className="p-6">
-      <SectionTitle icon={Bot} title="Sonara AI Assistant" subtitle="Production guidance connected to the current generator context." />
-      <div className="rounded-2xl border border-slate-800 bg-slate-950 p-5 text-sm leading-relaxed text-slate-300">{assistantNote}</div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-        <button onClick={askAssistant} className="rounded-xl bg-purple-600 px-4 py-3 font-bold">Analyze current track</button>
-        <button onClick={() => { setPrompt(`${prompt}, stronger arrangement contrast, professional transitions, detailed club mix, clean master`); setAssistantNote('I enhanced the current prompt with arrangement, transition and mix direction.'); }} className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 font-bold">Enhance prompt</button>
-        <button onClick={() => setActiveTab('generator')} className="rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 font-bold">Open Generator</button>
-      </div>
-    </Card>
-  );
-
-  const renderCloud = () => (
-    <Card className="p-6">
-      <SectionTitle icon={Cloud} title="Sonara Cloud" subtitle="Production infrastructure and generation services." />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {[
-          ['Cloudflare Edge', 'API routing and protected public gateway', true],
-          ['Modal GPU', 'NVIDIA L4 inference runtime', health === 'READY'],
-          ['ACE-Step 1.5', 'Music generation engine', health === 'READY'],
-          ['Proxy Auth', 'Secure Modal credential layer', health === 'READY'],
-          ['Audio Delivery', audioUrl ? 'Generated audio available' : 'Waiting for output', Boolean(audioUrl)],
-          ['Production Domain', 'sonaraenterprise.com', true]
-        ].map(([name, desc, ok]: any) => (
-          <div key={name} className="rounded-xl border border-slate-800 bg-slate-950 p-5"><div className="flex items-center justify-between"><b>{name}</b><StatusPill ok={ok}>{ok ? 'Online' : 'Standby'}</StatusPill></div><p className="mt-3 text-xs text-slate-500">{desc}</p></div>
-        ))}
-      </div>
-    </Card>
-  );
-
-  const renderCollaboration = () => (
-    <Card className="p-6">
-      <SectionTitle icon={Handshake} title="Collaboration Hub" subtitle="Project rooms, creator handoff and production workflow." />
-      <div className="grid gap-4 md:grid-cols-3">
-        {[
-          ['Studio Room', 'Share prompt, track and production notes.', Users],
-          ['Stem Exchange', 'Prepare stems and production assets for collaborators.', Share2],
-          ['Release Team', 'Coordinate publishing and release preparation.', Rocket]
-        ].map(([name, desc, Icon]: any) => (
-          <div key={name} className="rounded-xl border border-slate-800 bg-slate-950 p-5"><Icon className="mb-3 h-5 w-5 text-cyan-400" /><div className="font-bold">{name}</div><p className="mt-2 text-xs text-slate-500">{desc}</p></div>
-        ))}
-      </div>
-    </Card>
-  );
-
-  const renderEnterprise = () => (
-    <div className="space-y-6">
-      <Card className="p-6">
-        <SectionTitle icon={Building2} title="Sonara Enterprise" subtitle="Central control plane for the complete Sonara production ecosystem." />
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {[
-            ['Music AI', 'ACE-Step 1.5'], ['Compute', 'Modal NVIDIA L4'], ['Edge', 'Cloudflare'], ['Frontend', 'Vercel + Sonara Domain']
-          ].map(([name, value]) => (
-            <div key={name} className="rounded-xl border border-slate-800 bg-slate-950 p-5"><div className="text-xs text-slate-500">{name}</div><div className="mt-2 font-black text-white">{value}</div></div>
-          ))}
-        </div>
-      </Card>
-      <Card className="p-6">
-        <SectionTitle icon={ShieldCheck} title="Enterprise Readiness" subtitle="Current production configuration." />
-        <div className="space-y-3">
-          {['ACE-Step only production generation', 'Protected Modal Proxy Auth', 'Dedicated Cloudflare Worker', 'Production domain routing', 'GitHub connected automatic deployments'].map(item => (
-            <div key={item} className="flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-950 p-3"><ShieldCheck className="h-4 w-4 text-emerald-400" /><span className="text-sm">{item}</span></div>
-          ))}
-        </div>
-      </Card>
-    </div>
-  );
-
-  const renderSettings = () => (
-    <Card className="p-6">
-      <SectionTitle icon={Settings2} title="Sonara Settings" subtitle="Production engine and workspace configuration." />
-      <div className="grid gap-4 md:grid-cols-2">
-        {[
-          ['Production Engine', 'ACE-Step 1.5'],
-          ['Model', 'acestep-v15-turbo'],
-          ['Compute', 'Modal NVIDIA L4'],
-          ['Audio Format', 'MP3'],
-          ['API Gateway', 'Cloudflare Worker'],
-          ['Generation Endpoint', '/api/engine/generate']
-        ].map(([label, value]) => (
-          <div key={label} className="rounded-xl border border-slate-800 bg-slate-950 p-4"><div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</div><div className="mt-2 font-mono text-sm text-slate-100">{value}</div></div>
-        ))}
-      </div>
-      <div className="mt-5 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm text-emerald-200">ACE-Step is the only production music engine shown and used by this dashboard.</div>
-    </Card>
-  );
-
-  const content = () => {
+  const renderView = () => {
     switch (activeTab) {
-      case 'overview': return renderOverview();
-      case 'generator': return renderGenerator();
-      case 'production': return renderProduction();
-      case 'eq': return renderEq();
-      case 'publishing': return renderPublishing();
-      case 'marketplace': return renderMarketplace();
-      case 'discovery': return renderDiscovery();
-      case 'analytics': return renderAnalytics();
-      case 'assistant': return renderAssistant();
-      case 'cloud': return renderCloud();
-      case 'collaboration': return renderCollaboration();
-      case 'enterprise': return renderEnterprise();
-      case 'settings': return renderSettings();
-      default: return renderOverview();
+      case 'overview': return overviewView;
+      case 'generator': return generatorView;
+      case 'production': return productionView;
+      case 'eq': return eqView;
+      case 'publishing': return publishingView;
+      case 'marketplace': return marketplaceView;
+      case 'discovery': return discoveryView;
+      case 'analytics': return analyticsView;
+      case 'assistant': return assistantView;
+      case 'cloud': return cloudView;
+      case 'collaboration': return collaborationView;
+      case 'enterprise': return enterpriseView;
+      case 'settings': return settingsView;
+      default: return overviewView;
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#070b12] text-slate-100">
-      <header className="sticky top-0 z-30 border-b border-slate-800 bg-[#0b101b]/95 backdrop-blur">
-        <div className="mx-auto flex max-w-[1700px] items-center justify-between px-5 py-4">
-          <div className="flex items-center gap-4">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-purple-600 to-indigo-600"><Music className="h-6 w-6" /></div>
-            <div>
-              <h1 className="text-xl font-black tracking-wide">SONARA ENTERPRISE</h1>
-              <div className="text-xs font-semibold text-purple-300">ACE-Step 1.5 · Modal NVIDIA L4</div>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <button onClick={() => void refreshDashboard()} className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs"><RefreshCw className="h-4 w-4" />Refresh</button>
-            <div className="flex items-center gap-2 rounded-lg border border-emerald-900 bg-emerald-950/40 px-3 py-2 text-xs"><Activity className="h-4 w-4 text-emerald-400" />ACE-Step {statusLabel}</div>
-          </div>
-        </div>
-      </header>
-
-      <div className="mx-auto grid max-w-[1700px] gap-6 p-5 lg:grid-cols-[245px_minmax(0,1fr)]">
-        <aside className="space-y-2 lg:sticky lg:top-[92px] lg:self-start">
-          {navigation.map(([id, label, Icon]) => (
-            <button key={id} onClick={() => setActiveTab(id)} className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-semibold transition ${activeTab === id ? 'bg-gradient-to-r from-purple-600 to-violet-600 text-white shadow-lg shadow-purple-950/20' : 'border border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-700 hover:bg-slate-800'}`}>
-              <Icon className="h-4 w-4" />{label}
-            </button>
+    <div className="min-h-screen bg-[#060a12] text-slate-100">
+      {header}
+      <div className="mx-auto grid max-w-[1600px] gap-5 p-4 sm:p-6 lg:grid-cols-[240px_1fr]">
+        <aside className="space-y-2 lg:sticky lg:top-24 lg:self-start">
+          {navigation.map(([id, key, Icon]) => (
+            <button key={id} onClick={() => { setActiveTab(id); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-semibold transition ${activeTab === id ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-950/30' : 'border border-slate-800 bg-slate-900/75 text-slate-400 hover:border-slate-700 hover:text-white'}`}><Icon className="h-4 w-4" />{t(key)}</button>
           ))}
-
-          <Card className="mt-4 p-4">
-            <div className="mb-3 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">System</div>
-            <div className="space-y-3 text-xs">
-              <div className="flex justify-between"><span>ACE-Step</span><b className={health === 'READY' ? 'text-emerald-400' : 'text-slate-400'}>{statusLabel}</b></div>
-              <div className="flex justify-between"><span>DNA Library</span><b>{dnaCount}</b></div>
-              <div className="flex justify-between"><span>Styles</span><b>{styleCount}</b></div>
-              <div className="flex justify-between"><span>Workers</span><b>{workers.length}</b></div>
-            </div>
-          </Card>
+          <Card className="mt-4 p-4"><div className="text-[10px] uppercase tracking-wider text-slate-600">{t('system')}</div><div className="mt-3 space-y-2 text-xs"><div className="flex justify-between"><span className="text-slate-500">Engine</span><b className="text-emerald-300">ACE-Step</b></div><div className="flex justify-between"><span className="text-slate-500">Genres</span><b>{genreCount}</b></div><div className="flex justify-between"><span className="text-slate-500">Subgenres</span><b>{subgenreCount}+</b></div><div className="flex justify-between"><span className="text-slate-500">Languages</span><b>{SUPPORTED_LANGUAGES.length}</b></div></div></Card>
         </aside>
-
-        <main className="min-w-0 space-y-6">{content()}</main>
+        <main className="min-w-0">{renderView()}</main>
       </div>
     </div>
   );
