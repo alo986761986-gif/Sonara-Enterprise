@@ -332,7 +332,7 @@ async function audio(request, env, url) {
 
 async function probeUpstream(env) {
   const cfg = config(env);
-  const paths = ['/health', '/v1/models', '/release_task'];
+  const paths = ['/health', '/v1/models', '/release_task', '/gradio_api/info', '/info', '/config'];
   return Promise.all(paths.map(async path => {
     try {
       const response = await fetch(`${cfg.baseUrl}${path}`, {
@@ -345,7 +345,7 @@ async function probeUpstream(env) {
         path,
         status: response.status,
         contentType: response.headers.get('content-type') || '',
-        preview: text.replace(/\s+/g, ' ').slice(0, 120)
+        preview: text.replace(/\s+/g, ' ').slice(0, 4000)
       };
     } catch (error) {
       return {
