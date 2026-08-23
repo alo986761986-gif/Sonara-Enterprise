@@ -4,14 +4,68 @@ import path from 'path';
 import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 
-import engineRouter from './backend/src/routes/engine';
-import orchestratorRouter from './backend/src/routes/orchestrator';
-import creatorRouter from './backend/src/routes/creator';
-import musicRouter from './backend/src/routes/music';
-
 const startTime = Date.now();
 
+function loadLocalEnvironment(): string | null {
+  const candidates = [
+    path.join(process.cwd(), '.env.local'),
+    path.join(process.cwd(), '.env')
+  ];
+
+  for (const envPath of candidates) {
+    if (!fs.existsSync(envPath)) continue;
+
+    const raw = fs.readFileSync(envPath, 'utf8');
+    for (const rawLine of raw.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#')) continue;
+
+      const separator = line.indexOf('=');
+      if (separator <= 0) continue;
+
+      const key = line.slice(0, separator).trim();
+      let value = line.slice(separator + 1).trim();
+
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+
+      // Explicit process environment always wins. The local file only fills gaps.
+      if (!process.env[key]) process.env[key] = value;
+    }
+
+    return envPath;
+  }
+
+  return null;
+}
+
+const loadedEnvPath = loadLocalEnvironment();
+if (loadedEnvPath) {
+  console.log(`[SONARA V12] Loaded private environment from ${path.basename(loadedEnvPath)}`);
+}
+console.log(
+  `[SONARA V12] ACE-Step configuration | URL=${Boolean(process.env.ACESTEP_API_URL)} | KEY=${Boolean(process.env.MODAL_PROXY_KEY)} | SECRET=${Boolean(process.env.MODAL_PROXY_SECRET)}`
+);
+
 async function startServer() {
+  // Import backend routes only after private environment variables have been loaded.
+  // This prevents engine singletons from capturing empty/stale credentials during module startup.
+  const [
+    { default: engineRouter },
+    { default: orchestratorRouter },
+    { default: creatorRouter },
+    { default: musicRouter }
+  ] = await Promise.all([
+    import('./backend/src/routes/engine'),
+    import('./backend/src/routes/orchestrator'),
+    import('./backend/src/routes/creator'),
+    import('./backend/src/routes/music')
+  ]);
+
   const app = express();
   const PORT = 3000;
 
@@ -39,7 +93,12 @@ async function startServer() {
         audioEngine: {
           status: 'HEALTHY',
           avgProcessingDurationSec: 1.8,
-          targetLufsNorm: -14.0
+          targetLufsNorm: -14.0,
+          aceStepConfigured: Boolean(
+            process.env.ACESTEP_API_URL &&
+            process.env.MODAL_PROXY_KEY &&
+            process.env.MODAL_PROXY_SECRET
+          )
         }
       }
     });
@@ -73,7 +132,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('/{*splat}', (req, res) => {
+    app.get('/{*splat}', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
