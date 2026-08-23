@@ -21,11 +21,13 @@ import {
   Rocket,
   Settings2,
   ShieldCheck,
+  Shuffle,
   SlidersHorizontal,
   Sparkles,
   Store,
   UploadCloud,
   Users,
+  X,
   Zap
 } from 'lucide-react';
 import { WORLD_MUSIC_GENRES, findGenre } from './data/worldMusicGenres';
@@ -72,6 +74,19 @@ const DURATION_KEY = 'sonara.defaultDuration';
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const normalizeJob = (value: JobResponse): JobResponse => value?.job || value?.data || value;
 
+function brandSonara(value: unknown): string {
+  return String(value ?? '')
+    .replace(/ACE[- ]?Step(?:\s*1\.5)?\s*(?:\/|·)?\s*Modal(?:\s+NVIDIA)?\s+L4/gi, 'SONARA')
+    .replace(/ACE[- ]?Step(?:\s*1\.5)?/gi, 'SONARA')
+    .replace(/Modal(?:\s+NVIDIA)?\s+L4/gi, 'SONARA')
+    .replace(/\bModal\b/gi, 'SONARA')
+    .replace(/SONARA(?:\s*[·/]\s*SONARA)+/gi, 'SONARA');
+}
+
+function randomItem<T>(items: readonly T[]): T {
+  return items[Math.floor(Math.random() * items.length)];
+}
+
 async function readJson<T>(response: Response): Promise<T> {
   const text = await response.text();
   if (!text) return {} as T;
@@ -117,6 +132,13 @@ const SectionTitle = ({ icon: Icon, title, subtitle }: any) => (
 const DURATION_OPTIONS = [30, 45, 60, 90, 120, 150, 180, 210, 240];
 const MOODS = ['Energetic', 'Dark', 'Emotional', 'Uplifting', 'Melancholic', 'Hypnotic', 'Romantic', 'Aggressive', 'Dreamy', 'Cinematic', 'Peaceful', 'Epic', 'Groovy', 'Sexy', 'Nostalgic', 'Mysterious'];
 const KEYS = ['C Major', 'C Minor', 'C# Major', 'C# Minor', 'D Major', 'D Minor', 'D# Major', 'D# Minor', 'E Major', 'E Minor', 'F Major', 'F Minor', 'F# Major', 'F# Minor', 'G Major', 'G Minor', 'G# Major', 'G# Minor', 'A Major', 'A Minor', 'A# Major', 'A# Minor', 'B Major', 'B Minor'];
+const RANDOM_PRODUCTION_DETAILS = [
+  'deep detailed low end, expressive rhythm, immersive stereo space, evolving arrangement, polished professional mix and master',
+  'warm musical dynamics, rich harmonic texture, organic movement, cinematic depth, clean transients, professional mastering',
+  'hypnotic groove, atmospheric layers, expressive melodic development, powerful dynamics, spacious mix, release-ready master',
+  'authentic genre character, modern sound design, detailed percussion, emotional harmonic movement, wide stereo image, premium mix and master',
+  'driving rhythm, textured ambience, memorable musical motifs, controlled bass, dynamic transitions, high-end studio production'
+];
 
 function durationLabel(seconds: number, t: (key: Parameters<typeof uiText>[1]) => string) {
   if (seconds < 60) return `${seconds} ${t('seconds')}`;
@@ -126,7 +148,7 @@ function durationLabel(seconds: number, t: (key: Parameters<typeof uiText>[1]) =
 
 export default function App() {
   const [language, setLanguage] = useState<LanguageCode>(initialLanguage);
-  const t = useMemo(() => (key: Parameters<typeof uiText>[1]) => uiText(language, key), [language]);
+  const t = useMemo(() => (key: Parameters<typeof uiText>[1]) => brandSonara(uiText(language, key)), [language]);
 
   const [prompt, setPrompt] = useState('Professional House production, deep rolling bassline, punchy club kick, crisp percussion, warm chords, atmospheric pads, dynamic arrangement, polished professional mix and master');
   const [genreFamily, setGenreFamily] = useState('Electronic / Dance');
@@ -148,7 +170,7 @@ export default function App() {
   const [error, setError] = useState('');
   const [jobId, setJobId] = useState('');
   const [audioUrl, setAudioUrl] = useState('');
-  const [engine, setEngine] = useState('ACE-Step 1.5 / Modal L4');
+  const [engine, setEngine] = useState('SONARA');
   const [health, setHealth] = useState('CHECKING');
   const [activeTab, setActiveTab] = useState<View>('overview');
   const [isPlaying, setIsPlaying] = useState(false);
@@ -213,10 +235,7 @@ export default function App() {
     try {
       const response = await fetch('/api/health', { cache: 'no-store' });
       setHealth(response.ok ? 'READY' : `HTTP ${response.status}`);
-      if (response.ok) {
-        const data = await readJson<any>(response);
-        if (data.engine) setEngine(data.engine);
-      }
+      if (response.ok) setEngine('SONARA');
     } catch {
       setHealth('OFFLINE');
     }
@@ -242,11 +261,30 @@ export default function App() {
     localStorage.setItem(DURATION_KEY, String(safe));
   };
 
+  const randomizePrompt = () => {
+    const nextFamily = randomItem(WORLD_MUSIC_GENRES);
+    const nextGenre = randomItem(nextFamily.genres);
+    const nextSubgenre = randomItem(nextGenre.subgenres.length ? nextGenre.subgenres : [nextGenre.name]);
+    const nextMood = randomItem(MOODS);
+    const nextKey = randomItem(KEYS);
+    const nextBpm = Math.floor(80 + Math.random() * 81);
+    const detail = randomItem(RANDOM_PRODUCTION_DETAILS);
+
+    setGenreFamily(nextFamily.family);
+    setGenre(nextGenre.name);
+    setSubgenre(nextSubgenre);
+    setMood(nextMood);
+    setKeySignature(nextKey);
+    setBpm(nextBpm);
+    setTitle(`Sonara ${nextSubgenre} Track`);
+    setPrompt(`Professional ${nextGenre.name} / ${nextSubgenre} production, ${nextMood.toLowerCase()} atmosphere, ${detail}`);
+  };
+
   const generate = async () => {
     if (!prompt.trim() || busy) return;
     setStatus('QUEUED');
     setProgress(5);
-    setStage('Sending request to ACE-Step 1.5 / Modal L4...');
+    setStage('SONARA is preparing your track...');
     setError('');
     setAudioUrl('');
     setJobId('');
@@ -277,7 +315,7 @@ export default function App() {
 
       const initial = normalizeJob(responseData);
       const id = responseData.jobId || responseData.result?.jobId || initial.jobId;
-      if (!id) throw new Error('ACE-Step did not return a job ID.');
+      if (!id) throw new Error('SONARA did not return a job ID.');
 
       setJobId(id);
       setStatus('PROCESSING');
@@ -292,26 +330,26 @@ export default function App() {
         const currentStatus = String(current.status || 'PROCESSING').toUpperCase();
         const metadata = current.metadata || {};
         setProgress(Number(current.progress || 0));
-        setStage(metadata.currentStage || (currentStatus === 'COMPLETED' ? t('audioReady') : t('generating')));
-        if (metadata.engine) setEngine(String(metadata.engine));
+        setStage(currentStatus === 'COMPLETED' ? t('audioReady') : t('generating'));
+        setEngine('SONARA');
 
         if (currentStatus === 'COMPLETED') {
           const url = current.audioUrl || metadata.audioUrl || responseData.audioUrl || responseData.result?.audioUrl;
-          if (!url) throw new Error('ACE-Step finished without an audio URL.');
+          if (!url) throw new Error('SONARA finished without an audio URL.');
           setAudioUrl(String(url));
           setProgress(100);
           setStatus('COMPLETED');
           setStage(t('audioReady'));
           return;
         }
-        if (currentStatus === 'FAILED') throw new Error(current.error || metadata.error || 'ACE-Step generation failed.');
+        if (currentStatus === 'FAILED') throw new Error(current.error || metadata.error || 'SONARA generation failed.');
       }
       throw new Error('Generation timeout.');
     } catch (generationError) {
       setStatus('FAILED');
       setProgress(0);
       setStage('Generation failed');
-      setError(generationError instanceof Error ? generationError.message : String(generationError));
+      setError(brandSonara(generationError instanceof Error ? generationError.message : String(generationError)));
     }
   };
 
@@ -322,7 +360,7 @@ export default function App() {
           <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-purple-600 to-indigo-600"><Music className="h-6 w-6" /></div>
           <div>
             <h1 className="text-lg font-black tracking-wide text-white sm:text-xl">SONARA ENTERPRISE</h1>
-            <div className="text-[10px] font-semibold text-purple-300 sm:text-xs">ACE-Step 1.5 · Modal NVIDIA L4</div>
+            <div className="text-[10px] font-semibold text-purple-300 sm:text-xs">SONARA</div>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -338,7 +376,7 @@ export default function App() {
       <Card className="overflow-hidden p-6 sm:p-8">
         <div className="grid gap-8 lg:grid-cols-[1.3fr_0.7fr] lg:items-center">
           <div>
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-purple-500/20 bg-purple-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-purple-300"><Sparkles className="h-3.5 w-3.5" />ACE-Step production workspace</div>
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-purple-500/20 bg-purple-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-purple-300"><Sparkles className="h-3.5 w-3.5" />SONARA production workspace</div>
             <h2 className="text-2xl font-black tracking-tight text-white sm:text-3xl">{t('overviewTitle')}</h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">{t('overviewSubtitle')}</p>
             <button onClick={() => setActiveTab('generator')} className="mt-6 inline-flex items-center gap-2 rounded-xl bg-purple-600 px-5 py-3 text-sm font-bold"><Zap className="h-4 w-4" />{t('generateMusic')}</button>
@@ -352,7 +390,7 @@ export default function App() {
         </div>
       </Card>
       <div className="grid gap-4 md:grid-cols-4">
-        <MiniCard icon={Cpu} title="ACE-Step 1.5" text="Turbo model on Modal NVIDIA L4" />
+        <MiniCard icon={Cpu} title="SONARA" text="Generative music engine" />
         <MiniCard icon={SlidersHorizontal} title={t('eqMaster')} text="Production controls and mastering workspace" />
         <MiniCard icon={Rocket} title={t('publishing')} text="Release metadata and distribution workflow" />
         <MiniCard icon={Bot} title={t('assistant')} text="Creative production guidance" />
@@ -362,10 +400,22 @@ export default function App() {
 
   const generatorView = (
     <Card className="p-5 sm:p-6">
-      <SectionTitle icon={Sparkles} title={t('generateMusic')} subtitle={`${t('globalCatalog')} · ACE-Step 1.5 / Modal L4`} />
-      <label className="text-xs font-semibold text-slate-400">{t('prompt')}
-        <textarea value={prompt} onChange={event => setPrompt(event.target.value)} rows={5} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm text-white outline-none focus:border-purple-500" />
-      </label>
+      <SectionTitle icon={Sparkles} title={t('generateMusic')} subtitle={`${t('globalCatalog')} · SONARA`} />
+
+      <div>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <label htmlFor="sonara-prompt" className="text-xs font-semibold text-slate-400">{t('prompt')}</label>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={randomizePrompt} disabled={busy} className="inline-flex items-center gap-2 rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-2 text-[11px] font-black tracking-wider text-purple-200 transition hover:bg-purple-500/20 disabled:opacity-50" title="Random prompt">
+              <Shuffle className="h-3.5 w-3.5" />RANDOM
+            </button>
+            <button type="button" onClick={() => setPrompt('')} disabled={busy || !prompt} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700 bg-slate-950 text-slate-400 transition hover:border-rose-500/40 hover:text-rose-300 disabled:opacity-40" aria-label="Clear prompt" title="Clear prompt">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+        <textarea id="sonara-prompt" value={prompt} onChange={event => setPrompt(event.target.value)} rows={5} className="w-full rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm text-white outline-none focus:border-purple-500" />
+      </div>
 
       <div className="mt-5 grid gap-4 md:grid-cols-3">
         <label className="text-xs text-slate-400">{t('genreFamily')}
@@ -417,16 +467,16 @@ export default function App() {
 
       {(busy || progress > 0) && (
         <div className="mt-4">
-          <div className="mb-2 flex justify-between text-[11px] text-slate-500"><span>{stage}</span><span>{progress}%</span></div>
+          <div className="mb-2 flex justify-between text-[11px] text-slate-500"><span>{brandSonara(stage)}</span><span>{progress}%</span></div>
           <div className="h-2 overflow-hidden rounded-full bg-slate-950"><div className="h-full rounded-full bg-gradient-to-r from-purple-500 to-cyan-400 transition-all" style={{ width: `${Math.max(0, Math.min(100, progress))}%` }} /></div>
         </div>
       )}
 
-      {error && <div className="mt-4 rounded-xl border border-rose-500/20 bg-rose-500/10 p-3 text-xs text-rose-300">{error}</div>}
+      {error && <div className="mt-4 rounded-xl border border-rose-500/20 bg-rose-500/10 p-3 text-xs text-rose-300">{brandSonara(error)}</div>}
 
       {status === 'COMPLETED' && audioUrl && (
         <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5">
-          <div className="mb-4 flex items-center justify-between gap-4"><div><div className="font-bold text-emerald-300">{t('audioReady')}</div><div className="mt-1 text-xs text-slate-500">{title} · {genre} / {subgenre} · {durationLabel(durationSec, t)}</div></div><div className="text-[10px] text-slate-500">{engine}</div></div>
+          <div className="mb-4 flex items-center justify-between gap-4"><div><div className="font-bold text-emerald-300">{t('audioReady')}</div><div className="mt-1 text-xs text-slate-500">{title} · {genre} / {subgenre} · {durationLabel(durationSec, t)}</div></div><div className="text-[10px] font-bold tracking-widest text-slate-500">{engine}</div></div>
           <audio ref={audioRef} controls src={audioUrl} className="w-full" />
           <div className="mt-4 flex flex-wrap gap-2">
             <button onClick={() => setIsPlaying(value => !value)} className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs">{isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}{isPlaying ? t('pause') : t('play')}</button>
@@ -465,7 +515,7 @@ export default function App() {
   );
 
   const assistantView = (
-    <Card className="p-6"><SectionTitle icon={Bot} title={t('assistantTitle')} subtitle={t('assistantSubtitle')} /><textarea value={assistantNote} onChange={event => setAssistantNote(event.target.value)} rows={8} className="w-full rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm outline-none focus:border-purple-500" /><div className="mt-4 rounded-xl border border-purple-500/20 bg-purple-500/10 p-4 text-xs leading-6 text-purple-200">ACE-Step creative context: {genreFamily} · {genre} · {subgenre} · {mood} · {bpm} BPM.</div></Card>
+    <Card className="p-6"><SectionTitle icon={Bot} title={t('assistantTitle')} subtitle={t('assistantSubtitle')} /><textarea value={assistantNote} onChange={event => setAssistantNote(event.target.value)} rows={8} className="w-full rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm outline-none focus:border-purple-500" /><div className="mt-4 rounded-xl border border-purple-500/20 bg-purple-500/10 p-4 text-xs leading-6 text-purple-200">SONARA creative context: {genreFamily} · {genre} · {subgenre} · {mood} · {bpm} BPM.</div></Card>
   );
 
   const cloudView = (
@@ -495,7 +545,7 @@ export default function App() {
           <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-5">
             <div className="mb-4 flex items-center gap-2 font-bold text-white"><Activity className="h-5 w-5 text-cyan-400" />{t('defaultDuration')}</div>
             <select value={durationSec} onChange={event => updateDuration(Number(event.target.value))} className="w-full rounded-xl border border-slate-700 bg-[#060a12] p-3 text-sm text-white">{DURATION_OPTIONS.map(value => <option key={value} value={value}>{durationLabel(value, t)}</option>)}</select>
-            <div className="mt-3 text-[10px] text-slate-600">ACE-Step range: 30 seconds → 4 minutes</div>
+            <div className="mt-3 text-[10px] text-slate-600">SONARA range: 30 seconds → 4 minutes</div>
           </div>
         </div>
       </Card>
@@ -530,7 +580,7 @@ export default function App() {
           {navigation.map(([id, key, Icon]) => (
             <button key={id} onClick={() => { setActiveTab(id); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-semibold transition ${activeTab === id ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-950/30' : 'border border-slate-800 bg-slate-900/75 text-slate-400 hover:border-slate-700 hover:text-white'}`}><Icon className="h-4 w-4" />{t(key)}</button>
           ))}
-          <Card className="mt-4 p-4"><div className="text-[10px] uppercase tracking-wider text-slate-600">{t('system')}</div><div className="mt-3 space-y-2 text-xs"><div className="flex justify-between"><span className="text-slate-500">Engine</span><b className="text-emerald-300">ACE-Step</b></div><div className="flex justify-between"><span className="text-slate-500">Genres</span><b>{genreCount}</b></div><div className="flex justify-between"><span className="text-slate-500">Subgenres</span><b>{subgenreCount}+</b></div><div className="flex justify-between"><span className="text-slate-500">Languages</span><b>{SUPPORTED_LANGUAGES.length}</b></div></div></Card>
+          <Card className="mt-4 p-4"><div className="text-[10px] uppercase tracking-wider text-slate-600">{t('system')}</div><div className="mt-3 space-y-2 text-xs"><div className="flex justify-between"><span className="text-slate-500">Engine</span><b className="text-emerald-300">SONARA</b></div><div className="flex justify-between"><span className="text-slate-500">Genres</span><b>{genreCount}</b></div><div className="flex justify-between"><span className="text-slate-500">Subgenres</span><b>{subgenreCount}+</b></div><div className="flex justify-between"><span className="text-slate-500">Languages</span><b>{SUPPORTED_LANGUAGES.length}</b></div></div></Card>
         </aside>
         <main className="min-w-0">{renderView()}</main>
       </div>
