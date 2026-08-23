@@ -34,6 +34,15 @@ type AuthMode = 'login' | 'register' | 'reset';
 const LANGUAGE_KEY = 'sonara.language';
 const GUEST_KEY = 'sonara.guest.session';
 
+function brandSonara(value: unknown): string {
+  return String(value ?? '')
+    .replace(/ACE[- ]?Step(?:\s*1\.5)?\s*(?:\/|·)?\s*Modal(?:\s+NVIDIA)?\s+L4/gi, 'SONARA')
+    .replace(/ACE[- ]?Step(?:\s*1\.5)?/gi, 'SONARA')
+    .replace(/Modal(?:\s+NVIDIA)?\s+L4/gi, 'SONARA')
+    .replace(/\bModal\b/gi, 'SONARA')
+    .replace(/SONARA(?:\s*[·/]\s*SONARA)+/gi, 'SONARA');
+}
+
 function initialLanguage(): LanguageCode {
   const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(LANGUAGE_KEY) : null;
   if (saved && (SUPPORTED_LANGUAGES as readonly string[]).includes(saved)) return saved as LanguageCode;
@@ -51,7 +60,7 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
 
-  const t = useMemo(() => (key: Parameters<typeof uiText>[1]) => uiText(language, key), [language]);
+  const t = useMemo(() => (key: Parameters<typeof uiText>[1]) => brandSonara(uiText(language, key)), [language]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setBooting(false), 1900);
@@ -166,7 +175,7 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
             {t('bootInitializing')}
           </div>
-          <div className="mt-2 text-[10px] text-emerald-400">{t('bootEngine')}</div>
+          <div className="mt-2 text-[10px] font-black tracking-[0.2em] text-emerald-400">SONARA</div>
         </div>
         <style>{`@keyframes sonaraBoot{from{width:0}to{width:100%}}`}</style>
       </div>
@@ -189,7 +198,7 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
               <p className="mt-4 max-w-lg text-sm leading-7 text-slate-400">{t('signInSubtitle')}</p>
             </div>
             <div className="space-y-3 text-xs text-slate-400">
-              <div className="flex items-center gap-3"><Sparkles className="h-4 w-4 text-purple-400" /> ACE-Step 1.5 generative music</div>
+              <div className="flex items-center gap-3"><Sparkles className="h-4 w-4 text-purple-400" /> SONARA generative music</div>
               <div className="flex items-center gap-3"><ShieldCheck className="h-4 w-4 text-emerald-400" /> Enterprise creative workspace</div>
               <div className="flex items-center gap-3"><Globe2 className="h-4 w-4 text-cyan-400" /> Global genres · multilingual interface</div>
             </div>
