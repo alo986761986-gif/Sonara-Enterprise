@@ -330,31 +330,62 @@ async function audio(request, env, url) {
   });
 }
 
-async function probeUpstream(env) {
+function compactParameter(parameter) {
+  return {
+    label: parameter?.label || '',
+    name: parameter?.parameter_name || '',
+    hasDefault: Boolean(parameter?.parameter_has_default),
+    default: parameter?.parameter_default,
+    component: parameter?.component || '',
+    pythonType: parameter?.python_type?.type || ''
+  };
+}
+
+async function gradioDiagnostics(env) {
   const cfg = config(env);
-  const paths = ['/health', '/v1/models', '/release_task', '/gradio_api/info', '/info', '/config'];
-  return Promise.all(paths.map(async path => {
-    try {
-      const response = await fetch(`${cfg.baseUrl}${path}`, {
-        method: 'GET',
-        headers: authHeaders(env),
-        signal: AbortSignal.timeout(8000)
-      });
-      const text = await response.text();
-      return {
-        path,
-        status: response.status,
-        contentType: response.headers.get('content-type') || '',
-        preview: text.replace(/\s+/g, ' ').slice(0, 4000)
-      };
-    } catch (error) {
-      return {
-        path,
-        status: 0,
-        error: error instanceof Error ? error.message : String(error)
-      };
+  try {
+    const response = await fetch(`${cfg.baseUrl}/gradio_api/info`, {
+      method: 'GET',
+      headers: authHeaders(env),
+      signal: AbortSignal.timeout(12000)
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      return { status: response.status, error: text.slice(0, 300) };
     }
-  }));
+    const info = JSON.parse(text || '{}');
+    const named = info?.named_endpoints || {};
+    const entries = Object.entries(named);
+    const candidates = entries.filter(([name, spec]) => {
+      const params = Array.isArray(spec?.parameters) ? spec.parameters : [];
+      const returns = Array.isArray(spec?.returns) ? spec.returns : [];
+      const haystack = [
+        name,
+        spec?.description || '',
+        ...params.flatMap(p => [p?.label || '', p?.parameter_name || '', p?.component || '']),
+        ...returns.flatMap(r => [r?.label || '', r?.component || ''])
+      ].join(' ');
+      return /(generate|music|audio|sample|caption|lyrics)/i.test(haystack);
+    }).map(([name, spec]) => ({
+      name,
+      description: spec?.description || '',
+      parameters: (spec?.parameters || []).map(compactParameter),
+      returns: (spec?.returns || []).map(r => ({
+        label: r?.label || '',
+        component: r?.component || '',
+        pythonType: r?.python_type?.type || ''
+      }))
+    }));
+
+    return {
+      status: response.status,
+      endpointCount: entries.length,
+      candidateCount: candidates.length,
+      candidates
+    };
+  } catch (error) {
+    return { status: 0, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 export default {
@@ -370,8 +401,7 @@ export default {
       const cfg = config(env);
       const hasModalProxyKey = Boolean(cfg.key);
       const hasModalProxySecret = Boolean(cfg.secret);
-      const upstreamChecks = await probeUpstream(env);
-      return json(request, {
+      const base = {
         status: 'HEALTHY',
         service: 'sonara-production-modal-proxy',
         modalConfigured: hasModalProxyKey && hasModalProxySecret,
@@ -380,10 +410,12 @@ export default {
         keyFormatOk: hasModalProxyKey && cfg.key.startsWith('wk-'),
         secretFormatOk: hasModalProxySecret && cfg.secret.startsWith('ws-'),
         engine: 'ACE-Step 1.5 / Modal L4',
-        resilience: 'modal-524-retry-v1',
-        modalBaseUrl: cfg.baseUrl,
-        upstreamChecks
-      });
+        resilience: 'modal-524-retry-v1'
+      };
+      if (url.searchParams.get('diag') === 'gradio') {
+        return json(request, { ...base, gradio: await gradioDiagnostics(env) });
+      }
+      return json(request, base);
     }
 
     if (path === '/api/engine/generate') return generate(request, env);
