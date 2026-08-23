@@ -4,6 +4,17 @@
   "main": "cloudflare/modal-proxy.mjs",
   "compatibility_date": "2026-08-23",
   "workers_dev": true,
+  "keep_vars": true,
+  "routes": [
+    {
+      "pattern": "sonaraenterprise.com/api/*",
+      "zone_name": "sonaraenterprise.com"
+    },
+    {
+      "pattern": "www.sonaraenterprise.com/api/*",
+      "zone_name": "sonaraenterprise.com"
+    }
+  ],
   "secrets": {
     "required": [
       "MODAL_PROXY_KEY",
