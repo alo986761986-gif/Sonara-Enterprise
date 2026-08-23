@@ -1,5 +1,6 @@
 name: Fix Random Prompt Once
 
+# one-time trigger 2026-08-24
 on:
   push:
     branches: [main]
