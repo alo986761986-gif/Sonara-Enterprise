@@ -1,8 +1,7 @@
 {
-  // SONARA diagnostic rebuild marker: direct-api-240-v2
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "sonara-enterprise",
-  "main": "cloudflare/sonara-engine-rootcause-diagnostic.mjs",
+  "main": "cloudflare/sonara-engine-v6.mjs",
   "compatibility_date": "2026-08-23",
   "workers_dev": true,
   "keep_vars": true,
@@ -24,10 +23,6 @@
       "zone_name": "sonaraenterprise.com"
     },
     {
-      "pattern": "sonaraenterprise.com/api/diagnostic/*",
-      "zone_name": "sonaraenterprise.com"
-    },
-    {
       "pattern": "www.sonaraenterprise.com/api/engine/generate",
       "zone_name": "sonaraenterprise.com"
     },
@@ -37,10 +32,6 @@
     },
     {
       "pattern": "www.sonaraenterprise.com/api/modal/audio*",
-      "zone_name": "sonaraenterprise.com"
-    },
-    {
-      "pattern": "www.sonaraenterprise.com/api/diagnostic/*",
       "zone_name": "sonaraenterprise.com"
     }
   ]
