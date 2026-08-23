@@ -1,0 +1,46 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/api/engine/generate",
+      "destination": "https://api.sonaraenterprise.com/api/engine/generate"
+    },
+    {
+      "source": "/api/music/job/:id",
+      "destination": "https://api.sonaraenterprise.com/api/music/job/:id"
+    },
+    {
+      "source": "/api/modal/audio",
+      "destination": "https://api.sonaraenterprise.com/api/modal/audio"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/engine/generate",
+      "headers": [
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "source": "/api/music/job/:id",
+      "headers": [
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "source": "/api/modal/audio",
+      "headers": [
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        }
+      ]
+    }
+  ]
+}
