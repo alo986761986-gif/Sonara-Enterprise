@@ -1,6 +1,7 @@
 import { GenerationPayload } from '../providers/StabilityProvider';
 import { JobQueueWorker } from '../workers/JobQueueWorker';
 import { MixingMasteringEngineService } from './MixingMasteringEngineService';
+import { AceStepEngine } from '../engine/AceStepEngine';
 import { LevoEngine } from '../engine/LevoEngine';
 import fs from 'fs';
 import path from 'path';
@@ -142,8 +143,7 @@ export class MusicGenerationService {
     durationSec: number = 30,
     bpm: number = 128
   ): Promise<{ audioBuffer: Buffer | null; audioPath: string | null; metadata: Record<string, any> | null }> {
-    const engine = LevoEngine.getInstance();
-    const result = await engine.generate({
+    const params = {
       prompt: promptStr,
       genre: genreStr,
       mood: moodStr,
@@ -152,12 +152,34 @@ export class MusicGenerationService {
       timeoutMs,
       durationSec,
       bpm
-    });
+    };
 
+    if (process.env.ACESTEP_API_URL) {
+      const aceStep = AceStepEngine.getInstance();
+      const aceResult = await aceStep.generate(params);
+      if (aceResult.status === 'SUCCESS' && aceResult.audioBuffer) {
+        console.log('[ENTERPRISE_LOG] [MUSIC_GEN_SERVICE] ACE-Step Modal generation succeeded.');
+        return {
+          audioBuffer: aceResult.audioBuffer,
+          audioPath: aceResult.audioPath,
+          metadata: aceResult.metadata || { status: aceResult.status }
+        };
+      }
+
+      console.warn(`[MUSIC_GEN_SERVICE] ACE-Step unavailable, falling back to LeVo: ${aceResult.error || aceResult.status}`);
+    }
+
+    const levo = LevoEngine.getInstance();
+    const levoResult = await levo.generate(params);
     return {
-      audioBuffer: result.audioBuffer,
-      audioPath: result.audioPath,
-      metadata: result.metadata || { status: result.status, error: result.error }
+      audioBuffer: levoResult.audioBuffer,
+      audioPath: levoResult.audioPath,
+      metadata: {
+        ...(levoResult.metadata || {}),
+        status: levoResult.status,
+        error: levoResult.error,
+        fallbackFrom: process.env.ACESTEP_API_URL ? 'ACE-Step Modal' : undefined
+      }
     };
   }
 
@@ -166,7 +188,7 @@ export class MusicGenerationService {
     projCounter++;
     const jobId = `job_gen_${Date.now()}_${jobCounter}`;
 
-    console.log(`[ENTERPRISE_LOG] [MUSIC_GEN_SERVICE] Enqueuing LeVo Generation Request | JobId: ${jobId} | User: ${userId}`);
+    console.log(`[ENTERPRISE_LOG] [MUSIC_GEN_SERVICE] Enqueuing Generation Request | JobId: ${jobId} | User: ${userId}`);
     JobQueueWorker.enqueueJob(jobId, payload, userId, 900000);
     const completedJob = await JobQueueWorker.waitForCompletion(jobId, 900000);
 
@@ -183,7 +205,7 @@ export class MusicGenerationService {
       jobId,
       status: completedJob ? completedJob.status : 'QUEUED',
       audioUrl: completedJob?.audioUrl || null,
-      metadata: completedJob?.metadata || { error: completedJob?.error || 'LeVo job processing timeout' }
+      metadata: completedJob?.metadata || { error: completedJob?.error || 'Generation job processing timeout' }
     };
   }
 }
