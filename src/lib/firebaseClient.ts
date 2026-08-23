@@ -1,3 +1,4 @@
+// Firebase production configuration is injected by Vercel VITE_FIREBASE_* environment variables.
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
 import {
   GoogleAuthProvider,
