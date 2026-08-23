@@ -330,6 +330,33 @@ async function audio(request, env, url) {
   });
 }
 
+async function probeUpstream(env) {
+  const cfg = config(env);
+  const paths = ['/health', '/v1/models', '/release_task'];
+  return Promise.all(paths.map(async path => {
+    try {
+      const response = await fetch(`${cfg.baseUrl}${path}`, {
+        method: 'GET',
+        headers: authHeaders(env),
+        signal: AbortSignal.timeout(8000)
+      });
+      const text = await response.text();
+      return {
+        path,
+        status: response.status,
+        contentType: response.headers.get('content-type') || '',
+        preview: text.replace(/\s+/g, ' ').slice(0, 120)
+      };
+    } catch (error) {
+      return {
+        path,
+        status: 0,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }));
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') {
@@ -343,6 +370,7 @@ export default {
       const cfg = config(env);
       const hasModalProxyKey = Boolean(cfg.key);
       const hasModalProxySecret = Boolean(cfg.secret);
+      const upstreamChecks = await probeUpstream(env);
       return json(request, {
         status: 'HEALTHY',
         service: 'sonara-production-modal-proxy',
@@ -352,7 +380,9 @@ export default {
         keyFormatOk: hasModalProxyKey && cfg.key.startsWith('wk-'),
         secretFormatOk: hasModalProxySecret && cfg.secret.startsWith('ws-'),
         engine: 'ACE-Step 1.5 / Modal L4',
-        resilience: 'modal-524-retry-v1'
+        resilience: 'modal-524-retry-v1',
+        modalBaseUrl: cfg.baseUrl,
+        upstreamChecks
       });
     }
 
