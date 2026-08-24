@@ -21,9 +21,33 @@ export interface RandomCreativeBriefInput extends GenerationPromptInput {
   variant?: number;
 }
 
+export interface CreatorBriefAnalysis {
+  normalized: string;
+  exclusions: string[];
+  detailed: boolean;
+  detailScore: number;
+}
+
+const FINAL_PROMPT_MAX_CHARS = 11800;
+const MAX_USER_INTENT_WITHOUT_LYRICS = 4600;
+const MIN_USER_INTENT_BUDGET = 1600;
+const MAX_EXPLICIT_EXCLUSIONS = 8;
+
 function cleanText(value: unknown, fallback = '', maxLength = 800): string {
   const text = String(value ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim();
   return (text || fallback).slice(0, maxLength);
+}
+
+function cleanMultilineText(value: unknown, fallback = '', maxLength = 4600): string {
+  const source = String(value ?? '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]+/g, ' ');
+  const lines = source
+    .split('\n')
+    .map(line => line.replace(/[\t ]+/g, ' ').trim())
+    .filter(Boolean);
+  const normalized = lines.join('\n').trim();
+  return (normalized || fallback).slice(0, maxLength);
 }
 
 function clampInteger(value: unknown, fallback: number, min: number, max: number): number {
@@ -34,6 +58,69 @@ function clampInteger(value: unknown, fallback: number, min: number, max: number
 function sentence(value: string): string {
   const trimmed = value.trim();
   return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
+function compactProfileText(value: string, maxLength = 720): string {
+  return cleanText(value, '', maxLength);
+}
+
+function splitCreatorClauses(value: string): string[] {
+  return value
+    .split(/\n+|(?<=[.!?;])\s+/)
+    .map(item => item.replace(/^[-*•\d.)\s]+/, '').trim())
+    .filter(item => item.length >= 3);
+}
+
+function expandNegativeClause(value: string): string[] {
+  return value
+    .split(/\s+(?:e|ed|and|&)\s+(?=(?:senza|no|non\s+(?:usare|voglio|inserire|mettere|aggiungere)|without|avoid|do\s+not\s+use|don't\s+use|exclude)\b)/i)
+    .map(item => item.trim())
+    .filter(Boolean);
+}
+
+const NEGATIVE_CUE = /(?:^|\b)(?:no|senza|evita(?:re)?|non\s+(?:usare|voglio|inserire|mettere|aggiungere)|escludi(?:re)?|without|avoid|do\s+not\s+use|don't\s+use|exclude)\b/i;
+const STRUCTURE_CUE = /\b(?:intro|introduzione|verse|strofa|chorus|ritornello|pre[- ]?chorus|drop|bridge|ponte|breakdown|break|solo|outro|finale|build|crescendo|climax|refrain)\b/i;
+const INSTRUMENT_CUE = /\b(?:drums?|batteria|kick|snare|rullante|bass|basso|808|guitar|chitarra|piano|keys?|tastiere|synth|sintetizzatore|strings?|archi|violin|violino|cello|violoncello|brass|fiati|trumpet|tromba|sax|flute|flauto|percussion|percussioni|choir|coro|voice|voce|vocal|vocali|mandolin|mandolino|organ|organo|rhodes)\b/i;
+const PRODUCTION_CUE = /\b(?:analog|analogico|live|dal vivo|acoustic|acustic[ao]|organic|organico|human|umano|real|reale|natural|naturale|vintage|modern|moderno|lo[- ]?fi|hi[- ]?fi|cinematic|cinematografico|wide|stereo|mono|dry|riverbero|reverb|delay|distortion|distorsione|saturated|saturo)\b/i;
+
+export function analyzeCreatorBrief(value: unknown, fallback = ''): CreatorBriefAnalysis {
+  const normalized = cleanMultilineText(value, fallback, MAX_USER_INTENT_WITHOUT_LYRICS);
+  const clauses = splitCreatorClauses(normalized);
+  const exclusions = clauses
+    .filter(clause => NEGATIVE_CUE.test(clause))
+    .flatMap(expandNegativeClause)
+    .filter(clause => NEGATIVE_CUE.test(clause))
+    .filter((clause, index, all) => all.findIndex(item => item.toLocaleLowerCase('en-US') === clause.toLocaleLowerCase('en-US')) === index)
+    .slice(0, MAX_EXPLICIT_EXCLUSIONS);
+  const signalCount = [STRUCTURE_CUE, INSTRUMENT_CUE, PRODUCTION_CUE, NEGATIVE_CUE]
+    .reduce((count, pattern) => count + (pattern.test(normalized) ? 1 : 0), 0);
+  const detailScore = Math.min(100, Math.round(normalized.length / 14) + Math.min(24, clauses.length * 3) + signalCount * 10);
+  return {
+    normalized,
+    exclusions,
+    detailed: normalized.length >= 90 || clauses.length >= 3 || signalCount >= 2,
+    detailScore
+  };
+}
+
+function userIntentBudget(lyricsLength: number): number {
+  return Math.max(
+    MIN_USER_INTENT_BUDGET,
+    MAX_USER_INTENT_WITHOUT_LYRICS - Math.min(3000, Math.max(0, lyricsLength))
+  );
+}
+
+function arrangementBlueprint(durationSec: number): string {
+  if (durationSec <= 45) {
+    return 'Establish the identity in the first one or two bars, develop one main musical statement, introduce one meaningful contrast and finish with a composed cadence rather than a fade or abrupt cut.';
+  }
+  if (durationSec <= 90) {
+    return 'Use a concise but complete form: immediate identity, developed A section, variation or lift, contrasting passage, return or climax and a resolved final cadence.';
+  }
+  if (durationSec <= 150) {
+    return 'Use a full short-form arrangement: purposeful intro, exposition, development, contrasting section, main return or climax and a performed ending, with audible evolution at every phrase boundary.';
+  }
+  return 'Use a complete long-form arrangement: authored intro, thematic exposition, progressive development, contrast or breakdown, controlled rebuild, final climax, release and fully resolved ending. Do not repeat an unchanged loop to fill time.';
 }
 
 function vocalDirection(vocalMode: VocalMode, lyrics: string): string {
@@ -95,8 +182,24 @@ export function buildRandomCreativeBrief(input: RandomCreativeBriefInput): strin
           : 'Use a genuine male-and-female duet with distinct voices, natural alternation and intentional harmony; preserve the supplied lyrics exactly.',
     vocalMode !== 'instrumental' && !lyrics ? 'Lyrics must be supplied before vocal generation can start.' : '',
     sentence(profile.avoid),
-    'Deliver a release-ready, dynamically controlled mix with clear separation, no clipping and no artificial silence padding.'
+    'Perform the music rather than repeating a static loop. Use believable articulation, human musical phrasing, evolving sections, release-ready separation, no clipping and no artificial silence padding.'
   ].filter(Boolean).join(' ');
+}
+
+function finalPromptWithinBudget(sections: string[], userIntent: string): string {
+  let currentIntent = userIntent;
+  let prompt = sections.join('\n\n');
+  if (prompt.length <= FINAL_PROMPT_MAX_CHARS) return prompt;
+
+  const overflow = prompt.length - FINAL_PROMPT_MAX_CHARS;
+  currentIntent = currentIntent.slice(0, Math.max(900, currentIntent.length - overflow - 120)).trim();
+  const adjusted = sections.map(section => section.startsWith('CREATOR BRIEF — VERBATIM:')
+    ? `CREATOR BRIEF — VERBATIM:\n<<<\n${currentIntent}\n>>>`
+    : section);
+  prompt = adjusted.join('\n\n');
+  return prompt.length <= FINAL_PROMPT_MAX_CHARS
+    ? prompt
+    : prompt.slice(0, FINAL_PROMPT_MAX_CHARS - 120).trimEnd() + '\n\nFINAL RULE: preserve the creator brief, exact technical locks and complete musical ending.';
 }
 
 export function buildGenerationPrompt(input: GenerationPromptInput): string {
@@ -121,8 +224,10 @@ export function buildGenerationPrompt(input: GenerationPromptInput): string {
     title,
     variant: 0
   });
-  const userIntent = cleanText(input.rawPrompt ?? input.prompt, fallbackBrief, 1600);
   const lyrics = String(input.lyrics ?? '').trim().slice(0, 4096);
+  const intentBudget = userIntentBudget(lyrics.length);
+  const creatorAnalysis = analyzeCreatorBrief(input.rawPrompt ?? input.prompt, fallbackBrief);
+  const userIntent = cleanMultilineText(creatorAnalysis.normalized, fallbackBrief, intentBudget);
   const vocalMode = input.vocalMode;
   const vocalInstruction = vocalDirection(vocalMode, lyrics);
   const vocalNegative = vocalMode === 'instrumental'
@@ -132,18 +237,27 @@ export function buildGenerationPrompt(input: GenerationPromptInput): string {
       : vocalMode === 'female'
         ? 'No male lead, no duet and no voice-gender ambiguity.'
         : 'Do not collapse the duet into one singer, two identical timbres or a permanently unison performance.';
+  const explicitExclusions = creatorAnalysis.exclusions.length
+    ? creatorAnalysis.exclusions.map(value => `- ${value}`).join('\n')
+    : '- No additional exclusions were stated by the creator.';
 
-  return [
-    `USER INTENT:\n${userIntent}`,
-    `AUTHORITATIVE MUSICAL IDENTITY:\nTitle: ${title}\nFamily: ${genreFamily}\nGenre: ${genre}\nSubgenre: ${subgenre}\nAtmosphere: ${mood}\nPriority rule: the selected subgenre ${subgenre} overrides generic family or genre conventions whenever they conflict.`,
-    `SUBGENRE STYLE DNA:\n${profile.identity}`,
-    `TECHNICAL PARAMETERS:\nTempo: exactly ${bpm} BPM\nKey: exactly ${key}\nDuration: approximately ${durationSec} seconds, ending on a complete musical bar\nTime signature: use the meter authentic to ${subgenre}; otherwise use 4/4\nDo not change tempo or key unless a very brief expressive deviation is essential to authentic ${subgenre}.`,
-    `INSTRUMENTATION:\nUse ${profile.instrumentation}. Every instrument must have a role that belongs to ${subgenre}.`,
-    `RHYTHM AND GROOVE:\nBuild ${profile.rhythm}. The rhythmic feel must identify ${subgenre} even before melody or vocals enter.`,
-    `HARMONY, MELODY AND PERFORMANCE:\nUse ${profile.harmony}. Preserve idiomatic articulation, phrasing, improvisation and ensemble interaction.`,
-    `ARRANGEMENT:\nCreate ${profile.arrangement}. Scale every section to ${durationSec} seconds and never cut or fade the ending prematurely.`,
+  const sections = [
+    `EXECUTION PRIORITY — NON-NEGOTIABLE:\n1. The creator brief is the primary artistic source of truth for instruments, sections, energy, texture, era, performance behavior, transitions and exclusions.\n2. The interface controls remain exact locks for Family, Genre, Subgenre, Atmosphere, BPM, key, duration and vocal mode.\n3. Curated style DNA may fill only details the creator did not specify. It must never replace a specific creator instruction with a generic genre default.\n4. Interpret the creator's language directly. Italian or any other non-English wording is semantically binding, not decorative.\n5. Produce an original composition and performance; do not imitate or reproduce any identifiable existing recording.`,
+    `CREATOR BRIEF — VERBATIM:\n<<<\n${userIntent}\n>>>`,
+    `CREATOR DIRECTIVE CONTRACT:\nPreserve every explicit instrument, sound source, musical action, section, dynamic change, emotional contrast, production treatment and exclusion stated above. Concrete creator details take precedence over generic defaults. Do not silently omit, weaken, rename or substitute them. Where the brief leaves a detail unspecified, complete it using authentic ${subgenre} practice.`,
+    `EXPLICIT CREATOR EXCLUSIONS:\n${explicitExclusions}`,
+    `AUTHORITATIVE MUSICAL IDENTITY:\nTitle: ${title}\nFamily: ${genreFamily}\nGenre: ${genre}\nSubgenre: ${subgenre}\nAtmosphere: ${mood}\nPriority rule: the selected subgenre ${subgenre} overrides generic family or genre conventions whenever they conflict, while the creator brief overrides generic style-fill details.`,
+    `SUBGENRE STYLE DNA — FILL UNSPECIFIED DETAILS ONLY:\n${compactProfileText(profile.identity, 720)}`,
+    `TECHNICAL PARAMETERS:\nTempo: exactly ${bpm} BPM\nKey: exactly ${key}\nDuration: approximately ${durationSec} seconds, ending on a complete musical bar\nTime signature: use the meter authentic to ${subgenre}; otherwise use 4/4\nDo not drift from tempo or key. Any expressive timing must occur inside the pulse, not by changing the requested BPM.`,
+    `INSTRUMENTATION AND ORCHESTRATION:\nCreator-specified instruments are mandatory and must remain clearly audible in their requested roles. Use ${compactProfileText(profile.instrumentation, 680)} only to complete missing ensemble roles. Give each part a physically credible register, articulation, note length, velocity, breath, bowing, picking, striking, sustain or synthesis behavior appropriate to the real instrument or sound source.`,
+    `RHYTHM AND GROOVE:\nBuild ${compactProfileText(profile.rhythm, 680)}. Preserve human microtiming and phrase-level variation without losing the exact ${bpm} BPM pulse. The groove must evolve through fills, accents, orchestration and interaction rather than copy-pasting one unchanged loop.`,
+    `HARMONY, MELODY AND PERFORMANCE:\nUse ${compactProfileText(profile.harmony, 680)}. Develop memorable motifs with musical cause and effect. Perform phrases with credible articulation, dynamics, breathing space, tension, release, call-and-response and ensemble interaction. Avoid impossible instrumental ranges, mechanical note repetition and random decorative notes.`,
+    `ARRANGEMENT AND MUSICAL NARRATIVE:\nCreator-specified sections and order are mandatory. Otherwise, create ${compactProfileText(profile.arrangement, 680)}. ${arrangementBlueprint(durationSec)} Make every transition musically prepared; use risers, impacts, fills or silence only when authentic to ${subgenre} and requested energy.`,
     `VOCALS AND TEXT:\nMode: ${vocalMode}\n${vocalInstruction}`,
-    `PRODUCTION:\nUse ${profile.production}. Maintain clear separation, clean transients, controlled low end, stable stereo imaging, musical dynamics, no clipping and a professional release-ready master.`,
-    `NEGATIVE CONSTRAINTS:\n${profile.avoid} No genre drift. No unrelated instruments. No generic replacement groove. No incorrect key or BPM. ${vocalNegative} No invented lyrics. No unfinished ending. No excessive distortion unless intrinsic to ${subgenre}. No muddy low end. No fake silence added to reach the requested duration.`
-  ].join('\n\n');
+    `REALISM AND RECORDING CONTRACT:\nThe result must sound like a deliberately composed and performed record, not an AI demo, preset audition, stock loop collage or unfinished sketch. Preserve realistic attack, decay, resonance, room response, amplifier or signal-chain behavior, player interaction and controlled imperfections. Acoustic sources must feel physically recorded; electronic sources must feel intentionally programmed and mixed, not randomly layered.`,
+    `PRODUCTION, MIX AND MASTER:\nUse ${compactProfileText(profile.production, 680)}. Build a credible mix before mastering: clear frequency ownership, audible separation, controlled low end, clean transients, stable but natural stereo imaging, sensible depth, musical headroom and dynamics. Deliver a real WAV-ready master with no clipping, no crushed loudness, no phase collapse, no fake stereo widening and no artificial silence padding.`,
+    `NEGATIVE CONSTRAINTS:\n${compactProfileText(profile.avoid, 720)} No genre drift. No unrelated instruments. No generic replacement groove. No omission of creator-specified details. No incorrect key or BPM. ${vocalNegative} No invented lyrics. No unfinished ending. No abrupt truncation. No excessive distortion unless intrinsic to ${subgenre} or explicitly requested. No muddy low end. No repeated unchanged block used merely to fill duration.`
+  ];
+
+  return finalPromptWithinBudget(sections, userIntent);
 }

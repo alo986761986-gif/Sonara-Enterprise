@@ -7,11 +7,13 @@ const JOB_TTL_SECONDS = 3 * 60 * 60;
 const FAST_MODEL_DEFAULT = 'acestep-v15-xl-turbo';
 const QUALITY_MODEL_DEFAULT = 'acestep-v15-xl-sft';
 const FAST_INFERENCE_STEPS = 8;
+const DETAILED_PROMPT_INFERENCE_STEPS = 12;
 const QUALITY_INFERENCE_STEPS = 28;
 const MAX_ADAPTIVE_QUALITY_REGENERATIONS = 2;
 const GENERATION_LOCK_MS = 120_000;
 const RELEASE_TIMEOUT_MS = 90_000;
 const RETRYABLE_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526]);
+const DETAILED_PROMPT_CUE = /\b(?:intro|verse|strofa|chorus|ritornello|drop|bridge|ponte|breakdown|solo|outro|finale|crescendo|climax|drums?|batteria|bass|basso|guitar|chitarra|piano|synth|archi|strings?|voice|voce|vocal|coro|choir|senza|avoid|without|non\s+usare|analog|acustic|acoustic|live|reale|real|human|umano|vintage|cinematic)\b/i;
 
 class AdaptiveEngineError extends Error {
   constructor(message, status = 0, retryable = false) {
@@ -39,13 +41,14 @@ function corsHeaders(request) {
 }
 
 function jsonResponse(request, data, status = 200, route = 'adaptive-fast') {
+  const performanceProfile = String(data?.metadata?.performanceProfile || data?.performanceProfile || 'adaptive-fast-v1');
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       'content-type': 'application/json; charset=UTF-8',
       'cache-control': 'private, no-store',
       'x-sonara-job-route': route,
-      'x-sonara-performance-profile': 'adaptive-fast-v1',
+      'x-sonara-performance-profile': performanceProfile,
       ...corsHeaders(request)
     }
   });
@@ -138,6 +141,41 @@ async function storeJob(jobId, context) {
   );
 }
 
+function creatorBriefFromPrompt(prompt) {
+  const value = String(prompt || '');
+  const verbatim = value.match(/CREATOR BRIEF\s*[—-]\s*VERBATIM:\s*<<<\s*([\s\S]*?)\s*>>>/i)?.[1];
+  if (verbatim) return verbatim.trim();
+  const legacy = value.match(/USER INTENT:\s*([\s\S]*?)(?=\n\n[A-Z][A-Z\s,&—-]+:|$)/i)?.[1];
+  return String(legacy || '').trim();
+}
+
+function creatorExclusionsFromPrompt(prompt) {
+  const value = String(prompt || '');
+  const section = value.match(/EXPLICIT CREATOR EXCLUSIONS:\s*([\s\S]*?)(?=\n\n[A-Z][A-Z\s,&—-]+:|$)/i)?.[1] || '';
+  return section
+    .split(/\n+/)
+    .map(item => item.replace(/^[-*•\s]+/, '').trim())
+    .filter(item => item && !/no additional exclusions/i.test(item))
+    .slice(0, 8);
+}
+
+export function analyzePromptFidelity(payload) {
+  const prompt = String(payload?.prompt || '');
+  const creatorBrief = creatorBriefFromPrompt(prompt);
+  const exclusions = creatorExclusionsFromPrompt(prompt);
+  const lines = creatorBrief.split(/\n+/).filter(Boolean);
+  const punctuationSignals = (creatorBrief.match(/[,;:]/g) || []).length;
+  const cueSignals = (creatorBrief.match(new RegExp(DETAILED_PROMPT_CUE.source, 'gi')) || []).length;
+  const detailed = creatorBrief.length >= 90 || lines.length >= 2 || punctuationSignals >= 3 || cueSignals >= 2 || exclusions.length > 0;
+  return {
+    creatorBrief,
+    exclusions,
+    detailed,
+    inferenceSteps: detailed ? DETAILED_PROMPT_INFERENCE_STEPS : FAST_INFERENCE_STEPS,
+    thinking: detailed
+  };
+}
+
 export function chooseAdaptiveModel(models, defaultModel = '', qualityFallback = false) {
   const available = Array.isArray(models)
     ? models.map(value => String(value || '').trim()).filter(Boolean)
@@ -154,24 +192,38 @@ export function chooseAdaptiveModel(models, defaultModel = '', qualityFallback =
   return available[0] || (qualityFallback ? QUALITY_MODEL_DEFAULT : FAST_MODEL_DEFAULT);
 }
 
-export function buildAdaptivePayload(payload, model, qualityFallback = false) {
+export function buildAdaptivePayload(payload, model, qualityFallback = false, fidelity = analyzePromptFidelity(payload)) {
+  const detailedIntent = !qualityFallback && Boolean(fidelity?.detailed);
+  const inferenceSteps = qualityFallback
+    ? QUALITY_INFERENCE_STEPS
+    : (detailedIntent ? DETAILED_PROMPT_INFERENCE_STEPS : FAST_INFERENCE_STEPS);
+  const thinking = qualityFallback || detailedIntent;
+  const creatorNegative = Array.isArray(fidelity?.exclusions) && fidelity.exclusions.length
+    ? `creator exclusions: ${fidelity.exclusions.join('; ')}`
+    : '';
+  const negativePrompt = [String(payload?.lm_negative_prompt || '').trim(), creatorNegative]
+    .filter(Boolean)
+    .join(', ')
+    .slice(0, 1800);
+
   const next = {
     ...payload,
     model,
-    inference_steps: qualityFallback ? QUALITY_INFERENCE_STEPS : FAST_INFERENCE_STEPS,
-    thinking: qualityFallback,
+    inference_steps: inferenceSteps,
+    thinking,
     use_format: false,
-    use_cot_caption: qualityFallback,
-    use_cot_language: qualityFallback,
+    use_cot_caption: thinking,
+    use_cot_language: thinking,
     constrained_decoding: true,
     allow_lm_batch: false,
-    lm_temperature: qualityFallback ? 0.68 : 0.74,
-    lm_cfg_scale: qualityFallback ? 3.0 : 2.6,
-    lm_top_p: 0.9,
+    lm_temperature: qualityFallback ? 0.68 : (detailedIntent ? 0.64 : 0.74),
+    lm_cfg_scale: qualityFallback ? 3.0 : (detailedIntent ? 3.2 : 2.6),
+    lm_top_p: detailedIntent ? 0.86 : 0.9,
     lm_repetition_penalty: 1.05,
     batch_size: 1,
     infer_method: 'ode',
-    audio_format: 'wav'
+    audio_format: 'wav',
+    ...(negativePrompt ? { lm_negative_prompt: negativePrompt } : {})
   };
 
   if (qualityFallback) {
@@ -233,13 +285,16 @@ async function startAdaptiveGeneration(request, env, jobId, context) {
   }
 
   const qualityFallback = qualityRegenerations > 0;
+  const fidelity = analyzePromptFidelity(context.payload || {});
   const selectedModel = String(
     qualityFallback
       ? (env.SONARA_QUALITY_MODEL || QUALITY_MODEL_DEFAULT)
       : (env.SONARA_FAST_MODEL || FAST_MODEL_DEFAULT)
   ).trim();
-  const performanceProfile = qualityFallback ? 'adaptive-quality-fallback-v1' : 'adaptive-fast-v1';
-  const payload = buildAdaptivePayload(context.payload || {}, selectedModel, qualityFallback);
+  const performanceProfile = qualityFallback
+    ? 'adaptive-quality-fallback-v1'
+    : (fidelity.detailed ? 'adaptive-prompt-fidelity-v1' : 'adaptive-fast-v1');
+  const payload = buildAdaptivePayload(context.payload || {}, selectedModel, qualityFallback, fidelity);
   let nextContext = {
     ...context,
     phase: 'generating',
@@ -252,6 +307,9 @@ async function startAdaptiveGeneration(request, env, jobId, context) {
       ...(context.generationSpec || {}),
       candidateCount: 1,
       performanceProfile,
+      promptFidelityMode: fidelity.detailed ? 'detailed' : 'simple',
+      creatorBriefCharacters: fidelity.creatorBrief.length,
+      explicitCreatorExclusions: fidelity.exclusions.length,
       inferenceSteps: payload.inference_steps
     },
     updatedAt: Date.now()
@@ -267,9 +325,14 @@ async function startAdaptiveGeneration(request, env, jobId, context) {
       updatedAt: Date.now()
     };
     await storeJob(jobId, nextContext);
+    const stage = qualityFallback
+      ? 'SONARA: professional fallback is rendering'
+      : (fidelity.detailed
+        ? 'SONARA: interpreting and rendering the detailed creator brief'
+        : 'SONARA: fast professional render started');
     return jsonResponse(
       request,
-      processingPayload(jobId, nextContext, 45, qualityFallback ? 'SONARA: professional fallback is rendering' : 'SONARA: fast professional render started'),
+      processingPayload(jobId, nextContext, 45, stage),
       200,
       performanceProfile
     );
@@ -306,7 +369,9 @@ async function maybeStartAdaptiveJob(request, env, jobId) {
   if (context.phase === 'generating' && startedAt && Date.now() - startedAt < GENERATION_LOCK_MS) {
     return jsonResponse(
       request,
-      processingPayload(jobId, context, 35, 'SONARA: fast professional render is starting'),
+      processingPayload(jobId, context, 35, context.performanceProfile === 'adaptive-prompt-fidelity-v1'
+        ? 'SONARA: detailed creator brief is being prepared'
+        : 'SONARA: fast professional render is starting'),
       200,
       context.performanceProfile || 'adaptive-fast-lock'
     );
@@ -344,7 +409,7 @@ async function normalizeJobResponse(response, route) {
   headers.set('content-type', 'application/json; charset=UTF-8');
   headers.set('cache-control', 'private, no-store');
   headers.set('x-sonara-job-route', route);
-  headers.set('x-sonara-performance-profile', 'adaptive-fast-v1');
+  headers.set('x-sonara-performance-profile', 'adaptive-prompt-fidelity-v1');
   headers.delete('content-length');
 
   return new Response(body, {
@@ -384,13 +449,16 @@ async function decorateHealthResponse(request, response) {
   } catch {
     payload = { status: response.ok ? 'HEALTHY' : 'ERROR' };
   }
-  payload.performanceProfile = 'adaptive-fast-v1';
+  payload.performanceProfile = 'adaptive-prompt-fidelity-v1';
   payload.fastModel = FAST_MODEL_DEFAULT;
-  payload.fastInferenceSteps = FAST_INFERENCE_STEPS;
+  payload.simplePromptInferenceSteps = FAST_INFERENCE_STEPS;
+  payload.detailedPromptInferenceSteps = DETAILED_PROMPT_INFERENCE_STEPS;
+  payload.detailedPromptThinking = true;
   payload.fastCandidateCount = 1;
   payload.qualityFallbackModel = QUALITY_MODEL_DEFAULT;
   payload.qualityFallbackSteps = QUALITY_INFERENCE_STEPS;
   payload.maximumRenderAttempts = 2;
+  payload.creatorBriefPriority = 'authoritative-artistic-source';
   return jsonResponse(request, payload, response.status, 'health');
 }
 
