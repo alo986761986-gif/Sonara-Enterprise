@@ -8,7 +8,7 @@ const ALLOWED_ORIGINS = new Set([
 const RETRYABLE_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526]);
 const JOB_CACHE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/direct-job-v6/';
 const JOB_TTL_SECONDS = 3 * 60 * 60;
-const MAX_PROMPT_CHARS = 500;
+const MAX_PROMPT_CHARS = 8000;
 const MAX_LYRICS_CHARS = 4096;
 const GENERATION_STALE_MS = 105000;
 
@@ -173,35 +173,109 @@ async function readJob(jobId) {
   }
 }
 
-function buildPrompt(body) {
-  return [body.genre, body.subgenre, body.mood, body.key, body.prompt]
-    .filter(Boolean)
-    .map(value => String(value).trim())
-    .filter(Boolean)
-    .join(', ')
-    .slice(0, MAX_PROMPT_CHARS) || 'Professional music production';
+function cleanField(value, maxLength = 120) {
+  return String(value ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, maxLength);
 }
 
-function normalizeRequest(body) {
-  const duration = Math.round(clamp(body.durationSec ?? body.duration, 30, 30, 240));
-  const bpm = Math.round(clamp(body.bpm, 124, 30, 300));
+function promptContains(prompt, value) {
+  return prompt.toLocaleLowerCase('en-US').includes(value.toLocaleLowerCase('en-US'));
+}
+
+export function validateGenerationRequest(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new SonaraEngineError('Generation request must be a JSON object.', 400, false);
+  }
+
+  const prompt = String(body.prompt ?? '').trim();
+  const rawPrompt = cleanField(body.rawPrompt, 1000);
+  const genreFamily = cleanField(body.genreFamily);
+  const genre = cleanField(body.genre);
+  const subgenre = cleanField(body.subgenre);
+  const mood = cleanField(body.mood, 80);
+  const key = cleanField(body.key || body.key_scale, 40);
+  const title = cleanField(body.title, 160);
+  const bpm = Math.round(clamp(body.bpm, 124, 40, 220));
+  const durationSec = Math.round(clamp(body.durationSec ?? body.duration, 30, 30, 240));
+  const lyrics = String(body.lyrics || '').trim().slice(0, MAX_LYRICS_CHARS);
+  const errors = [];
+
+  if (!rawPrompt) errors.push('rawPrompt is required');
+  if (!genreFamily) errors.push('genreFamily is required');
+  if (!genre) errors.push('genre is required');
+  if (!subgenre) errors.push('subgenre is required');
+  if (!mood) errors.push('mood is required');
+  if (!key) errors.push('key is required');
+  if (!prompt) errors.push('prompt is required');
+  if (prompt.length > MAX_PROMPT_CHARS) errors.push(`prompt exceeds ${MAX_PROMPT_CHARS} characters`);
+
+  for (const [label, value] of [['genreFamily', genreFamily], ['genre', genre], ['subgenre', subgenre], ['mood', mood], ['key', key]]) {
+    if (value && prompt && !promptContains(prompt, value)) errors.push(`prompt does not contain selected ${label}: ${value}`);
+  }
+  if (prompt && !promptContains(prompt, `${bpm} BPM`)) errors.push(`prompt does not contain selected BPM: ${bpm}`);
+  if (prompt && !promptContains(prompt, `${durationSec} seconds`)) errors.push(`prompt does not contain selected duration: ${durationSec} seconds`);
+  if (!lyrics && prompt && !promptContains(prompt, 'Strictly instrumental')) errors.push('instrumental requests must explicitly forbid vocals');
+  if (lyrics && prompt && !prompt.includes(lyrics)) errors.push('prompt does not preserve the supplied lyrics exactly');
+
+  if (errors.length) {
+    throw new SonaraEngineError(`Generation quality gate failed: ${errors.join('; ')}.`, 400, false);
+  }
+
   return {
-    prompt: buildPrompt(body),
-    lyrics: String(body.lyrics || '').slice(0, MAX_LYRICS_CHARS),
-    vocal_language: String(body.vocalLanguage || body.vocal_language || 'unknown'),
+    prompt,
+    rawPrompt,
+    genreFamily,
+    genre,
+    subgenre,
+    mood,
+    key,
+    title,
     bpm,
-    key_scale: String(body.key || body.key_scale || ''),
-    time_signature: String(body.timeSignature || body.time_signature || ''),
-    audio_duration: duration,
-    inference_steps: 8,
-    thinking: false,
-    batch_size: 1,
-    use_random_seed: true,
-    seed: -1,
-    task_type: 'text2music',
-    audio_format: 'mp3',
-    mp3_bitrate: '192k',
-    mp3_sample_rate: 48000
+    durationSec,
+    lyrics,
+    qualityGate: {
+      valid: true,
+      status: 'PASSED',
+      policy: 'deterministic-generation-v1',
+      checkedFields: ['rawPrompt', 'genreFamily', 'genre', 'subgenre', 'mood', 'bpm', 'key', 'durationSec', 'lyrics']
+    }
+  };
+}
+
+export function normalizeRequest(body) {
+  const spec = validateGenerationRequest(body);
+  return {
+    payload: {
+      // The frontend prompt is authoritative. Do not prepend, concatenate or replace it.
+      prompt: spec.prompt,
+      lyrics: spec.lyrics,
+      vocal_language: String(body.vocalLanguage || body.vocal_language || 'unknown'),
+      bpm: spec.bpm,
+      key_scale: spec.key,
+      time_signature: String(body.timeSignature || body.time_signature || ''),
+      audio_duration: spec.durationSec,
+      inference_steps: 8,
+      thinking: false,
+      batch_size: 1,
+      use_random_seed: true,
+      seed: -1,
+      task_type: 'text2music',
+      audio_format: 'mp3',
+      mp3_bitrate: '192k',
+      mp3_sample_rate: 48000
+    },
+    qualityGate: spec.qualityGate,
+    generationSpec: {
+      rawPrompt: spec.rawPrompt,
+      genreFamily: spec.genreFamily,
+      genre: spec.genre,
+      subgenre: spec.subgenre,
+      mood: spec.mood,
+      bpm: spec.bpm,
+      key: spec.key,
+      durationSec: spec.durationSec,
+      hasLyrics: Boolean(spec.lyrics),
+      title: spec.title
+    }
   };
 }
 
@@ -281,13 +355,26 @@ async function generate(request, env, ctx) {
   try { body = await request.json(); }
   catch { return json(request, { error: 'Invalid JSON request body.' }, 400); }
 
-  const payload = normalizeRequest(body);
+  let normalized;
+  try {
+    normalized = normalizeRequest(body);
+  } catch (error) {
+    const status = error instanceof SonaraEngineError && error.status ? error.status : 400;
+    return json(request, {
+      error: error instanceof Error ? error.message : 'Generation quality gate failed.',
+      qualityGate: { valid: false, status: 'REJECTED' }
+    }, status);
+  }
+
+  const { payload, qualityGate, generationSpec } = normalized;
   const jobId = `d6_${crypto.randomUUID()}`;
 
   try {
     await storeJob(jobId, {
       phase: 'queued',
       payload,
+      qualityGate,
+      generationSpec,
       requestedDuration: payload.audio_duration,
       taskId: null,
       generationAttempts: 0,
@@ -310,6 +397,8 @@ async function generate(request, env, ctx) {
     metadata: {
       engine: 'SONARA',
       duration: payload.audio_duration,
+      qualityGate,
+      generationSpec,
       transport: 'direct production API',
       currentStage: 'SONARA: preparing generation'
     }
@@ -327,6 +416,8 @@ async function processJob(request, env, jobId, context) {
         engine: 'SONARA',
         duration: context.requestedDuration,
         audioUrl: context.audioUrl,
+        qualityGate: context.qualityGate,
+        generationSpec: context.generationSpec,
         currentStage: 'Audio ready'
       }
     });
@@ -348,7 +439,7 @@ async function processJob(request, env, jobId, context) {
         jobId,
         status: 'PROCESSING',
         progress: 30,
-        metadata: { engine: 'SONARA', currentStage: 'SONARA: generating audio' }
+        metadata: { engine: 'SONARA', qualityGate: context.qualityGate, generationSpec: context.generationSpec, currentStage: 'SONARA: generating audio' }
       });
     }
 
@@ -358,7 +449,7 @@ async function processJob(request, env, jobId, context) {
         jobId,
         status: 'PROCESSING',
         progress: 15,
-        metadata: { engine: 'SONARA', currentStage: 'SONARA: engine warming up' }
+        metadata: { engine: 'SONARA', qualityGate: context.qualityGate, generationSpec: context.generationSpec, currentStage: 'SONARA: engine warming up' }
       });
     }
 
@@ -395,7 +486,7 @@ async function processJob(request, env, jobId, context) {
           jobId,
           status: 'PROCESSING',
           progress: 20,
-          metadata: { engine: 'SONARA', currentStage: 'SONARA: retrying generation automatically' }
+          metadata: { engine: 'SONARA', qualityGate: context.qualityGate, generationSpec: context.generationSpec, currentStage: 'SONARA: retrying generation automatically' }
         });
       }
 
@@ -412,7 +503,7 @@ async function processJob(request, env, jobId, context) {
         jobId,
         status: 'PROCESSING',
         progress: 90,
-        metadata: { engine: 'SONARA', currentStage: 'SONARA: finalizing audio' }
+        metadata: { engine: 'SONARA', qualityGate: context.qualityGate, generationSpec: context.generationSpec, currentStage: 'SONARA: finalizing audio' }
       });
     }
 
@@ -439,6 +530,8 @@ async function processJob(request, env, jobId, context) {
         engine: 'SONARA',
         duration: context.requestedDuration,
         audioUrl: result.audioUrl,
+        qualityGate: context.qualityGate,
+        generationSpec: context.generationSpec,
         currentStage: 'Audio ready'
       }
     });
@@ -448,7 +541,7 @@ async function processJob(request, env, jobId, context) {
         jobId,
         status: 'PROCESSING',
         progress: 90,
-        metadata: { engine: 'SONARA', currentStage: 'SONARA: finalizing audio' }
+        metadata: { engine: 'SONARA', qualityGate: context.qualityGate, generationSpec: context.generationSpec, currentStage: 'SONARA: finalizing audio' }
       });
     }
     const message = error instanceof Error ? error.message : 'SONARA generation failed.';
