@@ -42,6 +42,9 @@ import {
 } from './i18n/locales';
 import { uiText } from './i18n/ui';
 
+const EmberWorkspace = React.lazy(() => import('./components/ember/EmberWorkspace'));
+const WorldDiscoveryGlobe = React.lazy(() => import('./components/discovery/WorldDiscoveryGlobe'));
+
 type JobStatus = 'IDLE' | 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 type View =
   | 'overview'
@@ -189,7 +192,6 @@ export default function App() {
   const [eqMid, setEqMid] = useState(0);
   const [eqHigh, setEqHigh] = useState(0);
   const [masterGain, setMasterGain] = useState(0);
-  const [assistantNote, setAssistantNote] = useState('Describe what you want to improve in your track and Sonara will help you shape the production.');
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const automaticTitleRef = useRef(true);
@@ -606,7 +608,15 @@ export default function App() {
   );
 
   const discoveryView = (
-    <Card className="p-6"><SectionTitle icon={Globe2} title={t('discoveryTitle')} subtitle={t('discoverySubtitle')} /><div className="mb-4 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4 text-xs text-cyan-200">{t('catalogHelp')} · {genreCount} genres · {subgenreCount}+ subgenres</div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{WORLD_MUSIC_GENRES.map(group => <div key={group.family} className="rounded-xl border border-slate-800 bg-slate-950 p-4"><div className="font-bold text-white">{group.family}</div><div className="mt-2 text-xs leading-5 text-slate-500">{group.genres.map(item => item.name).join(' · ')}</div></div>)}</div></Card>
+    <div className="space-y-5">
+      <Card className="overflow-hidden">
+        <div className="p-5 sm:p-6"><SectionTitle icon={Globe2} title={t('discoveryTitle')} subtitle={t('discoverySubtitle')} /><div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4 text-xs text-cyan-200">Mappamondo musicale interattivo · {genreCount} generi · {subgenreCount}+ sottogeneri</div></div>
+        <React.Suspense fallback={<div className="flex h-[540px] items-center justify-center bg-[#02050e] text-xs text-slate-500 sm:h-[620px]"><RefreshCw className="mr-2 h-4 w-4 animate-spin text-purple-400" />Caricamento mappamondo 3D...</div>}>
+          <WorldDiscoveryGlobe />
+        </React.Suspense>
+      </Card>
+      <Card className="p-6"><div className="mb-4 text-sm font-black text-white">Catalogo musicale mondiale</div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{WORLD_MUSIC_GENRES.map(group => <div key={group.family} className="rounded-xl border border-slate-800 bg-slate-950 p-4"><div className="font-bold text-white">{group.family}</div><div className="mt-2 text-xs leading-5 text-slate-500">{group.genres.map(item => item.name).join(' · ')}</div></div>)}</div></Card>
+    </div>
   );
 
   const analyticsView = (
@@ -614,7 +624,9 @@ export default function App() {
   );
 
   const assistantView = (
-    <Card className="p-6"><SectionTitle icon={Bot} title={t('assistantTitle')} subtitle={t('assistantSubtitle')} /><textarea value={assistantNote} onChange={event => setAssistantNote(event.target.value)} rows={8} className="w-full rounded-xl border border-slate-800 bg-slate-950 p-4 text-sm outline-none focus:border-purple-500" /><div className="mt-4 rounded-xl border border-purple-500/20 bg-purple-500/10 p-4 text-xs leading-6 text-purple-200">SONARA creative context: {genreFamily} · {genre} · {subgenre} · {mood} · {bpm} BPM.</div></Card>
+    <React.Suspense fallback={<Card className="flex min-h-[540px] items-center justify-center p-6 text-xs text-slate-500"><RefreshCw className="mr-2 h-4 w-4 animate-spin text-purple-400" />Avvio di Ember...</Card>}>
+      <EmberWorkspace studioContext={{ prompt, genre, subgenre, mood, bpm, keySignature, hasAudio: Boolean(audioUrl) }} />
+    </React.Suspense>
   );
 
   const cloudView = (

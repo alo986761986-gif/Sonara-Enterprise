@@ -16,6 +16,10 @@
     {
       "source": "/api/modal/audio",
       "destination": "https://api.sonaraenterprise.com/api/modal/audio"
+    },
+    {
+      "source": "/api/ember/:path*",
+      "destination": "https://api.sonaraenterprise.com/api/ember/:path*"
     }
   ],
   "headers": [
@@ -48,6 +52,15 @@
     },
     {
       "source": "/api/modal/audio",
+      "headers": [
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "source": "/api/ember/:path*",
       "headers": [
         {
           "key": "x-vercel-enable-rewrite-caching",
