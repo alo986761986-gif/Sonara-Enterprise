@@ -19,6 +19,15 @@ function sendError(res: any, status: number, code: string, message: string) {
   return res.status(status).json({ error: { code, message } });
 }
 
+function sendServiceError(res: any, error: unknown, fallbackCode: string, fallbackMessage: string) {
+  if (!(error instanceof EmberServiceError)) return sendError(res, 502, fallbackCode, fallbackMessage);
+  if (error.code === 'NOT_CONFIGURED') return sendError(res, 503, 'EMBER_NOT_CONFIGURED', 'Ember API is not configured on the server.');
+  if (error.code === 'OPENAI_AUTH') return sendError(res, 503, 'EMBER_OPENAI_AUTH_ERROR', 'The configured OpenAI API key is not authorized.');
+  if (error.code === 'OPENAI_QUOTA') return sendError(res, 503, 'EMBER_OPENAI_QUOTA_ERROR', 'The OpenAI project has no available credit or quota.');
+  if (error.code === 'MODEL_UNAVAILABLE') return sendError(res, 503, 'EMBER_REALTIME_MODEL_UNAVAILABLE', 'The Realtime model is not available for this OpenAI project.');
+  return sendError(res, 502, fallbackCode, fallbackMessage);
+}
+
 function requestBody(req: any): Record<string, unknown> {
   if (isPlainObject(req.body)) return req.body;
   if (typeof req.body !== 'string') return {};
@@ -154,10 +163,7 @@ export default async function handler(req: any, res: any) {
       });
       return res.status(200).json({ reply });
     } catch (error) {
-      if (error instanceof EmberServiceError && error.code === 'NOT_CONFIGURED') {
-        return sendError(res, 503, 'EMBER_NOT_CONFIGURED', 'Ember API is not configured on the server.');
-      }
-      return sendError(res, 502, 'EMBER_UPSTREAM_ERROR', 'Ember is temporarily unavailable.');
+      return sendServiceError(res, error, 'EMBER_UPSTREAM_ERROR', 'Ember is temporarily unavailable.');
     }
   }
 
@@ -180,8 +186,33 @@ export default async function handler(req: any, res: any) {
       res.setHeader('Content-Length', String(audio.length));
       res.setHeader('Content-Disposition', 'inline; filename="ember.mp3"');
       return res.status(200).send(audio);
-    } catch {
-      return sendError(res, 502, 'EMBER_VOICE_UPSTREAM_ERROR', 'Ember Voice is temporarily unavailable.');
+    } catch (error) {
+      return sendServiceError(res, error, 'EMBER_VOICE_UPSTREAM_ERROR', 'Ember Voice is temporarily unavailable.');
+    }
+  }
+
+  if (req.method === 'POST' && action === 'realtime-token') {
+    if (!EmberService.realtimeEnabled()) {
+      return sendError(res, 503, 'EMBER_REALTIME_NOT_CONFIGURED', 'Ember Realtime is not configured on the server.');
+    }
+    if (rateLimited(userId, 'realtime')) {
+      return sendError(res, 429, 'EMBER_REALTIME_RATE_LIMITED', 'Too many realtime sessions. Please try again later.');
+    }
+    const body = requestBody(req);
+    const source = isPlainObject(body.studioContext) ? body.studioContext : {};
+    const studioContext: EmberStudioContext = {
+      genre: String(source.genre || '').slice(0, 100),
+      subgenre: String(source.subgenre || '').slice(0, 100),
+      mood: String(source.mood || '').slice(0, 100),
+      bpm: Number(source.bpm) || undefined,
+      keySignature: String(source.keySignature || '').slice(0, 40),
+      hasAudio: Boolean(source.hasAudio)
+    };
+    try {
+      const secret = await EmberService.createRealtimeClientSecret({ userId, studioContext });
+      return res.status(200).json(secret);
+    } catch (error) {
+      return sendServiceError(res, error, 'EMBER_REALTIME_UPSTREAM_ERROR', 'Ember Realtime is temporarily unavailable.');
     }
   }
 
@@ -213,10 +244,7 @@ export default async function handler(req: any, res: any) {
       res.setHeader('Content-Type', 'application/sdp');
       return res.status(200).send(answer);
     } catch (error) {
-      if (error instanceof EmberServiceError && error.code === 'NOT_CONFIGURED') {
-        return sendError(res, 503, 'EMBER_REALTIME_NOT_CONFIGURED', 'Ember Realtime is not configured on the server.');
-      }
-      return sendError(res, 502, 'EMBER_REALTIME_UPSTREAM_ERROR', 'Ember Realtime is temporarily unavailable.');
+      return sendServiceError(res, error, 'EMBER_REALTIME_UPSTREAM_ERROR', 'Ember Realtime is temporarily unavailable.');
     }
   }
 
