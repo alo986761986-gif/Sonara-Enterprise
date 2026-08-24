@@ -4,21 +4,24 @@ const VERCEL_JOB_BRIDGE_URL = 'https://sonara-enterprise.vercel.app/api/billing/
 const JOB_PATH = /^\/api\/music\/job\/([^/]+)$/;
 const JOB_CACHE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/direct-job-v6/';
 const JOB_TTL_SECONDS = 3 * 60 * 60;
-const FAST_MODEL_DEFAULT = 'acestep-v15-xl-turbo';
-const QUALITY_MODEL_DEFAULT = 'acestep-v15-xl-sft';
-const FAST_INFERENCE_STEPS = 8;
-const DETAILED_PROMPT_INFERENCE_STEPS = 12;
-const QUALITY_INFERENCE_STEPS = 28;
-const MAX_ADAPTIVE_QUALITY_REGENERATIONS = 2;
-const GENERATION_LOCK_MS = 120_000;
-const RELEASE_TIMEOUT_MS = 90_000;
+const GENERATION_LOCK_MS = 180_000;
+const RELEASE_TIMEOUT_MS = 120_000;
+const MAX_START_ATTEMPTS = 5;
+const MAX_QUALITY_REGENERATIONS = 2;
 const RETRYABLE_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526]);
-const DETAILED_PROMPT_CUE = /\b(?:intro|verse|strofa|chorus|ritornello|drop|bridge|ponte|breakdown|solo|outro|finale|crescendo|climax|drums?|batteria|bass|basso|guitar|chitarra|piano|synth|archi|strings?|voice|voce|vocal|coro|choir|senza|avoid|without|non\s+usare|analog|acustic|acoustic|live|reale|real|human|umano|vintage|cinematic)\b/i;
 
-class AdaptiveEngineError extends Error {
+export const PROFESSIONAL_MODEL = 'acestep-v15-xl-sft';
+export const PROFESSIONAL_MODEL_REPOSITORY = 'ACE-Step/acestep-v15-xl-sft';
+export const PROFESSIONAL_LM_RECOMMENDATION = 'acestep-5Hz-lm-4B';
+export const PROFESSIONAL_INFERENCE_STEPS = 50;
+export const PROFESSIONAL_CANDIDATE_COUNT = 2;
+export const PROFESSIONAL_GUIDANCE_SCALE = 7.0;
+export const PROFESSIONAL_PROFILE = 'ace-step-v15-xl-sft-50step-professional-v1';
+
+class ProfessionalEngineError extends Error {
   constructor(message, status = 0, retryable = false) {
     super(message);
-    this.name = 'AdaptiveEngineError';
+    this.name = 'ProfessionalEngineError';
     this.status = status;
     this.retryable = retryable;
   }
@@ -35,13 +38,15 @@ function corsHeaders(request) {
     'Access-Control-Allow-Origin': allowed.has(origin) ? origin : 'https://sonaraenterprise.com',
     'Access-Control-Allow-Methods': 'GET,HEAD,POST,OPTIONS',
     'Access-Control-Allow-Headers': 'Authorization,Content-Type,Range,X-Sonara-Internal-Secret,X-Sonara-Job-Bridge',
-    'Access-Control-Expose-Headers': 'Content-Length,Content-Range,Accept-Ranges,X-Sonara-Performance-Profile',
+    'Access-Control-Expose-Headers': 'Content-Length,Content-Range,Accept-Ranges,X-Sonara-Performance-Profile,X-Sonara-Model',
     Vary: 'Origin'
   };
 }
 
-function jsonResponse(request, data, status = 200, route = 'adaptive-fast') {
-  const performanceProfile = String(data?.metadata?.performanceProfile || data?.performanceProfile || 'adaptive-fast-v1');
+function jsonResponse(request, data, status = 200, route = 'professional-direct') {
+  const performanceProfile = String(
+    data?.metadata?.performanceProfile || data?.performanceProfile || PROFESSIONAL_PROFILE
+  );
   return new Response(JSON.stringify(data), {
     status,
     headers: {
@@ -49,6 +54,7 @@ function jsonResponse(request, data, status = 200, route = 'adaptive-fast') {
       'cache-control': 'private, no-store',
       'x-sonara-job-route': route,
       'x-sonara-performance-profile': performanceProfile,
+      'x-sonara-model': PROFESSIONAL_MODEL,
       ...corsHeaders(request)
     }
   });
@@ -56,7 +62,10 @@ function jsonResponse(request, data, status = 200, route = 'adaptive-fast') {
 
 function engineConfig(env) {
   return {
-    baseUrl: String(env.ACESTEP_API_URL || 'https://alo986761986-gif--sonara-acestep-serve-acestep.modal.run').replace(/\/$/, ''),
+    baseUrl: String(
+      env.ACESTEP_API_URL ||
+      'https://alo986761986-gif--sonara-acestep-serve-acestep.modal.run'
+    ).replace(/\/$/, ''),
     key: String(env.MODAL_PROXY_KEY || '').trim(),
     secret: String(env.MODAL_PROXY_SECRET || '').trim()
   };
@@ -74,7 +83,7 @@ function engineHeaders(env, extra = {}) {
 async function engineJson(env, path, init = {}, timeoutMs = 15_000) {
   const cfg = engineConfig(env);
   if (!cfg.key || !cfg.secret) {
-    throw new AdaptiveEngineError('SONARA engine credentials are not configured.', 503, false);
+    throw new ProfessionalEngineError('SONARA engine credentials are not configured.', 503, false);
   }
 
   let response;
@@ -89,7 +98,7 @@ async function engineJson(env, path, init = {}, timeoutMs = 15_000) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    throw new AdaptiveEngineError(`SONARA engine request failed: ${message}`, 0, true);
+    throw new ProfessionalEngineError(`ACE-Step Modal request failed: ${message}`, 0, true);
   }
 
   const text = await response.text();
@@ -98,18 +107,67 @@ async function engineJson(env, path, init = {}, timeoutMs = 15_000) {
     try {
       payload = JSON.parse(text);
     } catch {
-      throw new AdaptiveEngineError(`SONARA returned invalid JSON (HTTP ${response.status}).`, response.status, RETRYABLE_STATUSES.has(response.status));
+      throw new ProfessionalEngineError(
+        `ACE-Step Modal returned invalid JSON (HTTP ${response.status}).`,
+        response.status,
+        RETRYABLE_STATUSES.has(response.status)
+      );
     }
   }
 
   if (!response.ok) {
     const message = payload?.detail || payload?.error || payload?.message || `HTTP ${response.status}`;
-    throw new AdaptiveEngineError(String(message), response.status, RETRYABLE_STATUSES.has(response.status));
+    throw new ProfessionalEngineError(
+      String(message),
+      response.status,
+      RETRYABLE_STATUSES.has(response.status)
+    );
   }
+
   if (typeof payload?.code === 'number' && payload.code >= 400) {
-    throw new AdaptiveEngineError(String(payload?.error || payload?.message || 'SONARA request failed.'), payload.code, payload.code >= 500 || payload.code === 429);
+    throw new ProfessionalEngineError(
+      String(payload?.error || payload?.message || 'ACE-Step Modal request failed.'),
+      payload.code,
+      payload.code >= 500 || payload.code === 429
+    );
   }
+
   return payload;
+}
+
+function modelName(value) {
+  return String(value?.name || value?.id || value || '').trim();
+}
+
+export function selectRequiredProfessionalModel(models) {
+  const available = Array.isArray(models)
+    ? models.map(modelName).filter(Boolean)
+    : [];
+  const selected = available.find(value => value.toLowerCase() === PROFESSIONAL_MODEL.toLowerCase());
+  if (!selected) {
+    throw new ProfessionalEngineError(
+      `The required professional Modal model ${PROFESSIONAL_MODEL} is not available. ` +
+      'SONARA will not silently fall back to a Turbo or smaller ACE-Step model.',
+      503,
+      false
+    );
+  }
+  return selected;
+}
+
+async function inspectModelCatalog(env, timeoutMs = 15_000) {
+  const payload = await engineJson(env, '/v1/models', { method: 'GET' }, timeoutMs);
+  const rawModels = Array.isArray(payload?.data?.models)
+    ? payload.data.models
+    : Array.isArray(payload?.models)
+      ? payload.models
+      : [];
+  const models = rawModels.map(modelName).filter(Boolean);
+  return {
+    checked: true,
+    models,
+    defaultModel: modelName(payload?.data?.default_model || payload?.default_model)
+  };
 }
 
 function jobCacheUrl(jobId) {
@@ -128,7 +186,7 @@ async function readJob(jobId) {
 
 async function storeJob(jobId, context) {
   if (typeof caches === 'undefined' || !caches.default) {
-    throw new AdaptiveEngineError('SONARA job storage is unavailable.', 503, true);
+    throw new ProfessionalEngineError('SONARA job storage is unavailable.', 503, true);
   }
   await caches.default.put(
     new Request(jobCacheUrl(jobId)),
@@ -141,17 +199,11 @@ async function storeJob(jobId, context) {
   );
 }
 
-function creatorBriefFromPrompt(prompt) {
-  const value = String(prompt || '');
-  const verbatim = value.match(/CREATOR BRIEF\s*[—-]\s*VERBATIM:\s*<<<\s*([\s\S]*?)\s*>>>/i)?.[1];
-  if (verbatim) return verbatim.trim();
-  const legacy = value.match(/USER INTENT:\s*([\s\S]*?)(?=\n\n[A-Z][A-Z\s,&—-]+:|$)/i)?.[1];
-  return String(legacy || '').trim();
-}
-
 function creatorExclusionsFromPrompt(prompt) {
   const value = String(prompt || '');
-  const section = value.match(/EXPLICIT CREATOR EXCLUSIONS:\s*([\s\S]*?)(?=\n\n[A-Z][A-Z\s,&—-]+:|$)/i)?.[1] || '';
+  const section = value.match(
+    /EXPLICIT CREATOR EXCLUSIONS:\s*([\s\S]*?)(?=\n\n[A-Z][A-Z\s,&—-]+:|$)/i
+  )?.[1] || '';
   return section
     .split(/\n+/)
     .map(item => item.replace(/^[-*•\s]+/, '').trim())
@@ -159,87 +211,39 @@ function creatorExclusionsFromPrompt(prompt) {
     .slice(0, 8);
 }
 
-export function analyzePromptFidelity(payload) {
-  const prompt = String(payload?.prompt || '');
-  const creatorBrief = creatorBriefFromPrompt(prompt);
-  const exclusions = creatorExclusionsFromPrompt(prompt);
-  const lines = creatorBrief.split(/\n+/).filter(Boolean);
-  const punctuationSignals = (creatorBrief.match(/[,;:]/g) || []).length;
-  const cueSignals = (creatorBrief.match(new RegExp(DETAILED_PROMPT_CUE.source, 'gi')) || []).length;
-  const detailed = creatorBrief.length >= 90 || lines.length >= 2 || punctuationSignals >= 3 || cueSignals >= 2 || exclusions.length > 0;
-  return {
-    creatorBrief,
-    exclusions,
-    detailed,
-    inferenceSteps: detailed ? DETAILED_PROMPT_INFERENCE_STEPS : FAST_INFERENCE_STEPS,
-    thinking: detailed
-  };
-}
-
-export function chooseAdaptiveModel(models, defaultModel = '', qualityFallback = false) {
-  const available = Array.isArray(models)
-    ? models.map(value => String(value || '').trim()).filter(Boolean)
-    : [];
-  const priorities = qualityFallback
-    ? [/acestep-v15-xl-sft$/i, /acestep-v15-sft$/i, /xl-sft/i, /sft/i, /xl-turbo/i, /turbo/i]
-    : [/acestep-v15-xl-turbo$/i, /acestep-v15-turbo$/i, /xl-turbo/i, /turbo/i, /xl-sft/i, /sft/i];
-
-  for (const pattern of priorities) {
-    const selected = available.find(name => pattern.test(name));
-    if (selected) return selected;
-  }
-  if (available.includes(defaultModel)) return defaultModel;
-  return available[0] || (qualityFallback ? QUALITY_MODEL_DEFAULT : FAST_MODEL_DEFAULT);
-}
-
-export function buildAdaptivePayload(payload, model, qualityFallback = false, fidelity = analyzePromptFidelity(payload)) {
-  const detailedIntent = !qualityFallback && Boolean(fidelity?.detailed);
-  const inferenceSteps = qualityFallback
-    ? QUALITY_INFERENCE_STEPS
-    : (detailedIntent ? DETAILED_PROMPT_INFERENCE_STEPS : FAST_INFERENCE_STEPS);
-  const thinking = qualityFallback || detailedIntent;
-  const creatorNegative = Array.isArray(fidelity?.exclusions) && fidelity.exclusions.length
-    ? `creator exclusions: ${fidelity.exclusions.join('; ')}`
-    : '';
-  const negativePrompt = [String(payload?.lm_negative_prompt || '').trim(), creatorNegative]
+export function buildDirectProfessionalPayload(payload) {
+  const exclusions = creatorExclusionsFromPrompt(payload?.prompt);
+  const negativePrompt = [
+    String(payload?.lm_negative_prompt || '').trim(),
+    exclusions.length ? `creator exclusions: ${exclusions.join('; ')}` : '',
+    'genre drift, neighboring subgenre substitution, wrong instruments, incorrect tempo, incorrect key, malformed structure, clipping, silence, unfinished ending, static loop repetition'
+  ]
     .filter(Boolean)
     .join(', ')
-    .slice(0, 1800);
+    .slice(0, 2000);
 
-  const next = {
+  return {
     ...payload,
-    model,
-    inference_steps: inferenceSteps,
-    thinking,
+    model: PROFESSIONAL_MODEL,
+    inference_steps: PROFESSIONAL_INFERENCE_STEPS,
+    thinking: true,
     use_format: false,
-    use_cot_caption: thinking,
-    use_cot_language: thinking,
+    use_cot_caption: true,
+    use_cot_language: true,
     constrained_decoding: true,
-    allow_lm_batch: false,
-    lm_temperature: qualityFallback ? 0.68 : (detailedIntent ? 0.64 : 0.74),
-    lm_cfg_scale: qualityFallback ? 3.0 : (detailedIntent ? 3.2 : 2.6),
-    lm_top_p: detailedIntent ? 0.86 : 0.9,
+    allow_lm_batch: true,
+    lm_temperature: 0.68,
+    lm_cfg_scale: 2.5,
+    lm_top_p: 0.9,
     lm_repetition_penalty: 1.05,
-    batch_size: 1,
+    lm_negative_prompt: negativePrompt,
+    batch_size: PROFESSIONAL_CANDIDATE_COUNT,
     infer_method: 'ode',
     audio_format: 'wav',
-    ...(negativePrompt ? { lm_negative_prompt: negativePrompt } : {})
+    guidance_scale: PROFESSIONAL_GUIDANCE_SCALE,
+    shift: 1.0,
+    use_adg: true
   };
-
-  if (qualityFallback) {
-    next.guidance_scale = 6.5;
-    next.shift = 1.0;
-    next.use_adg = true;
-  } else {
-    delete next.guidance_scale;
-    delete next.shift;
-    delete next.use_adg;
-  }
-  return next;
-}
-
-export function shouldStopAdaptiveRetries(qualityRegenerations) {
-  return Number(qualityRegenerations || 0) >= MAX_ADAPTIVE_QUALITY_REGENERATIONS;
 }
 
 async function releaseTask(env, payload) {
@@ -249,7 +253,9 @@ async function releaseTask(env, payload) {
     body: JSON.stringify(payload)
   }, RELEASE_TIMEOUT_MS);
   const taskId = data?.data?.task_id;
-  if (!taskId) throw new AdaptiveEngineError('SONARA did not return a generation task.', 502, false);
+  if (!taskId) {
+    throw new ProfessionalEngineError('ACE-Step Modal did not return a generation task.', 502, false);
+  }
   return String(taskId);
 }
 
@@ -260,63 +266,74 @@ function processingPayload(jobId, context, progress, currentStage) {
     progress,
     metadata: {
       engine: 'SONARA',
+      provider: 'Modal',
+      model: PROFESSIONAL_MODEL,
+      modelRepository: PROFESSIONAL_MODEL_REPOSITORY,
+      inferenceSteps: PROFESSIONAL_INFERENCE_STEPS,
+      candidateCount: PROFESSIONAL_CANDIDATE_COUNT,
+      performanceProfile: PROFESSIONAL_PROFILE,
+      directModalConnection: true,
       qualityGate: context?.qualityGate,
       generationSpec: context?.generationSpec,
-      performanceProfile: context?.performanceProfile || 'adaptive-fast-v1',
-      model: context?.selectedModel,
       currentStage
     }
   };
 }
 
-async function startAdaptiveGeneration(request, env, jobId, context) {
-  const qualityRegenerations = Number(context.qualityRegenerations || 0);
-  if (shouldStopAdaptiveRetries(qualityRegenerations)) {
-    const error = 'SONARA stopped after the fast render and one professional fallback did not pass the real-audio quality gate.';
-    await storeJob(jobId, { ...context, phase: 'failed', error, updatedAt: Date.now() });
-    return jsonResponse(request, { jobId, status: 'FAILED', progress: 0, error }, 200, 'adaptive-limit');
-  }
-
+async function startProfessionalGeneration(request, env, jobId, context) {
   const attempts = Number(context.generationAttempts || 0);
-  if (attempts >= 4) {
-    const error = 'SONARA could not start the generation engine after the automatic retries.';
+  const qualityRegenerations = Number(context.qualityRegenerations || 0);
+
+  if (attempts >= MAX_START_ATTEMPTS) {
+    const error = 'SONARA could not start ACE-Step XL-SFT after the automatic retries.';
     await storeJob(jobId, { ...context, phase: 'failed', error, updatedAt: Date.now() });
-    return jsonResponse(request, { jobId, status: 'FAILED', progress: 0, error }, 200, 'adaptive-start-limit');
+    return jsonResponse(request, { jobId, status: 'FAILED', progress: 0, error }, 200, 'professional-start-limit');
   }
 
-  const qualityFallback = qualityRegenerations > 0;
-  const fidelity = analyzePromptFidelity(context.payload || {});
-  const selectedModel = String(
-    qualityFallback
-      ? (env.SONARA_QUALITY_MODEL || QUALITY_MODEL_DEFAULT)
-      : (env.SONARA_FAST_MODEL || FAST_MODEL_DEFAULT)
-  ).trim();
-  const performanceProfile = qualityFallback
-    ? 'adaptive-quality-fallback-v1'
-    : (fidelity.detailed ? 'adaptive-prompt-fidelity-v1' : 'adaptive-fast-v1');
-  const payload = buildAdaptivePayload(context.payload || {}, selectedModel, qualityFallback, fidelity);
+  if (qualityRegenerations > MAX_QUALITY_REGENERATIONS) {
+    const error = 'SONARA reached the maximum number of professional XL-SFT quality renders.';
+    await storeJob(jobId, { ...context, phase: 'failed', error, updatedAt: Date.now() });
+    return jsonResponse(request, { jobId, status: 'FAILED', progress: 0, error }, 200, 'professional-quality-limit');
+  }
+
   let nextContext = {
     ...context,
     phase: 'generating',
-    payload,
-    selectedModel,
-    performanceProfile,
+    selectedModel: PROFESSIONAL_MODEL,
+    performanceProfile: PROFESSIONAL_PROFILE,
     generationAttempts: attempts + 1,
     generationStartedAt: Date.now(),
     generationSpec: {
       ...(context.generationSpec || {}),
-      candidateCount: 1,
-      performanceProfile,
-      promptFidelityMode: fidelity.detailed ? 'detailed' : 'simple',
-      creatorBriefCharacters: fidelity.creatorBrief.length,
-      explicitCreatorExclusions: fidelity.exclusions.length,
-      inferenceSteps: payload.inference_steps
+      model: PROFESSIONAL_MODEL,
+      modelRepository: PROFESSIONAL_MODEL_REPOSITORY,
+      candidateCount: PROFESSIONAL_CANDIDATE_COUNT,
+      inferenceSteps: PROFESSIONAL_INFERENCE_STEPS,
+      guidanceScale: PROFESSIONAL_GUIDANCE_SCALE,
+      thinking: true,
+      adaptiveDualGuidance: true,
+      outputFormat: 'wav',
+      performanceProfile: PROFESSIONAL_PROFILE,
+      directModalConnection: true
     },
     updatedAt: Date.now()
   };
   await storeJob(jobId, nextContext);
 
   try {
+    const catalog = await inspectModelCatalog(env, 20_000);
+    const selectedModel = selectRequiredProfessionalModel(catalog.models);
+    const payload = buildDirectProfessionalPayload(context.payload || {});
+
+    nextContext = {
+      ...nextContext,
+      payload,
+      selectedModel,
+      modalModelCatalog: catalog.models,
+      updatedAt: Date.now()
+    };
+    await storeJob(jobId, nextContext);
+
     const taskId = await releaseTask(env, payload);
     nextContext = {
       ...nextContext,
@@ -325,21 +342,25 @@ async function startAdaptiveGeneration(request, env, jobId, context) {
       updatedAt: Date.now()
     };
     await storeJob(jobId, nextContext);
-    const stage = qualityFallback
-      ? 'SONARA: professional fallback is rendering'
-      : (fidelity.detailed
-        ? 'SONARA: interpreting and rendering the detailed creator brief'
-        : 'SONARA: fast professional render started');
+
     return jsonResponse(
       request,
-      processingPayload(jobId, nextContext, 45, stage),
+      processingPayload(
+        jobId,
+        nextContext,
+        45,
+        qualityRegenerations > 0
+          ? 'SONARA: ACE-Step XL-SFT is regenerating a professional candidate after quality control'
+          : 'SONARA: ACE-Step XL-SFT 50-step professional render started on Modal'
+      ),
       200,
-      performanceProfile
+      PROFESSIONAL_PROFILE
     );
   } catch (error) {
-    const retryable = error instanceof AdaptiveEngineError && error.retryable;
+    const retryable = error instanceof ProfessionalEngineError && error.retryable;
     const message = error instanceof Error ? error.message : String(error);
-    if (retryable && attempts + 1 < 4) {
+
+    if (retryable && attempts + 1 < MAX_START_ATTEMPTS) {
       const retryContext = {
         ...nextContext,
         phase: 'queued',
@@ -350,18 +371,23 @@ async function startAdaptiveGeneration(request, env, jobId, context) {
       await storeJob(jobId, retryContext);
       return jsonResponse(
         request,
-        processingPayload(jobId, retryContext, 20, 'SONARA: engine warming up; retrying automatically'),
+        processingPayload(jobId, retryContext, 20, 'SONARA: professional ACE-Step model is warming on Modal; retrying automatically'),
         200,
-        'adaptive-retry'
+        'professional-retry'
       );
     }
 
     await storeJob(jobId, { ...nextContext, phase: 'failed', error: message, updatedAt: Date.now() });
-    return jsonResponse(request, { jobId, status: 'FAILED', progress: 0, error: message }, 200, 'adaptive-start-failed');
+    return jsonResponse(
+      request,
+      { jobId, status: 'FAILED', progress: 0, error: message },
+      200,
+      'professional-start-failed'
+    );
   }
 }
 
-async function maybeStartAdaptiveJob(request, env, jobId) {
+async function maybeStartProfessionalJob(request, env, jobId) {
   const context = await readJob(jobId);
   if (!context || context.taskId || context.phase === 'completed' || context.phase === 'failed') return null;
 
@@ -369,14 +395,13 @@ async function maybeStartAdaptiveJob(request, env, jobId) {
   if (context.phase === 'generating' && startedAt && Date.now() - startedAt < GENERATION_LOCK_MS) {
     return jsonResponse(
       request,
-      processingPayload(jobId, context, 35, context.performanceProfile === 'adaptive-prompt-fidelity-v1'
-        ? 'SONARA: detailed creator brief is being prepared'
-        : 'SONARA: fast professional render is starting'),
+      processingPayload(jobId, context, 35, 'SONARA: preparing the ACE-Step XL-SFT professional render'),
       200,
-      context.performanceProfile || 'adaptive-fast-lock'
+      PROFESSIONAL_PROFILE
     );
   }
-  return startAdaptiveGeneration(request, env, jobId, context);
+
+  return startProfessionalGeneration(request, env, jobId, context);
 }
 
 async function normalizeJobResponse(response, route) {
@@ -409,7 +434,8 @@ async function normalizeJobResponse(response, route) {
   headers.set('content-type', 'application/json; charset=UTF-8');
   headers.set('cache-control', 'private, no-store');
   headers.set('x-sonara-job-route', route);
-  headers.set('x-sonara-performance-profile', 'adaptive-prompt-fidelity-v1');
+  headers.set('x-sonara-performance-profile', PROFESSIONAL_PROFILE);
+  headers.set('x-sonara-model', PROFESSIONAL_MODEL);
   headers.delete('content-length');
 
   return new Response(body, {
@@ -435,13 +461,40 @@ async function pollThroughVercel(request, env, jobId) {
     });
     return normalizeJobResponse(response, 'regional-vercel-bridge');
   } catch (error) {
-    console.error('[SONARA JOB ROUTE]', error instanceof Error ? error.message : String(error));
-    const fallback = await engineV6.fetch(request, env, {});
-    return normalizeJobResponse(fallback, 'direct-worker-fallback');
+    console.error('[SONARA PROFESSIONAL JOB ROUTE]', error instanceof Error ? error.message : String(error));
+
+    const localContext = await readJob(jobId);
+    if (localContext) {
+      if (!localContext.taskId && localContext.phase !== 'completed' && localContext.phase !== 'failed') {
+        const startResponse = await maybeStartProfessionalJob(request, env, jobId);
+        if (startResponse) return startResponse;
+      }
+      const fallback = await engineV6.fetch(request, env, {});
+      return normalizeJobResponse(fallback, 'direct-worker-professional-fallback');
+    }
+
+    return jsonResponse(
+      request,
+      {
+        jobId,
+        status: 'PROCESSING',
+        progress: 15,
+        retryable: true,
+        metadata: {
+          engine: 'SONARA',
+          provider: 'Modal',
+          model: PROFESSIONAL_MODEL,
+          performanceProfile: PROFESSIONAL_PROFILE,
+          currentStage: 'SONARA: reconnecting to the professional generation session'
+        }
+      },
+      200,
+      'regional-bridge-reconnect'
+    );
   }
 }
 
-async function decorateHealthResponse(request, response) {
+async function decorateHealthResponse(request, response, env) {
   const raw = await response.text();
   let payload = {};
   try {
@@ -449,16 +502,61 @@ async function decorateHealthResponse(request, response) {
   } catch {
     payload = { status: response.ok ? 'HEALTHY' : 'ERROR' };
   }
-  payload.performanceProfile = 'adaptive-prompt-fidelity-v1';
-  payload.fastModel = FAST_MODEL_DEFAULT;
-  payload.simplePromptInferenceSteps = FAST_INFERENCE_STEPS;
-  payload.detailedPromptInferenceSteps = DETAILED_PROMPT_INFERENCE_STEPS;
-  payload.detailedPromptThinking = true;
-  payload.fastCandidateCount = 1;
-  payload.qualityFallbackModel = QUALITY_MODEL_DEFAULT;
-  payload.qualityFallbackSteps = QUALITY_INFERENCE_STEPS;
-  payload.maximumRenderAttempts = 2;
+
+  let catalog = { checked: false, models: [], defaultModel: '', error: '' };
+  try {
+    catalog = await inspectModelCatalog(env, 20_000);
+  } catch (error) {
+    catalog = {
+      checked: false,
+      models: [],
+      defaultModel: '',
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+
+  const professionalModelReady = catalog.models.some(
+    value => value.toLowerCase() === PROFESSIONAL_MODEL.toLowerCase()
+  );
+
+  for (const key of [
+    'fastModel',
+    'simplePromptInferenceSteps',
+    'detailedPromptInferenceSteps',
+    'detailedPromptThinking',
+    'fastCandidateCount',
+    'qualityFallbackModel',
+    'qualityFallbackSteps',
+    'maximumRenderAttempts'
+  ]) delete payload[key];
+
+  payload.performanceProfile = PROFESSIONAL_PROFILE;
+  payload.engine = 'ACE-Step 1.5';
+  payload.provider = 'Modal';
+  payload.connection = 'direct Cloudflare Worker to Modal endpoint';
+  payload.inferenceProfile = 'ACE-Step 1.5 XL-SFT 4B DiT with CFG professional rendering';
+  payload.model = PROFESSIONAL_MODEL;
+  payload.modelRepository = PROFESSIONAL_MODEL_REPOSITORY;
+  payload.professionalModelReady = professionalModelReady;
+  payload.professionalModelStatus = professionalModelReady
+    ? 'READY'
+    : (catalog.checked ? 'MISSING' : 'WARMING_OR_UNVERIFIED');
+  payload.availableModalModels = catalog.models;
+  payload.modalDefaultModel = catalog.defaultModel || null;
+  payload.modelCatalogError = catalog.error || null;
+  payload.inferenceSteps = PROFESSIONAL_INFERENCE_STEPS;
+  payload.guidanceScale = PROFESSIONAL_GUIDANCE_SCALE;
+  payload.adaptiveDualGuidance = true;
+  payload.thinking = true;
+  payload.candidateCount = PROFESSIONAL_CANDIDATE_COUNT;
+  payload.outputFormat = 'wav';
+  payload.turboEnabled = false;
+  payload.silentModelFallback = false;
   payload.creatorBriefPriority = 'authoritative-artistic-source';
+  payload.recommendedLmModel = PROFESSIONAL_LM_RECOMMENDATION;
+  payload.lmModelVerification = 'The current Modal REST model catalog does not expose the loaded 5Hz LM size.';
+
+  if (catalog.checked && !professionalModelReady) payload.status = 'DEGRADED';
   return jsonResponse(request, payload, response.status, 'health');
 }
 
@@ -478,18 +576,25 @@ export default {
     }
 
     if (jobMatch && request.method === 'GET' && bridgeRequest) {
-      const adaptiveResponse = await maybeStartAdaptiveJob(request, env, decodeURIComponent(jobMatch[1]));
-      if (adaptiveResponse) return adaptiveResponse;
+      const professionalResponse = await maybeStartProfessionalJob(
+        request,
+        env,
+        decodeURIComponent(jobMatch[1])
+      );
+      if (professionalResponse) return professionalResponse;
     }
 
     const response = await engineV6.fetch(request, env, ctx);
 
     if (path === '/' || path === '/api/health') {
-      return decorateHealthResponse(request, response);
+      return decorateHealthResponse(request, response, env);
     }
 
     if (jobMatch) {
-      return normalizeJobResponse(response, bridgeRequest ? 'regional-worker-cache' : 'direct-worker');
+      return normalizeJobResponse(
+        response,
+        bridgeRequest ? 'regional-worker-professional-cache' : 'direct-worker-professional'
+      );
     }
 
     return response;
