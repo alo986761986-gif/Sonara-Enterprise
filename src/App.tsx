@@ -648,7 +648,7 @@ export default function App() {
           </div>
         </div>
       </Card>
-      <Card className="p-6"><div className="mb-3 font-bold text-white">{t('account')}</div><div className="flex flex-wrap items-center justify-between gap-4"><div className="text-xs text-slate-500">Boot authentication supports Email/Password, Google and guest session.</div><button onClick={() => window.dispatchEvent(new Event('sonara:logout'))} className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-2 text-xs font-bold text-rose-300">{t('logout')}</button></div></Card>
+      <Card className="p-6"><div className="mb-3 font-bold text-white">{t('account')}</div><div className="flex flex-wrap items-center justify-between gap-4"><div className="text-xs text-slate-500">Authentication requires Email/Password or Google.</div><button onClick={() => window.dispatchEvent(new Event('sonara:logout'))} className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-2 text-xs font-bold text-rose-300">{t('logout')}</button></div></Card>
     </div>
   );
 

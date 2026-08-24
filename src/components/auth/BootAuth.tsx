@@ -7,7 +7,6 @@ import {
   Loader2,
   LockKeyhole,
   Mail,
-  Music2,
   ShieldCheck,
   Sparkles
 } from 'lucide-react';
@@ -32,7 +31,7 @@ import {
 type AuthMode = 'login' | 'register' | 'reset';
 
 const LANGUAGE_KEY = 'sonara.language';
-const GUEST_KEY = 'sonara.guest.session';
+const LEGACY_GUEST_KEY = 'sonara.guest.session';
 
 function brandSonara(value: unknown): string {
   return String(value ?? '')
@@ -52,7 +51,8 @@ function initialLanguage(): LanguageCode {
 export default function BootAuth({ children }: { children: React.ReactNode }) {
   const [language, setLanguage] = useState<LanguageCode>(initialLanguage);
   const [booting, setBooting] = useState(true);
-  const [allowed, setAllowed] = useState(() => sessionStorage.getItem(GUEST_KEY) === '1');
+  const [authReady, setAuthReady] = useState(!firebaseConfigured);
+  const [allowed, setAllowed] = useState(false);
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -75,12 +75,13 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
   }, [language]);
 
   useEffect(() => {
+    sessionStorage.removeItem(LEGACY_GUEST_KEY);
     const unsubscribe = watchFirebaseUser(user => {
-      if (user) setAllowed(true);
+      setAllowed(Boolean(user));
+      setAuthReady(true);
     });
 
     const logoutHandler = async () => {
-      sessionStorage.removeItem(GUEST_KEY);
       try { await logoutFirebase(); } catch {}
       setAllowed(false);
       setMode('login');
@@ -150,12 +151,7 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const guest = () => {
-    sessionStorage.setItem(GUEST_KEY, '1');
-    setAllowed(true);
-  };
-
-  if (booting) {
+  if (booting || !authReady) {
     return (
       <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#030611] text-white">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(124,58,237,0.18),transparent_42%)]" />
@@ -199,9 +195,7 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
         <div className="grid w-full overflow-hidden rounded-[28px] border border-white/10 bg-[#0a0f1c]/95 shadow-2xl shadow-black/50 lg:grid-cols-[1.1fr_0.9fr]">
           <section className="hidden min-h-[650px] flex-col justify-between border-r border-white/10 bg-gradient-to-br from-purple-950/60 via-[#080d19] to-cyan-950/30 p-12 lg:flex">
             <div>
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-600 to-indigo-600 shadow-lg shadow-purple-950/60">
-                <Music2 className="h-7 w-7" />
-              </div>
+              <img src="/sonara-ai-icon.png" alt="SONARA AI" width={56} height={56} className="h-14 w-14 rounded-2xl object-cover shadow-lg shadow-purple-950/60" />
               <h1 className="mt-8 text-4xl font-black tracking-tight">SONARA ENTERPRISE</h1>
               <p className="mt-4 max-w-lg text-sm leading-7 text-slate-400">{t('signInSubtitle')}</p>
             </div>
@@ -213,6 +207,13 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
           </section>
 
           <section className="p-6 sm:p-10 lg:p-12">
+            <div className="mb-7 flex items-center gap-3 lg:hidden">
+              <img src="/sonara-ai-icon.png" alt="SONARA AI" width={48} height={48} className="h-12 w-12 rounded-xl object-cover" />
+              <div>
+                <div className="text-sm font-black tracking-wide">SONARA AI</div>
+                <div className="text-[9px] font-bold tracking-[0.22em] text-purple-300">ENTERPRISE</div>
+              </div>
+            </div>
             <div className="mb-8 flex items-center justify-between gap-4">
               <div>
                 <div className="text-2xl font-black">{t('welcome')}</div>
@@ -235,7 +236,7 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
                 {t('email')}
                 <div className="mt-2 flex items-center rounded-xl border border-white/10 bg-slate-950 px-3 focus-within:border-purple-500">
                   <Mail className="h-4 w-4 text-slate-600" />
-                  <input type="email" value={email} onChange={event => setEmail(event.target.value)} className="w-full bg-transparent px-3 py-3 text-sm outline-none" placeholder="name@example.com" />
+                  <input type="email" value={email} onChange={event => setEmail(event.target.value)} autoComplete="email" required className="w-full bg-transparent px-3 py-3 text-sm outline-none" placeholder="name@example.com" />
                 </div>
               </label>
 
@@ -244,8 +245,16 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
                   {t('password')}
                   <div className="mt-2 flex items-center rounded-xl border border-white/10 bg-slate-950 px-3 focus-within:border-purple-500">
                     <LockKeyhole className="h-4 w-4 text-slate-600" />
-                    <input type={showPassword ? 'text' : 'password'} value={password} onChange={event => setPassword(event.target.value)} className="w-full bg-transparent px-3 py-3 text-sm outline-none" />
-                    <button type="button" onClick={() => setShowPassword(value => !value)} className="text-slate-500">{showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
+                    <input type={showPassword ? 'text' : 'password'} value={password} onChange={event => setPassword(event.target.value)} autoComplete={mode === 'register' ? 'new-password' : 'current-password'} required className="w-full bg-transparent px-3 py-3 text-sm outline-none" />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(value => !value)}
+                      className="rounded-lg p-2 text-slate-500 transition hover:bg-white/5 hover:text-white"
+                      aria-label={showPassword ? 'Nascondi password' : 'Mostra password'}
+                      title={showPassword ? 'Nascondi password' : 'Mostra password'}
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
                   </div>
                 </label>
               )}
@@ -269,8 +278,6 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
               <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-xs font-black text-slate-900">G</span>
               {t('continueGoogle')}
             </button>
-
-            <button type="button" onClick={guest} className="mt-3 w-full rounded-xl border border-cyan-500/15 bg-cyan-500/5 px-4 py-3 text-xs font-semibold text-cyan-200 hover:bg-cyan-500/10">{t('guest')}</button>
 
             <div className="mt-6 flex flex-wrap items-center justify-between gap-3 text-xs">
               {mode === 'login' ? (
