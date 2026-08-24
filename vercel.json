@@ -14,8 +14,20 @@
       "destination": "https://api.sonaraenterprise.com/api/music/job/:id"
     },
     {
+      "source": "/api/music/eq/presets",
+      "destination": "https://api.sonaraenterprise.com/api/music/eq/presets"
+    },
+    {
+      "source": "/api/music/eq/process",
+      "destination": "https://api.sonaraenterprise.com/api/music/eq/process"
+    },
+    {
       "source": "/api/modal/audio",
       "destination": "https://api.sonaraenterprise.com/api/modal/audio"
+    },
+    {
+      "source": "/storage/audio/:path*",
+      "destination": "https://api.sonaraenterprise.com/storage/audio/:path*"
     }
   ],
   "headers": [
@@ -39,6 +51,15 @@
     },
     {
       "source": "/api/music/job/:id",
+      "headers": [
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "0"
+        }
+      ]
+    },
+    {
+      "source": "/api/music/eq/:path*",
       "headers": [
         {
           "key": "x-vercel-enable-rewrite-caching",

@@ -14,8 +14,10 @@ import {
   Languages,
   Library,
   Music,
+  Minus,
   Pause,
   Play,
+  Plus,
   Radio,
   RefreshCw,
   Rocket,
@@ -41,9 +43,14 @@ import {
   type LanguageCode
 } from './i18n/locales';
 import { uiText } from './i18n/ui';
+import { archiveGeneratedProject } from './services/generatedAssetVault';
 
 const EmberWorkspace = React.lazy(() => import('./components/ember/EmberWorkspace'));
 const WorldDiscoveryGlobe = React.lazy(() => import('./components/discovery/WorldDiscoveryGlobe'));
+const GeneratedAssetLibrary = React.lazy(() => import('./components/publishing/GeneratedAssetLibrary'));
+const ProfessionalAudioEqualizer = React.lazy(() =>
+  import('./components/eq/ProfessionalAudioEqualizer').then(module => ({ default: module.ProfessionalAudioEqualizer }))
+);
 
 type JobStatus = 'IDLE' | 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
 type View =
@@ -76,8 +83,21 @@ interface JobResponse {
 
 const LANGUAGE_KEY = 'sonara.language';
 const DURATION_KEY = 'sonara.defaultDuration';
+const BPM_KEY = 'sonara.preferredBpm';
+const MIN_BPM = 40;
+const MAX_BPM = 220;
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const normalizeJob = (value: JobResponse): JobResponse => value?.job || value?.data || value;
+
+function clampBpm(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(MIN_BPM, Math.min(MAX_BPM, Math.round(parsed))) : 124;
+}
+
+function initialBpm(): number {
+  const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(BPM_KEY) : null;
+  return saved == null ? 124 : clampBpm(saved);
+}
 
 function brandSonara(value: unknown): string {
   return String(value ?? '')
@@ -169,7 +189,7 @@ export default function App() {
   const [title, setTitle] = useState(INITIAL_SELECTION.title);
   const [lyrics, setLyrics] = useState('');
   const [vocalMode, setVocalMode] = useState<VocalMode>(INITIAL_SELECTION.vocalMode);
-  const [bpm, setBpm] = useState(INITIAL_SELECTION.bpm);
+  const [bpm, setBpm] = useState(initialBpm);
   const [durationSec, setDurationSec] = useState(() => {
     const saved = Number(localStorage.getItem(DURATION_KEY));
     return DURATION_OPTIONS.includes(saved) ? saved : 30;
@@ -188,10 +208,8 @@ export default function App() {
   const [health, setHealth] = useState('CHECKING');
   const [activeTab, setActiveTab] = useState<View>('overview');
   const [isPlaying, setIsPlaying] = useState(false);
-  const [eqLow, setEqLow] = useState(0);
-  const [eqMid, setEqMid] = useState(0);
-  const [eqHigh, setEqHigh] = useState(0);
-  const [masterGain, setMasterGain] = useState(0);
+  const [archiveStatus, setArchiveStatus] = useState<'IDLE' | 'SAVING' | 'SAVED' | 'PARTIAL' | 'FAILED'>('IDLE');
+  const [archivedFileCount, setArchivedFileCount] = useState(0);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const automaticTitleRef = useRef(true);
@@ -307,6 +325,12 @@ export default function App() {
     localStorage.setItem(DURATION_KEY, String(safe));
   };
 
+  const updateBpm = (value: number) => {
+    const safe = clampBpm(value);
+    setBpm(safe);
+    localStorage.setItem(BPM_KEY, String(safe));
+  };
+
   const randomizePrompt = () => {
     randomVariantRef.current = (randomVariantRef.current + 1) % 4;
     automaticTitleRef.current = true;
@@ -338,6 +362,8 @@ export default function App() {
     setQualityScore(null);
     setJobId('');
     setIsPlaying(false);
+    setArchiveStatus('IDLE');
+    setArchivedFileCount(0);
 
     try {
       const rawPrompt = prompt.trim();
@@ -401,11 +427,35 @@ export default function App() {
         if (currentStatus === 'COMPLETED') {
           const url = current.audioUrl || metadata.audioUrl || responseData.audioUrl || responseData.result?.audioUrl;
           if (!url) throw new Error('SONARA finished without an audio URL.');
+          const completedAudioFormat = String(metadata.audioFormat || String(url).split(/[?#]/)[0].split('.').pop() || 'mp3').toLowerCase();
           setAudioUrl(String(url));
-          setAudioFormat(String(metadata.audioFormat || 'mp3').toLowerCase());
+          setAudioFormat(completedAudioFormat);
           const verifiedScore = Number((metadata.outputQualityGate as Record<string, any> | undefined)?.score);
           setQualityScore(Number.isFinite(verifiedScore) ? verifiedScore : null);
           setProgress(100);
+          setArchiveStatus('SAVING');
+          setStage('Salvataggio permanente in Pubblicazione...');
+
+          try {
+            const archived = await archiveGeneratedProject({
+              jobId: id,
+              title,
+              genre,
+              subgenre,
+              bpm,
+              keySignature,
+              durationSec,
+              primaryAudioUrl: String(url),
+              audioFormat: completedAudioFormat,
+              response: { initialResponse: responseData, completedJob: current }
+            });
+            setArchivedFileCount(archived.project.assets.length);
+            setArchiveStatus(archived.linkedFiles > 0 ? 'PARTIAL' : 'SAVED');
+          } catch (archiveError) {
+            console.error('Generated asset archive failed:', archiveError);
+            setArchiveStatus('FAILED');
+          }
+
           setStatus('COMPLETED');
           setStage(t('audioReady'));
           return;
@@ -418,6 +468,34 @@ export default function App() {
       setProgress(0);
       setStage('Generation failed');
       setError(brandSonara(generationError instanceof Error ? generationError.message : String(generationError)));
+    }
+  };
+
+  const handleProcessedAudio = async (newAudioUrl: string, metrics: Record<string, any>) => {
+    const format = String(newAudioUrl).split(/[?#]/)[0].split('.').pop()?.toLowerCase() || 'wav';
+    const archiveJobId = jobId || `master-${Date.now()}`;
+    setAudioUrl(newAudioUrl);
+    setAudioFormat(format);
+    setArchiveStatus('SAVING');
+
+    try {
+      const archived = await archiveGeneratedProject({
+        jobId: archiveJobId,
+        title,
+        genre,
+        subgenre,
+        bpm,
+        keySignature,
+        durationSec,
+        primaryAudioUrl: newAudioUrl,
+        audioFormat: format,
+        response: { masteredAudioUrl: newAudioUrl, masteringMetrics: metrics }
+      });
+      setArchivedFileCount(archived.project.assets.length);
+      setArchiveStatus(archived.linkedFiles > 0 ? 'PARTIAL' : 'SAVED');
+    } catch (archiveError) {
+      console.error('Master archive failed:', archiveError);
+      setArchiveStatus('FAILED');
     }
   };
 
@@ -527,9 +605,49 @@ export default function App() {
         </label>
       </div>
 
-      <label className="mt-4 block text-xs text-slate-400">{t('bpm')}: {bpm}
-        <input type="range" min={40} max={220} value={bpm} onChange={event => setBpm(Number(event.target.value))} className="mt-2 w-full accent-purple-500" />
-      </label>
+      <div className="mt-4 rounded-2xl border border-purple-500/20 bg-purple-500/5 p-4">
+        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+          <div>
+            <div className="text-xs font-bold uppercase tracking-wider text-purple-300">{t('bpm')} preferiti</div>
+            <div className="mt-1 text-[11px] text-slate-500">Il valore scelto viene salvato e inviato al motore per la prossima generazione.</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => updateBpm(bpm - 1)} disabled={busy || bpm <= MIN_BPM} className="rounded-lg border border-slate-700 bg-slate-900 p-2 text-slate-200 disabled:opacity-30" aria-label="Riduci BPM"><Minus className="h-4 w-4" /></button>
+            <div className="relative">
+              <input
+                type="number"
+                min={MIN_BPM}
+                max={MAX_BPM}
+                step={1}
+                value={bpm}
+                disabled={busy}
+                onChange={event => updateBpm(Number(event.target.value))}
+                className="w-24 rounded-xl border border-purple-500/40 bg-slate-950 px-3 py-2 pr-11 text-center text-xl font-black text-white outline-none focus:border-purple-400 disabled:opacity-50"
+                aria-label="BPM preferiti"
+              />
+              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[9px] font-bold text-purple-300">BPM</span>
+            </div>
+            <button type="button" onClick={() => updateBpm(bpm + 1)} disabled={busy || bpm >= MAX_BPM} className="rounded-lg border border-slate-700 bg-slate-900 p-2 text-slate-200 disabled:opacity-30" aria-label="Aumenta BPM"><Plus className="h-4 w-4" /></button>
+          </div>
+        </div>
+        <input
+          type="range"
+          min={MIN_BPM}
+          max={MAX_BPM}
+          step={1}
+          value={bpm}
+          disabled={busy}
+          onInput={event => updateBpm(Number((event.target as HTMLInputElement).value))}
+          onChange={event => updateBpm(Number(event.target.value))}
+          className="mt-4 w-full accent-purple-500 disabled:opacity-50"
+          aria-label="Regolazione BPM"
+        />
+        <div className="mt-3 flex flex-wrap gap-2">
+          {[70, 80, 90, 100, 110, 120, 124, 128, 140, 160, 174].map(value => (
+            <button key={value} type="button" disabled={busy} onClick={() => updateBpm(value)} className={`rounded-lg border px-2.5 py-1 text-[10px] font-bold transition disabled:opacity-40 ${bpm === value ? 'border-purple-400 bg-purple-500/20 text-white' : 'border-slate-800 bg-slate-950 text-slate-500 hover:border-slate-600 hover:text-slate-200'}`}>{value}</button>
+          ))}
+        </div>
+      </div>
 
       <details className="mt-5 rounded-xl border border-slate-800 bg-slate-950/60 p-4">
         <summary className="cursor-pointer text-sm font-bold text-white">{t('lyrics')}</summary>
@@ -582,6 +700,9 @@ export default function App() {
           <div className="mt-4 flex flex-wrap gap-2">
             <button onClick={() => setIsPlaying(value => !value)} className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs">{isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}{isPlaying ? t('pause') : t('play')}</button>
             <a href={audioUrl} download={`${title || 'sonara-track'}.${audioFormat === 'wav' ? 'wav' : audioFormat === 'flac' ? 'flac' : 'mp3'}`} className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs"><Download className="h-4 w-4" />{t('download')} · {audioFormat.toUpperCase()}</a>
+            {archiveStatus === 'SAVING' && <span className="flex items-center gap-2 rounded-lg border border-purple-500/20 bg-purple-500/10 px-3 py-2 text-xs text-purple-200"><RefreshCw className="h-4 w-4 animate-spin" />Salvataggio in Pubblicazione...</span>}
+            {(archiveStatus === 'SAVED' || archiveStatus === 'PARTIAL') && <button type="button" onClick={() => setActiveTab('publishing')} className="flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-300"><ShieldCheck className="h-4 w-4" />{archivedFileCount} file in Pubblicazione</button>}
+            {archiveStatus === 'FAILED' && <span className="rounded-lg border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">Archivio non disponibile: scarica il file ora.</span>}
           </div>
         </div>
       )}
@@ -593,14 +714,18 @@ export default function App() {
   );
 
   const eqView = (
-    <Card className="p-6"><SectionTitle icon={SlidersHorizontal} title={t('eqMaster')} subtitle="Professional tone shaping for the generated track." />
-      <div className="grid gap-5 md:grid-cols-4">{[['Low', eqLow, setEqLow], ['Mid', eqMid, setEqMid], ['High', eqHigh, setEqHigh], ['Master', masterGain, setMasterGain]].map(([label, value, setter]: any) => <label key={label} className="rounded-xl border border-slate-800 bg-slate-950 p-4 text-xs text-slate-400"><div className="mb-3 flex justify-between"><span>{label}</span><b className="text-white">{value} dB</b></div><input type="range" min={-12} max={12} step={0.5} value={value} onChange={event => setter(Number(event.target.value))} className="w-full accent-purple-500" /></label>)}</div>
-      {audioUrl ? <audio controls src={audioUrl} className="mt-6 w-full" /> : <div className="mt-6 rounded-xl border border-slate-800 bg-slate-950 p-4 text-xs text-slate-500">Generate a track first to preview it in the mastering workspace.</div>}
-    </Card>
+    <React.Suspense fallback={<Card className="flex min-h-[540px] items-center justify-center p-6 text-xs text-slate-500"><RefreshCw className="mr-2 h-4 w-4 animate-spin text-purple-400" />Caricamento EQ / Master professionale...</Card>}>
+      <ProfessionalAudioEqualizer audioUrl={audioUrl} onProcessedAudio={(url, metrics) => void handleProcessedAudio(url, metrics)} isEmbedded />
+    </React.Suspense>
   );
 
   const publishingView = (
-    <Card className="p-6"><SectionTitle icon={Rocket} title={t('publishingTitle')} subtitle={t('publishingSubtitle')} /><div className="grid gap-4 md:grid-cols-3"><MiniCard icon={Radio} title="Release Manager" text="Single, EP and album release workflow." /><MiniCard icon={ShieldCheck} title="Rights & Metadata" text="Credits, ISRC, ownership and royalty metadata." /><MiniCard icon={Globe2} title="Global Distribution" text="Prepare delivery to DSP and global channels." /></div></Card>
+    <Card className="p-6">
+      <SectionTitle icon={Rocket} title={t('publishingTitle')} subtitle="Archivio persistente di tutti i file generati, pronto per download e pubblicazione." />
+      <React.Suspense fallback={<div className="flex min-h-64 items-center justify-center text-xs text-slate-500"><RefreshCw className="mr-2 h-4 w-4 animate-spin text-purple-400" />Caricamento archivio...</div>}>
+        <GeneratedAssetLibrary />
+      </React.Suspense>
+    </Card>
   );
 
   const marketplaceView = (
