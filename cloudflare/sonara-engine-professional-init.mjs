@@ -31,6 +31,16 @@ function modalConfig(env) {
   };
 }
 
+function modalHeaders(env, extra = {}) {
+  const config = modalConfig(env);
+  return {
+    'Modal-Key': config.key,
+    'Modal-Secret': config.secret,
+    Accept: 'application/json',
+    ...extra
+  };
+}
+
 async function modalRequest(env, path, init = {}, timeoutMs = INIT_TIMEOUT_MS) {
   const config = modalConfig(env);
   if (!config.key || !config.secret) {
@@ -41,9 +51,7 @@ async function modalRequest(env, path, init = {}, timeoutMs = INIT_TIMEOUT_MS) {
     ...init,
     redirect: 'follow',
     headers: {
-      'Modal-Key': config.key,
-      'Modal-Secret': config.secret,
-      Accept: 'application/json',
+      ...modalHeaders(env),
       ...(init.headers || {})
     },
     signal: AbortSignal.timeout(timeoutMs)
@@ -65,6 +73,25 @@ async function modalRequest(env, path, init = {}, timeoutMs = INIT_TIMEOUT_MS) {
   return payload;
 }
 
+async function modalTextRequest(env, path, init = {}, timeoutMs = 120_000) {
+  const config = modalConfig(env);
+  if (!config.key || !config.secret) {
+    throw new Error('Modal proxy credentials are not configured in the SONARA Worker.');
+  }
+  const response = await fetch(`${config.baseUrl}${path}`, {
+    ...init,
+    redirect: 'follow',
+    headers: {
+      ...modalHeaders(env, { Accept: 'text/event-stream, application/json' }),
+      ...(init.headers || {})
+    },
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+  const text = await response.text();
+  if (!response.ok) throw new Error(text.slice(0, 2000) || `HTTP ${response.status}`);
+  return text;
+}
+
 function initializationRequest(stage) {
   if (stage === 'dit') {
     return {
@@ -83,7 +110,27 @@ function initializationRequest(stage) {
     };
   }
 
-  throw new Error('Invalid stage. Use openapi, gradio, catalog, dit, lm or full.');
+  throw new Error('Invalid stage.');
+}
+
+function professionalGradioData(initLm = true) {
+  return [
+    '/app/checkpoints',
+    PROFESSIONAL_MODEL,
+    'cuda',
+    initLm,
+    PROFESSIONAL_LM_RECOMMENDATION,
+    'pt',
+    true,
+    true,
+    false,
+    false,
+    false,
+    false,
+    'Custom',
+    2,
+    'official'
+  ];
 }
 
 function relevantText(value) {
@@ -195,6 +242,51 @@ async function handleAdmin(request, env) {
         totalEndpoints: endpointSummaries.length,
         totalDependencies: dependencies.length
       });
+    }
+
+    if (stage === 'gradio-start' || stage === 'gradio-start-dit') {
+      const initLm = stage === 'gradio-start';
+      const data = professionalGradioData(initLm);
+      const sessionHash = `sonara-professional-${Date.now()}`;
+      const result = await modalRequest(env, '/gradio_api/call/lambda_6', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          data,
+          fn_index: 9,
+          session_hash: sessionHash,
+          trigger_id: 11
+        })
+      }, 120_000);
+      return json({
+        ok: true,
+        stage,
+        sessionHash,
+        eventId: result?.event_id || result?.eventId || null,
+        requested: {
+          ditModel: PROFESSIONAL_MODEL,
+          lmModel: initLm ? PROFESSIONAL_LM_RECOMMENDATION : null,
+          lmBackend: initLm ? 'pt' : null,
+          offloadToCpu: true,
+          flashAttention: true,
+          quantization: false,
+          compileModel: false,
+          batchSize: 2
+        },
+        result
+      });
+    }
+
+    if (stage === 'gradio-result') {
+      const eventId = String(url.searchParams.get('event') || '').trim();
+      if (!/^[A-Za-z0-9_-]{8,}$/.test(eventId)) throw new Error('A valid Gradio event ID is required.');
+      const stream = await modalTextRequest(
+        env,
+        `/gradio_api/call/lambda_6/${encodeURIComponent(eventId)}`,
+        { method: 'GET' },
+        180_000
+      );
+      return json({ ok: true, stage, eventId, stream: stream.slice(-20_000) });
     }
 
     if (stage === 'catalog') {
