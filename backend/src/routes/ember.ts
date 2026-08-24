@@ -1,7 +1,8 @@
-import { Request, Response, Router } from 'express';
+import { Request, Response, Router, text } from 'express';
 import { AuthenticatedRequest, verifyFirebaseToken } from '../auth/FirebaseAuth';
 import {
   EMBER_MAX_MESSAGE_LENGTH,
+  EMBER_MAX_SDP_LENGTH,
   EMBER_MAX_SPEECH_LENGTH,
   EmberConversationMessage,
   EmberService,
@@ -11,7 +12,7 @@ import {
 
 const router = Router();
 const RATE_WINDOW_MS = 5 * 60 * 1000;
-const limits = new Map<string, { startedAt: number; chat: number; speech: number }>();
+const limits = new Map<string, { startedAt: number; chat: number; speech: number; realtime: number }>();
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -21,13 +22,13 @@ function rejectCrossSite(req: Request): boolean {
   return String(req.headers['sec-fetch-site'] || '').toLowerCase() === 'cross-site';
 }
 
-function rateLimited(userId: string, kind: 'chat' | 'speech'): boolean {
+function rateLimited(userId: string, kind: 'chat' | 'speech' | 'realtime'): boolean {
   const now = Date.now();
   const current = limits.get(userId);
   const entry = !current || current.startedAt + RATE_WINDOW_MS <= now
-    ? { startedAt: now, chat: 0, speech: 0 }
+    ? { startedAt: now, chat: 0, speech: 0, realtime: 0 }
     : current;
-  const maximum = kind === 'chat' ? 20 : 10;
+  const maximum = kind === 'chat' ? 20 : kind === 'speech' ? 10 : 6;
   if (entry[kind] >= maximum) return true;
   entry[kind] += 1;
   limits.set(userId, entry);
@@ -44,7 +45,9 @@ router.get('/config', verifyFirebaseToken, (req: AuthenticatedRequest, res: Resp
   return res.json({
     chatEnabled: EmberService.isConfigured(),
     voiceEnabled: EmberService.voiceEnabled(),
-    voice: String(process.env.EMBER_TTS_VOICE || '').trim() || 'alloy'
+    realtimeEnabled: EmberService.realtimeEnabled(),
+    voice: String(process.env.EMBER_TTS_VOICE || '').trim() || 'alloy',
+    realtimeVoice: String(process.env.EMBER_REALTIME_VOICE || '').trim() || 'marin'
   });
 });
 
@@ -108,5 +111,47 @@ router.post('/speech', verifyFirebaseToken, async (req: AuthenticatedRequest, re
     return sendError(res, 502, 'EMBER_VOICE_UPSTREAM_ERROR', 'Ember Voice is temporarily unavailable.');
   }
 });
+
+router.post(
+  '/realtime',
+  text({ type: ['application/sdp', 'text/plain'], limit: `${EMBER_MAX_SDP_LENGTH}b` }),
+  verifyFirebaseToken,
+  async (req: AuthenticatedRequest, res: Response) => {
+    res.setHeader('Cache-Control', 'no-store');
+    if (rejectCrossSite(req)) return sendError(res, 403, 'EMBER_CROSS_SITE_REJECTED', 'Cross-site requests are not allowed.');
+    if (!req.is('application/sdp') || typeof req.body !== 'string' || !req.body.trim().startsWith('v=0')) {
+      return sendError(res, 400, 'EMBER_REALTIME_INVALID_SDP', 'The realtime audio offer is invalid.');
+    }
+    if (!EmberService.realtimeEnabled()) {
+      return sendError(res, 503, 'EMBER_REALTIME_NOT_CONFIGURED', 'Ember Realtime is not configured on the server.');
+    }
+    if (rateLimited(req.user!.uid, 'realtime')) {
+      return sendError(res, 429, 'EMBER_REALTIME_RATE_LIMITED', 'Too many realtime sessions. Please try again later.');
+    }
+
+    const studioContext: EmberStudioContext = {
+      genre: String(req.query.genre || '').slice(0, 100),
+      subgenre: String(req.query.subgenre || '').slice(0, 100),
+      mood: String(req.query.mood || '').slice(0, 100),
+      bpm: Number(req.query.bpm) || undefined,
+      keySignature: String(req.query.keySignature || '').slice(0, 40),
+      hasAudio: String(req.query.hasAudio || '') === 'true'
+    };
+    try {
+      const answer = await EmberService.openRealtimeSession({
+        sdp: req.body.trim(),
+        userId: req.user!.uid,
+        studioContext
+      });
+      res.type('application/sdp');
+      return res.send(answer);
+    } catch (error) {
+      if (error instanceof EmberServiceError && error.code === 'NOT_CONFIGURED') {
+        return sendError(res, 503, 'EMBER_REALTIME_NOT_CONFIGURED', 'Ember Realtime is not configured on the server.');
+      }
+      return sendError(res, 502, 'EMBER_REALTIME_UPSTREAM_ERROR', 'Ember Realtime is temporarily unavailable.');
+    }
+  }
+);
 
 export default router;
