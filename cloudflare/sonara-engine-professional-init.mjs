@@ -83,7 +83,11 @@ function initializationRequest(stage) {
     };
   }
 
-  throw new Error('Invalid stage. Use openapi, catalog, dit, lm or full.');
+  throw new Error('Invalid stage. Use openapi, gradio, catalog, dit, lm or full.');
+}
+
+function relevantEndpoint(name) {
+  return /init|service|model|checkpoint|refresh|load/i.test(String(name || ''));
 }
 
 async function handleAdmin(request, env) {
@@ -111,6 +115,43 @@ async function handleAdmin(request, env) {
         title: specification?.info?.title || null,
         version: specification?.info?.version || null,
         paths
+      });
+    }
+
+    if (stage === 'gradio') {
+      const [information, configuration] = await Promise.all([
+        modalRequest(env, '/gradio_api/info', { method: 'GET' }, 120_000),
+        modalRequest(env, '/config', { method: 'GET' }, 120_000)
+      ]);
+
+      const namedEndpoints = Object.fromEntries(
+        Object.entries(information?.named_endpoints || {}).filter(([name]) => relevantEndpoint(name))
+      );
+      const unnamedEndpoints = Object.fromEntries(
+        Object.entries(information?.unnamed_endpoints || {}).filter(([name]) => relevantEndpoint(name))
+      );
+      const dependencies = Array.isArray(configuration?.dependencies)
+        ? configuration.dependencies
+            .map((dependency, index) => ({
+              index,
+              apiName: dependency?.api_name || null,
+              backendFn: dependency?.backend_fn || false,
+              inputs: dependency?.inputs || [],
+              outputs: dependency?.outputs || [],
+              triggerMode: dependency?.trigger_mode || null,
+              queue: dependency?.queue ?? null,
+              types: dependency?.types || null
+            }))
+            .filter(item => relevantEndpoint(item.apiName) || item.apiName === false)
+        : [];
+
+      return json({
+        ok: true,
+        stage,
+        namedEndpoints,
+        unnamedEndpoints,
+        relevantDependencies: dependencies.slice(0, 100),
+        totalDependencies: Array.isArray(configuration?.dependencies) ? configuration.dependencies.length : 0
       });
     }
 
