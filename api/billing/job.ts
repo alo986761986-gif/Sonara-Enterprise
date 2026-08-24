@@ -10,6 +10,33 @@ function headerValue(value: unknown): string {
   return Array.isArray(value) ? String(value[0] || '') : String(value || '');
 }
 
+function bearerToken(req: any): string {
+  return headerValue(req.headers?.authorization).match(/^Bearer\s+(.+)$/i)?.[1]?.trim() || '';
+}
+
+async function firebaseTokenValid(token: string): Promise<boolean> {
+  if (!token) return false;
+  const apiKey = String(process.env.VITE_FIREBASE_API_KEY || process.env.SONARA_FIREBASE_API_KEY || '').trim();
+  if (!apiKey) return false;
+
+  try {
+    const response = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken: token }),
+        signal: AbortSignal.timeout(10_000)
+      }
+    );
+    if (!response.ok) return false;
+    const payload = await response.json() as { users?: Array<{ localId?: string }> };
+    return Boolean(payload.users?.[0]?.localId);
+  } catch {
+    return false;
+  }
+}
+
 function sendJson(res: any, status: number, body: Record<string, unknown>) {
   res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -25,8 +52,14 @@ export default async function handler(req: any, res: any) {
 
   const internalSecret = String(process.env.SONARA_INTERNAL_PROXY_SECRET || '').trim();
   const suppliedSecret = headerValue(req.headers?.['x-sonara-internal-secret']).trim();
-  if (internalSecret && suppliedSecret !== internalSecret) {
-    return sendJson(res, 403, { error: 'Unauthorized SONARA job bridge request.' });
+  const internalRequest = Boolean(internalSecret && suppliedSecret === internalSecret);
+  const authenticatedClient = internalRequest ? true : await firebaseTokenValid(bearerToken(req));
+  if (!authenticatedClient) {
+    return sendJson(res, 401, {
+      status: 'FAILED',
+      progress: 0,
+      error: 'Accedi con un account SONARA valido per controllare la generazione.'
+    });
   }
 
   const jobId = queryValue(req.query?.jobId).trim();
@@ -62,6 +95,7 @@ export default async function handler(req: any, res: any) {
     res.setHeader('Content-Type', engineResponse.headers.get('content-type') || 'application/json; charset=utf-8');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Sonara-Job-Bridge', 'vercel');
+    res.setHeader('X-Sonara-Job-Region', 'iad1');
     return res.status(engineResponse.status).send(raw);
   } catch (error) {
     console.error('[SONARA JOB BRIDGE]', error instanceof Error ? error.message : String(error));
