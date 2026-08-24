@@ -3,15 +3,21 @@ import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
 import {
   GoogleAuthProvider,
   createUserWithEmailAndPassword,
+  deleteUser,
   getAuth,
+  linkWithPopup,
   onAuthStateChanged,
+  sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
+  updateProfile,
+  verifyBeforeUpdateEmail,
   type Auth,
   type User
 } from 'firebase/auth';
+import { getDownloadURL, getStorage, ref, uploadBytes } from 'firebase/storage';
 
 const env = ((import.meta as any).env || {}) as Record<string, string | undefined>;
 
@@ -83,4 +89,55 @@ export async function getFirebaseIdToken(forceRefresh = false): Promise<string> 
   const user = getFirebaseAuth().currentUser;
   if (!user) throw new Error('Accedi per usare Ember.');
   return user.getIdToken(forceRefresh);
+}
+
+export function getCurrentFirebaseUser(): User | null {
+  if (!firebaseConfigured) return null;
+  return getFirebaseAuth().currentUser;
+}
+
+export async function updateFirebaseUserProfile(displayName: string, photoURL?: string | null): Promise<User> {
+  const user = getFirebaseAuth().currentUser;
+  if (!user) throw new Error('Accedi per aggiornare il profilo.');
+  await updateProfile(user, { displayName: displayName.trim(), photoURL: photoURL ?? user.photoURL });
+  await user.reload();
+  return getFirebaseAuth().currentUser || user;
+}
+
+export async function uploadFirebaseAvatar(file: Blob): Promise<string> {
+  const user = getFirebaseAuth().currentUser;
+  if (!user) throw new Error('Accedi per salvare l’avatar.');
+  const storage = getStorage(app || getApps()[0] || initializeApp(firebaseConfig));
+  const avatarRef = ref(storage, `profile-avatars/${user.uid}/avatar-${Date.now()}.webp`);
+  await uploadBytes(avatarRef, file, { contentType: file.type || 'image/webp' });
+  const photoURL = await getDownloadURL(avatarRef);
+  await updateProfile(user, { photoURL });
+  return photoURL;
+}
+
+export async function sendCurrentUserVerification(): Promise<void> {
+  const user = getFirebaseAuth().currentUser;
+  if (!user) throw new Error('Accedi per verificare l’email.');
+  await sendEmailVerification(user);
+}
+
+export async function requestFirebaseEmailChange(email: string): Promise<void> {
+  const user = getFirebaseAuth().currentUser;
+  if (!user) throw new Error('Accedi per cambiare l’email.');
+  await verifyBeforeUpdateEmail(user, email.trim());
+}
+
+export async function linkCurrentUserWithGoogle(): Promise<User> {
+  const user = getFirebaseAuth().currentUser;
+  if (!user) throw new Error('Accedi per collegare Google.');
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  const result = await linkWithPopup(user, provider);
+  return result.user;
+}
+
+export async function deleteCurrentFirebaseAccount(): Promise<void> {
+  const user = getFirebaseAuth().currentUser;
+  if (!user) throw new Error('Nessun account autenticato da eliminare.');
+  await deleteUser(user);
 }

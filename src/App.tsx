@@ -48,6 +48,7 @@ import { archiveGeneratedProject } from './services/generatedAssetVault';
 const EmberWorkspace = React.lazy(() => import('./components/ember/EmberWorkspace'));
 const WorldDiscoveryGlobe = React.lazy(() => import('./components/discovery/WorldDiscoveryGlobe'));
 const GeneratedAssetLibrary = React.lazy(() => import('./components/publishing/GeneratedAssetLibrary'));
+const AccountSettingsCenter = React.lazy(() => import('./components/settings/AccountSettingsCenter'));
 const ProfessionalAudioEqualizer = React.lazy(() =>
   import('./components/eq/ProfessionalAudioEqualizer').then(module => ({ default: module.ProfessionalAudioEqualizer }))
 );
@@ -84,6 +85,7 @@ interface JobResponse {
 const LANGUAGE_KEY = 'sonara.language';
 const DURATION_KEY = 'sonara.defaultDuration';
 const BPM_KEY = 'sonara.preferredBpm';
+const ACCOUNT_PREFERENCES_KEY = 'sonara.accountPreferences';
 const MIN_BPM = 40;
 const MAX_BPM = 220;
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -97,6 +99,15 @@ function clampBpm(value: unknown): number {
 function initialBpm(): number {
   const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(BPM_KEY) : null;
   return saved == null ? 124 : clampBpm(saved);
+}
+
+function initialAccountPreferences(): Record<string, any> {
+  if (typeof localStorage === 'undefined') return {};
+  try {
+    return JSON.parse(localStorage.getItem(ACCOUNT_PREFERENCES_KEY) || '{}');
+  } catch {
+    return {};
+  }
 }
 
 function brandSonara(value: unknown): string {
@@ -210,6 +221,7 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [archiveStatus, setArchiveStatus] = useState<'IDLE' | 'SAVING' | 'SAVED' | 'PARTIAL' | 'FAILED'>('IDLE');
   const [archivedFileCount, setArchivedFileCount] = useState(0);
+  const [accountPreferences, setAccountPreferences] = useState<Record<string, any>>(initialAccountPreferences);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const automaticTitleRef = useRef(true);
@@ -254,6 +266,15 @@ export default function App() {
     };
     window.addEventListener('sonara:language', languageHandler);
     return () => window.removeEventListener('sonara:language', languageHandler);
+  }, []);
+
+  useEffect(() => {
+    const preferencesHandler = (event: Event) => {
+      const next = (event as CustomEvent<Record<string, any>>).detail;
+      if (next) setAccountPreferences(next);
+    };
+    window.addEventListener('sonara:preferences-updated', preferencesHandler);
+    return () => window.removeEventListener('sonara:preferences-updated', preferencesHandler);
   }, []);
 
   useEffect(() => {
@@ -367,8 +388,12 @@ export default function App() {
 
     try {
       const rawPrompt = prompt.trim();
+      const tasteContext = accountPreferences.myTaste && accountPreferences.styleAugmentation
+        ? [accountPreferences.favoriteGenres && `Preferred genres: ${accountPreferences.favoriteGenres}`, accountPreferences.favoriteMoods && `Preferred moods: ${accountPreferences.favoriteMoods}`].filter(Boolean).join('. ')
+        : '';
+      const personalizedPrompt = tasteContext ? `${rawPrompt}\nCREATOR TASTE: ${tasteContext}. Keep the selected genre and subgenre authoritative.` : rawPrompt;
       const finalPrompt = buildGenerationPrompt({
-        rawPrompt,
+        rawPrompt: personalizedPrompt,
         genreFamily,
         genre,
         subgenre,
@@ -397,6 +422,8 @@ export default function App() {
           key: keySignature,
           durationSec,
           duration: durationSec,
+          outputFormat: accountPreferences.outputFormat || 'wav',
+          audioQuality: accountPreferences.audioQuality || 'lossless',
           engineId: 'sonara_ace_step_v15_modal'
         })
       });
@@ -447,7 +474,15 @@ export default function App() {
               durationSec,
               primaryAudioUrl: String(url),
               audioFormat: completedAudioFormat,
-              response: { initialResponse: responseData, completedJob: current }
+              response: {
+                initialResponse: responseData,
+                completedJob: current,
+                publicationDefaults: {
+                  visibility: accountPreferences.defaultVisibility || 'link-only',
+                  allowComments: accountPreferences.allowComments !== false,
+                  allowRemixes: accountPreferences.allowRemixes !== false
+                }
+              }
             });
             setArchivedFileCount(archived.project.assets.length);
             setArchiveStatus(archived.linkedFiles > 0 ? 'PARTIAL' : 'SAVED');
@@ -458,6 +493,10 @@ export default function App() {
 
           setStatus('COMPLETED');
           setStage(t('audioReady'));
+          if (accountPreferences.notifyGeneration && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+            new Notification('SONARA · Brano pronto', { body: `${title} è stato generato e salvato in Pubblicazione.`, icon: '/sonara-ai-icon.png' });
+          }
+          if (accountPreferences.autoplay) setIsPlaying(true);
           return;
         }
         if (currentStatus === 'FAILED') throw new Error(current.error || metadata.error || 'SONARA generation failed.');
@@ -767,26 +806,17 @@ export default function App() {
   );
 
   const settingsView = (
-    <div className="space-y-5">
-      <Card className="p-6"><SectionTitle icon={Settings2} title={t('settingsTitle')} subtitle={t('settingsSubtitle')} />
-        <div className="grid gap-5 lg:grid-cols-2">
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-5">
-            <div className="mb-4 flex items-center gap-2 font-bold text-white"><Languages className="h-5 w-5 text-purple-400" />{t('language')}</div>
-            <p className="mb-4 text-xs leading-5 text-slate-500">{t('languageHelp')}</p>
-            <select value={language} onChange={event => { const code = event.target.value as LanguageCode; setLanguage(code); window.dispatchEvent(new CustomEvent('sonara:language', { detail: code })); }} className="w-full rounded-xl border border-slate-700 bg-[#060a12] p-3 text-sm text-white outline-none focus:border-purple-500">
-              {SUPPORTED_LANGUAGES.map(code => <option key={code} value={code}>{LANGUAGE_METADATA[code].nativeName} — {LANGUAGE_METADATA[code].name}</option>)}
-            </select>
-            <div className="mt-3 text-[10px] text-slate-600">{SUPPORTED_LANGUAGES.length} languages · RTL support · automatic device detection</div>
-          </div>
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-5">
-            <div className="mb-4 flex items-center gap-2 font-bold text-white"><Activity className="h-5 w-5 text-cyan-400" />{t('defaultDuration')}</div>
-            <select value={durationSec} onChange={event => updateDuration(Number(event.target.value))} className="w-full rounded-xl border border-slate-700 bg-[#060a12] p-3 text-sm text-white">{DURATION_OPTIONS.map(value => <option key={value} value={value}>{durationLabel(value, t)}</option>)}</select>
-            <div className="mt-3 text-[10px] text-slate-600">SONARA range: 30 seconds → 4 minutes</div>
-          </div>
-        </div>
-      </Card>
-      <Card className="p-6"><div className="mb-3 font-bold text-white">{t('account')}</div><div className="flex flex-wrap items-center justify-between gap-4"><div className="text-xs text-slate-500">Authentication requires Email/Password or Google.</div><button onClick={() => window.dispatchEvent(new Event('sonara:logout'))} className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-2 text-xs font-bold text-rose-300">{t('logout')}</button></div></Card>
-    </div>
+    <React.Suspense fallback={<Card className="flex min-h-[540px] items-center justify-center p-6 text-xs text-slate-500"><RefreshCw className="mr-2 h-4 w-4 animate-spin text-purple-400" />Caricamento impostazioni account...</Card>}>
+      <AccountSettingsCenter
+        language={language}
+        onLanguageChange={code => { setLanguage(code); window.dispatchEvent(new CustomEvent('sonara:language', { detail: code })); }}
+        durationSec={durationSec}
+        onDurationChange={updateDuration}
+        durationOptions={DURATION_OPTIONS}
+        bpm={bpm}
+        onBpmChange={updateBpm}
+      />
+    </React.Suspense>
   );
 
   const renderView = () => {
