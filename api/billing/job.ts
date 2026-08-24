@@ -1,6 +1,6 @@
 const DEFAULT_ENGINE_URL = 'https://api.sonaraenterprise.com';
 
-export const config = { maxDuration: 30 };
+export const config = { maxDuration: 180 };
 
 function queryValue(value: unknown): string {
   return Array.isArray(value) ? String(value[0] || '') : String(value || '');
@@ -86,7 +86,7 @@ export default async function handler(req: any, res: any) {
         method: 'GET',
         headers,
         cache: 'no-store',
-        signal: AbortSignal.timeout(25_000)
+        signal: AbortSignal.timeout(150_000)
       }
     );
 
