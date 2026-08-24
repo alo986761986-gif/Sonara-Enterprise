@@ -31,6 +31,7 @@ import {
   Zap
 } from 'lucide-react';
 import { WORLD_MUSIC_GENRES, findGenre } from './data/worldMusicGenres';
+import { buildGenerationPrompt, buildRandomCreativeBrief } from './generationPrompt';
 import {
   LANGUAGE_METADATA,
   RTL_LANGUAGES,
@@ -83,10 +84,6 @@ function brandSonara(value: unknown): string {
     .replace(/SONARA(?:\s*[·/]\s*SONARA)+/gi, 'SONARA');
 }
 
-function randomItem<T>(items: readonly T[]): T {
-  return items[Math.floor(Math.random() * items.length)];
-}
-
 async function readJson<T>(response: Response): Promise<T> {
   const text = await response.text();
   if (!text) return {} as T;
@@ -132,14 +129,6 @@ const SectionTitle = ({ icon: Icon, title, subtitle }: any) => (
 const DURATION_OPTIONS = [30, 45, 60, 90, 120, 150, 180, 210, 240];
 const MOODS = ['Energetic', 'Dark', 'Emotional', 'Uplifting', 'Melancholic', 'Hypnotic', 'Romantic', 'Aggressive', 'Dreamy', 'Cinematic', 'Peaceful', 'Epic', 'Groovy', 'Sexy', 'Nostalgic', 'Mysterious'];
 const KEYS = ['C Major', 'C Minor', 'C# Major', 'C# Minor', 'D Major', 'D Minor', 'D# Major', 'D# Minor', 'E Major', 'E Minor', 'F Major', 'F Minor', 'F# Major', 'F# Minor', 'G Major', 'G Minor', 'G# Major', 'G# Minor', 'A Major', 'A Minor', 'A# Major', 'A# Minor', 'B Major', 'B Minor'];
-const RANDOM_PRODUCTION_DETAILS = [
-  'deep detailed low end, expressive rhythm, immersive stereo space, evolving arrangement, polished professional mix and master',
-  'warm musical dynamics, rich harmonic texture, organic movement, cinematic depth, clean transients, professional mastering',
-  'hypnotic groove, atmospheric layers, expressive melodic development, powerful dynamics, spacious mix, release-ready master',
-  'authentic genre character, modern sound design, detailed percussion, emotional harmonic movement, wide stereo image, premium mix and master',
-  'driving rhythm, textured ambience, memorable musical motifs, controlled bass, dynamic transitions, high-end studio production'
-];
-
 function durationLabel(seconds: number, t: (key: Parameters<typeof uiText>[1]) => string) {
   if (seconds < 60) return `${seconds} ${t('seconds')}`;
   const minutes = seconds / 60;
@@ -262,22 +251,8 @@ export default function App() {
   };
 
   const randomizePrompt = () => {
-    const nextFamily = randomItem(WORLD_MUSIC_GENRES);
-    const nextGenre = randomItem(nextFamily.genres);
-    const nextSubgenre = randomItem(nextGenre.subgenres.length ? nextGenre.subgenres : [nextGenre.name]);
-    const nextMood = randomItem(MOODS);
-    const nextKey = randomItem(KEYS);
-    const nextBpm = Math.floor(80 + Math.random() * 81);
-    const detail = randomItem(RANDOM_PRODUCTION_DETAILS);
-
-    setGenreFamily(nextFamily.family);
-    setGenre(nextGenre.name);
-    setSubgenre(nextSubgenre);
-    setMood(nextMood);
-    setKeySignature(nextKey);
-    setBpm(nextBpm);
-    setTitle(`Sonara ${nextSubgenre} Track`);
-    setPrompt(`Professional ${nextGenre.name} / ${nextSubgenre} production, ${nextMood.toLowerCase()} atmosphere, ${detail}`);
+    setTitle(`Sonara ${subgenre} Track`);
+    setPrompt(buildRandomCreativeBrief({ genreFamily, genre, subgenre, mood }));
   };
 
   const generate = async () => {
@@ -291,12 +266,26 @@ export default function App() {
     setIsPlaying(false);
 
     try {
+      const rawPrompt = prompt.trim();
+      const finalPrompt = buildGenerationPrompt({
+        rawPrompt,
+        genreFamily,
+        genre,
+        subgenre,
+        mood,
+        bpm,
+        key: keySignature,
+        durationSec,
+        lyrics,
+        title
+      });
       const response = await fetch('/api/engine/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: prompt.trim(),
-          genre: `${genre} · ${subgenre}`,
+          prompt: finalPrompt,
+          rawPrompt,
+          genre,
           genreFamily,
           subgenre,
           mood,

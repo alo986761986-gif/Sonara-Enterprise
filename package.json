@@ -11,6 +11,7 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "node scripts/build-dispatch.cjs",
+    "test:generation-prompt": "tsx src/generationPrompt.test.ts && node --test cloudflare/sonara-engine-v6.test.mjs",
     "start": "node dist/server.cjs",
     "test:enterprise": "tsx backend/test/integration_test.ts && tsx backend/test/audio_quality_gate.test.ts && tsx backend/test/delivery_engine.test.ts && tsx backend/test/creator_ecosystem.test.ts && tsx backend/test/music_intelligence.test.ts",
     "test:stress": "tsx backend/test/stress_test.ts",
