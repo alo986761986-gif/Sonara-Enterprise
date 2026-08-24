@@ -2,8 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  analyzePromptFidelity,
-  buildAdaptivePayload
+  PROFESSIONAL_CANDIDATE_COUNT,
+  PROFESSIONAL_GUIDANCE_SCALE,
+  PROFESSIONAL_INFERENCE_STEPS,
+  PROFESSIONAL_MODEL,
+  PROFESSIONAL_PROFILE,
+  buildDirectProfessionalPayload,
+  selectRequiredProfessionalModel
 } from './sonara-engine-v6-final.mjs';
 
 const detailedPrompt = [
@@ -25,47 +30,73 @@ const detailedPrompt = [
   'Subgenre: Post-Rock'
 ].join('\n');
 
-test('detailed creator prompts keep Turbo speed but enable prompt reasoning', () => {
-  const fidelity = analyzePromptFidelity({ prompt: detailedPrompt });
-  assert.equal(fidelity.detailed, true);
-  assert.equal(fidelity.inferenceSteps, 12);
-  assert.equal(fidelity.thinking, true);
-  assert.deepEqual(fidelity.exclusions, ['Senza synth', 'senza cori']);
-
-  const payload = buildAdaptivePayload({
+test('every Sonara generation uses the exact ACE-Step XL-SFT professional model', () => {
+  const payload = buildDirectProfessionalPayload({
     prompt: detailedPrompt,
+    model: 'acestep-v15-xl-turbo',
+    inference_steps: 8,
+    batch_size: 1,
     lm_negative_prompt: 'genre drift, incorrect tempo'
-  }, 'acestep-v15-xl-turbo', false, fidelity);
+  });
 
-  assert.equal(payload.model, 'acestep-v15-xl-turbo');
-  assert.equal(payload.inference_steps, 12);
+  assert.equal(payload.model, PROFESSIONAL_MODEL);
+  assert.equal(payload.model, 'acestep-v15-xl-sft');
+  assert.equal(payload.inference_steps, PROFESSIONAL_INFERENCE_STEPS);
+  assert.equal(payload.inference_steps, 50);
   assert.equal(payload.thinking, true);
   assert.equal(payload.use_cot_caption, true);
   assert.equal(payload.use_cot_language, true);
-  assert.equal(payload.batch_size, 1);
+  assert.equal(payload.constrained_decoding, true);
+  assert.equal(payload.allow_lm_batch, true);
+  assert.equal(payload.batch_size, PROFESSIONAL_CANDIDATE_COUNT);
+  assert.equal(payload.batch_size, 2);
+  assert.equal(payload.audio_format, 'wav');
+  assert.equal(payload.infer_method, 'ode');
+  assert.equal(payload.guidance_scale, PROFESSIONAL_GUIDANCE_SCALE);
+  assert.equal(payload.guidance_scale, 7);
+  assert.equal(payload.shift, 1);
+  assert.equal(payload.use_adg, true);
   assert.match(payload.lm_negative_prompt, /Senza synth/);
   assert.match(payload.lm_negative_prompt, /senza cori/);
+  assert.doesNotMatch(payload.model, /turbo/i);
 });
 
-test('simple prompts remain on the eight-step fast path', () => {
-  const prompt = 'USER INTENT:\nWarm piano piece.\n\nTECHNICAL PARAMETERS:\nTempo: exactly 90 BPM';
-  const fidelity = analyzePromptFidelity({ prompt });
-  const payload = buildAdaptivePayload({ prompt }, 'acestep-v15-xl-turbo', false, fidelity);
-
-  assert.equal(fidelity.detailed, false);
-  assert.equal(payload.inference_steps, 8);
-  assert.equal(payload.thinking, false);
-  assert.equal(payload.batch_size, 1);
-});
-
-test('quality fallback remains available after a rejected fast render', () => {
-  const fidelity = analyzePromptFidelity({ prompt: detailedPrompt });
-  const payload = buildAdaptivePayload({ prompt: detailedPrompt }, 'acestep-v15-xl-sft', true, fidelity);
+test('short prompts do not fall back to Turbo or reduce professional quality', () => {
+  const payload = buildDirectProfessionalPayload({
+    prompt: 'Warm real piano performance at exactly 90 BPM.'
+  });
 
   assert.equal(payload.model, 'acestep-v15-xl-sft');
-  assert.equal(payload.inference_steps, 28);
+  assert.equal(payload.inference_steps, 50);
   assert.equal(payload.thinking, true);
-  assert.equal(payload.guidance_scale, 6.5);
-  assert.equal(payload.use_adg, true);
-  assert.equal(payload.batch_size, 1);
+  assert.equal(payload.batch_size, 2);
+  assert.equal(payload.guidance_scale, 7);
+  assert.equal(payload.audio_format, 'wav');
+});
+
+test('the Modal catalog must contain XL-SFT and cannot silently use Turbo', () => {
+  assert.equal(
+    selectRequiredProfessionalModel([
+      'acestep-v15-turbo',
+      'acestep-v15-xl-turbo',
+      'acestep-v15-xl-sft'
+    ]),
+    'acestep-v15-xl-sft'
+  );
+
+  assert.throws(
+    () => selectRequiredProfessionalModel([
+      'acestep-v15-turbo',
+      'acestep-v15-xl-turbo',
+      'acestep-v15-sft'
+    ]),
+    /will not silently fall back to a Turbo or smaller ACE-Step model/i
+  );
+});
+
+test('the public performance profile clearly identifies the professional engine', () => {
+  assert.equal(PROFESSIONAL_PROFILE, 'ace-step-v15-xl-sft-50step-professional-v1');
+  assert.equal(PROFESSIONAL_MODEL, 'acestep-v15-xl-sft');
+  assert.equal(PROFESSIONAL_INFERENCE_STEPS, 50);
+  assert.equal(PROFESSIONAL_CANDIDATE_COUNT, 2);
 });
