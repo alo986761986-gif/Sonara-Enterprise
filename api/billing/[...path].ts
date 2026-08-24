@@ -1,6 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { applicationDefault, cert, getApps, initializeApp, type App } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore, Timestamp } from 'firebase-admin/firestore';
 import {
   SONARA_PLANS,
@@ -169,14 +168,6 @@ async function authenticateWithFirebaseRest(token: string): Promise<Authenticate
 async function authenticatedUser(req: any): Promise<AuthenticatedUser | null> {
   const token = bearerToken(req);
   if (!token) return null;
-  if (serviceAccountConfigured()) {
-    try {
-      const decoded = await getAuth(getAdminApp()).verifyIdToken(token, true);
-      return { uid: decoded.uid, email: decoded.email };
-    } catch {
-      return null;
-    }
-  }
   try {
     return await authenticateWithFirebaseRest(token);
   } catch {
