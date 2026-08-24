@@ -423,7 +423,14 @@ export default function App() {
     <header className="sticky top-0 z-30 border-b border-slate-800 bg-[#080d18]/95 backdrop-blur-xl">
       <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-4 sm:px-6">
         <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-purple-600 to-indigo-600"><Music className="h-6 w-6" /></div>
+          <img
+            src="/sonara-ai-icon.png"
+            alt="SONARA AI"
+            width={44}
+            height={44}
+            className="h-11 w-11 shrink-0 rounded-xl object-cover"
+            decoding="async"
+          />
           <div>
             <h1 className="text-lg font-black tracking-wide text-white sm:text-xl">SONARA ENTERPRISE</h1>
             <div className="text-[10px] font-semibold text-purple-300 sm:text-xs">SONARA</div>
