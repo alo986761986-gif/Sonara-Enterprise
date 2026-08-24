@@ -6,6 +6,10 @@ function queryValue(value: unknown): string {
   return Array.isArray(value) ? String(value[0] || '') : String(value || '');
 }
 
+function headerValue(value: unknown): string {
+  return Array.isArray(value) ? String(value[0] || '') : String(value || '');
+}
+
 function sendJson(res: any, status: number, body: Record<string, unknown>) {
   res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -19,6 +23,12 @@ export default async function handler(req: any, res: any) {
     return sendJson(res, 405, { error: 'Method not allowed.' });
   }
 
+  const internalSecret = String(process.env.SONARA_INTERNAL_PROXY_SECRET || '').trim();
+  const suppliedSecret = headerValue(req.headers?.['x-sonara-internal-secret']).trim();
+  if (internalSecret && suppliedSecret !== internalSecret) {
+    return sendJson(res, 403, { error: 'Unauthorized SONARA job bridge request.' });
+  }
+
   const jobId = queryValue(req.query?.jobId).trim();
   if (!/^d6_[A-Za-z0-9-]{16,}$/.test(jobId)) {
     return sendJson(res, 400, {
@@ -30,8 +40,10 @@ export default async function handler(req: any, res: any) {
   }
 
   const engineBaseUrl = String(process.env.SONARA_ENGINE_API_URL || DEFAULT_ENGINE_URL).replace(/\/$/, '');
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  const internalSecret = String(process.env.SONARA_INTERNAL_PROXY_SECRET || '').trim();
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'X-Sonara-Job-Bridge': 'vercel'
+  };
   if (internalSecret) headers['X-Sonara-Internal-Secret'] = internalSecret;
 
   try {
