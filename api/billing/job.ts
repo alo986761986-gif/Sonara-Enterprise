@@ -1,4 +1,9 @@
+import { createHash } from 'node:crypto';
+
 const DEFAULT_ENGINE_URL = 'https://api.sonaraenterprise.com';
+const TOKEN_CACHE_MS = 60_000;
+const MAX_TOKEN_CACHE_ENTRIES = 256;
+const verifiedTokenCache = new Map<string, number>();
 
 export const config = { maxDuration: 180 };
 
@@ -14,8 +19,32 @@ function bearerToken(req: any): string {
   return headerValue(req.headers?.authorization).match(/^Bearer\s+(.+)$/i)?.[1]?.trim() || '';
 }
 
+function tokenFingerprint(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+function rememberVerifiedToken(fingerprint: string): void {
+  if (verifiedTokenCache.size >= MAX_TOKEN_CACHE_ENTRIES) {
+    const now = Date.now();
+    for (const [key, expiresAt] of verifiedTokenCache) {
+      if (expiresAt <= now) verifiedTokenCache.delete(key);
+    }
+    while (verifiedTokenCache.size >= MAX_TOKEN_CACHE_ENTRIES) {
+      const oldest = verifiedTokenCache.keys().next().value as string | undefined;
+      if (!oldest) break;
+      verifiedTokenCache.delete(oldest);
+    }
+  }
+  verifiedTokenCache.set(fingerprint, Date.now() + TOKEN_CACHE_MS);
+}
+
 async function firebaseTokenValid(token: string): Promise<boolean> {
   if (!token) return false;
+  const fingerprint = tokenFingerprint(token);
+  const cachedUntil = verifiedTokenCache.get(fingerprint) || 0;
+  if (cachedUntil > Date.now()) return true;
+  if (cachedUntil) verifiedTokenCache.delete(fingerprint);
+
   const apiKey = String(process.env.VITE_FIREBASE_API_KEY || process.env.SONARA_FIREBASE_API_KEY || '').trim();
   if (!apiKey) return false;
 
@@ -31,7 +60,9 @@ async function firebaseTokenValid(token: string): Promise<boolean> {
     );
     if (!response.ok) return false;
     const payload = await response.json() as { users?: Array<{ localId?: string }> };
-    return Boolean(payload.users?.[0]?.localId);
+    const valid = Boolean(payload.users?.[0]?.localId);
+    if (valid) rememberVerifiedToken(fingerprint);
+    return valid;
   } catch {
     return false;
   }
