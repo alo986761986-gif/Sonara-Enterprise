@@ -86,8 +86,26 @@ function initializationRequest(stage) {
   throw new Error('Invalid stage. Use openapi, gradio, catalog, dit, lm or full.');
 }
 
-function relevantEndpoint(name) {
-  return /init|service|model|checkpoint|refresh|load/i.test(String(name || ''));
+function relevantText(value) {
+  return /checkpoint|config.?path|initialize|init.?llm|lm.?model|backend|flash.?attention|offload|compile|quantization|mlx.?dit|vae/i.test(String(value || ''));
+}
+
+function summarizeEndpoint(name, endpoint) {
+  const parameters = Array.isArray(endpoint?.parameters)
+    ? endpoint.parameters.map(parameter => ({
+        label: parameter?.label || null,
+        parameterName: parameter?.parameter_name || null,
+        type: parameter?.type || parameter?.python_type || null,
+        default: parameter?.parameter_default ?? null
+      }))
+    : [];
+  const returns = Array.isArray(endpoint?.returns)
+    ? endpoint.returns.map(item => ({
+        label: item?.label || null,
+        type: item?.type || item?.python_type || null
+      }))
+    : [];
+  return { name, parameters, returns };
 }
 
 async function handleAdmin(request, env) {
@@ -124,34 +142,58 @@ async function handleAdmin(request, env) {
         modalRequest(env, '/config', { method: 'GET' }, 120_000)
       ]);
 
-      const namedEndpoints = Object.fromEntries(
-        Object.entries(information?.named_endpoints || {}).filter(([name]) => relevantEndpoint(name))
+      const endpointSummaries = [
+        ...Object.entries(information?.named_endpoints || {}).map(([name, endpoint]) => summarizeEndpoint(name, endpoint)),
+        ...Object.entries(information?.unnamed_endpoints || {}).map(([name, endpoint]) => summarizeEndpoint(name, endpoint))
+      ];
+      const relevantEndpoints = endpointSummaries.filter(endpoint =>
+        endpoint.parameters.length >= 12 ||
+        relevantText(endpoint.name) ||
+        endpoint.parameters.some(parameter => relevantText(`${parameter.label} ${parameter.parameterName}`))
       );
-      const unnamedEndpoints = Object.fromEntries(
-        Object.entries(information?.unnamed_endpoints || {}).filter(([name]) => relevantEndpoint(name))
+
+      const components = new Map(
+        (Array.isArray(configuration?.components) ? configuration.components : []).map(component => [
+          Number(component?.id),
+          {
+            id: Number(component?.id),
+            type: component?.type || null,
+            label: component?.props?.label || null,
+            value: component?.props?.value ?? null,
+            choices: component?.props?.choices || null
+          }
+        ])
       );
+
       const dependencies = Array.isArray(configuration?.dependencies)
-        ? configuration.dependencies
-            .map((dependency, index) => ({
+        ? configuration.dependencies.map((dependency, index) => {
+            const inputComponents = (dependency?.inputs || []).map(id => components.get(Number(id)) || { id: Number(id) });
+            const outputComponents = (dependency?.outputs || []).map(id => components.get(Number(id)) || { id: Number(id) });
+            return {
               index,
-              apiName: dependency?.api_name || null,
+              apiName: dependency?.api_name ?? null,
               backendFn: dependency?.backend_fn || false,
-              inputs: dependency?.inputs || [],
-              outputs: dependency?.outputs || [],
+              inputs: inputComponents,
+              outputs: outputComponents,
               triggerMode: dependency?.trigger_mode || null,
               queue: dependency?.queue ?? null,
               types: dependency?.types || null
-            }))
-            .filter(item => relevantEndpoint(item.apiName) || item.apiName === false)
+            };
+          })
         : [];
+      const relevantDependencies = dependencies.filter(item =>
+        item.inputs.length >= 12 ||
+        relevantText(item.apiName) ||
+        item.inputs.some(component => relevantText(component?.label))
+      );
 
       return json({
         ok: true,
         stage,
-        namedEndpoints,
-        unnamedEndpoints,
-        relevantDependencies: dependencies.slice(0, 100),
-        totalDependencies: Array.isArray(configuration?.dependencies) ? configuration.dependencies.length : 0
+        relevantEndpoints,
+        relevantDependencies,
+        totalEndpoints: endpointSummaries.length,
+        totalDependencies: dependencies.length
       });
     }
 
