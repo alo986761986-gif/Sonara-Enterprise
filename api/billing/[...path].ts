@@ -13,7 +13,21 @@ export const config = { api: { bodyParser: false } };
 
 const DEFAULT_APP_URL = 'https://sonaraenterprise.com';
 const DEFAULT_ENGINE_URL = 'https://api.sonaraenterprise.com';
+const DEFAULT_LEGAL_VERSION = '2026-08-24-v1';
+const DEFAULT_TERMS_URL = `${DEFAULT_APP_URL}/terms`;
+const DEFAULT_PRIVACY_URL = `${DEFAULT_APP_URL}/privacy`;
 const WEBHOOK_TOLERANCE_SECONDS = 300;
+
+const DEFAULT_STRIPE_PRICE_IDS: Record<Exclude<SonaraPlanId, 'free'>, Record<BillingCadence, string>> = {
+  creator: {
+    monthly: 'price_1U7wA6QuVwbxH46Dr5OOr9ns',
+    yearly: 'price_1U7wA5QuVwbxH46DnS3TSczf'
+  },
+  studio: {
+    monthly: 'price_1U7wA6QuVwbxH46DwU34T5xL',
+    yearly: 'price_1U7wA5QuVwbxH46DYVWIPu5Q'
+  }
+};
 
 interface AuthenticatedUser {
   uid: string;
@@ -69,11 +83,28 @@ function billingStoreReady(): boolean {
 }
 
 function stripePriceId(planId: SonaraPlanId, cadence: BillingCadence): string {
-  if (planId === 'creator' && cadence === 'monthly') return String(process.env.STRIPE_PRICE_CREATOR_MONTHLY || '').trim();
-  if (planId === 'creator' && cadence === 'yearly') return String(process.env.STRIPE_PRICE_CREATOR_YEARLY || '').trim();
-  if (planId === 'studio' && cadence === 'monthly') return String(process.env.STRIPE_PRICE_STUDIO_MONTHLY || '').trim();
-  if (planId === 'studio' && cadence === 'yearly') return String(process.env.STRIPE_PRICE_STUDIO_YEARLY || '').trim();
+  if (planId === 'creator' && cadence === 'monthly') return String(process.env.STRIPE_PRICE_CREATOR_MONTHLY || DEFAULT_STRIPE_PRICE_IDS.creator.monthly).trim();
+  if (planId === 'creator' && cadence === 'yearly') return String(process.env.STRIPE_PRICE_CREATOR_YEARLY || DEFAULT_STRIPE_PRICE_IDS.creator.yearly).trim();
+  if (planId === 'studio' && cadence === 'monthly') return String(process.env.STRIPE_PRICE_STUDIO_MONTHLY || DEFAULT_STRIPE_PRICE_IDS.studio.monthly).trim();
+  if (planId === 'studio' && cadence === 'yearly') return String(process.env.STRIPE_PRICE_STUDIO_YEARLY || DEFAULT_STRIPE_PRICE_IDS.studio.yearly).trim();
   return '';
+}
+
+function legalPublicationReady(): boolean {
+  const configured = String(process.env.SONARA_LEGAL_PUBLISH_READY || '').trim().toLowerCase();
+  return configured ? configured === 'true' : true;
+}
+
+function legalVersion(): string {
+  return String(process.env.SONARA_LEGAL_VERSION || DEFAULT_LEGAL_VERSION).trim();
+}
+
+function termsUrl(): string {
+  return String(process.env.SONARA_TERMS_URL || DEFAULT_TERMS_URL).trim();
+}
+
+function privacyUrl(): string {
+  return String(process.env.SONARA_PRIVACY_URL || DEFAULT_PRIVACY_URL).trim();
 }
 
 function configuredPriceIds(): string[] {
@@ -89,10 +120,10 @@ function checkoutSessionReady(): boolean {
   return Boolean(
     billingStoreReady() &&
     String(process.env.STRIPE_SECRET_KEY || '').trim() &&
-    String(process.env.SONARA_LEGAL_PUBLISH_READY || '').trim().toLowerCase() === 'true' &&
-    String(process.env.SONARA_LEGAL_VERSION || '').trim() &&
-    String(process.env.SONARA_TERMS_URL || '').trim() &&
-    String(process.env.SONARA_PRIVACY_URL || '').trim() &&
+    legalPublicationReady() &&
+    legalVersion() &&
+    termsUrl() &&
+    privacyUrl() &&
     configuredPriceIds().length === 4
   );
 }
@@ -235,8 +266,8 @@ function publicBillingStatus(record: BillingRecord | undefined) {
     portalAvailable: Boolean(record?.stripeCustomerId && portalSessionReady()),
     enforcementMode: enforcementMode(),
     limitsEnforced: billingStoreReady() && enforcementMode() !== 'observe',
-    termsUrl: String(process.env.SONARA_TERMS_URL || '').trim() || null,
-    privacyUrl: String(process.env.SONARA_PRIVACY_URL || '').trim() || null
+    termsUrl: termsUrl(),
+    privacyUrl: privacyUrl()
   };
 }
 
@@ -289,7 +320,7 @@ async function createCheckout(user: AuthenticatedUser, body: Record<string, any>
   }
   const appUrl = String(process.env.SONARA_APP_URL || DEFAULT_APP_URL).replace(/\/$/, '');
   const priceId = stripePriceId(planId, cadence);
-  const legalVersion = String(process.env.SONARA_LEGAL_VERSION || '').trim();
+  const publishedLegalVersion = legalVersion();
   const form = new URLSearchParams({
     mode: 'subscription',
     'line_items[0][price]': priceId,
@@ -302,11 +333,11 @@ async function createCheckout(user: AuthenticatedUser, body: Record<string, any>
     'metadata[firebase_uid]': user.uid,
     'metadata[sonara_plan]': planId,
     'metadata[sonara_cadence]': cadence,
-    'metadata[sonara_legal_version]': legalVersion,
+    'metadata[sonara_legal_version]': publishedLegalVersion,
     'subscription_data[metadata][firebase_uid]': user.uid,
     'subscription_data[metadata][sonara_plan]': planId,
     'subscription_data[metadata][sonara_cadence]': cadence,
-    'subscription_data[metadata][sonara_legal_version]': legalVersion
+    'subscription_data[metadata][sonara_legal_version]': publishedLegalVersion
   });
   if (record?.stripeCustomerId) form.set('customer', record.stripeCustomerId);
   else if (user.email) form.set('customer_email', user.email);
@@ -562,6 +593,19 @@ async function proxyGeneration(user: AuthenticatedUser, body: Record<string, any
 export default async function handler(req: any, res: any) {
   const action = actionFromRequest(req);
   try {
+    if (req.method === 'GET' && action === 'health') {
+      return json(res, 200, {
+        service: 'sonara-billing',
+        ready: webhookReady(),
+        checks: {
+          firebaseAdmin: billingStoreReady(),
+          stripeSecret: Boolean(String(process.env.STRIPE_SECRET_KEY || '').trim()),
+          webhookSecret: Boolean(String(process.env.STRIPE_WEBHOOK_SECRET || '').trim()),
+          prices: configuredPriceIds().length === 4,
+          legal: legalPublicationReady() && Boolean(legalVersion() && termsUrl() && privacyUrl())
+        }
+      });
+    }
     if (req.method === 'POST' && action === 'webhook') return await handleWebhook(req, res);
 
     const user = await authenticatedUser(req);
