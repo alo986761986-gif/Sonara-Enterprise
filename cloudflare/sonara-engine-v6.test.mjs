@@ -241,6 +241,7 @@ test("completes a job only after the returned WAV passes the real-audio gate", a
   const cacheEntries = new Map();
   const previousCaches = globalThis.caches;
   const previousFetch = globalThis.fetch;
+  let audioHeadRequests = 0;
   globalThis.caches = {
     default: {
       async put(key, value) { cacheEntries.set(key.url, value.clone()); },
@@ -269,14 +270,8 @@ test("completes a job only after the returned WAV passes the real-audio gate", a
     }
     if (href.includes("/v1/audio?path=")) {
       if (String(init.method || "GET").toUpperCase() === "HEAD") {
-        return new Response(null, {
-          status: 200,
-          headers: {
-            "content-type": "audio/wav",
-            "content-length": String(wav.length),
-            "accept-ranges": "bytes",
-          },
-        });
+        audioHeadRequests += 1;
+        return new Response(null, { status: 405 });
       }
       const range = String(init.headers?.Range || init.headers?.range || "");
       const match = range.match(/bytes=(\d+)-(\d+)/);
@@ -308,6 +303,7 @@ test("completes a job only after the returned WAV passes the real-audio gate", a
     const completed = await jobResponse.json();
     assert.equal(completed.status, "COMPLETED");
     assert.equal(completed.metadata.outputQualityGate.status, "PASSED");
+    assert.equal(audioHeadRequests, 0, "the official ACE-Step audio endpoint is GET-only");
     assert.equal(completed.metadata.outputQualityGate.audioGate.metrics.sampleRate, 48000);
     assert.equal(completed.metadata.audioFormat, "wav");
     assert.equal(completed.metadata.model, "acestep-v15-xl-sft");
