@@ -17,6 +17,7 @@ import {
   CheckCircle2,
   AlertCircle
 } from 'lucide-react';
+import { BUILT_IN_PROFESSIONAL_EQ_PRESETS } from '../../data/professionalEqPresets';
 
 export type FilterType = 'bell' | 'highpass' | 'lowpass' | 'highshelf' | 'lowshelf' | 'notch';
 
@@ -38,6 +39,13 @@ export interface EqPreset {
   category: string;
   description: string;
   bands: Partial<Record<number, { gain: number; q?: number; type?: FilterType; enabled?: boolean }>>;
+  mastering?: {
+    inputGainDb: number;
+    outputGainDb: number;
+    targetLufs: number;
+    truePeakDbtp: number;
+    stereoPhaseCorrelation?: number;
+  };
 }
 
 const FREQ_GROUPS = [
@@ -95,7 +103,7 @@ export function ProfessionalAudioEqualizer({
   isEmbedded = false
 }: ProfessionalAudioEqualizerProps = {}) {
   const [bands, setBands] = useState<EqBandConfig[]>(INITIAL_BANDS);
-  const [presets, setPresets] = useState<EqPreset[]>([]);
+  const [presets, setPresets] = useState<EqPreset[]>(BUILT_IN_PROFESSIONAL_EQ_PRESETS);
   const [selectedPresetId, setSelectedPresetId] = useState<string>('flat');
   const [activeGroup, setActiveGroup] = useState<string>('ALL');
   const [selectedBandId, setSelectedBandId] = useState<string>('b_60');
@@ -145,13 +153,21 @@ export function ProfessionalAudioEqualizer({
   // Load Presets on Mount
   useEffect(() => {
     fetch('/api/music/eq/presets')
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
       .then(data => {
-        if (data.presets) {
-          setPresets(data.presets);
+        if (Array.isArray(data.presets)) {
+          const merged = new Map<string, EqPreset>();
+          BUILT_IN_PROFESSIONAL_EQ_PRESETS.forEach(preset => merged.set(preset.id, preset));
+          data.presets.forEach((preset: EqPreset) => merged.set(preset.id, preset));
+          setPresets([...merged.values()]);
         }
       })
-      .catch(err => console.error('Failed to load EQ presets:', err));
+      .catch(() => {
+        // The complete built-in mastering library remains available offline.
+      });
   }, []);
 
   // Web Audio Context Setup
@@ -259,6 +275,16 @@ export function ProfessionalAudioEqualizer({
   // Handle Preset Selection
   const applyPreset = (preset: EqPreset) => {
     setSelectedPresetId(preset.id);
+    if (preset.mastering) {
+      setInputGainDb(preset.mastering.inputGainDb);
+      setOutputGainDb(preset.mastering.outputGainDb);
+      setMetrics(previous => ({
+        ...previous,
+        lufs: preset.mastering!.targetLufs,
+        truePeakDbtp: preset.mastering!.truePeakDbtp,
+        stereoPhaseCorrelation: preset.mastering!.stereoPhaseCorrelation ?? previous.stereoPhaseCorrelation
+      }));
+    }
     setBands(prevBands =>
       prevBands.map(b => {
         const pBand = preset.bands[b.freq];
@@ -297,6 +323,7 @@ export function ProfessionalAudioEqualizer({
 
   // Selected Band Object
   const selectedBand = useMemo(() => bands.find(b => b.id === selectedBandId) || bands[0], [bands, selectedBandId]);
+  const selectedPreset = useMemo(() => presets.find(preset => preset.id === selectedPresetId), [presets, selectedPresetId]);
 
   // Audio Playback Toggle
   const togglePlay = () => {
@@ -464,6 +491,10 @@ export function ProfessionalAudioEqualizer({
 
   // Execute Server-Side WAV Processing
   const processServerAudio = async () => {
+    if (!currentAudioUrl) {
+      setBackendNotice('Genera prima un brano per creare ed esportare il master.');
+      return;
+    }
     setIsProcessingBackend(true);
     setBackendNotice(null);
     try {
@@ -476,6 +507,7 @@ export function ProfessionalAudioEqualizer({
         })
       });
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       if (data.status === 'success') {
         setMetrics({
           lufs: data.metrics.lufs,
@@ -569,9 +601,10 @@ export function ProfessionalAudioEqualizer({
         <div className="flex items-center flex-wrap gap-2">
           <button
             onClick={togglePlay}
+            disabled={!currentAudioUrl}
             className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all shadow-md ${
               isPlaying ? 'bg-amber-600 hover:bg-amber-500 text-white' : 'bg-purple-600 hover:bg-purple-500 text-white'
-            }`}
+            } disabled:cursor-not-allowed disabled:opacity-40`}
           >
             {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
             <span>{isPlaying ? 'Pause EQ Audition' : 'Real-time Audition'}</span>
@@ -596,7 +629,7 @@ export function ProfessionalAudioEqualizer({
 
           <button
             onClick={processServerAudio}
-            disabled={isProcessingBackend}
+            disabled={isProcessingBackend || !currentAudioUrl}
             className="flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-lg shadow-emerald-600/20 disabled:opacity-50"
           >
             <Sparkles className="h-4 w-4" />
@@ -653,7 +686,7 @@ export function ProfessionalAudioEqualizer({
           {/* Preset Selector Strip */}
           <div className="pt-2 border-t border-slate-800/80 space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-300">18 Professional Genre Presets</span>
+              <span className="text-xs font-semibold text-slate-300">{presets.length} Professional EQ / Master Presets</span>
               <div className="flex items-center space-x-2">
                 <button
                   onClick={handleExportPreset}
@@ -680,6 +713,12 @@ export function ProfessionalAudioEqualizer({
                 </button>
               ))}
             </div>
+            {selectedPreset && (
+              <div className="flex flex-col gap-1 rounded-lg border border-purple-500/20 bg-purple-500/5 px-3 py-2 text-[11px] text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+                <span><b className="text-purple-200">{selectedPreset.name}</b> · {selectedPreset.description}</span>
+                {selectedPreset.mastering && <span className="shrink-0 font-mono text-emerald-300">{selectedPreset.mastering.targetLufs} LUFS · {selectedPreset.mastering.truePeakDbtp} dBTP</span>}
+              </div>
+            )}
           </div>
         </div>
 
@@ -962,7 +1001,7 @@ export function ProfessionalAudioEqualizer({
 
       <audio
         ref={audioRef}
-        src={currentAudioUrl || '/storage/audio/proj_delivery_test_1785741606827.wav'}
+        src={currentAudioUrl || undefined}
         onEnded={() => setIsPlaying(false)}
         crossOrigin="anonymous"
         className="hidden"
