@@ -662,16 +662,21 @@ async function engineAudioResponse(env, audioPath, init = {}, timeoutMs = 15000)
 async function verifyGeneratedWav(env, audioPath, spec) {
   const errors = [];
   const warnings = [];
-  let head;
+  let download;
   try {
-    head = await engineAudioResponse(env, audioPath, { method: 'HEAD' });
+    download = await engineAudioResponse(env, audioPath, {
+      method: 'GET',
+      headers: { Range: 'bytes=0-65535' }
+    });
   } catch (error) {
-    return { passed: false, score: 0, errors: [`audio HEAD failed: ${error instanceof Error ? error.message : String(error)}`], warnings, metrics: {} };
+    return { passed: false, score: 0, errors: [`audio download failed: ${error instanceof Error ? error.message : String(error)}`], warnings, metrics: {} };
   }
 
-  const contentType = String(head.headers.get('content-type') || '').toLocaleLowerCase('en-US');
-  const contentLength = finiteNumber(head.headers.get('content-length'));
-  if (!head.ok) errors.push(`audio resource returned HTTP ${head.status}`);
+  const contentType = String(download.headers.get('content-type') || '').toLocaleLowerCase('en-US');
+  const contentRange = String(download.headers.get('content-range') || '');
+  const rangeTotal = contentRange.match(/\/(\d+)\s*$/)?.[1];
+  const contentLength = finiteNumber(rangeTotal ?? download.headers.get('content-length'));
+  if (!download.ok && download.status !== 206) errors.push(`audio resource returned HTTP ${download.status}`);
   if (!contentType.startsWith('audio/')) errors.push(`invalid audio MIME type: ${contentType || 'missing'}`);
   const expectedDuration = Number(spec.renderDurationSec || spec.durationSec || 0);
   const minimumBytes = Math.max(MIN_AUDIO_BYTES, Math.round(expectedDuration * 8000));
@@ -679,9 +684,8 @@ async function verifyGeneratedWav(env, audioPath, spec) {
 
   let headerBytes = new Uint8Array();
   try {
-    const response = await engineAudioResponse(env, audioPath, { method: 'GET', headers: { Range: 'bytes=0-65535' } });
-    if (!response.ok && response.status !== 206) errors.push(`audio header returned HTTP ${response.status}`);
-    else headerBytes = await readLimitedBody(response, 65536);
+    if (download.ok || download.status === 206) headerBytes = await readLimitedBody(download, 65536);
+    else await download.body?.cancel();
   } catch (error) {
     errors.push(`audio header read failed: ${error instanceof Error ? error.message : String(error)}`);
   }
