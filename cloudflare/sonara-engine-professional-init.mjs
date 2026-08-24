@@ -83,7 +83,7 @@ function initializationRequest(stage) {
     };
   }
 
-  throw new Error('Invalid stage. Use catalog, dit, lm or full.');
+  throw new Error('Invalid stage. Use openapi, catalog, dit, lm or full.');
 }
 
 async function handleAdmin(request, env) {
@@ -99,6 +99,21 @@ async function handleAdmin(request, env) {
   const stage = String(url.searchParams.get('stage') || 'catalog').toLowerCase();
 
   try {
+    if (stage === 'openapi') {
+      const specification = await modalRequest(env, '/openapi.json', { method: 'GET' }, 120_000);
+      const paths = Object.entries(specification?.paths || {}).map(([path, methods]) => ({
+        path,
+        methods: Object.keys(methods || {}).filter(method => method !== 'parameters')
+      }));
+      return json({
+        ok: true,
+        stage,
+        title: specification?.info?.title || null,
+        version: specification?.info?.version || null,
+        paths
+      });
+    }
+
     if (stage === 'catalog') {
       const catalog = await modalRequest(env, '/v1/models', { method: 'GET' }, 120_000);
       const health = await modalRequest(env, '/health', { method: 'GET' }, 120_000).catch(error => ({
