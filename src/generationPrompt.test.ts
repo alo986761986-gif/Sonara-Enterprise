@@ -17,6 +17,7 @@ const techHouse = {
   bpm: 126,
   key: 'A Minor',
   durationSec: 120,
+  vocalMode: 'instrumental' as const,
   lyrics: '',
   title: 'Warehouse Pulse'
 };
@@ -45,11 +46,13 @@ const neapolitan = buildGenerationPrompt({
   bpm: 90,
   key: 'D Minor',
   durationSec: 180,
+  vocalMode: 'female',
   lyrics,
   title: 'Luna Chiara'
 });
 assert.match(neapolitan, /mandolin/);
 assert.match(neapolitan, /cantabile/);
+assert.match(neapolitan, /female lead vocalist/);
 assert.match(neapolitan, /exactly 90 BPM/);
 assert.ok(neapolitan.includes(lyrics), 'lyrics must remain unchanged');
 assert.ok(!neapolitan.includes('Strictly instrumental'));
@@ -63,6 +66,7 @@ const jazzFusionInput = {
   bpm: 118,
   key: 'E Minor',
   durationSec: 150,
+  vocalMode: 'instrumental' as const,
   lyrics: '',
   title: 'Electric Conversation'
 };
@@ -87,6 +91,26 @@ for (const required of ['Jazz Fusion', 'Jazz', 'Electric', '118 BPM', 'E Minor',
   assert.ok(randomA.toLowerCase().includes(required.toLowerCase()), `RANDOM brief must include ${required}`);
 }
 assert.match(randomA, /Rhodes|electric|fusion/i);
+
+const vocalLyrics = 'Hold the light through the night\nWe will find our way';
+const vocalBase = {
+  ...jazzFusionInput,
+  lyrics: vocalLyrics,
+  title: 'Two Voices'
+};
+const maleVocal = buildGenerationPrompt({ ...vocalBase, vocalMode: 'male' });
+const femaleVocal = buildGenerationPrompt({ ...vocalBase, vocalMode: 'female' });
+const duetVocal = buildGenerationPrompt({ ...vocalBase, vocalMode: 'duet' });
+assert.match(maleVocal, /one clearly male lead vocalist/i);
+assert.match(femaleVocal, /one clearly female lead vocalist/i);
+assert.match(duetVocal, /two clearly distinct lead vocalists/i);
+assert.match(duetVocal, /one male and one female/i);
+assert.match(duetVocal, /two-part harmony/i);
+assert.ok(maleVocal.includes(vocalLyrics));
+assert.ok(femaleVocal.includes(vocalLyrics));
+assert.ok(duetVocal.includes(vocalLyrics));
+assert.notEqual(maleVocal, femaleVocal);
+assert.notEqual(femaleVocal, duetVocal);
 
 let genreCount = 0;
 let subgenreCount = 0;
