@@ -29,6 +29,30 @@ function requestBody(req: any): Record<string, unknown> {
   }
 }
 
+function normalizeAction(value: unknown): string {
+  const joined = (Array.isArray(value) ? value : [value])
+    .filter(part => typeof part === 'string')
+    .map(part => String(part).trim())
+    .filter(Boolean)
+    .join('/');
+  const segments = joined.split('/').filter(Boolean);
+  const emberIndex = segments.lastIndexOf('ember');
+  return (emberIndex >= 0 ? segments.slice(emberIndex + 1) : segments).join('/').toLowerCase();
+}
+
+export function resolveEmberAction(req: any): string {
+  const queryAction = normalizeAction(req.query?.path);
+  if (queryAction) return queryAction;
+
+  for (const candidate of [req.url, req.originalUrl]) {
+    const pathname = String(candidate || '').split(/[?#]/, 1)[0];
+    const match = pathname.match(/\/api\/ember(?:\/(.*))?\/?$/i);
+    const urlAction = normalizeAction(match?.[1]);
+    if (urlAction) return urlAction;
+  }
+  return '';
+}
+
 function rateLimited(userId: string, kind: 'chat' | 'speech'): boolean {
   const now = Date.now();
   const current = limits.get(userId);
@@ -80,8 +104,7 @@ export default async function handler(req: any, res: any) {
     return sendError(res, 401, 'AUTH_TOKEN_INVALID', 'A valid Firebase session is required.');
   }
 
-  const rawPath = req.query?.path;
-  const action = Array.isArray(rawPath) ? rawPath.join('/') : String(rawPath || '');
+  const action = resolveEmberAction(req);
 
   if (req.method === 'GET' && action === 'config') {
     return res.status(200).json({
