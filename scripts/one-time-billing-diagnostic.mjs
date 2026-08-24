@@ -8,6 +8,7 @@ const CADENCE = 'monthly';
 const EXPECTED_AMOUNT = 2999;
 const EXPECTED_CURRENCY = 'eur';
 const EXPECTED_INTERVAL = 'month';
+const WEBHOOK_PROBE = '2026-08-24-v1';
 const LEGAL_VERSION = String(process.env.SONARA_LEGAL_VERSION || '2026-08-24-v1').trim();
 
 function normalizePrice(value) {
@@ -251,11 +252,21 @@ async function main() {
   await ensureCustomerDefaultPaymentMethod(customer.id, paymentMethod.id);
   const subscription = await resolveSubscription(customer.id, user, price.id, paymentMethod.id);
 
-  if (!['active', 'trialing'].includes(String(subscription?.status || ''))) {
-    throw new Error(`SUBSCRIPTION_NOT_ACTIVE_${String(subscription?.status || 'unknown')}`);
+  let verifiedSubscription = subscription;
+  if (String(subscription?.metadata?.sonara_webhook_probe || '') !== WEBHOOK_PROBE) {
+    verifiedSubscription = await stripe(`/v1/subscriptions/${encodeURIComponent(subscription.id)}`, {
+      method: 'POST',
+      form: new URLSearchParams({
+        'metadata[sonara_webhook_probe]': WEBHOOK_PROBE
+      })
+    });
   }
 
-  await writeBillingRecord(app, user, customer, subscription, price);
+  if (!['active', 'trialing'].includes(String(verifiedSubscription?.status || ''))) {
+    throw new Error(`SUBSCRIPTION_NOT_ACTIVE_${String(verifiedSubscription?.status || 'unknown')}`);
+  }
+
+  await writeBillingRecord(app, user, customer, verifiedSubscription, price);
 
   console.log(`${PREFIX} SUCCESS ${JSON.stringify({
     mode: 'test',
@@ -266,8 +277,9 @@ async function main() {
     priceAmount: price.unit_amount,
     currency: price.currency,
     customerSuffix: customer.id.slice(-6),
-    subscriptionSuffix: subscription.id.slice(-6),
-    subscriptionStatus: subscription.status
+    subscriptionSuffix: verifiedSubscription.id.slice(-6),
+    subscriptionStatus: verifiedSubscription.status,
+    webhookProbe: WEBHOOK_PROBE
   })}`);
 }
 
