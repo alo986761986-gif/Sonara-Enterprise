@@ -1,8 +1,8 @@
 """Production Modal deployment for SONARA's professional ACE-Step engine.
 
-This deployment intentionally uses the official ACE-Step 1.5 XL-SFT DiT and
+The deployment uses the official ACE-Step 1.5 XL-SFT DiT together with the
 4B 5 Hz language model. It preserves the existing Modal app/function names so
-SONARA keeps the same protected endpoint URL.
+SONARA can keep its protected endpoint URL after the professional rollout.
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import modal
 
@@ -22,10 +23,12 @@ DIT_MODEL = "acestep-v15-xl-sft"
 LM_MODEL = "acestep-5Hz-lm-4B"
 CHECKPOINTS_DIR = "/app/checkpoints"
 OUTPUTS_DIR = "/app/gradio_outputs"
+HF_CACHE_DIR = "/cache/huggingface"
 
 app = modal.App(APP_NAME)
 model_volume = modal.Volume.from_name("sonara-acestep-models", create_if_missing=True)
 output_volume = modal.Volume.from_name("sonara-acestep-outputs", create_if_missing=True)
+cache_volume = modal.Volume.from_name("sonara-acestep-hf-cache", create_if_missing=True)
 
 runtime_env = {
     "ACESTEP_MODE": "api",
@@ -47,8 +50,8 @@ runtime_env = {
     "ACESTEP_QUEUE_MAXSIZE": "200",
     "ACESTEP_LLM_BACKEND": "pt",
     "TOKENIZERS_PARALLELISM": "false",
-    "HF_HOME": "/cache/huggingface",
-    "HF_HUB_CACHE": "/cache/huggingface/hub",
+    "HF_HOME": HF_CACHE_DIR,
+    "HF_HUB_CACHE": f"{HF_CACHE_DIR}/hub",
     "PYTHONUNBUFFERED": "1",
 }
 
@@ -79,9 +82,33 @@ image = (
 )
 
 
+def _require_download(result: tuple[bool, str], component: str) -> str:
+    success, message = result
+    if not success:
+        raise RuntimeError(f"Failed to prepare {component}: {message}")
+    return message
+
+
+def _professional_checkpoint_status() -> dict[str, Any]:
+    from acestep.model_downloader import check_main_model_exists, check_model_exists
+
+    checkpoints = Path(CHECKPOINTS_DIR)
+    status = {
+        "main": check_main_model_exists(checkpoints),
+        "dit": check_model_exists(DIT_MODEL, checkpoints),
+        "lm": check_model_exists(LM_MODEL, checkpoints),
+        "vae": (checkpoints / "vae").exists(),
+        "textEncoder": (checkpoints / "Qwen3-Embedding-0.6B").exists(),
+    }
+    return status
+
+
 @app.function(
     image=image,
-    volumes={CHECKPOINTS_DIR: model_volume},
+    volumes={
+        CHECKPOINTS_DIR: model_volume,
+        HF_CACHE_DIR: cache_volume,
+    },
     cpu=4.0,
     memory=32768,
     ephemeral_disk=120 * 1024,
@@ -91,20 +118,43 @@ def prepare_models() -> dict[str, object]:
     """Download the official professional model stack into persistent storage."""
 
     os.chdir("/app")
-    from acestep.model_downloader import ensure_model_downloaded
+    from acestep.model_downloader import (
+        ensure_dit_model,
+        ensure_lm_model,
+        ensure_main_model,
+    )
 
-    required = ["vae", DIT_MODEL, LM_MODEL]
-    resolved: dict[str, str] = {}
-    for model_name in required:
-        resolved[model_name] = str(ensure_model_downloaded(model_name, CHECKPOINTS_DIR))
+    messages = {
+        "main": _require_download(
+            ensure_main_model(
+                checkpoints_dir=Path(CHECKPOINTS_DIR),
+                prefer_source="huggingface",
+            ),
+            "ACE-Step main components",
+        ),
+        "dit": _require_download(
+            ensure_dit_model(
+                DIT_MODEL,
+                checkpoints_dir=Path(CHECKPOINTS_DIR),
+                prefer_source="huggingface",
+            ),
+            DIT_MODEL,
+        ),
+        "lm": _require_download(
+            ensure_lm_model(
+                LM_MODEL,
+                checkpoints_dir=Path(CHECKPOINTS_DIR),
+                prefer_source="huggingface",
+            ),
+            LM_MODEL,
+        ),
+    }
 
     model_volume.commit()
+    cache_volume.commit()
 
-    missing = [
-        name
-        for name in required
-        if not (Path(CHECKPOINTS_DIR) / name).exists()
-    ]
+    status = _professional_checkpoint_status()
+    missing = [name for name, ready in status.items() if not ready]
     if missing:
         raise RuntimeError(f"ACE-Step model preparation incomplete: {missing}")
 
@@ -113,7 +163,8 @@ def prepare_models() -> dict[str, object]:
         "ditModel": DIT_MODEL,
         "lmModel": LM_MODEL,
         "checkpointsDirectory": CHECKPOINTS_DIR,
-        "resolved": resolved,
+        "status": status,
+        "messages": messages,
     }
 
 
@@ -123,6 +174,7 @@ def prepare_models() -> dict[str, object]:
     volumes={
         CHECKPOINTS_DIR: model_volume,
         OUTPUTS_DIR: output_volume,
+        HF_CACHE_DIR: cache_volume,
     },
     cpu=8.0,
     memory=65536,
@@ -172,18 +224,18 @@ def serve_acestep() -> None:
 
 @app.function(
     image=image,
-    volumes={CHECKPOINTS_DIR: model_volume},
+    volumes={
+        CHECKPOINTS_DIR: model_volume,
+        HF_CACHE_DIR: cache_volume,
+    },
     timeout=10 * MINUTES,
 )
 def verify_configuration() -> dict[str, object]:
-    """Fail deployment verification if either professional model is absent."""
+    """Fail deployment verification if the professional stack is incomplete."""
 
-    required_paths = {
-        "dit": Path(CHECKPOINTS_DIR) / DIT_MODEL,
-        "lm": Path(CHECKPOINTS_DIR) / LM_MODEL,
-        "vae": Path(CHECKPOINTS_DIR) / "vae",
-    }
-    missing = [name for name, path in required_paths.items() if not path.exists()]
+    os.chdir("/app")
+    status = _professional_checkpoint_status()
+    missing = [name for name, ready in status.items() if not ready]
     if missing:
         raise RuntimeError(f"Missing professional ACE-Step checkpoints: {missing}")
 
@@ -195,5 +247,11 @@ def verify_configuration() -> dict[str, object]:
         "ditModel": DIT_MODEL,
         "lmModel": LM_MODEL,
         "proxyAuthentication": True,
-        "paths": {name: str(path) for name, path in required_paths.items()},
+        "status": status,
+        "paths": {
+            "dit": str(Path(CHECKPOINTS_DIR) / DIT_MODEL),
+            "lm": str(Path(CHECKPOINTS_DIR) / LM_MODEL),
+            "vae": str(Path(CHECKPOINTS_DIR) / "vae"),
+            "textEncoder": str(Path(CHECKPOINTS_DIR) / "Qwen3-Embedding-0.6B"),
+        },
     }
