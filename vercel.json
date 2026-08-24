@@ -14,10 +14,6 @@
       "destination": "https://api.sonaraenterprise.com/api/health"
     },
     {
-      "source": "/api/admin/ace-step/init",
-      "destination": "https://api.sonaraenterprise.com/api/admin/ace-step/init"
-    },
-    {
       "source": "/api/music/job/:id",
       "destination": "https://api.sonaraenterprise.com/api/music/job/:id"
     },
@@ -33,15 +29,6 @@
   "headers": [
     {
       "source": "/api/health",
-      "headers": [
-        {
-          "key": "x-vercel-enable-rewrite-caching",
-          "value": "0"
-        }
-      ]
-    },
-    {
-      "source": "/api/admin/ace-step/init",
       "headers": [
         {
           "key": "x-vercel-enable-rewrite-caching",
