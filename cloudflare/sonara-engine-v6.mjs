@@ -457,7 +457,8 @@ export function scoreGenerationCandidate(item, spec, index = 0) {
   const metas = candidateMetas(item);
   const prompt = String(item?.prompt || item?.caption || '');
   const genres = String(metas.genres || metas.genre || item?.genres || '');
-  const styleEvidence = `${prompt} ${genres}`.toLocaleLowerCase('en-US');
+  const promptEvidence = prompt.toLocaleLowerCase('en-US');
+  const genreEvidence = genres.toLocaleLowerCase('en-US');
   const expectedSubgenre = String(spec?.subgenre || '').toLocaleLowerCase('en-US');
   const expectedGenre = String(spec?.genre || '').toLocaleLowerCase('en-US');
   const bpm = finiteNumber(metas.bpm ?? item?.bpm);
@@ -469,28 +470,30 @@ export function scoreGenerationCandidate(item, spec, index = 0) {
 
   if (!item || typeof item !== 'object') errors.push('candidate is not an object');
   if (!String(item?.file || item?.url || '').trim()) errors.push('candidate has no audio file');
-  if (expectedSubgenre && !styleEvidence.includes(expectedSubgenre)) errors.push(`candidate does not preserve subgenre ${spec.subgenre}`);
-  if (expectedGenre && expectedGenre !== expectedSubgenre && !styleEvidence.includes(expectedGenre)) warnings.push(`candidate does not repeat genre ${spec.genre}`);
+  if (expectedSubgenre && promptEvidence && !promptEvidence.includes(expectedSubgenre)) errors.push(`candidate prompt conflicts with subgenre ${spec.subgenre}`);
+  else if (expectedSubgenre && !promptEvidence && !genreEvidence.includes(expectedSubgenre)) warnings.push(`candidate response omitted the ${spec.subgenre} style echo`);
+  if (expectedGenre && expectedGenre !== expectedSubgenre && !`${promptEvidence} ${genreEvidence}`.includes(expectedGenre)) warnings.push(`candidate does not repeat genre ${spec.genre}`);
 
-  if (bpm === null) errors.push('candidate has no BPM metadata');
+  if (bpm === null) warnings.push('candidate response omitted BPM metadata');
   else {
     const deviation = Math.abs(bpm - Number(spec?.bpm));
     score -= Math.min(20, deviation * 4);
     if (deviation > 2) errors.push(`candidate BPM ${bpm} differs from ${spec.bpm}`);
   }
 
-  if (duration === null || expectedDuration === null) errors.push('candidate has no duration metadata');
+  if (duration === null || expectedDuration === null) warnings.push('candidate response omitted duration metadata');
   else {
     const deviation = Math.abs(duration - expectedDuration);
     score -= Math.min(20, deviation * 3);
     if (deviation > 2) errors.push(`candidate duration ${duration} differs from ${expectedDuration}`);
   }
 
-  if (!key) errors.push('candidate has no key metadata');
+  if (!key) warnings.push('candidate response omitted key metadata');
   else if (normalizeKeyScale(key) !== normalizeKeyScale(spec?.key)) errors.push(`candidate key ${key} differs from ${spec.key}`);
 
   if (spec?.hasLyrics && lyrics !== String(spec?.lyrics || '')) errors.push('candidate does not preserve lyrics exactly');
-  if (!spec?.hasLyrics && lyrics.trim()) errors.push('instrumental candidate unexpectedly contains lyrics');
+  const instrumentalMarker = /^\[?\s*(?:instrumental(?:\s+only)?|no\s+vocals?)\s*\]?$/i;
+  if (!spec?.hasLyrics && lyrics.trim() && !instrumentalMarker.test(lyrics.trim())) errors.push('instrumental candidate unexpectedly contains lyrics');
 
   score -= warnings.length * 3;
   score -= errors.length * 15;
@@ -675,12 +678,12 @@ async function verifyGeneratedWav(env, audioPath, spec) {
   const contentType = String(download.headers.get('content-type') || '').toLocaleLowerCase('en-US');
   const contentRange = String(download.headers.get('content-range') || '');
   const rangeTotal = contentRange.match(/\/(\d+)\s*$/)?.[1];
-  const contentLength = finiteNumber(rangeTotal ?? download.headers.get('content-length'));
+  const contentLength = finiteNumber(rangeTotal ?? (download.status === 206 ? null : download.headers.get('content-length')));
   if (!download.ok && download.status !== 206) errors.push(`audio resource returned HTTP ${download.status}`);
-  if (!contentType.startsWith('audio/')) errors.push(`invalid audio MIME type: ${contentType || 'missing'}`);
   const expectedDuration = Number(spec.renderDurationSec || spec.durationSec || 0);
   const minimumBytes = Math.max(MIN_AUDIO_BYTES, Math.round(expectedDuration * 8000));
   if (contentLength !== null && contentLength < minimumBytes) errors.push(`audio file is too small: ${contentLength} bytes`);
+  if (contentLength === null) warnings.push('download response omitted total file size');
 
   let headerBytes = new Uint8Array();
   try {
@@ -691,7 +694,12 @@ async function verifyGeneratedWav(env, audioPath, spec) {
   }
 
   const header = parseWavHeader(headerBytes);
-  if (!header.valid) errors.push(header.error);
+  if (!header.valid) {
+    errors.push(header.error);
+    if (!contentType.startsWith('audio/')) errors.push(`invalid audio MIME type: ${contentType || 'missing'}`);
+  } else if (!contentType.startsWith('audio/')) {
+    warnings.push(`download used a generic MIME type (${contentType || 'missing'}); RIFF/WAVE signature verified`);
+  }
   else {
     if (header.sampleRate < MIN_SAMPLE_RATE) errors.push(`sample rate ${header.sampleRate} is below ${MIN_SAMPLE_RATE}`);
     if (header.channels < 2) errors.push('professional master must be stereo');
@@ -751,6 +759,17 @@ async function verifyGeneratedWav(env, audioPath, spec) {
   };
 }
 
+export function summarizeQualityDiagnostics(diagnostics) {
+  const reasons = [];
+  for (const report of Array.isArray(diagnostics) ? diagnostics : []) {
+    for (const reason of [...(report?.errors || []), ...(report?.audioGate?.errors || [])]) {
+      const clean = cleanField(reason, 180);
+      if (clean && !reasons.includes(clean)) reasons.push(clean);
+    }
+  }
+  return reasons.slice(0, 6).join('; ');
+}
+
 async function queryTask(env, taskId, generationSpec) {
   const data = await engineJson(env, '/query_result', {
     method: 'POST',
@@ -792,9 +811,10 @@ async function queryTask(env, taskId, generationSpec) {
     };
   }
 
+  const rejectionReasons = summarizeQualityDiagnostics(diagnostics);
   return {
     state: 'quality_rejected',
-    error: 'SONARA rejected every generated candidate because the real audio did not pass the professional quality gate.',
+    error: `SONARA rejected every generated candidate because the real audio did not pass the professional quality gate.${rejectionReasons ? ` Reasons: ${rejectionReasons}.` : ''}`,
     diagnostics
   };
 }
