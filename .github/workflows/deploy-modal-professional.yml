@@ -1,0 +1,55 @@
+name: Deploy Modal ACE-Step Professional
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "modal/sonara_acestep_professional.py"
+      - ".github/workflows/deploy-modal-professional.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: modal-sonara-acestep-professional
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy ACE-Step XL-SFT to Modal
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verify Modal deployment credentials
+        shell: bash
+        run: |
+          if [[ -z "${MODAL_TOKEN_ID}" || -z "${MODAL_TOKEN_SECRET}" ]]; then
+            echo "MODAL_TOKEN_ID and MODAL_TOKEN_SECRET must be configured as GitHub Actions secrets." >&2
+            exit 1
+          fi
+
+      - name: Install Modal CLI
+        run: python -m pip install --upgrade "modal>=1.3,<2"
+
+      - name: Download and persist ACE-Step XL-SFT and 4B LM
+        run: modal run modal/sonara_acestep_professional.py::prepare_models
+
+      - name: Deploy protected production endpoint
+        run: modal deploy --strategy rolling modal/sonara_acestep_professional.py
+
+      - name: Verify professional checkpoints
+        run: modal run modal/sonara_acestep_professional.py::verify_configuration
