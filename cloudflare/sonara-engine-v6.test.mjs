@@ -72,3 +72,12 @@ test("requires the authoritative musical hierarchy", () => {
     /genreFamily is required/,
   );
 });
+
+test("accepts a detailed professional prompt with long lyrics and style instructions", () => {
+  const detailedPrompt = `${baseRequest.prompt}\n${"Detailed style instruction. ".repeat(340)}`;
+  assert.ok(detailedPrompt.length > 8000);
+  assert.doesNotThrow(() => validateGenerationRequest({
+    ...baseRequest,
+    prompt: detailedPrompt,
+  }));
+});
