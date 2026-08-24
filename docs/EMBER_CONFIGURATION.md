@@ -15,4 +15,4 @@ Optional backend environment variables:
 - `EMBER_TTS_VOICE`: defaults to `alloy`.
 - `FIREBASE_SERVICE_ACCOUNT_JSON`: Firebase service account JSON when Application Default Credentials are unavailable.
 
-The browser sends the authenticated user's Firebase ID token with every Ember request. Chat and speech endpoints enforce independent per-user rate limits.
+The browser sends the authenticated user's Firebase ID token with every Ember request. Chat and speech endpoints enforce independent per-user rate limits. Production serves these endpoints through the Vercel function at `api/ember/[...path].ts`; the Node server mounts the same API under `/api/ember` for non-Vercel deployments.
