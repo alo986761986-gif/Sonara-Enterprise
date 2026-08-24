@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { WORLD_MUSIC_GENRES, findGenre } from './data/worldMusicGenres';
 import { buildGenerationPrompt, buildRandomCreativeBrief } from './generationPrompt';
+import { getAtmospheresForSelection } from './musicStyleIntelligence';
 import {
   LANGUAGE_METADATA,
   RTL_LANGUAGES,
@@ -127,8 +128,19 @@ const SectionTitle = ({ icon: Icon, title, subtitle }: any) => (
 );
 
 const DURATION_OPTIONS = [30, 45, 60, 90, 120, 150, 180, 210, 240];
-const MOODS = ['Energetic', 'Dark', 'Emotional', 'Uplifting', 'Melancholic', 'Hypnotic', 'Romantic', 'Aggressive', 'Dreamy', 'Cinematic', 'Peaceful', 'Epic', 'Groovy', 'Sexy', 'Nostalgic', 'Mysterious'];
 const KEYS = ['C Major', 'C Minor', 'C# Major', 'C# Minor', 'D Major', 'D Minor', 'D# Major', 'D# Minor', 'E Major', 'E Minor', 'F Major', 'F Minor', 'F# Major', 'F# Minor', 'G Major', 'G Minor', 'G# Major', 'G# Minor', 'A Major', 'A Minor', 'A# Major', 'A# Minor', 'B Major', 'B Minor'];
+const INITIAL_SELECTION = {
+  genreFamily: 'Electronic / Dance',
+  genre: 'House',
+  subgenre: 'Deep House',
+  mood: 'Deep',
+  bpm: 124,
+  key: 'A Minor',
+  durationSec: 30,
+  lyrics: '',
+  title: 'Sonara Deep House Track'
+};
+const INITIAL_PROMPT = buildRandomCreativeBrief({ ...INITIAL_SELECTION, variant: 0 });
 function durationLabel(seconds: number, t: (key: Parameters<typeof uiText>[1]) => string) {
   if (seconds < 60) return `${seconds} ${t('seconds')}`;
   const minutes = seconds / 60;
@@ -139,19 +151,19 @@ export default function App() {
   const [language, setLanguage] = useState<LanguageCode>(initialLanguage);
   const t = useMemo(() => (key: Parameters<typeof uiText>[1]) => brandSonara(uiText(language, key)), [language]);
 
-  const [prompt, setPrompt] = useState('Professional House production, deep rolling bassline, punchy club kick, crisp percussion, warm chords, atmospheric pads, dynamic arrangement, polished professional mix and master');
-  const [genreFamily, setGenreFamily] = useState('Electronic / Dance');
-  const [genre, setGenre] = useState('House');
-  const [subgenre, setSubgenre] = useState('Deep House');
-  const [mood, setMood] = useState('Energetic');
-  const [title, setTitle] = useState('Sonara AI Track');
+  const [prompt, setPrompt] = useState(INITIAL_PROMPT);
+  const [genreFamily, setGenreFamily] = useState(INITIAL_SELECTION.genreFamily);
+  const [genre, setGenre] = useState(INITIAL_SELECTION.genre);
+  const [subgenre, setSubgenre] = useState(INITIAL_SELECTION.subgenre);
+  const [mood, setMood] = useState(INITIAL_SELECTION.mood);
+  const [title, setTitle] = useState(INITIAL_SELECTION.title);
   const [lyrics, setLyrics] = useState('');
-  const [bpm, setBpm] = useState(124);
+  const [bpm, setBpm] = useState(INITIAL_SELECTION.bpm);
   const [durationSec, setDurationSec] = useState(() => {
     const saved = Number(localStorage.getItem(DURATION_KEY));
     return DURATION_OPTIONS.includes(saved) ? saved : 30;
   });
-  const [keySignature, setKeySignature] = useState('A Minor');
+  const [keySignature, setKeySignature] = useState(INITIAL_SELECTION.key);
 
   const [status, setStatus] = useState<JobStatus>('IDLE');
   const [progress, setProgress] = useState(0);
@@ -170,11 +182,14 @@ export default function App() {
   const [assistantNote, setAssistantNote] = useState('Describe what you want to improve in your track and Sonara will help you shape the production.');
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const automaticPromptRef = useRef(true);
+  const randomVariantRef = useRef(0);
   const busy = status === 'QUEUED' || status === 'PROCESSING';
   const statusLabel = health === 'READY' ? t('online') : health;
 
   const family = useMemo(() => WORLD_MUSIC_GENRES.find(group => group.family === genreFamily) || WORLD_MUSIC_GENRES[0], [genreFamily]);
   const genreEntry = useMemo(() => findGenre(genre), [genre]);
+  const availableMoods = useMemo(() => getAtmospheresForSelection(genreFamily, genre, subgenre), [genreFamily, genre, subgenre]);
   const genreCount = useMemo(() => WORLD_MUSIC_GENRES.reduce((sum, group) => sum + group.genres.length, 0), []);
   const subgenreCount = useMemo(() => WORLD_MUSIC_GENRES.reduce((sum, group) => sum + group.genres.reduce((inner, item) => inner + item.subgenres.length, 0), 0), []);
 
@@ -220,6 +235,22 @@ export default function App() {
     else audio.pause();
   }, [isPlaying, audioUrl]);
 
+  useEffect(() => {
+    if (!automaticPromptRef.current) return;
+    setPrompt(buildRandomCreativeBrief({
+      genreFamily,
+      genre,
+      subgenre,
+      mood,
+      bpm,
+      key: keySignature,
+      durationSec,
+      lyrics,
+      title,
+      variant: randomVariantRef.current
+    }));
+  }, [genreFamily, genre, subgenre, mood, bpm, keySignature, durationSec, lyrics, title]);
+
   const refreshDashboard = async () => {
     try {
       const response = await fetch('/api/health', { cache: 'no-store' });
@@ -231,17 +262,26 @@ export default function App() {
   };
 
   const updateFamily = (value: string) => {
-    setGenreFamily(value);
     const nextFamily = WORLD_MUSIC_GENRES.find(group => group.family === value) || WORLD_MUSIC_GENRES[0];
     const nextGenre = nextFamily.genres[0];
+    const nextSubgenre = nextGenre.subgenres[0] || nextGenre.name;
+    setGenreFamily(value);
     setGenre(nextGenre.name);
-    setSubgenre(nextGenre.subgenres[0] || nextGenre.name);
+    setSubgenre(nextSubgenre);
+    setMood(getAtmospheresForSelection(value, nextGenre.name, nextSubgenre)[0]);
   };
 
   const updateGenre = (value: string) => {
+    const item = family.genres.find(candidate => candidate.name === value) || findGenre(value);
+    const nextSubgenre = item?.subgenres[0] || value;
     setGenre(value);
-    const item = findGenre(value);
-    setSubgenre(item?.subgenres[0] || value);
+    setSubgenre(nextSubgenre);
+    setMood(getAtmospheresForSelection(genreFamily, value, nextSubgenre)[0]);
+  };
+
+  const updateSubgenre = (value: string) => {
+    setSubgenre(value);
+    setMood(getAtmospheresForSelection(genreFamily, genre, value)[0]);
   };
 
   const updateDuration = (value: number) => {
@@ -251,8 +291,22 @@ export default function App() {
   };
 
   const randomizePrompt = () => {
-    setTitle(`Sonara ${subgenre} Track`);
-    setPrompt(buildRandomCreativeBrief({ genreFamily, genre, subgenre, mood }));
+    randomVariantRef.current = (randomVariantRef.current + 1) % 4;
+    automaticPromptRef.current = true;
+    const nextTitle = `Sonara ${subgenre} Track`;
+    setTitle(nextTitle);
+    setPrompt(buildRandomCreativeBrief({
+      genreFamily,
+      genre,
+      subgenre,
+      mood,
+      bpm,
+      key: keySignature,
+      durationSec,
+      lyrics,
+      title: nextTitle,
+      variant: randomVariantRef.current
+    }));
   };
 
   const generate = async () => {
@@ -398,12 +452,12 @@ export default function App() {
             <button type="button" onClick={randomizePrompt} disabled={busy} className="inline-flex items-center gap-2 rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-2 text-[11px] font-black tracking-wider text-purple-200 transition hover:bg-purple-500/20 disabled:opacity-50" title="Random prompt">
               <Shuffle className="h-3.5 w-3.5" />RANDOM
             </button>
-            <button type="button" onClick={() => setPrompt('')} disabled={busy || !prompt} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700 bg-slate-950 text-slate-400 transition hover:border-rose-500/40 hover:text-rose-300 disabled:opacity-40" aria-label="Clear prompt" title="Clear prompt">
+            <button type="button" onClick={() => { automaticPromptRef.current = false; setPrompt(''); }} disabled={busy || !prompt} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700 bg-slate-950 text-slate-400 transition hover:border-rose-500/40 hover:text-rose-300 disabled:opacity-40" aria-label="Clear prompt" title="Clear prompt">
               <X className="h-4 w-4" />
             </button>
           </div>
         </div>
-        <textarea id="sonara-prompt" value={prompt} onChange={event => setPrompt(event.target.value)} rows={5} className="w-full rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm text-white outline-none focus:border-purple-500" />
+        <textarea id="sonara-prompt" value={prompt} onChange={event => { automaticPromptRef.current = false; setPrompt(event.target.value); }} rows={7} className="w-full rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm text-white outline-none focus:border-purple-500" />
       </div>
 
       <div className="mt-5 grid gap-4 md:grid-cols-3">
@@ -418,7 +472,7 @@ export default function App() {
           </select>
         </label>
         <label className="text-xs text-slate-400">{t('subgenre')}
-          <select value={subgenre} onChange={event => setSubgenre(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2.5 text-slate-100">
+          <select value={subgenre} onChange={event => updateSubgenre(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2.5 text-slate-100">
             {(genreEntry?.subgenres || [genre]).map(item => <option key={item} value={item}>{item}</option>)}
           </select>
         </label>
@@ -426,7 +480,7 @@ export default function App() {
 
       <div className="mt-4 grid gap-4 md:grid-cols-4">
         <label className="text-xs text-slate-400">{t('mood')}
-          <select value={mood} onChange={event => setMood(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2.5 text-slate-100">{MOODS.map(item => <option key={item}>{item}</option>)}</select>
+          <select value={mood} onChange={event => setMood(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2.5 text-slate-100">{availableMoods.map(item => <option key={item}>{item}</option>)}</select>
         </label>
         <label className="text-xs text-slate-400">{t('key')}
           <select value={keySignature} onChange={event => setKeySignature(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2.5 text-slate-100">{KEYS.map(item => <option key={item}>{item}</option>)}</select>

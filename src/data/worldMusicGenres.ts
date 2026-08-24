@@ -74,7 +74,7 @@ export const WORLD_MUSIC_GENRES: MusicGenreFamily[] = [
   {
     family: 'Jazz',
     genres: [
-      { name: 'Jazz', subgenres: ['Traditional Jazz', 'Dixieland', 'Swing', 'Big Band', 'Bebop', 'Hard Bop', 'Cool Jazz', 'Modal Jazz', 'Free Jazz', 'Avant-Garde Jazz', 'Post-Bop', 'Spiritual Jazz'] },
+      { name: 'Jazz', subgenres: ['Traditional Jazz', 'Dixieland', 'Swing', 'Big Band', 'Bebop', 'Hard Bop', 'Cool Jazz', 'Modal Jazz', 'Free Jazz', 'Avant-Garde Jazz', 'Post-Bop', 'Spiritual Jazz', 'Jazz Fusion'] },
       { name: 'Jazz Fusion', subgenres: ['Jazz Fusion', 'Jazz-Funk', 'Acid Jazz', 'Nu Jazz', 'Electro Jazz', 'Smooth Jazz', 'Latin Jazz', 'Afro-Cuban Jazz', 'Ethio-Jazz'] },
       { name: 'Vocal Jazz', subgenres: ['Vocal Jazz', 'Jazz Standards', 'Crooner', 'Scat'] }
     ]

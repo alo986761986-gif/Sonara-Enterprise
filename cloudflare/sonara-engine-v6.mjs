@@ -8,7 +8,7 @@ const ALLOWED_ORIGINS = new Set([
 const RETRYABLE_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526]);
 const JOB_CACHE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/direct-job-v6/';
 const JOB_TTL_SECONDS = 3 * 60 * 60;
-const MAX_PROMPT_CHARS = 8000;
+const MAX_PROMPT_CHARS = 12000;
 const MAX_LYRICS_CHARS = 4096;
 const GENERATION_STALE_MS = 105000;
 
