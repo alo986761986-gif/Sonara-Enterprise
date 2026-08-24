@@ -31,7 +31,7 @@ import {
   Zap
 } from 'lucide-react';
 import { WORLD_MUSIC_GENRES, findGenre } from './data/worldMusicGenres';
-import { buildGenerationPrompt, buildRandomCreativeBrief } from './generationPrompt';
+import { buildGenerationPrompt, buildRandomCreativeBrief, type VocalMode } from './generationPrompt';
 import { getAtmospheresForSelection } from './musicStyleIntelligence';
 import {
   LANGUAGE_METADATA,
@@ -129,6 +129,12 @@ const SectionTitle = ({ icon: Icon, title, subtitle }: any) => (
 
 const DURATION_OPTIONS = [30, 45, 60, 90, 120, 150, 180, 210, 240];
 const KEYS = ['C Major', 'C Minor', 'C# Major', 'C# Minor', 'D Major', 'D Minor', 'D# Major', 'D# Minor', 'E Major', 'E Minor', 'F Major', 'F Minor', 'F# Major', 'F# Minor', 'G Major', 'G Minor', 'G# Major', 'G# Minor', 'A Major', 'A Minor', 'A# Major', 'A# Minor', 'B Major', 'B Minor'];
+const VOCAL_MODES: Array<{ value: VocalMode; label: string; description: string }> = [
+  { value: 'instrumental', label: 'Strumentale', description: 'Nessuna voce' },
+  { value: 'male', label: 'Voce maschile', description: 'Un cantante uomo' },
+  { value: 'female', label: 'Voce femminile', description: 'Una cantante donna' },
+  { value: 'duet', label: 'Duetto', description: 'Uomo e donna' }
+];
 const INITIAL_SELECTION = {
   genreFamily: 'Electronic / Dance',
   genre: 'House',
@@ -137,6 +143,7 @@ const INITIAL_SELECTION = {
   bpm: 124,
   key: 'A Minor',
   durationSec: 30,
+  vocalMode: 'instrumental' as VocalMode,
   lyrics: '',
   title: 'Sonara Deep House Track'
 };
@@ -158,6 +165,7 @@ export default function App() {
   const [mood, setMood] = useState(INITIAL_SELECTION.mood);
   const [title, setTitle] = useState(INITIAL_SELECTION.title);
   const [lyrics, setLyrics] = useState('');
+  const [vocalMode, setVocalMode] = useState<VocalMode>(INITIAL_SELECTION.vocalMode);
   const [bpm, setBpm] = useState(INITIAL_SELECTION.bpm);
   const [durationSec, setDurationSec] = useState(() => {
     const saved = Number(localStorage.getItem(DURATION_KEY));
@@ -186,6 +194,8 @@ export default function App() {
   const automaticTitleRef = useRef(true);
   const randomVariantRef = useRef(0);
   const busy = status === 'QUEUED' || status === 'PROCESSING';
+  const vocalLyrics = vocalMode === 'instrumental' ? '' : lyrics;
+  const vocalReady = vocalMode === 'instrumental' || Boolean(lyrics.trim());
   const statusLabel = health === 'READY' ? t('online') : health;
 
   const family = useMemo(() => WORLD_MUSIC_GENRES.find(group => group.family === genreFamily) || WORLD_MUSIC_GENRES[0], [genreFamily]);
@@ -246,11 +256,12 @@ export default function App() {
       bpm,
       key: keySignature,
       durationSec,
-      lyrics,
+      vocalMode,
+      lyrics: vocalLyrics,
       title,
       variant: randomVariantRef.current
     }));
-  }, [genreFamily, genre, subgenre, mood, bpm, keySignature, durationSec, lyrics, title]);
+  }, [genreFamily, genre, subgenre, mood, bpm, keySignature, durationSec, vocalMode, vocalLyrics, title]);
 
   const refreshDashboard = async () => {
     try {
@@ -308,7 +319,8 @@ export default function App() {
       bpm,
       key: keySignature,
       durationSec,
-      lyrics,
+      vocalMode,
+      lyrics: vocalLyrics,
       title: nextTitle,
       variant: randomVariantRef.current
     }));
@@ -335,7 +347,8 @@ export default function App() {
         bpm,
         key: keySignature,
         durationSec,
-        lyrics,
+        vocalMode,
+        lyrics: vocalLyrics,
         title
       });
       const response = await fetch('/api/engine/generate', {
@@ -348,7 +361,8 @@ export default function App() {
           genreFamily,
           subgenre,
           mood,
-          lyrics,
+          vocalMode,
+          lyrics: vocalLyrics,
           title,
           bpm,
           key: keySignature,
@@ -506,10 +520,36 @@ export default function App() {
 
       <details className="mt-5 rounded-xl border border-slate-800 bg-slate-950/60 p-4">
         <summary className="cursor-pointer text-sm font-bold text-white">{t('lyrics')}</summary>
-        <textarea value={lyrics} onChange={event => setLyrics(event.target.value)} rows={7} placeholder="Instrumental: leave empty. Add lyrics for vocal generation." className="mt-4 w-full rounded-xl border border-slate-800 bg-[#060a12] p-4 text-sm outline-none focus:border-purple-500" />
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          {VOCAL_MODES.map(option => {
+            const selected = vocalMode === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                disabled={busy}
+                onClick={() => setVocalMode(option.value)}
+                className={`rounded-xl border px-3 py-3 text-left transition disabled:opacity-50 ${selected ? 'border-purple-400 bg-purple-500/20 text-white' : 'border-slate-800 bg-[#060a12] text-slate-400 hover:border-slate-600'}`}
+                aria-pressed={selected}
+              >
+                <span className="block text-xs font-black">{option.label}</span>
+                <span className="mt-1 block text-[10px]">{option.description}</span>
+              </button>
+            );
+          })}
+        </div>
+        <textarea
+          value={lyrics}
+          onChange={event => setLyrics(event.target.value)}
+          disabled={busy || vocalMode === 'instrumental'}
+          rows={7}
+          placeholder={vocalMode === 'instrumental' ? 'Seleziona una modalità vocale per inserire il testo.' : 'Inserisci il testo completo da cantare.'}
+          className="mt-4 w-full rounded-xl border border-slate-800 bg-[#060a12] p-4 text-sm outline-none focus:border-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
+        />
+        {!vocalReady && <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-300">Inserisci il testo prima di generare con la modalità vocale selezionata.</div>}
       </details>
 
-      <button onClick={() => void generate()} disabled={busy || !prompt.trim()} className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-fuchsia-600 via-purple-600 to-indigo-600 px-6 py-4 font-bold disabled:opacity-50">
+      <button onClick={() => void generate()} disabled={busy || !prompt.trim() || !vocalReady} className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-fuchsia-600 via-purple-600 to-indigo-600 px-6 py-4 font-bold disabled:opacity-50">
         {busy ? <><RefreshCw className="h-5 w-5 animate-spin" />{t('generating')}</> : <><Zap className="h-5 w-5" />{t('generate')}</>}
       </button>
 

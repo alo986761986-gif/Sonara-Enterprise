@@ -30,6 +30,7 @@ const baseRequest = {
   bpm: 126,
   key: "F minor",
   durationSec: 180,
+  vocalMode: "instrumental",
   lyrics: "",
   title: "Club Tool",
   engineId: "sonara-engine-v6",
@@ -42,6 +43,7 @@ test("accepts a coherent deterministic generation request", () => {
   assert.equal(result.genre, "House");
   assert.equal(result.subgenre, "Tech House");
   assert.equal(result.bpm, 126);
+  assert.equal(result.vocalMode, "instrumental");
   assert.equal(result.qualityGate.status, "PASSED");
 });
 
@@ -80,4 +82,42 @@ test("accepts a detailed professional prompt with long lyrics and style instruct
     ...baseRequest,
     prompt: detailedPrompt,
   }));
+});
+
+test("accepts male, female and duet vocal modes when exact lyrics are supplied", () => {
+  const lyrics = "Hold the light through the night\nWe will find our way";
+  const requests = [
+    ["male", "Use one clearly male lead vocalist with a natural expressive register."],
+    ["female", "Use one clearly female lead vocalist with a natural expressive register."],
+    ["duet", "Use two clearly distinct lead vocalists: one male and one female, alternating naturally."],
+  ];
+
+  for (const [vocalMode, vocalDirection] of requests) {
+    const prompt = baseRequest.prompt.replace(
+      "Strictly instrumental: do not generate sung, spoken, whispered or sampled words.",
+      `${vocalDirection}\n${lyrics}`,
+    );
+    const result = validateGenerationRequest({
+      ...baseRequest,
+      prompt,
+      vocalMode,
+      lyrics,
+    });
+    assert.equal(result.vocalMode, vocalMode);
+    assert.equal(result.lyrics, lyrics);
+  }
+});
+
+test("rejects a selected vocal mode without lyrics", () => {
+  assert.throws(
+    () => validateGenerationRequest({
+      ...baseRequest,
+      vocalMode: "male",
+      prompt: baseRequest.prompt.replace(
+        "Strictly instrumental: do not generate sung, spoken, whispered or sampled words.",
+        "Use one clearly male lead vocalist.",
+      ),
+    }),
+    /male vocal mode requires lyrics/,
+  );
 });

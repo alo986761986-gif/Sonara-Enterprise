@@ -1,5 +1,7 @@
 import { getMusicStyleProfile } from './musicStyleIntelligence';
 
+export type VocalMode = 'instrumental' | 'male' | 'female' | 'duet';
+
 export interface GenerationPromptInput {
   rawPrompt?: string;
   prompt?: string;
@@ -10,6 +12,7 @@ export interface GenerationPromptInput {
   bpm: number;
   key: string;
   durationSec: number;
+  vocalMode: VocalMode;
   lyrics?: string;
   title?: string;
 }
@@ -33,6 +36,24 @@ function sentence(value: string): string {
   return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 }
 
+function vocalDirection(vocalMode: VocalMode, lyrics: string): string {
+  if (vocalMode === 'instrumental') {
+    return 'Strictly instrumental. No vocals, no spoken words, no chants, no whispers and no vocal samples.';
+  }
+
+  const singerDirection = vocalMode === 'male'
+    ? 'Use one clearly male lead vocalist with a natural, expressive and genre-appropriate register. Do not use a female lead or duet.'
+    : vocalMode === 'female'
+      ? 'Use one clearly female lead vocalist with a natural, expressive and genre-appropriate register. Do not use a male lead or duet.'
+      : 'Use two clearly distinct lead vocalists: one male and one female. Alternate solo lines or sections naturally, then use intentional two-part harmony in refrains or climactic moments. Do not render both roles as the same doubled voice.';
+
+  if (!lyrics) {
+    return `${singerDirection} Lyrics are required for this vocal mode before generation can start.`;
+  }
+
+  return `${singerDirection}\nUse the following lyrics exactly as written. Do not translate, replace, reorder or invent words:\n${lyrics}`;
+}
+
 const PROFESSIONAL_VARIANTS = [
   (profile: ReturnType<typeof getMusicStyleProfile>) => `Lead with the defining groove: ${profile.rhythm}`,
   (profile: ReturnType<typeof getMusicStyleProfile>) => `Lead with the authentic sound palette: ${profile.instrumentation}`,
@@ -49,7 +70,8 @@ export function buildRandomCreativeBrief(input: RandomCreativeBriefInput): strin
   const title = cleanText(input.title, `Sonara ${subgenre} Track`, 160);
   const bpm = clampInteger(input.bpm, 124, 40, 220);
   const durationSec = clampInteger(input.durationSec, 30, 30, 240);
-  const hasLyrics = Boolean(String(input.lyrics ?? '').trim());
+  const lyrics = String(input.lyrics ?? '').trim();
+  const vocalMode = input.vocalMode;
   const profile = getMusicStyleProfile(family, genre, subgenre);
   const variantIndex = Math.abs(clampInteger(input.variant, 0, 0, Number.MAX_SAFE_INTEGER)) % PROFESSIONAL_VARIANTS.length;
 
@@ -59,12 +81,17 @@ export function buildRandomCreativeBrief(input: RandomCreativeBriefInput): strin
     sentence(profile.identity),
     sentence(PROFESSIONAL_VARIANTS[variantIndex](profile)),
     `Lock the result to exactly ${bpm} BPM, ${key}, and approximately ${durationSec} seconds with a complete musical-bar ending.`,
-    hasLyrics
-      ? 'Use the supplied lyrics exactly as written and shape the arrangement around natural vocal phrasing.'
-      : 'Keep it strictly instrumental: no sung, spoken, whispered or sampled words.',
+    vocalMode === 'instrumental'
+      ? 'Keep it strictly instrumental: no sung, spoken, whispered or sampled words.'
+      : vocalMode === 'male'
+        ? 'Use one expressive male lead vocalist and preserve the supplied lyrics exactly.'
+        : vocalMode === 'female'
+          ? 'Use one expressive female lead vocalist and preserve the supplied lyrics exactly.'
+          : 'Use a genuine male-and-female duet with distinct voices, natural alternation and intentional harmony; preserve the supplied lyrics exactly.',
+    vocalMode !== 'instrumental' && !lyrics ? 'Lyrics must be supplied before vocal generation can start.' : '',
     sentence(profile.avoid),
     'Deliver a release-ready, dynamically controlled mix with clear separation, no clipping and no artificial silence padding.'
-  ].join(' ');
+  ].filter(Boolean).join(' ');
 }
 
 export function buildGenerationPrompt(input: GenerationPromptInput): string {
@@ -91,9 +118,15 @@ export function buildGenerationPrompt(input: GenerationPromptInput): string {
   });
   const userIntent = cleanText(input.rawPrompt ?? input.prompt, fallbackBrief, 1600);
   const lyrics = String(input.lyrics ?? '').trim().slice(0, 4096);
-  const vocalInstruction = lyrics
-    ? `Use the following lyrics exactly as written. Do not translate, replace, reorder or invent words:\n${lyrics}`
-    : 'Strictly instrumental. No vocals, no spoken words, no chants, no whispers and no vocal samples.';
+  const vocalMode = input.vocalMode;
+  const vocalInstruction = vocalDirection(vocalMode, lyrics);
+  const vocalNegative = vocalMode === 'instrumental'
+    ? 'No unwanted vocals.'
+    : vocalMode === 'male'
+      ? 'No female lead, no duet and no voice-gender ambiguity.'
+      : vocalMode === 'female'
+        ? 'No male lead, no duet and no voice-gender ambiguity.'
+        : 'Do not collapse the duet into one singer, two identical timbres or a permanently unison performance.';
 
   return [
     `USER INTENT:\n${userIntent}`,
@@ -104,8 +137,8 @@ export function buildGenerationPrompt(input: GenerationPromptInput): string {
     `RHYTHM AND GROOVE:\nBuild ${profile.rhythm}. The rhythmic feel must identify ${subgenre} even before melody or vocals enter.`,
     `HARMONY, MELODY AND PERFORMANCE:\nUse ${profile.harmony}. Preserve idiomatic articulation, phrasing, improvisation and ensemble interaction.`,
     `ARRANGEMENT:\nCreate ${profile.arrangement}. Scale every section to ${durationSec} seconds and never cut or fade the ending prematurely.`,
-    `VOCALS AND TEXT:\n${vocalInstruction}`,
+    `VOCALS AND TEXT:\nMode: ${vocalMode}\n${vocalInstruction}`,
     `PRODUCTION:\nUse ${profile.production}. Maintain clear separation, clean transients, controlled low end, stable stereo imaging, musical dynamics, no clipping and a professional release-ready master.`,
-    `NEGATIVE CONSTRAINTS:\n${profile.avoid} No genre drift. No unrelated instruments. No generic replacement groove. No incorrect key or BPM. No unwanted vocals. No invented lyrics. No unfinished ending. No excessive distortion unless intrinsic to ${subgenre}. No muddy low end. No fake silence added to reach the requested duration.`
+    `NEGATIVE CONSTRAINTS:\n${profile.avoid} No genre drift. No unrelated instruments. No generic replacement groove. No incorrect key or BPM. ${vocalNegative} No invented lyrics. No unfinished ending. No excessive distortion unless intrinsic to ${subgenre}. No muddy low end. No fake silence added to reach the requested duration.`
   ].join('\n\n');
 }

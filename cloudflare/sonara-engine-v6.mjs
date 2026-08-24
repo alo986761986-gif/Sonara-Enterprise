@@ -197,6 +197,8 @@ export function validateGenerationRequest(body) {
   const bpm = Math.round(clamp(body.bpm, 124, 40, 220));
   const durationSec = Math.round(clamp(body.durationSec ?? body.duration, 30, 30, 240));
   const lyrics = String(body.lyrics || '').trim().slice(0, MAX_LYRICS_CHARS);
+  const requestedVocalMode = cleanField(body.vocalMode, 20).toLowerCase();
+  const vocalMode = requestedVocalMode || (lyrics ? 'unspecified' : 'instrumental');
   const errors = [];
 
   if (!rawPrompt) errors.push('rawPrompt is required');
@@ -207,13 +209,20 @@ export function validateGenerationRequest(body) {
   if (!key) errors.push('key is required');
   if (!prompt) errors.push('prompt is required');
   if (prompt.length > MAX_PROMPT_CHARS) errors.push(`prompt exceeds ${MAX_PROMPT_CHARS} characters`);
+  if (!['instrumental', 'male', 'female', 'duet', 'unspecified'].includes(vocalMode)) errors.push(`unsupported vocalMode: ${vocalMode}`);
 
   for (const [label, value] of [['genreFamily', genreFamily], ['genre', genre], ['subgenre', subgenre], ['mood', mood], ['key', key]]) {
     if (value && prompt && !promptContains(prompt, value)) errors.push(`prompt does not contain selected ${label}: ${value}`);
   }
   if (prompt && !promptContains(prompt, `${bpm} BPM`)) errors.push(`prompt does not contain selected BPM: ${bpm}`);
   if (prompt && !promptContains(prompt, `${durationSec} seconds`)) errors.push(`prompt does not contain selected duration: ${durationSec} seconds`);
-  if (!lyrics && prompt && !promptContains(prompt, 'Strictly instrumental')) errors.push('instrumental requests must explicitly forbid vocals');
+  if (vocalMode === 'instrumental' && lyrics) errors.push('instrumental mode cannot include lyrics');
+  if (vocalMode === 'instrumental' && prompt && !promptContains(prompt, 'Strictly instrumental')) errors.push('instrumental requests must explicitly forbid vocals');
+  if (vocalMode !== 'instrumental' && !lyrics) errors.push(`${vocalMode} vocal mode requires lyrics`);
+  if (vocalMode !== 'instrumental' && prompt && promptContains(prompt, 'Strictly instrumental')) errors.push('vocal requests cannot be marked strictly instrumental');
+  if (vocalMode === 'male' && prompt && !promptContains(prompt, 'male lead vocalist')) errors.push('male vocal mode must explicitly request a male lead vocalist');
+  if (vocalMode === 'female' && prompt && !promptContains(prompt, 'female lead vocalist')) errors.push('female vocal mode must explicitly request a female lead vocalist');
+  if (vocalMode === 'duet' && prompt && (!promptContains(prompt, 'two clearly distinct lead vocalists') || !promptContains(prompt, 'one male and one female'))) errors.push('duet mode must explicitly request distinct male and female lead vocalists');
   if (lyrics && prompt && !prompt.includes(lyrics)) errors.push('prompt does not preserve the supplied lyrics exactly');
 
   if (errors.length) {
@@ -232,11 +241,12 @@ export function validateGenerationRequest(body) {
     bpm,
     durationSec,
     lyrics,
+    vocalMode,
     qualityGate: {
       valid: true,
       status: 'PASSED',
       policy: 'deterministic-generation-v1',
-      checkedFields: ['rawPrompt', 'genreFamily', 'genre', 'subgenre', 'mood', 'bpm', 'key', 'durationSec', 'lyrics']
+      checkedFields: ['rawPrompt', 'genreFamily', 'genre', 'subgenre', 'mood', 'bpm', 'key', 'durationSec', 'vocalMode', 'lyrics']
     }
   };
 }
@@ -273,6 +283,7 @@ export function normalizeRequest(body) {
       bpm: spec.bpm,
       key: spec.key,
       durationSec: spec.durationSec,
+      vocalMode: spec.vocalMode,
       hasLyrics: Boolean(spec.lyrics),
       title: spec.title
     }
