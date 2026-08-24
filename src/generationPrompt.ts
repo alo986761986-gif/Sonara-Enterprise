@@ -55,10 +55,10 @@ function vocalDirection(vocalMode: VocalMode, lyrics: string): string {
 }
 
 const PROFESSIONAL_VARIANTS = [
-  (profile: ReturnType<typeof getMusicStyleProfile>) => `Lead with the defining groove: ${profile.rhythm}`,
-  (profile: ReturnType<typeof getMusicStyleProfile>) => `Lead with the authentic sound palette: ${profile.instrumentation}`,
-  (profile: ReturnType<typeof getMusicStyleProfile>) => `Lead with musical development: ${profile.harmony} Build ${profile.arrangement}`,
-  (profile: ReturnType<typeof getMusicStyleProfile>) => `Lead with a premium performance and mix: ${profile.production}`
+  'Creative emphasis: make the defining groove immediately recognizable from the opening bars.',
+  'Creative emphasis: foreground the authentic instrumental palette and performance character.',
+  'Creative emphasis: develop harmony, melody and arrangement with strong musical storytelling.',
+  'Creative emphasis: deliver maximum performance realism, sonic detail and release-ready impact.'
 ];
 
 export function buildRandomCreativeBrief(input: RandomCreativeBriefInput): string {
@@ -79,7 +79,12 @@ export function buildRandomCreativeBrief(input: RandomCreativeBriefInput): strin
     `Create a professional ${subgenre} production titled “${title}” in the ${family} family, under the ${genre} genre.`,
     `The emotional direction must feel ${mood.toLowerCase()}.`,
     sentence(profile.identity),
-    sentence(PROFESSIONAL_VARIANTS[variantIndex](profile)),
+    `Instrumentation: ${sentence(profile.instrumentation)}`,
+    `Rhythm and groove: ${sentence(profile.rhythm)}`,
+    `Harmony and melody: ${sentence(profile.harmony)}`,
+    `Arrangement: ${sentence(profile.arrangement)}`,
+    `Production: ${sentence(profile.production)}`,
+    PROFESSIONAL_VARIANTS[variantIndex],
     `Lock the result to exactly ${bpm} BPM, ${key}, and approximately ${durationSec} seconds with a complete musical-bar ending.`,
     vocalMode === 'instrumental'
       ? 'Keep it strictly instrumental: no sung, spoken, whispered or sampled words.'

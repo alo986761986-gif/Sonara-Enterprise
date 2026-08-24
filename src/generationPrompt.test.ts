@@ -86,11 +86,22 @@ assert.deepEqual(
 
 const randomA = buildRandomCreativeBrief({ ...jazzFusionInput, variant: 0 });
 const randomB = buildRandomCreativeBrief({ ...jazzFusionInput, variant: 1 });
+const jazzFusionProfile = getMusicStyleProfile('Jazz', 'Jazz', 'Jazz Fusion');
 assert.notEqual(randomA, randomB, 'professional RANDOM variants must provide controlled variety');
 for (const required of ['Jazz Fusion', 'Jazz', 'Electric', '118 BPM', 'E Minor', '150 seconds', 'strictly instrumental']) {
   assert.ok(randomA.toLowerCase().includes(required.toLowerCase()), `RANDOM brief must include ${required}`);
 }
 assert.match(randomA, /Rhodes|electric|fusion/i);
+for (const value of [
+  jazzFusionProfile.identity,
+  jazzFusionProfile.instrumentation,
+  jazzFusionProfile.rhythm,
+  jazzFusionProfile.harmony,
+  jazzFusionProfile.arrangement,
+  jazzFusionProfile.production
+]) {
+  assert.ok(randomA.includes(value), 'every RANDOM variant must contain the complete selected style profile');
+}
 
 const vocalLyrics = 'Hold the light through the night\nWe will find our way';
 const vocalBase = {
@@ -129,6 +140,25 @@ for (const family of WORLD_MUSIC_GENRES) {
       assert.ok(profile.rhythm.length >= 40, `weak rhythm: ${family.family} / ${genre.name} / ${subgenre}`);
       assert.ok(profile.harmony.length >= 40, `weak harmony: ${family.family} / ${genre.name} / ${subgenre}`);
       assert.ok(profile.arrangement.length >= 40, `weak arrangement: ${family.family} / ${genre.name} / ${subgenre}`);
+      const randomBrief = buildRandomCreativeBrief({
+        genreFamily: family.family,
+        genre: genre.name,
+        subgenre,
+        mood: moods[0],
+        bpm: 121,
+        key: 'F# Minor',
+        durationSec: 90,
+        vocalMode: 'instrumental',
+        lyrics: '',
+        title: `Sonara ${subgenre} Track`,
+        variant: 3
+      });
+      for (const required of [family.family, genre.name, subgenre, moods[0], '121 BPM', 'F# Minor', '90 seconds']) {
+        assert.ok(randomBrief.toLowerCase().includes(required.toLowerCase()), `RANDOM lost ${required}: ${family.family} / ${genre.name} / ${subgenre}`);
+      }
+      for (const detail of [profile.identity, profile.instrumentation, profile.rhythm, profile.harmony, profile.arrangement, profile.production]) {
+        assert.ok(randomBrief.includes(detail), `RANDOM lost style detail: ${family.family} / ${genre.name} / ${subgenre}`);
+      }
     }
   }
 }

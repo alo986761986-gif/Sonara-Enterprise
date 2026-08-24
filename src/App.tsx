@@ -190,7 +190,6 @@ export default function App() {
   const [assistantNote, setAssistantNote] = useState('Describe what you want to improve in your track and Sonara will help you shape the production.');
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const automaticPromptRef = useRef(true);
   const automaticTitleRef = useRef(true);
   const randomVariantRef = useRef(0);
   const busy = status === 'QUEUED' || status === 'PROCESSING';
@@ -247,7 +246,6 @@ export default function App() {
   }, [isPlaying, audioUrl]);
 
   useEffect(() => {
-    if (!automaticPromptRef.current) return;
     setPrompt(buildRandomCreativeBrief({
       genreFamily,
       genre,
@@ -307,7 +305,6 @@ export default function App() {
 
   const randomizePrompt = () => {
     randomVariantRef.current = (randomVariantRef.current + 1) % 4;
-    automaticPromptRef.current = true;
     automaticTitleRef.current = true;
     const nextTitle = `Sonara ${subgenre} Track`;
     setTitle(nextTitle);
@@ -471,12 +468,12 @@ export default function App() {
             <button type="button" onClick={randomizePrompt} disabled={busy} className="inline-flex items-center gap-2 rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-2 text-[11px] font-black tracking-wider text-purple-200 transition hover:bg-purple-500/20 disabled:opacity-50" title="Random prompt">
               <Shuffle className="h-3.5 w-3.5" />RANDOM
             </button>
-            <button type="button" onClick={() => { automaticPromptRef.current = false; setPrompt(''); }} disabled={busy || !prompt} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700 bg-slate-950 text-slate-400 transition hover:border-rose-500/40 hover:text-rose-300 disabled:opacity-40" aria-label="Clear prompt" title="Clear prompt">
+            <button type="button" onClick={() => setPrompt('')} disabled={busy || !prompt} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700 bg-slate-950 text-slate-400 transition hover:border-rose-500/40 hover:text-rose-300 disabled:opacity-40" aria-label="Clear prompt" title="Clear prompt">
               <X className="h-4 w-4" />
             </button>
           </div>
         </div>
-        <textarea id="sonara-prompt" value={prompt} onChange={event => { automaticPromptRef.current = false; setPrompt(event.target.value); }} rows={7} className="w-full rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm text-white outline-none focus:border-purple-500" />
+        <textarea id="sonara-prompt" value={prompt} onChange={event => setPrompt(event.target.value)} rows={10} className="w-full rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm text-white outline-none focus:border-purple-500" />
       </div>
 
       <div className="mt-5 grid gap-4 md:grid-cols-3">
