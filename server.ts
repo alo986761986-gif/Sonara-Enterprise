@@ -9,6 +9,7 @@ import orchestratorRouter from './backend/src/routes/orchestrator';
 import creatorRouter from './backend/src/routes/creator';
 import musicRouter from './backend/src/routes/music';
 import emberRouter from './backend/src/routes/ember';
+import billingHandler from './api/billing/[...path]';
 
 const startTime = Date.now();
 
@@ -17,7 +18,9 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(cors());
+  app.post('/api/billing/webhook', express.raw({ type: 'application/json', limit: '2mb' }), billingHandler);
   app.use(express.json());
+  app.all('/api/billing/{*path}', billingHandler);
 
   // Health Endpoint
   app.get('/api/health', (_req, res) => {

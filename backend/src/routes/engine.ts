@@ -137,6 +137,12 @@ router.post('/select', (req: Request, res: Response) => {
 
 router.post('/generate', async (req: Request, res: Response) => {
   try {
+    const requiredSecret = String(process.env.SONARA_INTERNAL_PROXY_SECRET || '').trim();
+    const suppliedSecret = String(req.headers['x-sonara-internal-secret'] || '').trim();
+    if (requiredSecret && suppliedSecret !== requiredSecret) {
+      return res.status(401).json({ error: 'SONARA generation requires an authorized billing proxy.' });
+    }
+
     const { prompt, durationSec, genre, bpm, key, engineId, title, mood, lyrics } = req.body;
 
     if (!prompt || typeof prompt !== 'string') {

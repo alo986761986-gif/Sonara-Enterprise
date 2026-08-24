@@ -85,6 +85,12 @@ async function handleGenerate(context) {
     return json({ error: 'Method not allowed' }, 405);
   }
 
+  const requiredSecret = String(context.env.SONARA_INTERNAL_PROXY_SECRET || '').trim();
+  const suppliedSecret = String(context.request.headers.get('X-Sonara-Internal-Secret') || '').trim();
+  if (requiredSecret && suppliedSecret !== requiredSecret) {
+    return json({ error: 'SONARA generation requires an authorized billing proxy.' }, 401);
+  }
+
   let body = {};
   try {
     body = await context.request.json();

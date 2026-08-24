@@ -334,3 +334,17 @@ test("completes a job only after the returned WAV passes the real-audio gate", a
     globalThis.caches = previousCaches;
   }
 });
+
+test("rejects direct generation when the billing proxy secret is enabled", async () => {
+  const response = await sonaraWorker.fetch(new Request("https://api.sonaraenterprise.com/api/engine/generate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(baseRequest),
+  }), {
+    SONARA_INTERNAL_PROXY_SECRET: "server-only-secret",
+  }, {});
+
+  assert.equal(response.status, 401);
+  const payload = await response.json();
+  assert.match(payload.error, /authorized billing proxy/i);
+});

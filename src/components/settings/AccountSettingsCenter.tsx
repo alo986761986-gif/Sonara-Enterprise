@@ -12,7 +12,6 @@ import {
   Lock,
   LogOut,
   Mail,
-  Music2,
   Palette,
   RefreshCw,
   Save,
@@ -36,6 +35,7 @@ import {
 } from '../../lib/firebaseClient';
 import { LANGUAGE_METADATA, SUPPORTED_LANGUAGES, type LanguageCode } from '../../i18n/locales';
 import { clearGeneratedProjects, listGeneratedProjects } from '../../services/generatedAssetVault';
+import PricingAndUsage from '../billing/PricingAndUsage';
 
 type SettingsTab = 'profile' | 'account' | 'preferences' | 'privacy' | 'notifications' | 'plan' | 'security';
 
@@ -261,7 +261,6 @@ export default function AccountSettingsCenter({
   const [newEmail, setNewEmail] = useState('');
   const [deletePhrase, setDeletePhrase] = useState('');
   const [storageInfo, setStorageInfo] = useState({ usage: 0, quota: 0, persisted: false });
-  const [engineHealthy, setEngineHealthy] = useState<boolean | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => watchFirebaseUser(user => {
@@ -404,21 +403,6 @@ export default function AccountSettingsCenter({
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       showSuccess('Esportazione account completata.');
     } catch (error) {
-      showError(error);
-    } finally {
-      setBusyAction('');
-    }
-  };
-
-  const refreshEngine = async () => {
-    setBusyAction('engine');
-    try {
-      const response = await fetch('/api/health', { cache: 'no-store' });
-      setEngineHealthy(response.ok);
-      if (!response.ok) throw new Error(`Motore HTTP ${response.status}`);
-      showSuccess('Stato del piano e del motore aggiornato.');
-    } catch (error) {
-      setEngineHealthy(false);
       showError(error);
     } finally {
       setBusyAction('');
@@ -593,8 +577,7 @@ export default function AccountSettingsCenter({
 
           {activeTab === 'plan' && (
             <div className="space-y-5">
-              <div className="overflow-hidden rounded-2xl border border-purple-500/30 bg-gradient-to-br from-purple-600/20 to-indigo-600/10 p-6"><div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-center"><div><span className="rounded-full bg-purple-500/20 px-2 py-1 text-[10px] font-black text-purple-200">PIANO ATTIVO</span><h4 className="mt-3 text-2xl font-black text-white">SONARA Enterprise</h4><p className="mt-2 text-xs text-slate-400">Generatore professionale, Ember, EQ/Master, archivio e catalogo mondiale.</p></div><button type="button" disabled={busyAction === 'engine'} onClick={() => void refreshEngine()} className="flex items-center justify-center gap-2 rounded-xl border border-purple-400/30 bg-purple-500/10 px-4 py-3 text-xs font-black text-purple-100 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${busyAction === 'engine' ? 'animate-spin' : ''}`} />Aggiorna stato</button></div></div>
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[[Music2, 'Generazione', '30 sec – 4 min'], [HardDrive, 'Archivio', storageInfo.persisted ? 'Persistente' : 'Standard'], [Download, 'Formati', 'WAV · FLAC · MP3'], [Sparkles, 'Motore', engineHealthy === null ? 'Da verificare' : engineHealthy ? 'Online' : 'Non disponibile']].map(([Icon, label, value]: any) => <div key={label} className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4"><Icon className="h-5 w-5 text-purple-400" /><div className="mt-3 text-xs text-slate-500">{label}</div><div className="mt-1 font-black text-white">{value}</div></div>)}</div>
+              <PricingAndUsage compact />
               <div className="rounded-2xl border border-slate-800 p-5"><div className="flex items-center justify-between gap-4"><div><div className="font-bold text-white">Spazio locale utilizzato</div><div className="mt-1 text-xs text-slate-500">{formatBytes(storageInfo.usage)} di {formatBytes(storageInfo.quota)} disponibili per asset e preferenze.</div></div><HardDrive className="h-6 w-6 text-cyan-400" /></div>{storageInfo.quota > 0 && <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-gradient-to-r from-purple-500 to-cyan-400" style={{ width: `${Math.min(100, storageInfo.usage / storageInfo.quota * 100)}%` }} /></div>}</div>
             </div>
           )}

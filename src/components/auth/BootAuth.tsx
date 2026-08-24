@@ -289,6 +289,13 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
                 {firebaseConfigured ? 'Firebase Auth Ready' : 'Firebase config pending'}
               </span>
             </div>
+
+            <p className="mt-6 text-center text-[10px] leading-5 text-slate-600">
+              Continuando accetti i{' '}
+              <a href="/terms" className="font-bold text-purple-300 transition hover:text-purple-200">Termini e Condizioni</a>
+              {' '}e dichiari di aver letto l{'’'}
+              <a href="/privacy" className="font-bold text-purple-300 transition hover:text-purple-200">Informativa Privacy</a>.
+            </p>
           </section>
         </div>
       </div>

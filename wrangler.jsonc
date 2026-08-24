@@ -11,19 +11,11 @@
       "custom_domain": true
     },
     {
-      "pattern": "sonaraenterprise.com/api/engine/generate",
-      "zone_name": "sonaraenterprise.com"
-    },
-    {
       "pattern": "sonaraenterprise.com/api/music/job/*",
       "zone_name": "sonaraenterprise.com"
     },
     {
       "pattern": "sonaraenterprise.com/api/modal/audio*",
-      "zone_name": "sonaraenterprise.com"
-    },
-    {
-      "pattern": "www.sonaraenterprise.com/api/engine/generate",
       "zone_name": "sonaraenterprise.com"
     },
     {

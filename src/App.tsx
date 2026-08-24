@@ -6,6 +6,7 @@ import {
   Building2,
   Cloud,
   Cpu,
+  CreditCard,
   Disc3,
   Download,
   Gauge,
@@ -44,11 +45,13 @@ import {
 } from './i18n/locales';
 import { uiText } from './i18n/ui';
 import { archiveGeneratedProject } from './services/generatedAssetVault';
+import { getFirebaseIdToken, watchFirebaseUser } from './lib/firebaseClient';
 
 const EmberWorkspace = React.lazy(() => import('./components/ember/EmberWorkspace'));
 const WorldDiscoveryGlobe = React.lazy(() => import('./components/discovery/WorldDiscoveryGlobe'));
 const GeneratedAssetLibrary = React.lazy(() => import('./components/publishing/GeneratedAssetLibrary'));
 const AccountSettingsCenter = React.lazy(() => import('./components/settings/AccountSettingsCenter'));
+const PricingAndUsage = React.lazy(() => import('./components/billing/PricingAndUsage'));
 const ProfessionalAudioEqualizer = React.lazy(() =>
   import('./components/eq/ProfessionalAudioEqualizer').then(module => ({ default: module.ProfessionalAudioEqualizer }))
 );
@@ -67,6 +70,7 @@ type View =
   | 'cloud'
   | 'collaboration'
   | 'enterprise'
+  | 'plans'
   | 'settings';
 
 interface JobResponse {
@@ -74,12 +78,22 @@ interface JobResponse {
   status?: JobStatus | string;
   progress?: number;
   audioUrl?: string | null;
-  error?: string | null;
+  error?: string | { code?: string; message?: string } | null;
   message?: string;
   metadata?: Record<string, any>;
   result?: Record<string, any>;
   job?: JobResponse;
   data?: JobResponse;
+}
+
+interface BillingUsageSnapshot {
+  planId: 'free' | 'creator' | 'studio';
+  planName: string;
+  remainingSeconds: number;
+  includedSeconds: number;
+  maxTrackSeconds: number;
+  commercialUse: boolean;
+  limitsEnforced: boolean;
 }
 
 const LANGUAGE_KEY = 'sonara.language';
@@ -90,6 +104,12 @@ const MIN_BPM = 40;
 const MAX_BPM = 220;
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const normalizeJob = (value: JobResponse): JobResponse => value?.job || value?.data || value;
+
+function jobErrorMessage(value: JobResponse, fallback: string): string {
+  if (typeof value.error === 'string') return value.error;
+  if (value.error && typeof value.error.message === 'string') return value.error.message;
+  return value.message || fallback;
+}
 
 function clampBpm(value: unknown): number {
   const parsed = Number(value);
@@ -222,6 +242,7 @@ export default function App() {
   const [archiveStatus, setArchiveStatus] = useState<'IDLE' | 'SAVING' | 'SAVED' | 'PARTIAL' | 'FAILED'>('IDLE');
   const [archivedFileCount, setArchivedFileCount] = useState(0);
   const [accountPreferences, setAccountPreferences] = useState<Record<string, any>>(initialAccountPreferences);
+  const [billingUsage, setBillingUsage] = useState<BillingUsageSnapshot | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const automaticTitleRef = useRef(true);
@@ -230,6 +251,9 @@ export default function App() {
   const vocalLyrics = vocalMode === 'instrumental' ? '' : lyrics;
   const vocalReady = vocalMode === 'instrumental' || Boolean(lyrics.trim());
   const statusLabel = health === 'READY' ? t('online') : health;
+  const allowedDurationOptions = billingUsage?.limitsEnforced
+    ? DURATION_OPTIONS.filter(value => value <= billingUsage.maxTrackSeconds)
+    : DURATION_OPTIONS;
 
   const family = useMemo(() => WORLD_MUSIC_GENRES.find(group => group.family === genreFamily) || WORLD_MUSIC_GENRES[0], [genreFamily]);
   const genreEntry = useMemo(() => findGenre(genre), [genre]);
@@ -250,6 +274,7 @@ export default function App() {
     ['cloud', 'cloud', Cloud],
     ['collaboration', 'collaboration', Handshake],
     ['enterprise', 'enterprise', Building2],
+    ['plans', 'plans', CreditCard],
     ['settings', 'settings', Settings2]
   ];
 
@@ -280,6 +305,39 @@ export default function App() {
   useEffect(() => {
     void refreshDashboard();
   }, []);
+
+  useEffect(() => {
+    const refreshBilling = async () => {
+      try {
+        const token = await getFirebaseIdToken(true);
+        const response = await fetch('/api/billing/status', {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store'
+        });
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (payload?.billing) setBillingUsage(payload.billing);
+      } catch {
+        setBillingUsage(null);
+      }
+    };
+    const unsubscribe = watchFirebaseUser(user => {
+      if (user) void refreshBilling();
+      else setBillingUsage(null);
+    });
+    const handler = (event: Event) => setBillingUsage((event as CustomEvent<BillingUsageSnapshot>).detail || null);
+    window.addEventListener('sonara:billing-updated', handler);
+    return () => {
+      unsubscribe();
+      window.removeEventListener('sonara:billing-updated', handler);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (billingUsage?.limitsEnforced && durationSec > billingUsage.maxTrackSeconds) {
+      updateDuration(billingUsage.maxTrackSeconds);
+    }
+  }, [billingUsage, durationSec]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -405,9 +463,13 @@ export default function App() {
         lyrics: vocalLyrics,
         title
       });
-      const response = await fetch('/api/engine/generate', {
+      const firebaseToken = await getFirebaseIdToken(true);
+      const response = await fetch('/api/billing/generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${firebaseToken}`
+        },
         body: JSON.stringify({
           prompt: finalPrompt,
           rawPrompt,
@@ -429,7 +491,14 @@ export default function App() {
       });
 
       const responseData = await readJson<JobResponse>(response);
-      if (!response.ok) throw new Error(responseData.error || responseData.message || `Generation failed HTTP ${response.status}`);
+      if (!response.ok) throw new Error(jobErrorMessage(responseData, `Generation failed HTTP ${response.status}`));
+
+      if (billingUsage?.limitsEnforced) {
+        setBillingUsage(previous => previous ? {
+          ...previous,
+          remainingSeconds: Math.max(0, previous.remainingSeconds - durationSec)
+        } : previous);
+      }
 
       const initial = normalizeJob(responseData);
       const id = responseData.jobId || responseData.result?.jobId || initial.jobId;
@@ -481,6 +550,11 @@ export default function App() {
                   visibility: accountPreferences.defaultVisibility || 'link-only',
                   allowComments: accountPreferences.allowComments !== false,
                   allowRemixes: accountPreferences.allowRemixes !== false
+                },
+                billingEntitlement: {
+                  planId: billingUsage?.planId || 'free',
+                  commercialUse: Boolean(billingUsage?.commercialUse),
+                  generatedAt: new Date().toISOString()
                 }
               }
             });
@@ -499,7 +573,7 @@ export default function App() {
           if (accountPreferences.autoplay) setIsPlaying(true);
           return;
         }
-        if (currentStatus === 'FAILED') throw new Error(current.error || metadata.error || 'SONARA generation failed.');
+        if (currentStatus === 'FAILED') throw new Error(jobErrorMessage(current, String(metadata.error || 'SONARA generation failed.')));
       }
       throw new Error('Generation timeout.');
     } catch (generationError) {
@@ -571,7 +645,10 @@ export default function App() {
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-purple-500/20 bg-purple-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-purple-300"><Sparkles className="h-3.5 w-3.5" />SONARA production workspace</div>
             <h2 className="text-2xl font-black tracking-tight text-white sm:text-3xl">{t('overviewTitle')}</h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">{t('overviewSubtitle')}</p>
-            <button onClick={() => setActiveTab('generator')} className="mt-6 inline-flex items-center gap-2 rounded-xl bg-purple-600 px-5 py-3 text-sm font-bold"><Zap className="h-4 w-4" />{t('generateMusic')}</button>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <button onClick={() => setActiveTab('generator')} className="inline-flex items-center gap-2 rounded-xl bg-purple-600 px-5 py-3 text-sm font-bold"><Zap className="h-4 w-4" />{t('generateMusic')}</button>
+              <button onClick={() => setActiveTab('plans')} className="inline-flex items-center gap-2 rounded-xl border border-purple-500/30 bg-purple-500/10 px-5 py-3 text-sm font-bold text-purple-100"><CreditCard className="h-4 w-4" />{t('plans')}</button>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <MiniCard icon={Globe2} title={`${genreCount}`} text="Global genre groups" />
@@ -593,6 +670,13 @@ export default function App() {
   const generatorView = (
     <Card className="p-5 sm:p-6">
       <SectionTitle icon={Sparkles} title={t('generateMusic')} subtitle={`${t('globalCatalog')} · SONARA`} />
+
+      {billingUsage && (
+        <div className="mb-5 flex flex-col justify-between gap-3 rounded-xl border border-purple-500/20 bg-purple-500/5 p-4 sm:flex-row sm:items-center">
+          <div><span className="text-[10px] font-black uppercase tracking-widest text-purple-300">SONARA {billingUsage.planName}</span><div className="mt-1 text-xs text-slate-400">{billingUsage.limitsEnforced ? `${Math.max(0, billingUsage.remainingSeconds / 60).toFixed(1).replace('.0', '')} minuti disponibili` : 'Accesso completo durante la configurazione dei piani'}</div></div>
+          <button type="button" onClick={() => setActiveTab('plans')} className="inline-flex items-center justify-center gap-2 rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-2 text-[11px] font-black text-purple-100"><CreditCard className="h-4 w-4" />Gestisci piano</button>
+        </div>
+      )}
 
       <div>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -636,7 +720,7 @@ export default function App() {
         </label>
         <label className="text-xs text-slate-400">{t('duration')}
           <select value={durationSec} onChange={event => updateDuration(Number(event.target.value))} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2.5 text-slate-100">
-            {DURATION_OPTIONS.map(value => <option key={value} value={value}>{durationLabel(value, t)}</option>)}
+            {allowedDurationOptions.map(value => <option key={value} value={value}>{durationLabel(value, t)}</option>)}
           </select>
         </label>
         <label className="text-xs text-slate-400">{t('title')}
@@ -805,6 +889,12 @@ export default function App() {
     <Card className="p-6"><SectionTitle icon={Building2} title={t('enterpriseTitle')} subtitle={t('enterpriseSubtitle')} /><div className="grid gap-4 md:grid-cols-3"><MiniCard icon={ShieldCheck} title="Security" text="Access and workspace controls." /><MiniCard icon={Users} title="Organization" text="Team and creator administration." /><MiniCard icon={BarChart3} title="Enterprise Intelligence" text="Operational and creative analytics." /></div></Card>
   );
 
+  const plansView = (
+    <React.Suspense fallback={<Card className="flex min-h-[540px] items-center justify-center p-6 text-xs text-slate-500"><RefreshCw className="mr-2 h-4 w-4 animate-spin text-purple-400" />Caricamento piani SONARA...</Card>}>
+      <PricingAndUsage />
+    </React.Suspense>
+  );
+
   const settingsView = (
     <React.Suspense fallback={<Card className="flex min-h-[540px] items-center justify-center p-6 text-xs text-slate-500"><RefreshCw className="mr-2 h-4 w-4 animate-spin text-purple-400" />Caricamento impostazioni account...</Card>}>
       <AccountSettingsCenter
@@ -812,7 +902,7 @@ export default function App() {
         onLanguageChange={code => { setLanguage(code); window.dispatchEvent(new CustomEvent('sonara:language', { detail: code })); }}
         durationSec={durationSec}
         onDurationChange={updateDuration}
-        durationOptions={DURATION_OPTIONS}
+        durationOptions={allowedDurationOptions}
         bpm={bpm}
         onBpmChange={updateBpm}
       />
@@ -833,6 +923,7 @@ export default function App() {
       case 'cloud': return cloudView;
       case 'collaboration': return collaborationView;
       case 'enterprise': return enterpriseView;
+      case 'plans': return plansView;
       case 'settings': return settingsView;
       default: return overviewView;
     }
@@ -850,6 +941,13 @@ export default function App() {
         </aside>
         <main className="min-w-0">{renderView()}</main>
       </div>
+      <footer className="mx-auto flex max-w-[1600px] flex-col items-center justify-between gap-3 border-t border-slate-800/80 px-6 py-5 text-[10px] text-slate-600 sm:flex-row">
+        <span>© {new Date().getFullYear()} SONARA AI · Enterprise music intelligence</span>
+        <nav aria-label="Documenti legali" className="flex items-center gap-4">
+          <a href="/terms" className="font-bold transition hover:text-purple-300">Termini e Condizioni</a>
+          <a href="/privacy" className="font-bold transition hover:text-purple-300">Informativa Privacy</a>
+        </nav>
+      </footer>
     </div>
   );
 }

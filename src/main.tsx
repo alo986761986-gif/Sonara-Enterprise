@@ -2,12 +2,18 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import BootAuth from './components/auth/BootAuth';
+import LegalDocumentPage from './components/legal/LegalDocumentPage';
 import './index.css';
+
+const legalPath = window.location.pathname.replace(/\/+$/, '').toLowerCase();
+const legalKind = legalPath === '/terms' ? 'terms' : legalPath === '/privacy' ? 'privacy' : null;
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <BootAuth>
-      <App />
-    </BootAuth>
+    {legalKind ? <LegalDocumentPage kind={legalKind} /> : (
+      <BootAuth>
+        <App />
+      </BootAuth>
+    )}
   </React.StrictMode>
 );

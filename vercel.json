@@ -2,12 +2,16 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
     {
-      "source": "/api/health",
-      "destination": "https://api.sonaraenterprise.com/api/health"
+      "source": "/terms",
+      "destination": "/index.html"
     },
     {
-      "source": "/api/engine/generate",
-      "destination": "https://api.sonaraenterprise.com/api/engine/generate"
+      "source": "/privacy",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/api/health",
+      "destination": "https://api.sonaraenterprise.com/api/health"
     },
     {
       "source": "/api/music/job/:id",
@@ -25,15 +29,6 @@
   "headers": [
     {
       "source": "/api/health",
-      "headers": [
-        {
-          "key": "x-vercel-enable-rewrite-caching",
-          "value": "0"
-        }
-      ]
-    },
-    {
-      "source": "/api/engine/generate",
       "headers": [
         {
           "key": "x-vercel-enable-rewrite-caching",

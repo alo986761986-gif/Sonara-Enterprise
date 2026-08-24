@@ -48,6 +48,12 @@ function config(env) {
   };
 }
 
+function internalGenerationAuthorized(request, env) {
+  const requiredSecret = String(env.SONARA_INTERNAL_PROXY_SECRET || '').trim();
+  if (!requiredSecret) return true;
+  return String(request.headers.get('X-Sonara-Internal-Secret') || '').trim() === requiredSecret;
+}
+
 function authHeaders(env, extra = {}) {
   const cfg = config(env);
   return {
@@ -1170,7 +1176,12 @@ export default {
       });
     }
 
-    if (path === '/api/engine/generate') return generate(request, env, ctx);
+    if (path === '/api/engine/generate') {
+      if (!internalGenerationAuthorized(request, env)) {
+        return json(request, { error: 'SONARA generation requires an authorized billing proxy.' }, 401);
+      }
+      return generate(request, env, ctx);
+    }
 
     const match = path.match(/^\/api\/music\/job\/([^/]+)$/);
     if (match) return job(request, env, decodeURIComponent(match[1]));
