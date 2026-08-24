@@ -1,3 +1,5 @@
+const fs = require('node:fs');
+const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 if (process.env.WORKERS_CI === '1') {
@@ -8,24 +10,38 @@ if (process.env.WORKERS_CI === '1') {
 
 const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 
-function run(args) {
-  const result = spawnSync(npx, args, {
+function runCommand(command, args, { fatal = true } = {}) {
+  const result = spawnSync(command, args, {
     stdio: 'inherit',
     shell: false
   });
 
   if (result.error) {
     console.error(result.error);
-    process.exit(1);
+    if (fatal) process.exit(1);
+    return false;
   }
 
   if (result.status !== 0) {
-    process.exit(result.status ?? 1);
+    if (fatal) process.exit(result.status ?? 1);
+    return false;
   }
+
+  return true;
 }
 
-run(['vite', 'build']);
-run([
+const oneTimeDiagnostic = path.join(process.cwd(), 'scripts', 'one-time-billing-diagnostic.mjs');
+if (
+  process.env.VERCEL === '1' &&
+  process.env.VERCEL_ENV === 'production' &&
+  fs.existsSync(oneTimeDiagnostic)
+) {
+  console.log('[SONARA] Running one-time private billing diagnostic.');
+  runCommand(process.execPath, [oneTimeDiagnostic], { fatal: false });
+}
+
+runCommand(npx, ['vite', 'build']);
+runCommand(npx, [
   'esbuild',
   'server.ts',
   '--bundle',
