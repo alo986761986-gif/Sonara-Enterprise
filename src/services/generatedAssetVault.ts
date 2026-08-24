@@ -365,6 +365,21 @@ export async function listGeneratedProjects(): Promise<GeneratedProjectArchive[]
   }
 }
 
+export async function clearGeneratedProjects(): Promise<void> {
+  try {
+    const database = await openVault();
+    const transaction = database.transaction(PROJECT_STORE, 'readwrite');
+    transaction.objectStore(PROJECT_STORE).clear();
+    await transactionDone(transaction);
+    database.close();
+  } catch {
+    // localStorage cleanup below still removes the fallback archive.
+  } finally {
+    if (typeof localStorage !== 'undefined') localStorage.removeItem(FALLBACK_KEY);
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event(ASSET_EVENT));
+  }
+}
+
 export function downloadStoredAsset(asset: StoredGeneratedAsset): void {
   const href = asset.blob ? URL.createObjectURL(asset.blob) : asset.remoteUrl;
   if (!href || typeof document === 'undefined') return;
