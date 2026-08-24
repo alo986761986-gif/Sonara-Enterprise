@@ -162,8 +162,16 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
         <div className="absolute h-80 w-80 animate-pulse rounded-full border border-purple-500/10" />
         <div className="absolute h-56 w-56 animate-ping rounded-full border border-cyan-400/10 [animation-duration:2.2s]" />
         <div className="relative z-10 flex flex-col items-center">
-          <div className="relative mb-8 flex h-24 w-24 items-center justify-center rounded-[30px] bg-gradient-to-br from-purple-600 via-violet-600 to-indigo-600 shadow-2xl shadow-purple-950/70">
-            <Music2 className="h-11 w-11" />
+          <div className="relative mb-8 h-24 w-24 rounded-[30px] shadow-2xl shadow-purple-950/70">
+            <img
+              src="/sonara-ai-icon.png"
+              alt="SONARA AI"
+              width={96}
+              height={96}
+              className="h-24 w-24 rounded-[30px] object-cover"
+              loading="eager"
+              decoding="sync"
+            />
             <span className="absolute -inset-3 animate-pulse rounded-[38px] border border-purple-400/25" />
           </div>
           <div className="text-3xl font-black tracking-[0.24em]">SONARA</div>
