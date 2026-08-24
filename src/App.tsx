@@ -183,6 +183,7 @@ export default function App() {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const automaticPromptRef = useRef(true);
+  const automaticTitleRef = useRef(true);
   const randomVariantRef = useRef(0);
   const busy = status === 'QUEUED' || status === 'PROCESSING';
   const statusLabel = health === 'READY' ? t('online') : health;
@@ -269,6 +270,7 @@ export default function App() {
     setGenre(nextGenre.name);
     setSubgenre(nextSubgenre);
     setMood(getAtmospheresForSelection(value, nextGenre.name, nextSubgenre)[0]);
+    if (automaticTitleRef.current) setTitle(`Sonara ${nextSubgenre} Track`);
   };
 
   const updateGenre = (value: string) => {
@@ -277,11 +279,13 @@ export default function App() {
     setGenre(value);
     setSubgenre(nextSubgenre);
     setMood(getAtmospheresForSelection(genreFamily, value, nextSubgenre)[0]);
+    if (automaticTitleRef.current) setTitle(`Sonara ${nextSubgenre} Track`);
   };
 
   const updateSubgenre = (value: string) => {
     setSubgenre(value);
     setMood(getAtmospheresForSelection(genreFamily, genre, value)[0]);
+    if (automaticTitleRef.current) setTitle(`Sonara ${value} Track`);
   };
 
   const updateDuration = (value: number) => {
@@ -293,6 +297,7 @@ export default function App() {
   const randomizePrompt = () => {
     randomVariantRef.current = (randomVariantRef.current + 1) % 4;
     automaticPromptRef.current = true;
+    automaticTitleRef.current = true;
     const nextTitle = `Sonara ${subgenre} Track`;
     setTitle(nextTitle);
     setPrompt(buildRandomCreativeBrief({
@@ -491,7 +496,7 @@ export default function App() {
           </select>
         </label>
         <label className="text-xs text-slate-400">{t('title')}
-          <input value={title} onChange={event => setTitle(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2.5 text-slate-100" />
+          <input value={title} onChange={event => { automaticTitleRef.current = false; setTitle(event.target.value); }} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2.5 text-slate-100" />
         </label>
       </div>
 
