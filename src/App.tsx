@@ -179,6 +179,8 @@ export default function App() {
   const [error, setError] = useState('');
   const [jobId, setJobId] = useState('');
   const [audioUrl, setAudioUrl] = useState('');
+  const [audioFormat, setAudioFormat] = useState('mp3');
+  const [qualityScore, setQualityScore] = useState<number | null>(null);
   const [engine, setEngine] = useState('SONARA');
   const [health, setHealth] = useState('CHECKING');
   const [activeTab, setActiveTab] = useState<View>('overview');
@@ -330,6 +332,8 @@ export default function App() {
     setStage('SONARA is preparing your track...');
     setError('');
     setAudioUrl('');
+    setAudioFormat('mp3');
+    setQualityScore(null);
     setJobId('');
     setIsPlaying(false);
 
@@ -389,13 +393,16 @@ export default function App() {
         const currentStatus = String(current.status || 'PROCESSING').toUpperCase();
         const metadata = current.metadata || {};
         setProgress(Number(current.progress || 0));
-        setStage(currentStatus === 'COMPLETED' ? t('audioReady') : t('generating'));
+        setStage(currentStatus === 'COMPLETED' ? t('audioReady') : brandSonara(String(metadata.currentStage || t('generating'))));
         setEngine('SONARA');
 
         if (currentStatus === 'COMPLETED') {
           const url = current.audioUrl || metadata.audioUrl || responseData.audioUrl || responseData.result?.audioUrl;
           if (!url) throw new Error('SONARA finished without an audio URL.');
           setAudioUrl(String(url));
+          setAudioFormat(String(metadata.audioFormat || 'mp3').toLowerCase());
+          const verifiedScore = Number((metadata.outputQualityGate as Record<string, any> | undefined)?.score);
+          setQualityScore(Number.isFinite(verifiedScore) ? verifiedScore : null);
           setProgress(100);
           setStatus('COMPLETED');
           setStage(t('audioReady'));
@@ -561,11 +568,11 @@ export default function App() {
 
       {status === 'COMPLETED' && audioUrl && (
         <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5">
-          <div className="mb-4 flex items-center justify-between gap-4"><div><div className="font-bold text-emerald-300">{t('audioReady')}</div><div className="mt-1 text-xs text-slate-500">{title} · {genre} / {subgenre} · {durationLabel(durationSec, t)}</div></div><div className="text-[10px] font-bold tracking-widest text-slate-500">{engine}</div></div>
+          <div className="mb-4 flex items-center justify-between gap-4"><div><div className="font-bold text-emerald-300">{t('audioReady')}</div><div className="mt-1 text-xs text-slate-500">{title} · {genre} / {subgenre} · {durationLabel(durationSec, t)}</div>{qualityScore !== null && <div className="mt-1 text-[10px] font-bold text-emerald-400">Professional audio gate: {qualityScore}/100</div>}</div><div className="text-[10px] font-bold tracking-widest text-slate-500">{engine}</div></div>
           <audio ref={audioRef} controls src={audioUrl} className="w-full" />
           <div className="mt-4 flex flex-wrap gap-2">
             <button onClick={() => setIsPlaying(value => !value)} className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs">{isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}{isPlaying ? t('pause') : t('play')}</button>
-            <a href={audioUrl} download={`${title || 'sonara-track'}.mp3`} className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs"><Download className="h-4 w-4" />{t('download')}</a>
+            <a href={audioUrl} download={`${title || 'sonara-track'}.${audioFormat === 'wav' ? 'wav' : audioFormat === 'flac' ? 'flac' : 'mp3'}`} className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs"><Download className="h-4 w-4" />{t('download')} · {audioFormat.toUpperCase()}</a>
           </div>
         </div>
       )}
