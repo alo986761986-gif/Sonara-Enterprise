@@ -9,6 +9,8 @@ import sonaraWorker, {
   evaluateGenerationCandidates,
   normalizeRequest,
   parseWavHeader,
+  scoreGenerationCandidate,
+  summarizeQualityDiagnostics,
   validateGenerationRequest,
 } from "./sonara-engine-v6.mjs";
 
@@ -183,6 +185,26 @@ test("rejects metadata drift and ranks a coherent generation candidate", () => {
   assert.equal(evaluation.ranked.length, 1);
   assert.equal(evaluation.ranked[0].report.index, 1);
   assert.equal(evaluation.ranked[0].report.score, 100);
+});
+
+test("accepts omitted response echoes but still rejects explicit metadata conflicts", () => {
+  const spec = normalizeRequest(baseRequest).generationSpec;
+  const omitted = scoreGenerationCandidate({ file: "/tmp/output.wav", prompt: "", lyrics: "[Instrumental]", metas: {} }, spec);
+  assert.equal(omitted.valid, true);
+  assert.ok(omitted.warnings.some(value => value.includes("style echo")));
+
+  const conflicting = scoreGenerationCandidate({
+    file: "/tmp/output.wav",
+    prompt: "Deep House with soft pads",
+    lyrics: "",
+    metas: { bpm: 140, duration: spec.renderDurationSec, keyscale: "C Major" },
+  }, spec);
+  assert.equal(conflicting.valid, false);
+  assert.ok(conflicting.errors.some(value => value.includes("subgenre")));
+  assert.match(
+    summarizeQualityDiagnostics([{ errors: conflicting.errors, audioGate: { errors: ["not a RIFF/WAVE file"] } }]),
+    /RIFF\/WAVE/,
+  );
 });
 
 function createTestWav(durationSec = 1, sampleRate = 44100) {
