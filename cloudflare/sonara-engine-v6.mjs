@@ -11,6 +11,12 @@ const JOB_TTL_SECONDS = 3 * 60 * 60;
 const MAX_PROMPT_CHARS = 12000;
 const MAX_LYRICS_CHARS = 4096;
 const GENERATION_STALE_MS = 105000;
+const PROFESSIONAL_CANDIDATE_COUNT = 2;
+const MAX_QUALITY_REGENERATIONS = 2;
+const PROFESSIONAL_OUTPUT_FORMAT = 'wav';
+const MIN_SAMPLE_RATE = 44100;
+const MIN_BITS_PER_SAMPLE = 16;
+const MIN_AUDIO_BYTES = 100000;
 
 function corsHeaders(request) {
   const origin = request.headers.get('Origin') || '';
@@ -129,11 +135,38 @@ async function engineJson(env, path, init = {}, timeoutMs = 15000) {
   return data;
 }
 
+async function engineModelCatalog(env) {
+  const data = await engineJson(env, '/v1/models', { method: 'GET' }, 12000);
+  const records = Array.isArray(data?.data?.models) ? data.data.models : [];
+  const models = records.map(model => cleanField(model?.name, 120)).filter(Boolean);
+  return {
+    models,
+    defaultModel: cleanField(data?.data?.default_model, 120) || models[0] || ''
+  };
+}
+
+export function chooseProfessionalModel(models, defaultModel = '') {
+  const available = Array.isArray(models) ? models.map(value => String(value || '').trim()).filter(Boolean) : [];
+  const priorities = [
+    /acestep-v15-xl-sft$/i,
+    /acestep-v15-xl-turbo$/i,
+    /acestep-v15-sft$/i,
+    /acestep-v15-turbo$/i,
+    /xl-sft/i,
+    /xl-turbo/i,
+    /sft/i,
+    /turbo/i
+  ];
+  for (const pattern of priorities) {
+    const selected = available.find(name => pattern.test(name));
+    if (selected) return selected;
+  }
+  return available.includes(defaultModel) ? defaultModel : (available[0] || defaultModel || '');
+}
+
 async function modelReady(env) {
   try {
-    const data = await engineJson(env, '/v1/models', { method: 'GET' }, 12000);
-    const models = data?.data?.models;
-    return Array.isArray(models) && models.some(model => Boolean(model?.name));
+    return (await engineModelCatalog(env)).models.length > 0;
   } catch (error) {
     if (error instanceof SonaraEngineError && error.retryable) return false;
     return false;
@@ -177,6 +210,63 @@ function cleanField(value, maxLength = 120) {
   return String(value ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, maxLength);
 }
 
+export function inferTimeSignature(value, genre = '', subgenre = '') {
+  const explicit = cleanField(value, 10).replace(/\s+/g, '');
+  const explicitMatch = explicit.match(/^(2|3|4|6)(?:\/(?:4|8))?$/);
+  if (explicitMatch) return explicitMatch[1];
+
+  const style = `${genre} ${subgenre}`.toLocaleLowerCase('en-US');
+  if (/\b(waltz|mazurka|sarabande|minuet|polonaise|vals)\b/.test(style)) return '3';
+  if (/\b(6\/8|six[- ]?eight|jig|tarantella)\b/.test(style)) return '6';
+  if (/\b(polka|two[- ]?step|2\/4)\b/.test(style)) return '2';
+  return '4';
+}
+
+function pulseBeatsPerBar(timeSignature) {
+  if (String(timeSignature) === '3') return 3;
+  if (String(timeSignature) === '2' || String(timeSignature) === '6') return 2;
+  return 4;
+}
+
+export function alignDurationToCompleteBars(durationSec, bpm, timeSignature = '4') {
+  const safeDuration = clamp(durationSec, 30, 10, 600);
+  const safeBpm = clamp(bpm, 124, 30, 300);
+  const secondsPerBar = pulseBeatsPerBar(timeSignature) * 60 / safeBpm;
+  const bars = Math.max(1, Math.round(safeDuration / secondsPerBar));
+  return Math.round(bars * secondsPerBar * 1000) / 1000;
+}
+
+export function buildProfessionalEnginePayload(payload, model = '') {
+  const selectedModel = cleanField(model, 120);
+  const turbo = !selectedModel || /turbo/i.test(selectedModel);
+  const professional = {
+    ...payload,
+    ...(selectedModel ? { model: selectedModel } : {}),
+    inference_steps: turbo ? 8 : 50,
+    thinking: true,
+    use_format: false,
+    use_cot_caption: true,
+    use_cot_language: true,
+    constrained_decoding: true,
+    allow_lm_batch: true,
+    lm_temperature: 0.72,
+    lm_cfg_scale: 3.0,
+    lm_top_p: 0.9,
+    lm_repetition_penalty: 1.05,
+    lm_negative_prompt: 'genre drift, wrong instruments, incorrect tempo, incorrect key, malformed structure, clipping, silence, unfinished ending',
+    batch_size: PROFESSIONAL_CANDIDATE_COUNT,
+    infer_method: 'ode',
+    audio_format: PROFESSIONAL_OUTPUT_FORMAT
+  };
+
+  if (!turbo) {
+    professional.guidance_scale = 7.0;
+    professional.shift = 1.0;
+    professional.use_adg = true;
+  }
+  return professional;
+}
+
 function promptContains(prompt, value) {
   return prompt.toLocaleLowerCase('en-US').includes(value.toLocaleLowerCase('en-US'));
 }
@@ -196,6 +286,7 @@ export function validateGenerationRequest(body) {
   const title = cleanField(body.title, 160);
   const bpm = Math.round(clamp(body.bpm, 124, 40, 220));
   const durationSec = Math.round(clamp(body.durationSec ?? body.duration, 30, 30, 240));
+  const timeSignature = inferTimeSignature(body.timeSignature || body.time_signature, genre, subgenre);
   const lyrics = String(body.lyrics || '').trim().slice(0, MAX_LYRICS_CHARS);
   const requestedVocalMode = cleanField(body.vocalMode, 20).toLowerCase();
   const vocalMode = requestedVocalMode || (lyrics ? 'unspecified' : 'instrumental');
@@ -240,39 +331,38 @@ export function validateGenerationRequest(body) {
     title,
     bpm,
     durationSec,
+    timeSignature,
     lyrics,
     vocalMode,
     qualityGate: {
       valid: true,
       status: 'PASSED',
-      policy: 'deterministic-generation-v1',
-      checkedFields: ['rawPrompt', 'genreFamily', 'genre', 'subgenre', 'mood', 'bpm', 'key', 'durationSec', 'vocalMode', 'lyrics']
+      policy: 'deterministic-generation-v2-professional',
+      checkedFields: ['rawPrompt', 'genreFamily', 'genre', 'subgenre', 'mood', 'bpm', 'key', 'durationSec', 'timeSignature', 'vocalMode', 'lyrics']
     }
   };
 }
 
 export function normalizeRequest(body) {
   const spec = validateGenerationRequest(body);
+  const renderDurationSec = alignDurationToCompleteBars(spec.durationSec, spec.bpm, spec.timeSignature);
+  const basePayload = {
+    // The frontend prompt is authoritative. Do not prepend, concatenate or replace it.
+    prompt: spec.prompt,
+    lyrics: spec.lyrics,
+    vocal_language: String(body.vocalLanguage || body.vocal_language || 'unknown'),
+    bpm: spec.bpm,
+    key_scale: spec.key,
+    time_signature: spec.timeSignature,
+    audio_duration: renderDurationSec,
+    use_random_seed: true,
+    seed: -1,
+    task_type: 'text2music',
+    mp3_bitrate: '320k',
+    mp3_sample_rate: 48000
+  };
   return {
-    payload: {
-      // The frontend prompt is authoritative. Do not prepend, concatenate or replace it.
-      prompt: spec.prompt,
-      lyrics: spec.lyrics,
-      vocal_language: String(body.vocalLanguage || body.vocal_language || 'unknown'),
-      bpm: spec.bpm,
-      key_scale: spec.key,
-      time_signature: String(body.timeSignature || body.time_signature || ''),
-      audio_duration: spec.durationSec,
-      inference_steps: 8,
-      thinking: false,
-      batch_size: 1,
-      use_random_seed: true,
-      seed: -1,
-      task_type: 'text2music',
-      audio_format: 'mp3',
-      mp3_bitrate: '192k',
-      mp3_sample_rate: 48000
-    },
+    payload: buildProfessionalEnginePayload(basePayload),
     qualityGate: spec.qualityGate,
     generationSpec: {
       rawPrompt: spec.rawPrompt,
@@ -283,8 +373,14 @@ export function normalizeRequest(body) {
       bpm: spec.bpm,
       key: spec.key,
       durationSec: spec.durationSec,
+      requestedDurationSec: spec.durationSec,
+      renderDurationSec,
+      timeSignature: spec.timeSignature,
+      outputFormat: PROFESSIONAL_OUTPUT_FORMAT,
+      candidateCount: PROFESSIONAL_CANDIDATE_COUNT,
       vocalMode: spec.vocalMode,
       hasLyrics: Boolean(spec.lyrics),
+      lyrics: spec.lyrics,
       title: spec.title
     }
   };
@@ -322,17 +418,336 @@ function audioPathFromItem(item, env) {
   const directFile = typeof item.file === 'string' ? item.file : '';
   const sourceUrl = typeof item.url === 'string' ? item.url : '';
 
-  if (sourceUrl) {
+  for (const source of [sourceUrl, directFile]) {
+    if (!source) continue;
     try {
-      const parsed = new URL(sourceUrl, config(env).baseUrl);
+      const parsed = new URL(source, config(env).baseUrl);
       const path = parsed.searchParams.get('path');
       if (path) return path;
     } catch {}
   }
-  return directFile;
+  return directFile && !directFile.includes('?path=') ? directFile : '';
 }
 
-async function queryTask(env, taskId) {
+function normalizeKeyScale(value) {
+  let key = String(value || '').trim().toLocaleLowerCase('en-US')
+    .replace(/♯/g, '#')
+    .replace(/♭/g, 'b')
+    .replace(/\bmaj(?:or)?\b/g, 'major')
+    .replace(/\bmin(?:or)?\b/g, 'minor');
+  const shortMinor = key.match(/^([a-g](?:#|b)?)m$/);
+  if (shortMinor) key = `${shortMinor[1]}minor`;
+  return key.replace(/[^a-z0-9#]+/g, '');
+}
+
+function candidateMetas(item) {
+  return item?.metas && typeof item.metas === 'object'
+    ? item.metas
+    : (item?.metadata && typeof item.metadata === 'object' ? item.metadata : {});
+}
+
+function finiteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+export function scoreGenerationCandidate(item, spec, index = 0) {
+  const errors = [];
+  const warnings = [];
+  const metas = candidateMetas(item);
+  const prompt = String(item?.prompt || item?.caption || '');
+  const genres = String(metas.genres || metas.genre || item?.genres || '');
+  const styleEvidence = `${prompt} ${genres}`.toLocaleLowerCase('en-US');
+  const expectedSubgenre = String(spec?.subgenre || '').toLocaleLowerCase('en-US');
+  const expectedGenre = String(spec?.genre || '').toLocaleLowerCase('en-US');
+  const bpm = finiteNumber(metas.bpm ?? item?.bpm);
+  const duration = finiteNumber(metas.duration ?? metas.audio_duration ?? item?.duration);
+  const key = String(metas.keyscale || metas.key_scale || metas.key || item?.key_scale || '');
+  const lyrics = String(item?.lyrics || '');
+  const expectedDuration = finiteNumber(spec?.renderDurationSec ?? spec?.durationSec);
+  let score = 100;
+
+  if (!item || typeof item !== 'object') errors.push('candidate is not an object');
+  if (!String(item?.file || item?.url || '').trim()) errors.push('candidate has no audio file');
+  if (expectedSubgenre && !styleEvidence.includes(expectedSubgenre)) errors.push(`candidate does not preserve subgenre ${spec.subgenre}`);
+  if (expectedGenre && expectedGenre !== expectedSubgenre && !styleEvidence.includes(expectedGenre)) warnings.push(`candidate does not repeat genre ${spec.genre}`);
+
+  if (bpm === null) errors.push('candidate has no BPM metadata');
+  else {
+    const deviation = Math.abs(bpm - Number(spec?.bpm));
+    score -= Math.min(20, deviation * 4);
+    if (deviation > 2) errors.push(`candidate BPM ${bpm} differs from ${spec.bpm}`);
+  }
+
+  if (duration === null || expectedDuration === null) errors.push('candidate has no duration metadata');
+  else {
+    const deviation = Math.abs(duration - expectedDuration);
+    score -= Math.min(20, deviation * 3);
+    if (deviation > 2) errors.push(`candidate duration ${duration} differs from ${expectedDuration}`);
+  }
+
+  if (!key) errors.push('candidate has no key metadata');
+  else if (normalizeKeyScale(key) !== normalizeKeyScale(spec?.key)) errors.push(`candidate key ${key} differs from ${spec.key}`);
+
+  if (spec?.hasLyrics && lyrics !== String(spec?.lyrics || '')) errors.push('candidate does not preserve lyrics exactly');
+  if (!spec?.hasLyrics && lyrics.trim()) errors.push('instrumental candidate unexpectedly contains lyrics');
+
+  score -= warnings.length * 3;
+  score -= errors.length * 15;
+  return {
+    index,
+    valid: errors.length === 0,
+    score: Math.max(0, Math.round(score * 10) / 10),
+    errors,
+    warnings,
+    metrics: { bpm, duration, key, model: cleanField(item?.dit_model || item?.model, 120) }
+  };
+}
+
+export function evaluateGenerationCandidates(outputs, spec) {
+  const items = Array.isArray(outputs) ? outputs : [];
+  const reports = items.map((item, index) => scoreGenerationCandidate(item, spec, index));
+  const ranked = reports
+    .filter(report => report.valid)
+    .sort((left, right) => right.score - left.score)
+    .map(report => ({ report, item: items[report.index] }));
+  return { reports, ranked };
+}
+
+function ascii(bytes, start, length) {
+  return String.fromCharCode(...bytes.subarray(start, start + length));
+}
+
+export function parseWavHeader(value) {
+  const bytes = value instanceof Uint8Array ? value : new Uint8Array(value || 0);
+  if (bytes.length < 44 || ascii(bytes, 0, 4) !== 'RIFF' || ascii(bytes, 8, 4) !== 'WAVE') {
+    return { valid: false, error: 'not a RIFF/WAVE file' };
+  }
+
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let offset = 12;
+  let format = null;
+  let dataOffset = 0;
+  let dataSize = 0;
+
+  while (offset + 8 <= bytes.length) {
+    const id = ascii(bytes, offset, 4);
+    const size = view.getUint32(offset + 4, true);
+    const contentOffset = offset + 8;
+    if (id === 'fmt ' && contentOffset + Math.min(size, 40) <= bytes.length && size >= 16) {
+      const containerFormat = view.getUint16(contentOffset, true);
+      const subFormat = containerFormat === 0xfffe && size >= 40
+        ? view.getUint16(contentOffset + 24, true)
+        : containerFormat;
+      format = {
+        audioFormat: subFormat,
+        containerFormat,
+        channels: view.getUint16(contentOffset + 2, true),
+        sampleRate: view.getUint32(contentOffset + 4, true),
+        byteRate: view.getUint32(contentOffset + 8, true),
+        blockAlign: view.getUint16(contentOffset + 12, true),
+        bitsPerSample: view.getUint16(contentOffset + 14, true)
+      };
+    }
+    if (id === 'data') {
+      dataOffset = contentOffset;
+      dataSize = size;
+      break;
+    }
+    offset = contentOffset + size + (size % 2);
+  }
+
+  if (!format || !dataOffset || !dataSize || !format.byteRate) {
+    return { valid: false, error: 'WAV header is missing fmt or data metadata' };
+  }
+
+  return {
+    valid: true,
+    ...format,
+    dataOffset,
+    dataSize,
+    durationSec: Math.round(dataSize / format.byteRate * 1000) / 1000
+  };
+}
+
+function pcmSample(view, offset, bitsPerSample, audioFormat) {
+  if (audioFormat === 3 && bitsPerSample === 32) return view.getFloat32(offset, true);
+  if (audioFormat !== 1) return null;
+  if (bitsPerSample === 16) return view.getInt16(offset, true) / 32768;
+  if (bitsPerSample === 24) {
+    let value = view.getUint8(offset) | (view.getUint8(offset + 1) << 8) | (view.getUint8(offset + 2) << 16);
+    if (value & 0x800000) value |= 0xff000000;
+    return value / 8388608;
+  }
+  if (bitsPerSample === 32) return view.getInt32(offset, true) / 2147483648;
+  return null;
+}
+
+export function analyzePcmSamples(value, format) {
+  const bytes = value instanceof Uint8Array ? value : new Uint8Array(value || 0);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const bytesPerSample = Math.max(1, Math.floor(Number(format?.bitsPerSample || 0) / 8));
+  const blockAlign = Number(format?.blockAlign || (bytesPerSample * Number(format?.channels || 1)));
+  if (!bytesPerSample || !blockAlign || ![1, 3].includes(Number(format?.audioFormat))) {
+    return { valid: false, error: 'unsupported PCM sample format' };
+  }
+
+  let samples = 0;
+  let sumSquares = 0;
+  let sum = 0;
+  let peak = 0;
+  let clipped = 0;
+  for (let frame = 0; frame + blockAlign <= bytes.length; frame += blockAlign) {
+    for (let channel = 0; channel < Number(format.channels || 1); channel += 1) {
+      const offset = frame + channel * bytesPerSample;
+      const sample = pcmSample(view, offset, Number(format.bitsPerSample), Number(format.audioFormat));
+      if (sample === null || !Number.isFinite(sample)) continue;
+      const absolute = Math.abs(sample);
+      samples += 1;
+      sum += sample;
+      sumSquares += sample * sample;
+      peak = Math.max(peak, absolute);
+      if (absolute >= 0.999) clipped += 1;
+    }
+  }
+
+  if (!samples) return { valid: false, error: 'no decodable PCM samples' };
+  const rms = Math.sqrt(sumSquares / samples);
+  return {
+    valid: true,
+    sampleCount: samples,
+    rmsDb: rms > 0 ? 20 * Math.log10(rms) : -Infinity,
+    peakDb: peak > 0 ? 20 * Math.log10(peak) : -Infinity,
+    clippingRatio: clipped / samples,
+    dcOffset: sum / samples
+  };
+}
+
+async function readLimitedBody(response, maxBytes) {
+  if (!response.body) return new Uint8Array();
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (total < maxBytes) {
+      const { value, done } = await reader.read();
+      if (value?.length) {
+        const take = value.subarray(0, Math.min(value.length, maxBytes - total));
+        chunks.push(take);
+        total += take.length;
+      }
+      if (done) break;
+    }
+  } finally {
+    try { await reader.cancel(); } catch {}
+  }
+  const output = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return output;
+}
+
+async function engineAudioResponse(env, audioPath, init = {}, timeoutMs = 15000) {
+  const cfg = config(env);
+  return fetch(`${cfg.baseUrl}/v1/audio?path=${encodeURIComponent(audioPath)}`, {
+    ...init,
+    headers: authHeaders(env, init.headers || {}),
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+}
+
+async function verifyGeneratedWav(env, audioPath, spec) {
+  const errors = [];
+  const warnings = [];
+  let head;
+  try {
+    head = await engineAudioResponse(env, audioPath, { method: 'HEAD' });
+  } catch (error) {
+    return { passed: false, score: 0, errors: [`audio HEAD failed: ${error instanceof Error ? error.message : String(error)}`], warnings, metrics: {} };
+  }
+
+  const contentType = String(head.headers.get('content-type') || '').toLocaleLowerCase('en-US');
+  const contentLength = finiteNumber(head.headers.get('content-length'));
+  if (!head.ok) errors.push(`audio resource returned HTTP ${head.status}`);
+  if (!contentType.startsWith('audio/')) errors.push(`invalid audio MIME type: ${contentType || 'missing'}`);
+  const expectedDuration = Number(spec.renderDurationSec || spec.durationSec || 0);
+  const minimumBytes = Math.max(MIN_AUDIO_BYTES, Math.round(expectedDuration * 8000));
+  if (contentLength !== null && contentLength < minimumBytes) errors.push(`audio file is too small: ${contentLength} bytes`);
+
+  let headerBytes = new Uint8Array();
+  try {
+    const response = await engineAudioResponse(env, audioPath, { method: 'GET', headers: { Range: 'bytes=0-65535' } });
+    if (!response.ok && response.status !== 206) errors.push(`audio header returned HTTP ${response.status}`);
+    else headerBytes = await readLimitedBody(response, 65536);
+  } catch (error) {
+    errors.push(`audio header read failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  const header = parseWavHeader(headerBytes);
+  if (!header.valid) errors.push(header.error);
+  else {
+    if (header.sampleRate < MIN_SAMPLE_RATE) errors.push(`sample rate ${header.sampleRate} is below ${MIN_SAMPLE_RATE}`);
+    if (header.channels < 2) errors.push('professional master must be stereo');
+    if (header.bitsPerSample < MIN_BITS_PER_SAMPLE) errors.push(`bit depth ${header.bitsPerSample} is below ${MIN_BITS_PER_SAMPLE}`);
+    const secondsPerBar = pulseBeatsPerBar(spec.timeSignature) * 60 / Number(spec.bpm || 124);
+    const durationTolerance = Math.max(2, secondsPerBar / 2 + 0.1);
+    if (Math.abs(header.durationSec - expectedDuration) > durationTolerance) {
+      errors.push(`WAV duration ${header.durationSec}s differs from target ${expectedDuration}s`);
+    }
+  }
+
+  let signal = null;
+  if (header.valid) {
+    const alignedMidpoint = header.dataOffset + Math.floor((header.dataSize * 0.45) / header.blockAlign) * header.blockAlign;
+    try {
+      const response = await engineAudioResponse(env, audioPath, {
+        method: 'GET',
+        headers: { Range: `bytes=${alignedMidpoint}-${alignedMidpoint + 131071}` }
+      });
+      if (response.status === 206) {
+        signal = analyzePcmSamples(await readLimitedBody(response, 131072), header);
+      } else {
+        warnings.push('engine did not provide a midpoint byte range; signal analysis was skipped');
+        try { await response.body?.cancel(); } catch {}
+      }
+    } catch (error) {
+      warnings.push(`signal analysis unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  if (signal?.valid) {
+    if (signal.rmsDb < -70) errors.push(`audio is effectively silent (${signal.rmsDb.toFixed(1)} dBFS RMS)`);
+    if (signal.peakDb < -55) errors.push(`audio signal is too weak (${signal.peakDb.toFixed(1)} dBFS peak)`);
+    if (signal.clippingRatio > 0.03) errors.push(`audio clipping ratio is excessive (${(signal.clippingRatio * 100).toFixed(2)}%)`);
+    if (Math.abs(signal.dcOffset) > 0.2) errors.push(`audio DC offset is excessive (${signal.dcOffset.toFixed(3)})`);
+  } else if (signal && !signal.valid) {
+    errors.push(signal.error);
+  }
+
+  const score = Math.max(0, 100 - errors.length * 25 - warnings.length * 5);
+  return {
+    passed: errors.length === 0 && score >= 85,
+    score,
+    errors,
+    warnings,
+    metrics: {
+      contentType,
+      contentLength,
+      sampleRate: header.valid ? header.sampleRate : null,
+      channels: header.valid ? header.channels : null,
+      bitsPerSample: header.valid ? header.bitsPerSample : null,
+      durationSec: header.valid ? header.durationSec : null,
+      rmsDb: signal?.valid ? Math.round(signal.rmsDb * 10) / 10 : null,
+      peakDb: signal?.valid ? Math.round(signal.peakDb * 10) / 10 : null,
+      clippingRatio: signal?.valid ? signal.clippingRatio : null
+    }
+  };
+}
+
+async function queryTask(env, taskId, generationSpec) {
   const data = await engineJson(env, '/query_result', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -347,15 +762,36 @@ async function queryTask(env, taskId) {
   }
 
   const outputs = parseResultItems(item.result);
-  const audioPath = audioPathFromItem(outputs[0], env);
-  if (!audioPath) {
-    return { state: 'failed', error: 'SONARA completed without a valid audio file.' };
+  const evaluation = evaluateGenerationCandidates(outputs, generationSpec);
+  const diagnostics = [...evaluation.reports];
+
+  for (const candidate of evaluation.ranked) {
+    const audioPath = audioPathFromItem(candidate.item, env);
+    if (!audioPath) continue;
+    const audioGate = await verifyGeneratedWav(env, audioPath, generationSpec);
+    diagnostics[candidate.report.index] = { ...candidate.report, audioGate };
+    if (!audioGate.passed) continue;
+    return {
+      state: 'completed',
+      audioPath,
+      audioUrl: `${PUBLIC_API_ORIGIN}/api/modal/audio?path=${encodeURIComponent(audioPath)}`,
+      candidateIndex: candidate.report.index,
+      outputQualityGate: {
+        valid: true,
+        status: 'PASSED',
+        policy: 'professional-audio-v2',
+        score: Math.min(candidate.report.score, audioGate.score),
+        candidateCount: outputs.length,
+        metadataGate: candidate.report,
+        audioGate
+      }
+    };
   }
 
   return {
-    state: 'completed',
-    audioPath,
-    audioUrl: `${PUBLIC_API_ORIGIN}/api/modal/audio?path=${encodeURIComponent(audioPath)}`
+    state: 'quality_rejected',
+    error: 'SONARA rejected every generated candidate because the real audio did not pass the professional quality gate.',
+    diagnostics
   };
 }
 
@@ -389,6 +825,8 @@ async function generate(request, env, ctx) {
       requestedDuration: payload.audio_duration,
       taskId: null,
       generationAttempts: 0,
+      qualityRegenerations: 0,
+      rejectedQualityReports: [],
       createdAt: Date.now(),
       updatedAt: Date.now()
     });
@@ -428,6 +866,8 @@ async function processJob(request, env, jobId, context) {
         duration: context.requestedDuration,
         audioUrl: context.audioUrl,
         qualityGate: context.qualityGate,
+        outputQualityGate: context.outputQualityGate,
+        audioFormat: context.generationSpec?.outputFormat || PROFESSIONAL_OUTPUT_FORMAT,
         generationSpec: context.generationSpec,
         currentStage: 'Audio ready'
       }
@@ -454,8 +894,13 @@ async function processJob(request, env, jobId, context) {
       });
     }
 
-    const ready = await modelReady(env);
-    if (!ready) {
+    let catalog;
+    try {
+      catalog = await engineModelCatalog(env);
+    } catch {
+      catalog = { models: [], defaultModel: '' };
+    }
+    if (!catalog.models.length) {
       return json(request, {
         jobId,
         status: 'PROCESSING',
@@ -465,9 +910,13 @@ async function processJob(request, env, jobId, context) {
     }
 
     const attempts = Number(context.generationAttempts || 0);
+    const selectedModel = chooseProfessionalModel(catalog.models, catalog.defaultModel);
+    const professionalPayload = buildProfessionalEnginePayload(context.payload, selectedModel);
     context = {
       ...context,
       phase: 'generating',
+      payload: professionalPayload,
+      selectedModel,
       generationAttempts: attempts + 1,
       generationStartedAt: Date.now(),
       updatedAt: Date.now()
@@ -475,7 +924,7 @@ async function processJob(request, env, jobId, context) {
     await storeJob(jobId, context);
 
     try {
-      const taskId = await releaseTask(env, context.payload);
+      const taskId = await releaseTask(env, professionalPayload);
       context = {
         ...context,
         phase: 'submitted',
@@ -508,7 +957,7 @@ async function processJob(request, env, jobId, context) {
   }
 
   try {
-    const result = await queryTask(env, String(context.taskId));
+    const result = await queryTask(env, String(context.taskId), context.generationSpec);
     if (result.state === 'processing') {
       return json(request, {
         jobId,
@@ -523,11 +972,50 @@ async function processJob(request, env, jobId, context) {
       return json(request, { jobId, status: 'FAILED', progress: 0, error: result.error }, 502);
     }
 
+    if (result.state === 'quality_rejected') {
+      const qualityRegenerations = Number(context.qualityRegenerations || 0);
+      const rejectedQualityReports = [
+        ...(Array.isArray(context.rejectedQualityReports) ? context.rejectedQualityReports : []),
+        { taskId: context.taskId, diagnostics: result.diagnostics, rejectedAt: Date.now() }
+      ].slice(-MAX_QUALITY_REGENERATIONS);
+
+      if (qualityRegenerations < MAX_QUALITY_REGENERATIONS) {
+        const retryContext = {
+          ...context,
+          phase: 'queued',
+          taskId: null,
+          generationStartedAt: 0,
+          qualityRegenerations: qualityRegenerations + 1,
+          rejectedQualityReports,
+          updatedAt: Date.now()
+        };
+        await storeJob(jobId, retryContext);
+        return json(request, {
+          jobId,
+          status: 'PROCESSING',
+          progress: 92,
+          metadata: {
+            engine: 'SONARA',
+            qualityGate: context.qualityGate,
+            generationSpec: context.generationSpec,
+            qualityRegenerations: retryContext.qualityRegenerations,
+            currentStage: 'SONARA: candidate rejected by the real-audio quality gate; regenerating automatically'
+          }
+        });
+      }
+
+      const error = `${result.error} Maximum professional regeneration attempts reached.`;
+      await storeJob(jobId, { ...context, phase: 'failed', error, rejectedQualityReports, updatedAt: Date.now() });
+      return json(request, { jobId, status: 'FAILED', progress: 0, error, outputQualityGate: { valid: false, status: 'REJECTED', diagnostics: result.diagnostics } }, 502);
+    }
+
     const completed = {
       ...context,
       phase: 'completed',
       audioPath: result.audioPath,
       audioUrl: result.audioUrl,
+      outputQualityGate: result.outputQualityGate,
+      selectedCandidateIndex: result.candidateIndex,
       updatedAt: Date.now()
     };
     await storeJob(jobId, completed);
@@ -542,6 +1030,10 @@ async function processJob(request, env, jobId, context) {
         duration: context.requestedDuration,
         audioUrl: result.audioUrl,
         qualityGate: context.qualityGate,
+        outputQualityGate: result.outputQualityGate,
+        audioFormat: context.generationSpec?.outputFormat || PROFESSIONAL_OUTPUT_FORMAT,
+        model: context.selectedModel || 'ACE-Step 1.5',
+        selectedCandidateIndex: result.candidateIndex,
         generationSpec: context.generationSpec,
         currentStage: 'Audio ready'
       }
@@ -638,11 +1130,16 @@ export default {
       const cfg = config(env);
       return json(request, {
         status: 'HEALTHY',
-        service: 'sonara-production-engine-v6',
+        service: 'sonara-production-engine-v8-professional',
         engineConfigured: Boolean(cfg.key && cfg.secret),
         engine: 'SONARA',
         transport: 'direct production API',
-        resilience: 'direct-release-task-v7',
+        resilience: 'multi-candidate-real-audio-gate-v2',
+        inferenceProfile: 'ACE-Step 1.5 LM-thinking professional',
+        candidateCount: PROFESSIONAL_CANDIDATE_COUNT,
+        automaticQualityRegenerations: MAX_QUALITY_REGENERATIONS,
+        outputFormat: PROFESSIONAL_OUTPUT_FORMAT,
+        minimumSampleRate: MIN_SAMPLE_RATE,
         minDurationSeconds: 30,
         maxDurationSeconds: 240,
         segmentation: false
