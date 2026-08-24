@@ -75,6 +75,10 @@ function errorMessage(response: Response, payload: any): string {
   if (code === 'EMBER_NOT_CONFIGURED' || code === 'EMBER_VOICE_NOT_CONFIGURED') {
     return 'La chiave API di Ember deve essere attivata sul server.';
   }
+  if (code === 'EMBER_OPENAI_AUTH_ERROR') return 'La chiave API OpenAI configurata non e valida o non e autorizzata.';
+  if (code === 'EMBER_OPENAI_QUOTA_ERROR') return 'Il credito API OpenAI e esaurito oppure il progetto ha raggiunto il limite di utilizzo.';
+  if (code === 'EMBER_REALTIME_MODEL_UNAVAILABLE') return 'Il modello vocale Realtime non e abilitato per questo progetto OpenAI.';
+  if (code === 'EMBER_REALTIME_UPSTREAM_ERROR') return 'La sessione vocale OpenAI non si e avviata. Riprova tra pochi secondi.';
   if (response.status === 429) return 'Limite temporaneo raggiunto. Attendi qualche minuto e riprova.';
   return payload?.error?.message || 'Ember non e disponibile in questo momento.';
 }
@@ -182,6 +186,15 @@ export default function EmberWorkspace({ studioContext }: EmberWorkspaceProps) {
     setError('');
     setRealtimeState('connecting');
     try {
+      const tokenResponse = await emberFetch('realtime-token', {
+        method: 'POST',
+        body: JSON.stringify({ studioContext })
+      });
+      const tokenPayload = await tokenResponse.json().catch(() => null);
+      if (!tokenResponse.ok || typeof tokenPayload?.value !== 'string') {
+        throw new Error(errorMessage(tokenResponse, tokenPayload));
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
       });
@@ -229,24 +242,24 @@ export default function EmberWorkspace({ studioContext }: EmberWorkspaceProps) {
 
       const offer = await peerConnection.createOffer();
       await peerConnection.setLocalDescription(offer);
-      const params = new URLSearchParams({
-        genre: studioContext.genre,
-        subgenre: studioContext.subgenre,
-        mood: studioContext.mood,
-        bpm: String(studioContext.bpm),
-        keySignature: studioContext.keySignature,
-        hasAudio: String(studioContext.hasAudio)
-      });
-      const response = await emberFetch(`realtime?${params.toString()}`, {
+      const response = await fetch('https://api.openai.com/v1/realtime/calls', {
         method: 'POST',
         body: offer.sdp || '',
-        headers: { 'Content-Type': 'application/sdp', Accept: 'application/sdp' }
+        headers: {
+          Authorization: `Bearer ${tokenPayload.value}`,
+          'Content-Type': 'application/sdp',
+          Accept: 'application/sdp'
+        }
       });
       const answer = await response.text();
       if (!response.ok) {
-        let payload: any = null;
-        try { payload = JSON.parse(answer); } catch { /* The upstream response was not JSON. */ }
-        throw new Error(errorMessage(response, payload));
+        if (response.status === 401 || response.status === 403) {
+          throw new Error('La sessione vocale temporanea non e stata autorizzata. Riprova.');
+        }
+        if (response.status === 429) {
+          throw new Error('Il limite OpenAI Realtime e stato raggiunto. Attendi qualche minuto e riprova.');
+        }
+        throw new Error('OpenAI Realtime non ha accettato la connessione vocale.');
       }
       await peerConnection.setRemoteDescription({ type: 'answer', sdp: answer });
     } catch (realtimeError) {

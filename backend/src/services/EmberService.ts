@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 const RESPONSES_URL = 'https://api.openai.com/v1/responses';
 const SPEECH_URL = 'https://api.openai.com/v1/audio/speech';
 const REALTIME_URL = 'https://api.openai.com/v1/realtime/calls';
+const REALTIME_CLIENT_SECRETS_URL = 'https://api.openai.com/v1/realtime/client_secrets';
 const REQUEST_TIMEOUT_MS = 45_000;
 
 export const EMBER_MAX_MESSAGE_LENGTH = 4_000;
@@ -36,11 +37,25 @@ const EMBER_REALTIME_INSTRUCTIONS = `You are in a live, natural speech-to-speech
 
 export class EmberServiceError extends Error {
   constructor(
-    public readonly code: 'NOT_CONFIGURED' | 'UPSTREAM_ERROR',
+    public readonly code: 'NOT_CONFIGURED' | 'UPSTREAM_ERROR' | 'OPENAI_AUTH' | 'OPENAI_QUOTA' | 'MODEL_UNAVAILABLE',
     message: string
   ) {
     super(message);
   }
+}
+
+function openAIServiceError(status: number, body = ''): EmberServiceError {
+  const normalized = body.toLowerCase();
+  if (status === 401 || status === 403) {
+    return new EmberServiceError('OPENAI_AUTH', 'The configured OpenAI API key is not authorized.');
+  }
+  if (status === 429 || normalized.includes('insufficient_quota') || normalized.includes('billing')) {
+    return new EmberServiceError('OPENAI_QUOTA', 'The OpenAI project has no available quota.');
+  }
+  if (status === 404 || normalized.includes('model_not_found') || normalized.includes('does not have access to model')) {
+    return new EmberServiceError('MODEL_UNAVAILABLE', 'The requested OpenAI model is not available for this project.');
+  }
+  return new EmberServiceError('UPSTREAM_ERROR', 'Ember is temporarily unavailable.');
 }
 
 function apiKey(): string {
@@ -65,7 +80,7 @@ async function callOpenAI(url: string, body: Record<string, unknown>): Promise<R
     });
     if (!response.ok) {
       console.warn(`[EMBER] OpenAI upstream failure: HTTP ${response.status}`);
-      throw new EmberServiceError('UPSTREAM_ERROR', 'Ember is temporarily unavailable.');
+      throw openAIServiceError(response.status, await response.text());
     }
     return response;
   } catch (error) {
@@ -181,12 +196,70 @@ export class EmberService {
       const answer = await response.text();
       if (!response.ok || !answer.trim()) {
         console.warn(`[EMBER] OpenAI Realtime failure: HTTP ${response.status}`);
-        throw new EmberServiceError('UPSTREAM_ERROR', 'Ember Realtime is temporarily unavailable.');
+        if (!response.ok) throw openAIServiceError(response.status, answer);
+        throw new EmberServiceError('UPSTREAM_ERROR', 'Ember Realtime returned an empty response.');
       }
       return answer;
     } catch (error) {
       if (error instanceof EmberServiceError) throw error;
       console.warn('[EMBER] OpenAI Realtime request failed.');
+      throw new EmberServiceError('UPSTREAM_ERROR', 'Ember Realtime is temporarily unavailable.');
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  static async createRealtimeClientSecret(input: {
+    userId: string;
+    studioContext: EmberStudioContext;
+  }): Promise<{ value: string; expiresAt?: number }> {
+    const key = apiKey();
+    if (!key || !this.realtimeEnabled()) {
+      throw new EmberServiceError('NOT_CONFIGURED', 'OpenAI Realtime is not configured.');
+    }
+
+    const context = JSON.stringify(input.studioContext).slice(0, 3_000);
+    const body = {
+      session: {
+        type: 'realtime',
+        model: String(process.env.EMBER_REALTIME_MODEL || '').trim() || 'gpt-realtime-2.1',
+        instructions: `${EMBER_INSTRUCTIONS}\n${EMBER_REALTIME_INSTRUCTIONS}\nCurrent Sonara Studio context: ${context}`,
+        audio: {
+          output: {
+            voice: String(process.env.EMBER_REALTIME_VOICE || '').trim() || 'marin'
+          }
+        }
+      }
+    };
+    const safetyIdentifier = createHash('sha256')
+      .update(`sonara-ember:${input.userId}`)
+      .digest('hex');
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const response = await fetch(REALTIME_CLIENT_SECRETS_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${key}`,
+          'Content-Type': 'application/json',
+          'OpenAI-Safety-Identifier': safetyIdentifier
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+      const raw = await response.text();
+      if (!response.ok) {
+        console.warn(`[EMBER] OpenAI Realtime token failure: HTTP ${response.status}`);
+        throw openAIServiceError(response.status, raw);
+      }
+      const payload = JSON.parse(raw) as { value?: string; expires_at?: number };
+      if (!payload.value) {
+        throw new EmberServiceError('UPSTREAM_ERROR', 'OpenAI Realtime returned an invalid client secret.');
+      }
+      return { value: payload.value, expiresAt: payload.expires_at };
+    } catch (error) {
+      if (error instanceof EmberServiceError) throw error;
+      console.warn('[EMBER] OpenAI Realtime token request failed.');
       throw new EmberServiceError('UPSTREAM_ERROR', 'Ember Realtime is temporarily unavailable.');
     } finally {
       clearTimeout(timeout);

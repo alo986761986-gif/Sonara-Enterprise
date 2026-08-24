@@ -39,6 +39,15 @@ function sendError(res: Response, status: number, code: string, message: string)
   return res.status(status).json({ error: { code, message } });
 }
 
+function sendServiceError(res: Response, error: unknown, fallbackCode: string, fallbackMessage: string) {
+  if (!(error instanceof EmberServiceError)) return sendError(res, 502, fallbackCode, fallbackMessage);
+  if (error.code === 'NOT_CONFIGURED') return sendError(res, 503, 'EMBER_NOT_CONFIGURED', 'Ember API is not configured on the server.');
+  if (error.code === 'OPENAI_AUTH') return sendError(res, 503, 'EMBER_OPENAI_AUTH_ERROR', 'The configured OpenAI API key is not authorized.');
+  if (error.code === 'OPENAI_QUOTA') return sendError(res, 503, 'EMBER_OPENAI_QUOTA_ERROR', 'The OpenAI project has no available credit or quota.');
+  if (error.code === 'MODEL_UNAVAILABLE') return sendError(res, 503, 'EMBER_REALTIME_MODEL_UNAVAILABLE', 'The Realtime model is not available for this OpenAI project.');
+  return sendError(res, 502, fallbackCode, fallbackMessage);
+}
+
 router.get('/config', verifyFirebaseToken, (req: AuthenticatedRequest, res: Response) => {
   res.setHeader('Cache-Control', 'no-store');
   if (rejectCrossSite(req)) return sendError(res, 403, 'EMBER_CROSS_SITE_REJECTED', 'Cross-site requests are not allowed.');
@@ -76,10 +85,7 @@ router.post('/chat', verifyFirebaseToken, async (req: AuthenticatedRequest, res:
     });
     return res.json({ reply });
   } catch (error) {
-    if (error instanceof EmberServiceError && error.code === 'NOT_CONFIGURED') {
-      return sendError(res, 503, 'EMBER_NOT_CONFIGURED', 'Ember API is not configured on the server.');
-    }
-    return sendError(res, 502, 'EMBER_UPSTREAM_ERROR', 'Ember is temporarily unavailable.');
+    return sendServiceError(res, error, 'EMBER_UPSTREAM_ERROR', 'Ember is temporarily unavailable.');
   }
 });
 
@@ -107,8 +113,38 @@ router.post('/speech', verifyFirebaseToken, async (req: AuthenticatedRequest, re
     res.setHeader('Content-Length', String(audio.length));
     res.setHeader('Content-Disposition', 'inline; filename="ember.mp3"');
     return res.send(audio);
-  } catch {
-    return sendError(res, 502, 'EMBER_VOICE_UPSTREAM_ERROR', 'Ember Voice is temporarily unavailable.');
+  } catch (error) {
+    return sendServiceError(res, error, 'EMBER_VOICE_UPSTREAM_ERROR', 'Ember Voice is temporarily unavailable.');
+  }
+});
+
+router.post('/realtime-token', verifyFirebaseToken, async (req: AuthenticatedRequest, res: Response) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (rejectCrossSite(req)) return sendError(res, 403, 'EMBER_CROSS_SITE_REJECTED', 'Cross-site requests are not allowed.');
+  if (!req.is('application/json') || !isPlainObject(req.body)) {
+    return sendError(res, 400, 'EMBER_REALTIME_INVALID_REQUEST', 'Invalid Ember Realtime request.');
+  }
+  if (!EmberService.realtimeEnabled()) {
+    return sendError(res, 503, 'EMBER_REALTIME_NOT_CONFIGURED', 'Ember Realtime is not configured on the server.');
+  }
+  if (rateLimited(req.user!.uid, 'realtime')) {
+    return sendError(res, 429, 'EMBER_REALTIME_RATE_LIMITED', 'Too many realtime sessions. Please try again later.');
+  }
+
+  const source = isPlainObject(req.body.studioContext) ? req.body.studioContext : {};
+  const studioContext: EmberStudioContext = {
+    genre: String(source.genre || '').slice(0, 100),
+    subgenre: String(source.subgenre || '').slice(0, 100),
+    mood: String(source.mood || '').slice(0, 100),
+    bpm: Number(source.bpm) || undefined,
+    keySignature: String(source.keySignature || '').slice(0, 40),
+    hasAudio: Boolean(source.hasAudio)
+  };
+  try {
+    const secret = await EmberService.createRealtimeClientSecret({ userId: req.user!.uid, studioContext });
+    return res.json(secret);
+  } catch (error) {
+    return sendServiceError(res, error, 'EMBER_REALTIME_UPSTREAM_ERROR', 'Ember Realtime is temporarily unavailable.');
   }
 });
 
@@ -146,10 +182,7 @@ router.post(
       res.type('application/sdp');
       return res.send(answer);
     } catch (error) {
-      if (error instanceof EmberServiceError && error.code === 'NOT_CONFIGURED') {
-        return sendError(res, 503, 'EMBER_REALTIME_NOT_CONFIGURED', 'Ember Realtime is not configured on the server.');
-      }
-      return sendError(res, 502, 'EMBER_REALTIME_UPSTREAM_ERROR', 'Ember Realtime is temporarily unavailable.');
+      return sendServiceError(res, error, 'EMBER_REALTIME_UPSTREAM_ERROR', 'Ember Realtime is temporarily unavailable.');
     }
   }
 );
