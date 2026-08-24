@@ -91,6 +91,80 @@ const INITIAL_BANDS: EqBandConfig[] = [
   { id: 'b_20000', group: 'HIGH', freq: 20000, gain: 0, q: 0.7, type: 'lowpass', enabled: true }
 ];
 
+function audioBufferToWav(buffer: AudioBuffer): Blob {
+  const channelCount = Math.min(2, buffer.numberOfChannels);
+  const sampleCount = buffer.length;
+  const bytesPerSample = 2;
+  const blockAlign = channelCount * bytesPerSample;
+  const output = new ArrayBuffer(44 + sampleCount * blockAlign);
+  const view = new DataView(output);
+
+  const writeText = (offset: number, value: string) => {
+    for (let index = 0; index < value.length; index += 1) view.setUint8(offset + index, value.charCodeAt(index));
+  };
+
+  writeText(0, 'RIFF');
+  view.setUint32(4, 36 + sampleCount * blockAlign, true);
+  writeText(8, 'WAVE');
+  writeText(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, channelCount, true);
+  view.setUint32(24, buffer.sampleRate, true);
+  view.setUint32(28, buffer.sampleRate * blockAlign, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, 16, true);
+  writeText(36, 'data');
+  view.setUint32(40, sampleCount * blockAlign, true);
+
+  const channels = Array.from({ length: channelCount }, (_, index) => buffer.getChannelData(index));
+  let offset = 44;
+  for (let sampleIndex = 0; sampleIndex < sampleCount; sampleIndex += 1) {
+    for (let channelIndex = 0; channelIndex < channelCount; channelIndex += 1) {
+      const sample = Math.max(-1, Math.min(1, channels[channelIndex][sampleIndex]));
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+      offset += bytesPerSample;
+    }
+  }
+
+  return new Blob([output], { type: 'audio/wav' });
+}
+
+function measureRenderedMaster(buffer: AudioBuffer) {
+  const left = buffer.getChannelData(0);
+  const right = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : left;
+  let peakL = 0;
+  let peakR = 0;
+  let energy = 0;
+  let cross = 0;
+  let energyL = 0;
+  let energyR = 0;
+
+  for (let index = 0; index < buffer.length; index += 1) {
+    const sampleL = left[index];
+    const sampleR = right[index];
+    peakL = Math.max(peakL, Math.abs(sampleL));
+    peakR = Math.max(peakR, Math.abs(sampleR));
+    energy += (sampleL * sampleL + sampleR * sampleR) / 2;
+    cross += sampleL * sampleR;
+    energyL += sampleL * sampleL;
+    energyR += sampleR * sampleR;
+  }
+
+  const meanSquare = energy / Math.max(1, buffer.length);
+  const truePeak = Math.max(peakL, peakR);
+  const correlation = cross / Math.max(1e-9, Math.sqrt(energyL * energyR));
+  return {
+    lufs: Number((-0.691 + 10 * Math.log10(Math.max(meanSquare, 1e-12))).toFixed(1)),
+    truePeakDbtp: Number((20 * Math.log10(Math.max(truePeak, 1e-9))).toFixed(1)),
+    peakL,
+    peakR,
+    gainReductionDb: 0,
+    stereoPhaseCorrelation: Number(Math.max(-1, Math.min(1, correlation)).toFixed(2)),
+    activeBandsCount: 0
+  };
+}
+
 export interface ProfessionalAudioEqualizerProps {
   audioUrl?: string;
   onProcessedAudio?: (newAudioUrl: string, metrics: any) => void;
@@ -149,26 +223,6 @@ export function ProfessionalAudioEqualizer({
   const outputGainNodeRef = useRef<GainNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const mediaSourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
-
-  // Load Presets on Mount
-  useEffect(() => {
-    fetch('/api/music/eq/presets')
-      .then(res => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
-      })
-      .then(data => {
-        if (Array.isArray(data.presets)) {
-          const merged = new Map<string, EqPreset>();
-          BUILT_IN_PROFESSIONAL_EQ_PRESETS.forEach(preset => merged.set(preset.id, preset));
-          data.presets.forEach((preset: EqPreset) => merged.set(preset.id, preset));
-          setPresets([...merged.values()]);
-        }
-      })
-      .catch(() => {
-        // The complete built-in mastering library remains available offline.
-      });
-  }, []);
 
   // Web Audio Context Setup
   const initWebAudio = () => {
@@ -489,7 +543,7 @@ export function ProfessionalAudioEqualizer({
     return () => cancelAnimationFrame(animId);
   }, [bands, selectedBandId, globalBypass, isPlaying]);
 
-  // Execute Server-Side WAV Processing
+  // Render a real WAV master locally with the Web Audio offline DSP engine.
   const processServerAudio = async () => {
     if (!currentAudioUrl) {
       setBackendNotice('Genera prima un brano per creare ed esportare il master.');
@@ -498,38 +552,53 @@ export function ProfessionalAudioEqualizer({
     setIsProcessingBackend(true);
     setBackendNotice(null);
     try {
-      const res = await fetch('/api/music/eq/process', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          bands,
-          audioUrl: currentAudioUrl || audioUrl
-        })
+      const sourceResponse = await fetch(currentAudioUrl, { cache: 'no-store' });
+      if (!sourceResponse.ok) throw new Error(`Audio HTTP ${sourceResponse.status}`);
+      const sourceBytes = await sourceResponse.arrayBuffer();
+      const decodeContext = new AudioContext();
+      const decoded = await decodeContext.decodeAudioData(sourceBytes.slice(0));
+      await decodeContext.close();
+
+      const offlineContext = new OfflineAudioContext(
+        Math.min(2, Math.max(1, decoded.numberOfChannels)),
+        decoded.length,
+        decoded.sampleRate
+      );
+      const source = offlineContext.createBufferSource();
+      source.buffer = decoded;
+
+      const inputNode = offlineContext.createGain();
+      const outputNode = offlineContext.createGain();
+      inputNode.gain.value = Math.pow(10, inputGainDb / 20);
+      outputNode.gain.value = Math.pow(10, outputGainDb / 20);
+      source.connect(inputNode);
+
+      let previousNode: AudioNode = inputNode;
+      const activeBands = globalBypass ? [] : bands.filter(band => band.enabled && !band.bypass);
+      activeBands.forEach(band => {
+        const filter = offlineContext.createBiquadFilter();
+        filter.type = mapFilterTypeToWebAudio(band.type);
+        filter.frequency.value = band.freq;
+        filter.Q.value = band.q;
+        filter.gain.value = band.gain;
+        previousNode.connect(filter);
+        previousNode = filter;
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      if (data.status === 'success') {
-        setMetrics({
-          lufs: data.metrics.lufs,
-          truePeakDbtp: data.metrics.truePeakDbtp,
-          peakL: data.metrics.peakL,
-          peakR: data.metrics.peakR,
-          gainReductionDb: 0.0,
-          stereoPhaseCorrelation: data.metrics.stereoPhaseCorrelation
-        });
+      previousNode.connect(outputNode);
+      outputNode.connect(offlineContext.destination);
+      source.start();
 
-        if (data.audioUrl) {
-          setCurrentAudioUrl(data.audioUrl);
-          if (onProcessedAudio) {
-            onProcessedAudio(data.audioUrl, data.metrics);
-          }
-        }
-
-        setBackendNotice(`EQ Processing Complete! Audio rendered & mastered at ${data.metrics.lufs} LUFS, ${data.metrics.truePeakDbtp} dBTP (${data.metrics.activeBandsCount} active filters applied). Saved to ${data.audioUrl}`);
-      }
-    } catch (e) {
-      console.error('EQ process failed', e);
-      setBackendNotice('Server EQ processing failed. Please try again.');
+      const rendered = await offlineContext.startRendering();
+      const renderedMetrics = { ...measureRenderedMaster(rendered), activeBandsCount: activeBands.length };
+      const masteredBlob = audioBufferToWav(rendered);
+      const masteredUrl = URL.createObjectURL(masteredBlob);
+      setMetrics(renderedMetrics);
+      setCurrentAudioUrl(masteredUrl);
+      onProcessedAudio?.(masteredUrl, renderedMetrics);
+      setBackendNotice(`Master DSP completato nel browser: ${renderedMetrics.lufs} LUFS, ${renderedMetrics.truePeakDbtp} dBTP, ${activeBands.length} filtri attivi. Il WAV reale è stato salvato in Pubblicazione.`);
+    } catch (processingError) {
+      console.error('EQ processing failed', processingError);
+      setBackendNotice('Impossibile elaborare questo file audio. Verifica il file generato e riprova.');
     } finally {
       setIsProcessingBackend(false);
     }
