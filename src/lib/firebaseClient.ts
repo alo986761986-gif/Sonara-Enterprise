@@ -78,3 +78,9 @@ export async function resetEmailPassword(email: string): Promise<void> {
 export async function logoutFirebase(): Promise<void> {
   if (firebaseConfigured) await signOut(getFirebaseAuth());
 }
+
+export async function getFirebaseIdToken(forceRefresh = false): Promise<string> {
+  const user = getFirebaseAuth().currentUser;
+  if (!user) throw new Error('Accedi per usare Ember.');
+  return user.getIdToken(forceRefresh);
+}
