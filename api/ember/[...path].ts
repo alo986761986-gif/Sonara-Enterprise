@@ -1,5 +1,6 @@
 import {
   EMBER_MAX_MESSAGE_LENGTH,
+  EMBER_MAX_SDP_LENGTH,
   EMBER_MAX_SPEECH_LENGTH,
   EmberConversationMessage,
   EmberService,
@@ -8,7 +9,7 @@ import {
 } from '../../backend/src/services/EmberService';
 
 const RATE_WINDOW_MS = 5 * 60 * 1000;
-const limits = new Map<string, { startedAt: number; chat: number; speech: number }>();
+const limits = new Map<string, { startedAt: number; chat: number; speech: number; realtime: number }>();
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -27,6 +28,23 @@ function requestBody(req: any): Record<string, unknown> {
   } catch {
     return {};
   }
+}
+
+async function requestText(req: any): Promise<string> {
+  if (typeof req.body === 'string') return req.body;
+  if (Buffer.isBuffer(req.body)) return req.body.toString('utf8');
+  if (!req.body && req?.[Symbol.asyncIterator]) {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const chunk of req) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      size += buffer.length;
+      if (size > EMBER_MAX_SDP_LENGTH) return '';
+      chunks.push(buffer);
+    }
+    return Buffer.concat(chunks).toString('utf8');
+  }
+  return '';
 }
 
 function normalizeAction(value: unknown): string {
@@ -53,13 +71,13 @@ export function resolveEmberAction(req: any): string {
   return '';
 }
 
-function rateLimited(userId: string, kind: 'chat' | 'speech'): boolean {
+function rateLimited(userId: string, kind: 'chat' | 'speech' | 'realtime'): boolean {
   const now = Date.now();
   const current = limits.get(userId);
   const entry = !current || current.startedAt + RATE_WINDOW_MS <= now
-    ? { startedAt: now, chat: 0, speech: 0 }
+    ? { startedAt: now, chat: 0, speech: 0, realtime: 0 }
     : current;
-  const maximum = kind === 'chat' ? 20 : 10;
+  const maximum = kind === 'chat' ? 20 : kind === 'speech' ? 10 : 6;
   if (entry[kind] >= maximum) return true;
   entry[kind] += 1;
   limits.set(userId, entry);
@@ -110,7 +128,9 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json({
       chatEnabled: EmberService.isConfigured(),
       voiceEnabled: EmberService.voiceEnabled(),
-      voice: String(process.env.EMBER_TTS_VOICE || '').trim() || 'alloy'
+      realtimeEnabled: EmberService.realtimeEnabled(),
+      voice: String(process.env.EMBER_TTS_VOICE || '').trim() || 'alloy',
+      realtimeVoice: String(process.env.EMBER_REALTIME_VOICE || '').trim() || 'marin'
     });
   }
 
@@ -162,6 +182,41 @@ export default async function handler(req: any, res: any) {
       return res.status(200).send(audio);
     } catch {
       return sendError(res, 502, 'EMBER_VOICE_UPSTREAM_ERROR', 'Ember Voice is temporarily unavailable.');
+    }
+  }
+
+  if (req.method === 'POST' && action === 'realtime') {
+    if (!String(req.headers?.['content-type'] || '').toLowerCase().startsWith('application/sdp')) {
+      return sendError(res, 415, 'EMBER_REALTIME_INVALID_CONTENT_TYPE', 'An SDP offer is required.');
+    }
+    if (!EmberService.realtimeEnabled()) {
+      return sendError(res, 503, 'EMBER_REALTIME_NOT_CONFIGURED', 'Ember Realtime is not configured on the server.');
+    }
+    const sdp = (await requestText(req)).trim();
+    if (!sdp.startsWith('v=0') || sdp.length > EMBER_MAX_SDP_LENGTH) {
+      return sendError(res, 400, 'EMBER_REALTIME_INVALID_SDP', 'The realtime audio offer is invalid.');
+    }
+    if (rateLimited(userId, 'realtime')) {
+      return sendError(res, 429, 'EMBER_REALTIME_RATE_LIMITED', 'Too many realtime sessions. Please try again later.');
+    }
+
+    const studioContext: EmberStudioContext = {
+      genre: String(req.query?.genre || '').slice(0, 100),
+      subgenre: String(req.query?.subgenre || '').slice(0, 100),
+      mood: String(req.query?.mood || '').slice(0, 100),
+      bpm: Number(req.query?.bpm) || undefined,
+      keySignature: String(req.query?.keySignature || '').slice(0, 40),
+      hasAudio: String(req.query?.hasAudio || '') === 'true'
+    };
+    try {
+      const answer = await EmberService.openRealtimeSession({ sdp, userId, studioContext });
+      res.setHeader('Content-Type', 'application/sdp');
+      return res.status(200).send(answer);
+    } catch (error) {
+      if (error instanceof EmberServiceError && error.code === 'NOT_CONFIGURED') {
+        return sendError(res, 503, 'EMBER_REALTIME_NOT_CONFIGURED', 'Ember Realtime is not configured on the server.');
+      }
+      return sendError(res, 502, 'EMBER_REALTIME_UPSTREAM_ERROR', 'Ember Realtime is temporarily unavailable.');
     }
   }
 
