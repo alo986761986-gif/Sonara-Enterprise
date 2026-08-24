@@ -7,9 +7,10 @@ if (process.env.WORKERS_CI === '1') {
 }
 
 const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+const node = process.execPath;
 
-function run(args) {
-  const result = spawnSync(npx, args, {
+function run(command, args) {
+  const result = spawnSync(command, args, {
     stdio: 'inherit',
     shell: false
   });
@@ -25,10 +26,13 @@ function run(args) {
 }
 
 console.log('[SONARA] Validating professional music taxonomy.');
-run(['tsx', 'src/musicStyleIntelligence.professional.test.ts']);
+run(npx, ['tsx', 'src/musicStyleIntelligence.professional.test.ts']);
 
-run(['vite', 'build']);
-run([
+console.log('[SONARA] Validating direct ACE-Step XL-SFT professional engine profile.');
+run(node, ['--test', 'cloudflare/sonara-engine-v6-final.test.mjs']);
+
+run(npx, ['vite', 'build']);
+run(npx, [
   'esbuild',
   'server.ts',
   '--bundle',
