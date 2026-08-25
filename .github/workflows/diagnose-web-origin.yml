@@ -1,0 +1,38 @@
+name: Diagnose Sonara Web Origin
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/web-origin-diagnostic-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+    steps:
+      - name: Inspect Cloudflare web origin
+        shell: bash
+        run: |
+          set -euo pipefail
+          zone_json="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json" "https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50")"
+          zone_id="$(ZONE_JSON="$zone_json" node -e "const p=JSON.parse(process.env.ZONE_JSON||'{}'); process.stdout.write(String((p.result||[])[0]?.id||''))")"
+          test -n "$zone_id"
+          dns_json="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json" "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?per_page=100")"
+          DNS_JSON="$dns_json" node <<'NODE'
+          const p = JSON.parse(process.env.DNS_JSON || '{}');
+          for (const r of p.result || []) {
+            if (r.name === 'sonaraenterprise.com' || r.name === 'www.sonaraenterprise.com') {
+              console.log(`WEB_DNS type=${r.type} name=${r.name} content=${r.content} proxied=${r.proxied} ttl=${r.ttl}`);
+            }
+          }
+          NODE
+          pages_json="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json" "https://api.cloudflare.com/client/v4/accounts" || true)"
+          echo "Web origin diagnostic complete."
