@@ -15,7 +15,7 @@ jobs:
   repair:
     name: Rotate Modal proxy token and sync Cloudflare
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       RAW_MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
       RAW_MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
@@ -150,7 +150,7 @@ jobs:
 
           modal workspace proxy-tokens allow "${proxy_id}" main >/dev/null 2>&1 || true
 
-          direct_status="$(curl -sS --max-time 90 -w '%{http_code}' \
+          direct_status="$(curl -sS --max-time 240 -w '%{http_code}' \
             -H "Modal-Key: ${proxy_id}" \
             -H "Modal-Secret: ${proxy_secret}" \
             -o /tmp/modal-direct-models.json \
@@ -181,7 +181,7 @@ jobs:
       - name: Verify Cloudflare to Modal with fresh proxy token
         shell: bash
         run: |
-          status="$(curl -sS --max-time 90 -w '%{http_code}' \
+          status="$(curl -sS --max-time 180 -w '%{http_code}' \
             -o /tmp/cloudflare-modal-check.json \
             https://api.sonaraenterprise.com/api/diagnostics/modal-connectivity || true)"
           cat /tmp/cloudflare-modal-check.json || true
