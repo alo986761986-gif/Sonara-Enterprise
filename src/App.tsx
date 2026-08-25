@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { WORLD_MUSIC_GENRES, findGenre } from './data/worldMusicGenres';
 import { buildGenerationPrompt, buildRandomCreativeBrief, type VocalMode } from './generationPrompt';
+import { buildRandomLyrics } from './randomLyrics';
 import { getAtmospheresForSelection } from './musicStyleIntelligence';
 import {
   LANGUAGE_METADATA,
@@ -247,6 +248,7 @@ export default function App() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const automaticTitleRef = useRef(true);
   const randomVariantRef = useRef(0);
+  const lyricsVariantRef = useRef(0);
   const busy = status === 'QUEUED' || status === 'PROCESSING';
   const vocalLyrics = vocalMode === 'instrumental' ? '' : lyrics;
   const vocalReady = vocalMode === 'instrumental' || Boolean(lyrics.trim());
@@ -427,6 +429,18 @@ export default function App() {
       lyrics: vocalLyrics,
       title: nextTitle,
       variant: randomVariantRef.current
+    }));
+  };
+
+  const randomizeLyrics = () => {
+    lyricsVariantRef.current = (lyricsVariantRef.current + 1) % 4;
+    setLyrics(buildRandomLyrics({
+      language,
+      genre,
+      subgenre,
+      mood,
+      vocalMode,
+      variant: lyricsVariantRef.current
     }));
   };
 
@@ -792,13 +806,42 @@ export default function App() {
             );
           })}
         </div>
+        <div className="mb-2 mt-4 flex items-center justify-between gap-3">
+          <label htmlFor="sonara-lyrics" className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">
+            {t('lyrics')}
+          </label>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={randomizeLyrics}
+              disabled={busy || vocalMode === 'instrumental'}
+              title={vocalMode === 'instrumental' ? 'Seleziona prima una voce' : 'Genera un testo casuale'}
+              aria-label="Genera un testo casuale"
+              className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950 px-3 py-1.5 text-[10px] font-black tracking-widest text-slate-400 transition hover:border-purple-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Shuffle className="h-3 w-3" />
+              RANDOM
+            </button>
+            <button
+              type="button"
+              onClick={() => setLyrics('')}
+              disabled={busy || !lyrics}
+              title="Cancella il testo"
+              aria-label="Cancella il testo"
+              className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-800 bg-slate-950 text-slate-400 transition hover:border-red-400/70 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
         <textarea
+          id="sonara-lyrics"
           value={lyrics}
           onChange={event => setLyrics(event.target.value)}
           disabled={busy || vocalMode === 'instrumental'}
           rows={7}
           placeholder={vocalMode === 'instrumental' ? 'Seleziona una modalità vocale per inserire il testo.' : 'Inserisci il testo completo da cantare.'}
-          className="mt-4 w-full rounded-xl border border-slate-800 bg-[#060a12] p-4 text-sm outline-none focus:border-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
+          className="w-full rounded-xl border border-slate-800 bg-[#060a12] p-4 text-sm outline-none focus:border-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
         />
         {!vocalReady && <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-300">Inserisci il testo prima di generare con la modalità vocale selezionata.</div>}
       </details>
