@@ -21,7 +21,6 @@ MINUTES = 60
 
 FAST_DIT_MODEL = "acestep-v15-xl-turbo"
 QUALITY_DIT_MODEL = "acestep-v15-xl-sft"
-# Backward-compatible quality model name used by existing verification/reporting.
 DIT_MODEL = QUALITY_DIT_MODEL
 LM_MODEL = "acestep-5Hz-lm-4B"
 CHECKPOINTS_DIR = "/app/checkpoints"
@@ -39,8 +38,6 @@ runtime_env = {
     "ACESTEP_API_PORT": str(API_PORT),
     "ACESTEP_PROJECT_ROOT": "/app",
     "ACESTEP_CHECKPOINTS_DIR": CHECKPOINTS_DIR,
-    # Slot 1 is the low-latency production path. Slot 2 preserves XL-SFT for
-    # automatic quality fallback without replacing or reloading the fast model.
     "ACESTEP_CONFIG_PATH": FAST_DIT_MODEL,
     "ACESTEP_CONFIG_PATH2": QUALITY_DIT_MODEL,
     "ACESTEP_LM_MODEL_PATH": LM_MODEL,
@@ -52,8 +49,6 @@ runtime_env = {
     "ACESTEP_OFFLOAD_TO_CPU": "false",
     "ACESTEP_OFFLOAD_DIT_TO_CPU": "false",
     "ACESTEP_COMPILE_MODEL": "false",
-    # ACE-Step recommends one queue worker on a single GPU. We keep the safe
-    # worker count and get the speedup from XL-Turbo + native batched candidates.
     "ACESTEP_QUEUE_WORKERS": "1",
     "ACESTEP_QUEUE_MAXSIZE": "200",
     "ACESTEP_LLM_BACKEND": "pt",
@@ -105,7 +100,6 @@ def _professional_checkpoint_status() -> dict[str, Any]:
         "main": check_main_model_exists(checkpoints),
         "fastDit": check_model_exists(FAST_DIT_MODEL, checkpoints),
         "qualityDit": check_model_exists(QUALITY_DIT_MODEL, checkpoints),
-        # Keep the legacy key true only when the XL-SFT professional fallback exists.
         "dit": check_model_exists(QUALITY_DIT_MODEL, checkpoints),
         "lm": check_model_exists(LM_MODEL, checkpoints),
         "vae": (checkpoints / "vae").exists(),
@@ -204,10 +198,10 @@ def prepare_models() -> dict[str, object]:
     startup_timeout=30 * MINUTES,
     scaledown_window=10 * MINUTES,
     min_containers=0,
-    max_containers=1,
+    max_containers=2,
     name=FUNCTION_NAME,
 )
-@modal.concurrent(max_inputs=100)
+@modal.concurrent(max_inputs=1)
 @modal.web_server(
     API_PORT,
     startup_timeout=30 * MINUTES,
@@ -269,6 +263,8 @@ def verify_configuration() -> dict[str, object]:
         "ditModel": QUALITY_DIT_MODEL,
         "lmModel": LM_MODEL,
         "proxyAuthentication": True,
+        "maxConcurrentGpuContainers": 2,
+        "maxInputsPerContainer": 1,
         "status": status,
         "paths": {
             "fastDit": str(Path(CHECKPOINTS_DIR) / FAST_DIT_MODEL),
