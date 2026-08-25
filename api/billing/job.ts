@@ -76,6 +76,10 @@ function sendJson(res: any, status: number, body: Record<string, unknown>) {
   return res.status(status).json(body);
 }
 
+function validJobId(jobId: string): boolean {
+  return /^(?:d6_[A-Za-z0-9-]{16,}|d9pair_[A-Za-z0-9-]{16,})$/.test(jobId);
+}
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') {
     return sendJson(res, 405, { error: 'Method not allowed.' });
@@ -94,7 +98,7 @@ export default async function handler(req: any, res: any) {
   }
 
   const jobId = queryValue(req.query?.jobId).trim();
-  if (!/^d6_[A-Za-z0-9-]{16,}$/.test(jobId)) {
+  if (!validJobId(jobId)) {
     return sendJson(res, 400, {
       jobId,
       status: 'FAILED',
