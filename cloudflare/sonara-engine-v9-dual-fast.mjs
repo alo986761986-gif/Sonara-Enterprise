@@ -11,6 +11,7 @@ const READINESS_TIMEOUT_MS = 180_000;
 const SUBMIT_TIMEOUT_MS = 120_000;
 const QUERY_TIMEOUT_MS = 30_000;
 const MAX_QUERY_FAILURES = 4;
+const SAFE_FALLBACK_PROFILE = 'dual-safe-independent-v1';
 const RETRYABLE_HTTP_STATUSES = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
 
 class SonaraEngineError extends Error {
@@ -237,6 +238,10 @@ export function buildPayload(body, env) {
 
 async function submitTask(env, payload) {
   await ensureEngineReady(env);
+  return submitReadyTask(env, payload);
+}
+
+async function submitReadyTask(env, payload) {
   const data = await engineJson(env, '/release_task', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -245,6 +250,168 @@ async function submitTask(env, payload) {
   const taskId = data?.data?.task_id;
   if (!taskId) throw new SonaraEngineError('SONARA did not return a dual generation task.', 502, true);
   return String(taskId);
+}
+
+function safeFallbackPayload(payload, variationIndex) {
+  return {
+    ...payload,
+    batch_size: 1,
+    infer_method: 'ode',
+    lm_temperature: 0.82,
+    lm_cfg_scale: 2.4,
+    lm_top_p: 0.92,
+    use_random_seed: false,
+    seed: Math.max(1, Math.floor(Date.now() % 2_000_000_000) + variationIndex * 7919)
+  };
+}
+
+async function startSafeFallback(request, env, jobId, context, reason) {
+  try {
+    const payloads = [safeFallbackPayload(context.payload, 1), safeFallbackPayload(context.payload, 2)];
+    const fallbackTaskIds = await Promise.all(payloads.map(payload => submitReadyTask(env, payload)));
+    const next = {
+      ...context,
+      phase: 'fallback_submitted',
+      fallbackTaskIds,
+      fallbackReason: String(reason || 'native dual batch unavailable'),
+      queryFailures: 0,
+      error: null,
+      retryable: true,
+      updatedAt: Date.now()
+    };
+    await storeJob(jobId, next);
+    return json(request, {
+      jobId,
+      status: 'PROCESSING',
+      progress: 55,
+      retryable: true,
+      metadata: {
+        engine: 'SONARA',
+        performanceProfile: SAFE_FALLBACK_PROFILE,
+        candidateCount: 2,
+        creativeControls: context.creativeControls,
+        currentStage: 'SONARA: recupero automatico A + B'
+      }
+    });
+  } catch (rawError) {
+    const error = engineError(rawError);
+    const failed = {
+      ...context,
+      phase: 'failed',
+      error: `SONARA non ha potuto recuperare il batch doppio: ${error.message}`,
+      retryable: error.retryable,
+      updatedAt: Date.now()
+    };
+    await storeJob(jobId, failed);
+    return json(request, {
+      jobId,
+      status: 'FAILED',
+      progress: 0,
+      retryable: error.retryable,
+      error: failed.error
+    });
+  }
+}
+
+function completedPayload(jobId, context, paths, performanceProfile) {
+  const audioUrls = paths.map(path => `${PUBLIC_API_ORIGIN}/api/modal/audio?path=${encodeURIComponent(path)}`);
+  return {
+    context: {
+      ...context,
+      phase: 'completed',
+      audioPaths: paths,
+      audioUrls,
+      queryFailures: 0,
+      completedProfile: performanceProfile,
+      updatedAt: Date.now()
+    },
+    response: {
+      jobId,
+      status: 'COMPLETED',
+      progress: 100,
+      audioUrl: audioUrls[0],
+      audioUrls,
+      candidates: audioUrls.map((audioUrl, index) => ({ id: index === 0 ? 'A' : 'B', audioUrl, audioFormat: 'wav' })),
+      metadata: {
+        engine: 'SONARA',
+        performanceProfile,
+        model: context.payload?.model || FAST_MODEL,
+        candidateCount: 2,
+        creativeControls: context.creativeControls,
+        audioUrls,
+        audioFormat: 'wav',
+        currentStage: '2 brani pronti'
+      }
+    }
+  };
+}
+
+async function pollSafeFallback(request, env, jobId, context) {
+  const taskIds = Array.isArray(context.fallbackTaskIds) ? context.fallbackTaskIds.filter(Boolean).slice(0, 2) : [];
+  if (taskIds.length !== 2) return startSafeFallback(request, env, jobId, context, context.fallbackReason);
+
+  try {
+    const data = await engineJson(env, '/query_result', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ task_id_list: taskIds })
+    }, QUERY_TIMEOUT_MS);
+    const tasks = Array.isArray(data?.data) ? data.data.slice(0, 2) : [];
+    if (tasks.length < 2 || tasks.some(task => !task || Number(task.status) === 0)) {
+      return json(request, {
+        jobId,
+        status: 'PROCESSING',
+        progress: 82,
+        metadata: {
+          engine: 'SONARA',
+          performanceProfile: SAFE_FALLBACK_PROFILE,
+          candidateCount: 2,
+          creativeControls: context.creativeControls,
+          currentStage: 'SONARA: rendering sicuro A + B'
+        }
+      });
+    }
+
+    const failedTask = tasks.find(task => Number(task.status) !== 1);
+    if (failedTask) {
+      const reason = String(failedTask?.error || failedTask?.message || 'ACE-Step non ha completato uno dei due render di recupero.');
+      const failed = { ...context, phase: 'failed', error: reason, retryable: false, updatedAt: Date.now() };
+      await storeJob(jobId, failed);
+      return json(request, { jobId, status: 'FAILED', progress: 0, error: reason });
+    }
+
+    const paths = tasks.map(task => parseItems(task.result).map(item => audioPathFromItem(item, env)).find(Boolean) || '');
+    if (paths.some(path => !path)) {
+      const failed = { ...context, phase: 'failed', error: 'SONARA ha completato il recupero ma non ha ricevuto entrambi i file audio.', retryable: false, updatedAt: Date.now() };
+      await storeJob(jobId, failed);
+      return json(request, { jobId, status: 'FAILED', progress: 0, error: failed.error });
+    }
+
+    const completed = completedPayload(jobId, context, paths, SAFE_FALLBACK_PROFILE);
+    await storeJob(jobId, completed.context);
+    return json(request, completed.response);
+  } catch (rawError) {
+    const error = engineError(rawError);
+    const failures = Number(context.queryFailures || 0) + 1;
+    const shouldFail = !error.retryable || failures >= MAX_QUERY_FAILURES;
+    const next = {
+      ...context,
+      phase: shouldFail ? 'failed' : 'fallback_submitted',
+      queryFailures: failures,
+      error: shouldFail ? error.message : context.error,
+      retryable: error.retryable,
+      updatedAt: Date.now()
+    };
+    await storeJob(jobId, next);
+    if (shouldFail) return json(request, { jobId, status: 'FAILED', progress: 0, retryable: error.retryable, error: error.message });
+    return json(request, {
+      jobId,
+      status: 'PROCESSING',
+      progress: 75,
+      retryable: true,
+      metadata: { engine: 'SONARA', performanceProfile: SAFE_FALLBACK_PROFILE, currentStage: `SONARA: riconnessione recupero (${failures}/${MAX_QUERY_FAILURES})` }
+    });
+  }
 }
 
 async function startDualGeneration(request, env, body) {
@@ -337,7 +504,7 @@ async function pollDualJob(request, env, jobId) {
       candidates: context.audioUrls.map((audioUrl, index) => ({ id: index === 0 ? 'A' : 'B', audioUrl, audioFormat: 'wav' })),
       metadata: {
         engine: 'SONARA',
-        performanceProfile: 'dual-ultra-fast-v9',
+        performanceProfile: context.completedProfile || 'dual-ultra-fast-v9',
         model: context.payload?.model || FAST_MODEL,
         candidateCount: context.audioUrls.length,
         creativeControls: context.creativeControls,
@@ -356,6 +523,10 @@ async function pollDualJob(request, env, jobId) {
       retryable: Boolean(context.retryable),
       error: context.error || 'SONARA dual generation failed.'
     });
+  }
+
+  if (context.phase === 'fallback_submitted') {
+    return pollSafeFallback(request, env, jobId, context);
   }
 
   if (!context.taskId) {
@@ -394,40 +565,18 @@ async function pollDualJob(request, env, jobId) {
     }
     if (Number(task.status) !== 1) {
       const taskMessage = String(task?.error || task?.message || 'SONARA dual batch did not complete successfully.');
-      const failed = { ...context, phase: 'failed', error: taskMessage, retryable: false, updatedAt: Date.now() };
-      await storeJob(jobId, failed);
-      return json(request, { jobId, status: 'FAILED', progress: 0, error: failed.error });
+      return startSafeFallback(request, env, jobId, context, taskMessage);
     }
 
     const items = parseItems(task.result);
     const paths = items.map(item => audioPathFromItem(item, env)).filter(Boolean).slice(0, 2);
     if (paths.length < 2) {
-      const failed = { ...context, phase: 'failed', error: `SONARA dual batch returned ${paths.length} audio file(s) instead of 2.`, retryable: false, updatedAt: Date.now() };
-      await storeJob(jobId, failed);
-      return json(request, { jobId, status: 'FAILED', progress: 0, error: failed.error });
+      return startSafeFallback(request, env, jobId, context, `SONARA dual batch returned ${paths.length} audio file(s) instead of 2.`);
     }
 
-    const audioUrls = paths.map(path => `${PUBLIC_API_ORIGIN}/api/modal/audio?path=${encodeURIComponent(path)}`);
-    context = { ...context, phase: 'completed', audioPaths: paths, audioUrls, queryFailures: 0, updatedAt: Date.now() };
-    await storeJob(jobId, context);
-    return json(request, {
-      jobId,
-      status: 'COMPLETED',
-      progress: 100,
-      audioUrl: audioUrls[0],
-      audioUrls,
-      candidates: audioUrls.map((audioUrl, index) => ({ id: index === 0 ? 'A' : 'B', audioUrl, audioFormat: 'wav' })),
-      metadata: {
-        engine: 'SONARA',
-        performanceProfile: 'dual-ultra-fast-v9',
-        model: context.payload?.model || FAST_MODEL,
-        candidateCount: 2,
-        creativeControls: context.creativeControls,
-        audioUrls,
-        audioFormat: 'wav',
-        currentStage: '2 brani pronti'
-      }
-    });
+    const completed = completedPayload(jobId, context, paths, 'dual-ultra-fast-v9');
+    await storeJob(jobId, completed.context);
+    return json(request, completed.response);
   } catch (rawError) {
     const error = engineError(rawError);
     const failures = Number(context.queryFailures || 0) + 1;

@@ -126,6 +126,19 @@ export default async function handler(req: any, res: any) {
     );
 
     const raw = await engineResponse.text();
+    try {
+      const payload = raw ? JSON.parse(raw) : {};
+      console.info('[SONARA JOB RESULT]', JSON.stringify({
+        jobId,
+        upstreamStatus: engineResponse.status,
+        status: String(payload?.status || payload?.job?.status || payload?.data?.status || ''),
+        progress: Number(payload?.progress ?? payload?.job?.progress ?? payload?.data?.progress ?? 0),
+        performanceProfile: String(payload?.metadata?.performanceProfile || payload?.job?.metadata?.performanceProfile || payload?.data?.metadata?.performanceProfile || ''),
+        error: String(payload?.error?.message || payload?.error || payload?.message || '').slice(0, 500)
+      }));
+    } catch {
+      console.warn('[SONARA JOB RESULT]', JSON.stringify({ jobId, upstreamStatus: engineResponse.status, invalidJson: true }));
+    }
     res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('Content-Type', engineResponse.headers.get('content-type') || 'application/json; charset=utf-8');
     res.setHeader('X-Content-Type-Options', 'nosniff');
