@@ -101,6 +101,8 @@ interface BillingUsageSnapshot {
 const LANGUAGE_KEY = 'sonara.language';
 const DURATION_KEY = 'sonara.defaultDuration';
 const BPM_KEY = 'sonara.preferredBpm';
+const WEIRDNESS_KEY = 'sonara.weirdness';
+const STYLE_INFLUENCE_KEY = 'sonara.styleInfluence';
 const ACCOUNT_PREFERENCES_KEY = 'sonara.accountPreferences';
 const MIN_BPM = 40;
 const MAX_BPM = 220;
@@ -121,6 +123,16 @@ function clampBpm(value: unknown): number {
 function initialBpm(): number {
   const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(BPM_KEY) : null;
   return saved == null ? 124 : clampBpm(saved);
+}
+
+function clampPercentage(value: unknown, fallback = 50): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.min(100, Math.round(parsed))) : fallback;
+}
+
+function initialPercentage(key: string): number {
+  const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+  return saved == null ? 50 : clampPercentage(saved);
 }
 
 function initialAccountPreferences(): Record<string, any> {
@@ -183,6 +195,39 @@ const SectionTitle = ({ icon: Icon, title, subtitle }: any) => (
   </div>
 );
 
+interface CreativeControlSliderProps {
+  id: string;
+  label: string;
+  description: string;
+  value: number;
+  disabled: boolean;
+  onChange: (value: number) => void;
+}
+
+function CreativeControlSlider({ id, label, description, value, disabled, onChange }: CreativeControlSliderProps) {
+  return (
+    <label htmlFor={id} className="rounded-xl border border-slate-800 bg-slate-950/70 p-3">
+      <span className="flex items-center justify-between gap-3">
+        <span className="text-xs font-black text-slate-200">{label}</span>
+        <span className="rounded-md border border-purple-500/30 bg-purple-500/10 px-2 py-0.5 text-[10px] font-black text-purple-200">{value}%</span>
+      </span>
+      <input
+        id={id}
+        type="range"
+        min={0}
+        max={100}
+        step={1}
+        value={value}
+        disabled={disabled}
+        onChange={event => onChange(Number(event.target.value))}
+        className="mt-3 w-full accent-purple-500 disabled:opacity-40"
+        aria-valuetext={`${value} percento`}
+      />
+      <span className="mt-1 block text-[10px] leading-4 text-slate-500">{description}</span>
+    </label>
+  );
+}
+
 const DURATION_OPTIONS = [30, 45, 60, 90, 120, 150, 180, 210, 240, 300, 360, 420, 480];
 const KEYS = ['C Major', 'C Minor', 'C# Major', 'C# Minor', 'D Major', 'D Minor', 'D# Major', 'D# Minor', 'E Major', 'E Minor', 'F Major', 'F Minor', 'F# Major', 'F# Minor', 'G Major', 'G Minor', 'G# Major', 'G# Minor', 'A Major', 'A Minor', 'A# Major', 'A# Minor', 'B Major', 'B Minor'];
 const VOCAL_MODES: Array<{ value: VocalMode; label: string; description: string }> = [
@@ -227,6 +272,8 @@ export default function App() {
     const saved = Number(localStorage.getItem(DURATION_KEY));
     return DURATION_OPTIONS.includes(saved) ? saved : 30;
   });
+  const [weirdness, setWeirdness] = useState(() => initialPercentage(WEIRDNESS_KEY));
+  const [styleInfluence, setStyleInfluence] = useState(() => initialPercentage(STYLE_INFLUENCE_KEY));
   const [keySignature, setKeySignature] = useState(INITIAL_SELECTION.key);
 
   const [status, setStatus] = useState<JobStatus>('IDLE');
@@ -412,6 +459,18 @@ export default function App() {
     localStorage.setItem(BPM_KEY, String(safe));
   };
 
+  const updateWeirdness = (value: number) => {
+    const safe = clampPercentage(value);
+    setWeirdness(safe);
+    localStorage.setItem(WEIRDNESS_KEY, String(safe));
+  };
+
+  const updateStyleInfluence = (value: number) => {
+    const safe = clampPercentage(value);
+    setStyleInfluence(safe);
+    localStorage.setItem(STYLE_INFLUENCE_KEY, String(safe));
+  };
+
   const randomizePrompt = () => {
     randomVariantRef.current = (randomVariantRef.current + 1) % 4;
     automaticTitleRef.current = true;
@@ -473,6 +532,8 @@ export default function App() {
         bpm,
         key: keySignature,
         durationSec,
+        weirdness,
+        styleInfluence,
         vocalMode,
         lyrics: vocalLyrics,
         title
@@ -498,6 +559,8 @@ export default function App() {
           key: keySignature,
           durationSec,
           duration: durationSec,
+          weirdness,
+          styleInfluence,
           outputFormat: accountPreferences.outputFormat || 'wav',
           audioQuality: accountPreferences.audioQuality || 'lossless',
           engineId: 'sonara_ace_step_v15_modal'
@@ -569,7 +632,8 @@ export default function App() {
                   planId: billingUsage?.planId || 'free',
                   commercialUse: Boolean(billingUsage?.commercialUse),
                   generatedAt: new Date().toISOString()
-                }
+                },
+                creativeControls: { weirdness, styleInfluence }
               }
             });
             setArchivedFileCount(archived.project.assets.length);
@@ -616,7 +680,7 @@ export default function App() {
         durationSec,
         primaryAudioUrl: newAudioUrl,
         audioFormat: format,
-        response: { masteredAudioUrl: newAudioUrl, masteringMetrics: metrics }
+        response: { masteredAudioUrl: newAudioUrl, masteringMetrics: metrics, creativeControls: { weirdness, styleInfluence } }
       });
       setArchivedFileCount(archived.project.assets.length);
       setArchiveStatus(archived.linkedFiles > 0 ? 'PARTIAL' : 'SAVED');
@@ -668,7 +732,7 @@ export default function App() {
             <MiniCard icon={Globe2} title={`${genreCount}`} text="Global genre groups" />
             <MiniCard icon={Library} title={`${subgenreCount}+`} text="Subgenres" />
             <MiniCard icon={Languages} title={`${SUPPORTED_LANGUAGES.length}`} text="Interface languages" />
-            <MiniCard icon={Activity} title="4 min" text="Maximum generation" />
+            <MiniCard icon={Activity} title="8 min" text="Studio maximum generation" />
           </div>
         </div>
       </Card>
@@ -705,6 +769,24 @@ export default function App() {
           </div>
         </div>
         <textarea id="sonara-prompt" value={prompt} onChange={event => setPrompt(event.target.value)} rows={10} className="w-full rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm text-white outline-none focus:border-purple-500" />
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <CreativeControlSlider
+            id="sonara-weirdness"
+            label="Weirdness"
+            description="Più alto: risultati più insoliti, sperimentali e imprevedibili."
+            value={weirdness}
+            disabled={busy}
+            onChange={updateWeirdness}
+          />
+          <CreativeControlSlider
+            id="sonara-style-influence"
+            label="Style Influence"
+            description="Più alto: maggiore fedeltà al prompt, al genere e al sottogenere selezionati."
+            value={styleInfluence}
+            disabled={busy}
+            onChange={updateStyleInfluence}
+          />
+        </div>
       </div>
 
       <div className="mt-5 grid gap-4 md:grid-cols-3">

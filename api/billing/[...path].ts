@@ -543,8 +543,15 @@ async function finishReservation(uid: string, reservationId: string, outcome: 'c
   });
 }
 
+function generationPercentage(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.min(100, Math.round(parsed))) : 50;
+}
+
 async function proxyGeneration(user: AuthenticatedUser, body: Record<string, any>, res: any) {
   const requestedSeconds = Math.max(30, Math.min(480, Math.round(Number(body.durationSec ?? body.duration ?? 30))));
+  const weirdness = generationPercentage(body.weirdness);
+  const styleInfluence = generationPercentage(body.styleInfluence ?? body.style_influence);
   const enforcement = enforcementMode();
   let reservation: { reservationId: string; status: ReturnType<typeof publicBillingStatus> } | null = null;
 
@@ -589,7 +596,13 @@ async function proxyGeneration(user: AuthenticatedUser, body: Record<string, any
     const engineResponse = await fetch(`${engineBaseUrl}/api/engine/generate`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ ...body, durationSec: requestedSeconds, duration: requestedSeconds })
+      body: JSON.stringify({
+        ...body,
+        durationSec: requestedSeconds,
+        duration: requestedSeconds,
+        weirdness,
+        styleInfluence
+      })
     });
     const raw = await engineResponse.text();
     if (!engineResponse.ok && reservation) await finishReservation(user.uid, reservation.reservationId, 'released');

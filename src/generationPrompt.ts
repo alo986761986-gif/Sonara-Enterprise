@@ -12,6 +12,8 @@ export interface GenerationPromptInput {
   bpm: number;
   key: string;
   durationSec: number;
+  weirdness?: number;
+  styleInfluence?: number;
   vocalMode: VocalMode;
   lyrics?: string;
   title?: string;
@@ -53,6 +55,25 @@ function cleanMultilineText(value: unknown, fallback = '', maxLength = 4600): st
 function clampInteger(value: unknown, fallback: number, min: number, max: number): number {
   const number = Number(value);
   return Number.isFinite(number) ? Math.round(Math.max(min, Math.min(max, number))) : fallback;
+}
+
+function creativeControlDirection(weirdness: number, styleInfluence: number, subgenre: string): string {
+  const weirdnessDirection = weirdness <= 25
+    ? 'Favor familiar, stable and conventionally musical choices with minimal surprise.'
+    : weirdness <= 60
+      ? 'Balance coherent songwriting with noticeable original details and controlled surprises.'
+      : weirdness <= 85
+        ? 'Use adventurous structure, timbre, transitions and melodic decisions while remaining musically intentional.'
+        : 'Push into highly unconventional but still deliberate musical ideas; avoid random noise, incoherence or technical failure.';
+  const styleDirection = styleInfluence <= 25
+    ? `Treat ${subgenre} as a loose stylistic reference while preserving the exact technical locks and creator instructions.`
+    : styleInfluence <= 60
+      ? `Keep a balanced ${subgenre} identity while allowing cross-style interpretation where it supports the creator brief.`
+      : styleInfluence <= 85
+        ? `Follow ${subgenre} conventions strongly in groove, instrumentation, harmony, arrangement and production.`
+        : `Apply maximum ${subgenre} fidelity: every major musical and production decision must reinforce the selected style.`;
+
+  return `Weirdness: ${weirdness}/100. ${weirdnessDirection}\nStyle Influence: ${styleInfluence}/100. ${styleDirection}`;
 }
 
 function sentence(value: string): string {
@@ -211,6 +232,8 @@ export function buildGenerationPrompt(input: GenerationPromptInput): string {
   const title = cleanText(input.title, `Sonara ${subgenre} Track`, 160);
   const bpm = clampInteger(input.bpm, 124, 40, 220);
   const durationSec = clampInteger(input.durationSec, 30, 30, 480);
+  const weirdness = clampInteger(input.weirdness, 50, 0, 100);
+  const styleInfluence = clampInteger(input.styleInfluence, 50, 0, 100);
   const profile = getMusicStyleProfile(genreFamily, genre, subgenre);
   const fallbackBrief = buildRandomCreativeBrief({
     ...input,
@@ -247,6 +270,7 @@ export function buildGenerationPrompt(input: GenerationPromptInput): string {
     `CREATOR DIRECTIVE CONTRACT:\nPreserve every explicit instrument, sound source, musical action, section, dynamic change, emotional contrast, production treatment and exclusion stated above. Concrete creator details take precedence over generic defaults. Do not silently omit, weaken, rename or substitute them. Where the brief leaves a detail unspecified, complete it using authentic ${subgenre} practice.`,
     `EXPLICIT CREATOR EXCLUSIONS:\n${explicitExclusions}`,
     `AUTHORITATIVE MUSICAL IDENTITY:\nTitle: ${title}\nFamily: ${genreFamily}\nGenre: ${genre}\nSubgenre: ${subgenre}\nAtmosphere: ${mood}\nPriority rule: the selected subgenre ${subgenre} overrides generic family or genre conventions whenever they conflict, while the creator brief overrides generic style-fill details.`,
+    `CREATIVE CONTROLS:\n${creativeControlDirection(weirdness, styleInfluence, subgenre)}`,
     `SUBGENRE STYLE DNA — FILL UNSPECIFIED DETAILS ONLY:\n${compactProfileText(profile.identity, 720)}`,
     `TECHNICAL PARAMETERS:\nTempo: exactly ${bpm} BPM\nKey: exactly ${key}\nDuration: approximately ${durationSec} seconds, ending on a complete musical bar\nTime signature: use the meter authentic to ${subgenre}; otherwise use 4/4\nDo not drift from tempo or key. Any expressive timing must occur inside the pulse, not by changing the requested BPM.`,
     `INSTRUMENTATION AND ORCHESTRATION:\nCreator-specified instruments are mandatory and must remain clearly audible in their requested roles. Use ${compactProfileText(profile.instrumentation, 680)} only to complete missing ensemble roles. Give each part a physically credible register, articulation, note length, velocity, breath, bowing, picking, striking, sustain or synthesis behavior appropriate to the real instrument or sound source.`,

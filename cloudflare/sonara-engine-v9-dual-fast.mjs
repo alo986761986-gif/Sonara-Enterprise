@@ -150,6 +150,19 @@ function clamp(value, fallback, min, max) {
   return Number.isFinite(number) ? Math.max(min, Math.min(max, number)) : fallback;
 }
 
+export function resolveCreativeControls(body = {}) {
+  const weirdness = Math.round(clamp(body.weirdness, 50, 0, 100));
+  const styleInfluence = Math.round(clamp(body.styleInfluence ?? body.style_influence, 50, 0, 100));
+  return {
+    weirdness,
+    styleInfluence,
+    lmTemperature: Math.round((0.55 + weirdness * 0.0054) * 1000) / 1000,
+    lmCfgScale: Math.round((1.4 + styleInfluence * 0.02) * 1000) / 1000,
+    lmTopP: Math.round((0.84 + weirdness * 0.0016) * 1000) / 1000,
+    inferMethod: weirdness >= 75 ? 'sde' : 'ode'
+  };
+}
+
 function inferTimeSignature(body) {
   const explicit = String(body.timeSignature || body.time_signature || '').trim();
   if (/^(2|3|4|6)(?:\/(?:4|8))?$/.test(explicit)) return explicit.split('/')[0];
@@ -188,6 +201,7 @@ function audioPathFromItem(item, env) {
 export function buildPayload(body, env) {
   const durationSec = Math.round(clamp(body.durationSec ?? body.duration, 30, 30, 480));
   const bpm = Math.round(clamp(body.bpm, 124, 40, 220));
+  const creativeControls = resolveCreativeControls(body);
   const prompt = String(body.prompt || '').trim();
   if (!prompt) throw new Error('Prompt richiesto.');
   return {
@@ -209,12 +223,12 @@ export function buildPayload(body, env) {
     use_cot_language: false,
     constrained_decoding: true,
     allow_lm_batch: true,
-    lm_temperature: 0.82,
-    lm_cfg_scale: 2.4,
-    lm_top_p: 0.92,
+    lm_temperature: creativeControls.lmTemperature,
+    lm_cfg_scale: creativeControls.lmCfgScale,
+    lm_top_p: creativeControls.lmTopP,
     lm_repetition_penalty: 1.03,
     batch_size: BATCH_SIZE,
-    infer_method: 'ode',
+    infer_method: creativeControls.inferMethod,
     audio_format: 'wav',
     mp3_bitrate: '320k',
     mp3_sample_rate: 48000
@@ -242,6 +256,7 @@ async function startDualGeneration(request, env, body) {
   }
 
   const jobId = `d9pair_${crypto.randomUUID()}`;
+  const creativeControls = resolveCreativeControls(body);
   const context = {
     phase: 'starting',
     payload,
@@ -251,6 +266,10 @@ async function startDualGeneration(request, env, body) {
     genre: String(body.genre || ''),
     subgenre: String(body.subgenre || ''),
     durationSec: payload.audio_duration,
+    creativeControls: {
+      weirdness: creativeControls.weirdness,
+      styleInfluence: creativeControls.styleInfluence
+    },
     submitAttempts: 0,
     queryFailures: 0,
     createdAt: Date.now(),
@@ -270,6 +289,7 @@ async function startDualGeneration(request, env, body) {
         performanceProfile: 'dual-ultra-fast-v9',
         model: payload.model,
         candidateCount: BATCH_SIZE,
+        creativeControls: context.creativeControls,
         inferenceSteps: FAST_STEPS,
         currentStage: 'SONARA: 2 brani in un solo batch GPU'
       }
@@ -320,6 +340,7 @@ async function pollDualJob(request, env, jobId) {
         performanceProfile: 'dual-ultra-fast-v9',
         model: context.payload?.model || FAST_MODEL,
         candidateCount: context.audioUrls.length,
+        creativeControls: context.creativeControls,
         audioUrls: context.audioUrls,
         audioFormat: 'wav',
         currentStage: '2 brani pronti'
@@ -401,6 +422,7 @@ async function pollDualJob(request, env, jobId) {
         performanceProfile: 'dual-ultra-fast-v9',
         model: context.payload?.model || FAST_MODEL,
         candidateCount: 2,
+        creativeControls: context.creativeControls,
         audioUrls,
         audioFormat: 'wav',
         currentStage: '2 brani pronti'

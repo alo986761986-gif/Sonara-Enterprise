@@ -36,6 +36,13 @@ assert.match(first, /Strictly instrumental/);
 assert.match(first, /four-on-the-floor/);
 assert.match(first, /subgenre Tech House overrides generic family or genre conventions/);
 
+const creativeControlPrompt = buildGenerationPrompt({ ...techHouse, weirdness: 92, styleInfluence: 18 });
+assert.match(creativeControlPrompt, /CREATIVE CONTROLS:/);
+assert.match(creativeControlPrompt, /Weirdness: 92\/100/);
+assert.match(creativeControlPrompt, /Style Influence: 18\/100/);
+assert.match(creativeControlPrompt, /highly unconventional but still deliberate musical ideas/i);
+assert.match(creativeControlPrompt, /loose stylistic reference/i);
+
 const studioEightMinutePrompt = buildGenerationPrompt({ ...techHouse, durationSec: 480 });
 const studioEightMinuteBrief = buildRandomCreativeBrief({ ...techHouse, durationSec: 480, variant: 2 });
 assert.match(studioEightMinutePrompt, /approximately 480 seconds/);

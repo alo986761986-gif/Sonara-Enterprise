@@ -68,6 +68,19 @@ function clamp(value, fallback, min, max) {
   return Number.isFinite(number) ? Math.max(min, Math.min(max, number)) : fallback;
 }
 
+export function resolveCreativeControls(body = {}) {
+  const weirdness = Math.round(clamp(body.weirdness, 50, 0, 100));
+  const styleInfluence = Math.round(clamp(body.styleInfluence ?? body.style_influence, 50, 0, 100));
+  return {
+    weirdness,
+    styleInfluence,
+    lmTemperature: Math.round((0.55 + weirdness * 0.0054) * 1000) / 1000,
+    lmCfgScale: Math.round((1.4 + styleInfluence * 0.02) * 1000) / 1000,
+    lmTopP: Math.round((0.84 + weirdness * 0.0016) * 1000) / 1000,
+    inferMethod: weirdness >= 75 ? 'sde' : 'ode'
+  };
+}
+
 function timeoutLike(error) {
   if (!(error instanceof Error)) return false;
   const name = String(error.name || '').toLowerCase();
@@ -245,6 +258,10 @@ export function alignDurationToCompleteBars(durationSec, bpm, timeSignature = '4
 export function buildProfessionalEnginePayload(payload, model = '') {
   const selectedModel = cleanField(model, 120);
   const turbo = !selectedModel || /turbo/i.test(selectedModel);
+  const lmTemperature = clamp(payload?.lm_temperature, 0.72, 0.1, 2);
+  const lmCfgScale = clamp(payload?.lm_cfg_scale, 3.0, 1, 6);
+  const lmTopP = clamp(payload?.lm_top_p, 0.9, 0.1, 1);
+  const inferMethod = payload?.infer_method === 'sde' ? 'sde' : 'ode';
   const professional = {
     ...payload,
     ...(selectedModel ? { model: selectedModel } : {}),
@@ -255,13 +272,13 @@ export function buildProfessionalEnginePayload(payload, model = '') {
     use_cot_language: true,
     constrained_decoding: true,
     allow_lm_batch: true,
-    lm_temperature: 0.72,
-    lm_cfg_scale: 3.0,
-    lm_top_p: 0.9,
+    lm_temperature: lmTemperature,
+    lm_cfg_scale: lmCfgScale,
+    lm_top_p: lmTopP,
     lm_repetition_penalty: 1.05,
     lm_negative_prompt: 'genre drift, wrong instruments, incorrect tempo, incorrect key, malformed structure, clipping, silence, unfinished ending',
     batch_size: PROFESSIONAL_CANDIDATE_COUNT,
-    infer_method: 'ode',
+    infer_method: inferMethod,
     audio_format: PROFESSIONAL_OUTPUT_FORMAT
   };
 
@@ -292,6 +309,7 @@ export function validateGenerationRequest(body) {
   const title = cleanField(body.title, 160);
   const bpm = Math.round(clamp(body.bpm, 124, 40, 220));
   const durationSec = Math.round(clamp(body.durationSec ?? body.duration, 30, 30, 480));
+  const creativeControls = resolveCreativeControls(body);
   const timeSignature = inferTimeSignature(body.timeSignature || body.time_signature, genre, subgenre);
   const lyrics = String(body.lyrics || '').trim().slice(0, MAX_LYRICS_CHARS);
   const requestedVocalMode = cleanField(body.vocalMode, 20).toLowerCase();
@@ -337,6 +355,8 @@ export function validateGenerationRequest(body) {
     title,
     bpm,
     durationSec,
+    weirdness: creativeControls.weirdness,
+    styleInfluence: creativeControls.styleInfluence,
     timeSignature,
     lyrics,
     vocalMode,
@@ -352,6 +372,7 @@ export function validateGenerationRequest(body) {
 export function normalizeRequest(body) {
   const spec = validateGenerationRequest(body);
   const renderDurationSec = alignDurationToCompleteBars(spec.durationSec, spec.bpm, spec.timeSignature);
+  const creativeControls = resolveCreativeControls(spec);
   const basePayload = {
     // The frontend prompt is authoritative. Do not prepend, concatenate or replace it.
     prompt: spec.prompt,
@@ -364,6 +385,10 @@ export function normalizeRequest(body) {
     use_random_seed: true,
     seed: -1,
     task_type: 'text2music',
+    lm_temperature: creativeControls.lmTemperature,
+    lm_cfg_scale: creativeControls.lmCfgScale,
+    lm_top_p: creativeControls.lmTopP,
+    infer_method: creativeControls.inferMethod,
     mp3_bitrate: '320k',
     mp3_sample_rate: 48000
   };
@@ -379,6 +404,8 @@ export function normalizeRequest(body) {
       bpm: spec.bpm,
       key: spec.key,
       durationSec: spec.durationSec,
+      weirdness: spec.weirdness,
+      styleInfluence: spec.styleInfluence,
       requestedDurationSec: spec.durationSec,
       renderDurationSec,
       timeSignature: spec.timeSignature,

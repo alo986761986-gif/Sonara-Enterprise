@@ -156,6 +156,11 @@ export class AceStepEngine extends IAudioGenerationEngine {
       Math.min(240, Number(params.bpm || 128))
     );
 
+    const weirdness = Math.max(0, Math.min(100, Number((params as any).weirdness ?? 50)));
+    const styleInfluence = Math.max(0, Math.min(100, Number((params as any).styleInfluence ?? 50)));
+    const lmTemperature = Math.round((0.55 + weirdness * 0.0054) * 1000) / 1000;
+    const lmCfgScale = Math.round((1.4 + styleInfluence * 0.02) * 1000) / 1000;
+
     const timeoutMs = Math.max(
       Number(params.timeoutMs || this.defaultTimeoutMs),
       120_000
@@ -172,6 +177,10 @@ export class AceStepEngine extends IAudioGenerationEngine {
       device_id: Number(process.env.ACE_STEP_DEVICE_ID || 0),
 
       audio_duration: durationSec,
+      lm_temperature: lmTemperature,
+      lm_cfg_scale: lmCfgScale,
+      lm_top_p: Math.round((0.84 + weirdness * 0.0016) * 1000) / 1000,
+      infer_method: weirdness >= 75 ? 'sde' : 'ode',
       prompt,
       lyrics: params.lyrics || '',
 

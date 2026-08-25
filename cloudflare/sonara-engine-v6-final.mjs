@@ -205,6 +205,10 @@ export function buildAdaptivePayload(payload, model, qualityFallback = false, fi
     .filter(Boolean)
     .join(', ')
     .slice(0, 1800);
+  const requestedLmTemperature = Number(payload?.lm_temperature);
+  const requestedLmCfgScale = Number(payload?.lm_cfg_scale);
+  const requestedLmTopP = Number(payload?.lm_top_p);
+  const requestedInferMethod = payload?.infer_method === 'sde' ? 'sde' : 'ode';
 
   const next = {
     ...payload,
@@ -216,12 +220,12 @@ export function buildAdaptivePayload(payload, model, qualityFallback = false, fi
     use_cot_language: thinking,
     constrained_decoding: true,
     allow_lm_batch: false,
-    lm_temperature: qualityFallback ? 0.68 : (detailedIntent ? 0.64 : 0.74),
-    lm_cfg_scale: qualityFallback ? 3.0 : (detailedIntent ? 3.2 : 2.6),
-    lm_top_p: detailedIntent ? 0.86 : 0.9,
+    lm_temperature: Number.isFinite(requestedLmTemperature) ? requestedLmTemperature : (qualityFallback ? 0.68 : (detailedIntent ? 0.64 : 0.74)),
+    lm_cfg_scale: Number.isFinite(requestedLmCfgScale) ? requestedLmCfgScale : (qualityFallback ? 3.0 : (detailedIntent ? 3.2 : 2.6)),
+    lm_top_p: Number.isFinite(requestedLmTopP) ? requestedLmTopP : (detailedIntent ? 0.86 : 0.9),
     lm_repetition_penalty: 1.05,
     batch_size: 1,
-    infer_method: 'ode',
+    infer_method: requestedInferMethod,
     audio_format: 'wav',
     ...(negativePrompt ? { lm_negative_prompt: negativePrompt } : {})
   };

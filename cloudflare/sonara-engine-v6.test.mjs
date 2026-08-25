@@ -9,6 +9,7 @@ import sonaraWorker, {
   evaluateGenerationCandidates,
   normalizeRequest,
   parseWavHeader,
+  resolveCreativeControls,
   scoreGenerationCandidate,
   summarizeQualityDiagnostics,
   validateGenerationRequest,
@@ -53,6 +54,21 @@ test("accepts a coherent deterministic generation request", () => {
   assert.equal(result.bpm, 126);
   assert.equal(result.vocalMode, "instrumental");
   assert.equal(result.qualityGate.status, "PASSED");
+});
+
+test("maps Weirdness and Style Influence to real ACE-Step controls", () => {
+  const restrained = resolveCreativeControls({ weirdness: 0, styleInfluence: 0 });
+  const experimental = resolveCreativeControls({ weirdness: 100, styleInfluence: 100 });
+  assert.equal(restrained.inferMethod, "ode");
+  assert.equal(experimental.inferMethod, "sde");
+  assert.ok(experimental.lmTemperature > restrained.lmTemperature);
+  assert.ok(experimental.lmTopP > restrained.lmTopP);
+  assert.ok(experimental.lmCfgScale > restrained.lmCfgScale);
+
+  const normalized = normalizeRequest({ ...baseRequest, weirdness: 88, styleInfluence: 76 });
+  assert.equal(normalized.generationSpec.weirdness, 88);
+  assert.equal(normalized.generationSpec.styleInfluence, 76);
+  assert.equal(normalized.payload.infer_method, "sde");
 });
 
 test("forwards the final prompt without hidden rewriting", () => {

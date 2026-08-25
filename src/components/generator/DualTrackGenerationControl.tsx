@@ -28,6 +28,8 @@ type GeneratorContext = {
   keySignature: string;
   bpm: number;
   durationSec: number;
+  weirdness: number;
+  styleInfluence: number;
   title: string;
   vocalMode: VocalMode;
   lyrics: string;
@@ -77,6 +79,8 @@ function readGeneratorContext(textarea: HTMLTextAreaElement): GeneratorContext {
   const selects = Array.from(card.querySelectorAll('select')) as HTMLSelectElement[];
   const value = (index: number, fallback: string) => selects[index]?.value || fallback;
   const bpmInput = card.querySelector('input[aria-label="BPM preferiti"]') as HTMLInputElement | null;
+  const weirdnessInput = card.querySelector('#sonara-weirdness') as HTMLInputElement | null;
+  const styleInfluenceInput = card.querySelector('#sonara-style-influence') as HTMLInputElement | null;
   const titleInput = Array.from(card.querySelectorAll('input')).find(input => {
     const field = input as HTMLInputElement;
     return field.type !== 'number' && field.type !== 'range';
@@ -95,6 +99,8 @@ function readGeneratorContext(textarea: HTMLTextAreaElement): GeneratorContext {
     keySignature: value(4, 'A Minor'),
     bpm: Number(bpmInput?.value || 124),
     durationSec: Number(value(5, '30')),
+    weirdness: Number(weirdnessInput?.value || 50),
+    styleInfluence: Number(styleInfluenceInput?.value || 50),
     title: titleInput?.value?.trim() || `Sonara ${value(2, 'Track')}`,
     vocalMode,
     lyrics: vocalMode === 'instrumental' ? '' : String(lyricsTextarea?.value || '').trim()
@@ -178,6 +184,8 @@ export default function DualTrackGenerationControl() {
         bpm: context.bpm,
         key: context.keySignature,
         durationSec: context.durationSec,
+        weirdness: context.weirdness,
+        styleInfluence: context.styleInfluence,
         vocalMode: context.vocalMode,
         lyrics: context.lyrics,
         title: context.title
@@ -204,6 +212,8 @@ export default function DualTrackGenerationControl() {
           key: context.keySignature,
           durationSec: context.durationSec,
           duration: context.durationSec,
+          weirdness: context.weirdness,
+          styleInfluence: context.styleInfluence,
           outputFormat: 'wav',
           audioQuality: 'lossless',
           engineId: 'sonara_ace_step_v15_modal',
@@ -262,7 +272,13 @@ export default function DualTrackGenerationControl() {
           durationSec: context.durationSec,
           primaryAudioUrl: candidate.audioUrl,
           audioFormat: candidate.audioFormat,
-          response: { generationPairId: pairId, variationId: candidate.id, completedJob: current, performanceProfile: 'dual-ultra-fast-v9' }
+          response: {
+            generationPairId: pairId,
+            variationId: candidate.id,
+            completedJob: current,
+            performanceProfile: 'dual-ultra-fast-v9',
+            creativeControls: { weirdness: context.weirdness, styleInfluence: context.styleInfluence }
+          }
         })));
         await refreshBilling(token);
         return;
