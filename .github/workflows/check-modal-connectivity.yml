@@ -20,15 +20,25 @@ jobs:
       - name: Probe Modal model catalog through production Worker
         shell: bash
         run: |
-          curl -fsS --max-time 60 \
+          http_status="$(curl -sS --max-time 60 \
+            -w '%{http_code}' \
             https://api.sonaraenterprise.com/api/diagnostics/modal-connectivity \
-            -o /tmp/modal-diagnostic.json
-          node - <<'NODE'
+            -o /tmp/modal-diagnostic.json || true)"
+          echo "Diagnostic HTTP status: ${http_status}"
+          cat /tmp/modal-diagnostic.json || true
+          echo
+          HTTP_STATUS="${http_status}" node - <<'NODE'
           const fs = require('fs');
-          const result = JSON.parse(fs.readFileSync('/tmp/modal-diagnostic.json', 'utf8'));
+          const status = Number(process.env.HTTP_STATUS || 0);
+          const raw = fs.existsSync('/tmp/modal-diagnostic.json') ? fs.readFileSync('/tmp/modal-diagnostic.json', 'utf8') : '';
+          let result = {};
+          try { result = raw ? JSON.parse(raw) : {}; } catch {
+            console.error(`Diagnostic returned invalid JSON (HTTP ${status}).`);
+            process.exit(1);
+          }
           console.log(JSON.stringify(result, null, 2));
-          if (!result.ok) {
-            console.error(`Modal connectivity failed: ${result.error || 'unknown error'}`);
+          if (status !== 200 || !result.ok) {
+            console.error(`Modal connectivity failed: ${result.error || `HTTP ${status}`}`);
             process.exit(1);
           }
           const models = Array.isArray(result.models) ? result.models : [];
