@@ -66,7 +66,7 @@ for (const family of WORLD_MUSIC_GENRES) {
 
 assert.equal(familyCount, 24, 'all 24 music families must remain available');
 assert.equal(genreCount, 83, 'all 83 genre categories must remain available');
-assert.equal(subgenreCount, 692, 'all 692 subgenres must remain available');
+assert.equal(subgenreCount, 693, 'all 693 subgenres must remain available');
 assert.equal(allFingerprints.size, subgenreCount, 'every taxonomy path must produce a distinct professional fingerprint');
 
 function assertAtmospherePrefix(family: string, genre: string, subgenre: string, expected: string[]) {
