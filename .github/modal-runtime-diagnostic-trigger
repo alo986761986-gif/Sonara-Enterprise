@@ -1,2 +1,2 @@
-trigger: 2026-08-25T08:49:00Z
-reason: inspect Sonara ACE-Step Modal startup and container logs
+trigger: 2026-08-25T09:38:00Z
+reason: inspect Modal startup after persistent dual-batch audio fix
