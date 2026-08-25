@@ -61,6 +61,29 @@ jobs:
                   handle.write(f"{key}={value}\n")
           PY
 
+      - name: Diagnose Modal credential families safely
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+
+          checks = (
+              ("MODAL_TOKEN_ID", "ak-", "wk-"),
+              ("MODAL_TOKEN_SECRET", "as-", "ws-"),
+          )
+          for name, api_prefix, proxy_prefix in checks:
+              value = os.environ.get(name, "").strip()
+              if not value:
+                  family = "missing"
+              elif value.startswith(api_prefix):
+                  family = "api"
+              elif value.startswith(proxy_prefix):
+                  family = "proxy"
+              else:
+                  family = "other"
+              print(f"{name}: family={family}, length={len(value)}")
+          PY
+
       - name: Verify Modal deployment credentials
         shell: bash
         run: |
