@@ -67,6 +67,11 @@ assert.match(neapolitan, /cantabile/);
 assert.match(neapolitan, /female lead vocalist/);
 assert.match(neapolitan, /exactly 90 BPM/);
 assert.ok(neapolitan.includes(lyrics), 'lyrics must remain unchanged');
+
+const modernNeomelodicFamily = WORLD_MUSIC_GENRES.find(item => item.family === 'Neomelodica Napoletana');
+assert.ok(modernNeomelodicFamily?.genres.some(item => item.name === 'Neomelodica Napoletana Moderna'));
+const classicalFamily = WORLD_MUSIC_GENRES.find(item => item.family === 'Classical / Art Music');
+assert.ok(classicalFamily?.genres.some(item => item.name === 'Musica Classica'));
 assert.ok(!neapolitan.includes('Strictly instrumental'));
 
 const jazzFusionInput = {
