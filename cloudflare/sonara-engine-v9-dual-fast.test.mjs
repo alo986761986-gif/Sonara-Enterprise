@@ -20,6 +20,47 @@ test('dual-fast never exceeds the supported Studio product limit', () => {
   assert.equal(payload.audio_duration, 480);
 });
 
+test('long-form dual generation starts two memory-safe independent renders', async () => {
+  const cacheEntries = new Map();
+  const previousCaches = globalThis.caches;
+  const previousFetch = globalThis.fetch;
+  const releasedPayloads = [];
+
+  globalThis.caches = {
+    default: {
+      async put(key, value) { cacheEntries.set(key.url, value.clone()); },
+      async match(key) { return cacheEntries.get(key.url)?.clone(); },
+    },
+  };
+  globalThis.fetch = async (url, init = {}) => {
+    const href = String(url);
+    if (href.endsWith('/v1/models')) return Response.json({ data: { models: [{ name: 'acestep-v15-xl-turbo' }] } });
+    if (href.endsWith('/release_task')) {
+      releasedPayloads.push(JSON.parse(String(init.body || '{}')));
+      return Response.json({ data: { task_id: `long-${releasedPayloads.length}` } });
+    }
+    throw new Error(`Unexpected fetch ${href}`);
+  };
+
+  try {
+    const response = await sonaraWorker.fetch(new Request('https://api.sonaraenterprise.com/api/engine/generate', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt: 'Eight minute studio arrangement.', durationSec: 480, dualFast: true, candidateCount: 2 }),
+    }), { MODAL_PROXY_KEY: 'key', MODAL_PROXY_SECRET: 'secret' }, {});
+    const started = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(started.status, 'PROCESSING');
+    assert.equal(started.metadata.performanceProfile, 'dual-safe-independent-v1');
+    assert.equal(releasedPayloads.length, 2);
+    assert.ok(releasedPayloads.every(payload => payload.audio_duration === 480));
+    assert.ok(releasedPayloads.every(payload => payload.batch_size === 1));
+  } finally {
+    globalThis.caches = previousCaches;
+    globalThis.fetch = previousFetch;
+  }
+});
+
 test('dual-fast applies Weirdness and Style Influence to the native batch', () => {
   const low = resolveCreativeControls({ weirdness: 0, styleInfluence: 0 });
   const high = resolveCreativeControls({ weirdness: 100, styleInfluence: 100 });
