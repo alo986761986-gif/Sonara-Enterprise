@@ -7,8 +7,20 @@ const JOB_TTL_SECONDS = 3 * 60 * 60;
 const FAST_MODEL = 'acestep-v15-xl-turbo';
 const FAST_STEPS = 6;
 const BATCH_SIZE = 2;
-const SUBMIT_TIMEOUT_MS = 70_000;
-const QUERY_TIMEOUT_MS = 12_000;
+const READINESS_TIMEOUT_MS = 180_000;
+const SUBMIT_TIMEOUT_MS = 120_000;
+const QUERY_TIMEOUT_MS = 30_000;
+const MAX_QUERY_FAILURES = 4;
+const RETRYABLE_HTTP_STATUSES = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
+
+class SonaraEngineError extends Error {
+  constructor(message, status = 502, retryable = false) {
+    super(message);
+    this.name = 'SonaraEngineError';
+    this.status = Number(status) || 502;
+    this.retryable = Boolean(retryable);
+  }
+}
 
 function corsHeaders(request) {
   const origin = request.headers.get('Origin') || '';
@@ -56,20 +68,60 @@ function internalGenerationAuthorized(request, env) {
   return !required || String(request.headers.get('X-Sonara-Internal-Secret') || '').trim() === required;
 }
 
+function engineError(error, fallbackMessage = 'SONARA engine request failed.') {
+  if (error instanceof SonaraEngineError) return error;
+  const message = error instanceof Error ? error.message : String(error || fallbackMessage);
+  const timeout = /timeout|timed out|abort/i.test(message);
+  return new SonaraEngineError(timeout ? 'SONARA engine startup timed out.' : message || fallbackMessage, timeout ? 504 : 502, true);
+}
+
 async function engineJson(env, path, init = {}, timeoutMs = QUERY_TIMEOUT_MS) {
   const cfg = config(env);
-  if (!cfg.key || !cfg.secret) throw new Error('SONARA engine credentials are not configured.');
-  const response = await fetch(`${cfg.baseUrl}${path}`, {
-    ...init,
-    headers: { ...authHeaders(env), ...(init.headers || {}) },
-    signal: AbortSignal.timeout(timeoutMs)
-  });
+  if (!cfg.key || !cfg.secret) {
+    throw new SonaraEngineError('SONARA engine credentials are not configured.', 503, false);
+  }
+
+  let response;
+  try {
+    response = await fetch(`${cfg.baseUrl}${path}`, {
+      ...init,
+      headers: { ...authHeaders(env), ...(init.headers || {}) },
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+  } catch (error) {
+    throw engineError(error, 'SONARA engine network request failed.');
+  }
+
   const raw = await response.text();
   let payload = {};
-  try { payload = raw ? JSON.parse(raw) : {}; } catch { throw new Error(`SONARA engine returned invalid JSON (HTTP ${response.status}).`); }
-  if (!response.ok) throw new Error(String(payload?.detail || payload?.error || payload?.message || `SONARA HTTP ${response.status}`));
-  if (typeof payload?.code === 'number' && payload.code >= 400) throw new Error(String(payload?.error || payload?.message || 'SONARA engine request failed.'));
+  try {
+    payload = raw ? JSON.parse(raw) : {};
+  } catch {
+    throw new SonaraEngineError(`SONARA engine returned invalid JSON (HTTP ${response.status}).`, response.status || 502, RETRYABLE_HTTP_STATUSES.has(response.status));
+  }
+
+  if (!response.ok) {
+    const message = String(payload?.detail || payload?.error || payload?.message || `SONARA HTTP ${response.status}`);
+    throw new SonaraEngineError(message, response.status, RETRYABLE_HTTP_STATUSES.has(response.status));
+  }
+  if (typeof payload?.code === 'number' && payload.code >= 400) {
+    const status = Number(payload.code) || 502;
+    throw new SonaraEngineError(String(payload?.error || payload?.message || 'SONARA engine request failed.'), status, RETRYABLE_HTTP_STATUSES.has(status));
+  }
   return payload;
+}
+
+async function ensureEngineReady(env, model) {
+  const data = await engineJson(env, '/v1/models', {
+    method: 'GET',
+    headers: { Accept: 'application/json' }
+  }, READINESS_TIMEOUT_MS);
+  const records = Array.isArray(data?.data?.models) ? data.data.models : [];
+  const models = records.map(item => String(item?.name || '')).filter(Boolean);
+  if (!models.includes(model)) {
+    throw new SonaraEngineError(`SONARA model ${model} is not available on the production endpoint.`, 503, false);
+  }
+  return models;
 }
 
 function cacheUrl(jobId) {
@@ -173,24 +225,28 @@ function buildPayload(body, env) {
 }
 
 async function submitTask(env, payload) {
+  await ensureEngineReady(env, payload.model || FAST_MODEL);
   const data = await engineJson(env, '/release_task', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(payload)
   }, SUBMIT_TIMEOUT_MS);
   const taskId = data?.data?.task_id;
-  if (!taskId) throw new Error('SONARA did not return a dual generation task.');
+  if (!taskId) throw new SonaraEngineError('SONARA did not return a dual generation task.', 502, true);
   return String(taskId);
 }
 
 async function startDualGeneration(request, env, body) {
   let payload;
-  try { payload = buildPayload(body, env); }
-  catch (error) { return json(request, { error: error instanceof Error ? error.message : String(error) }, 400); }
+  try {
+    payload = buildPayload(body, env);
+  } catch (error) {
+    return json(request, { error: error instanceof Error ? error.message : String(error) }, 400);
+  }
 
   const jobId = `d9pair_${crypto.randomUUID()}`;
   const context = {
-    phase: 'queued',
+    phase: 'starting',
     payload,
     taskId: null,
     generationPairId: String(body.generationPairId || jobId),
@@ -198,6 +254,8 @@ async function startDualGeneration(request, env, body) {
     genre: String(body.genre || ''),
     subgenre: String(body.subgenre || ''),
     durationSec: Number(body.durationSec ?? body.duration ?? 30),
+    submitAttempts: 0,
+    queryFailures: 0,
     createdAt: Date.now(),
     updatedAt: Date.now()
   };
@@ -205,7 +263,7 @@ async function startDualGeneration(request, env, body) {
 
   try {
     const taskId = await submitTask(env, payload);
-    await storeJob(jobId, { ...context, phase: 'submitted', taskId, updatedAt: Date.now() });
+    await storeJob(jobId, { ...context, phase: 'submitted', taskId, submitAttempts: 1, updatedAt: Date.now() });
     return json(request, {
       jobId,
       status: 'PROCESSING',
@@ -219,14 +277,32 @@ async function startDualGeneration(request, env, body) {
         currentStage: 'SONARA: 2 brani in un solo batch GPU'
       }
     }, 202);
-  } catch (error) {
-    await storeJob(jobId, { ...context, phase: 'queued', lastSubmitError: error instanceof Error ? error.message : String(error), updatedAt: Date.now() });
+  } catch (rawError) {
+    const error = engineError(rawError);
+    const failed = {
+      ...context,
+      phase: 'failed',
+      submitAttempts: 1,
+      error: error.message,
+      errorStatus: error.status,
+      retryable: error.retryable,
+      updatedAt: Date.now()
+    };
+    await storeJob(jobId, failed);
+    const status = error.status >= 400 && error.status < 600 ? error.status : 502;
     return json(request, {
       jobId,
-      status: 'PROCESSING',
-      progress: 10,
-      metadata: { engine: 'SONARA', performanceProfile: 'dual-ultra-fast-v9', currentStage: 'SONARA: avvio immediato del batch doppio' }
-    }, 202);
+      status: 'FAILED',
+      progress: 0,
+      retryable: error.retryable,
+      error: error.message,
+      metadata: {
+        engine: 'SONARA',
+        performanceProfile: 'dual-ultra-fast-v9',
+        model: payload.model,
+        currentStage: error.retryable ? 'SONARA: motore temporaneamente non disponibile' : 'SONARA: configurazione motore non valida'
+      }
+    }, status);
   }
 }
 
@@ -254,21 +330,29 @@ async function pollDualJob(request, env, jobId) {
     });
   }
 
-  if (context.phase === 'failed') return json(request, { jobId, status: 'FAILED', progress: 0, error: context.error || 'SONARA dual generation failed.' });
+  if (context.phase === 'failed') {
+    return json(request, {
+      jobId,
+      status: 'FAILED',
+      progress: 0,
+      retryable: Boolean(context.retryable),
+      error: context.error || 'SONARA dual generation failed.'
+    });
+  }
 
   if (!context.taskId) {
-    try {
-      const taskId = await submitTask(env, context.payload);
-      context = { ...context, phase: 'submitted', taskId, updatedAt: Date.now() };
-      await storeJob(jobId, context);
-    } catch (error) {
-      return json(request, {
-        jobId,
-        status: 'PROCESSING',
-        progress: 12,
-        metadata: { engine: 'SONARA', performanceProfile: 'dual-ultra-fast-v9', currentStage: 'SONARA: motore in avvio, batch doppio in coda' }
-      });
+    const attempts = Number(context.submitAttempts || 0);
+    if (attempts >= 1) {
+      const failed = { ...context, phase: 'failed', error: context.error || 'SONARA did not create the generation task.', retryable: Boolean(context.retryable), updatedAt: Date.now() };
+      await storeJob(jobId, failed);
+      return json(request, { jobId, status: 'FAILED', progress: 0, retryable: failed.retryable, error: failed.error });
     }
+    return json(request, {
+      jobId,
+      status: 'PROCESSING',
+      progress: 10,
+      metadata: { engine: 'SONARA', performanceProfile: 'dual-ultra-fast-v9', currentStage: 'SONARA: avvio del motore' }
+    });
   }
 
   try {
@@ -279,6 +363,10 @@ async function pollDualJob(request, env, jobId) {
     }, QUERY_TIMEOUT_MS);
     const task = data?.data?.[0];
     if (!task || Number(task.status) === 0) {
+      if (Number(context.queryFailures || 0) !== 0) {
+        context = { ...context, queryFailures: 0, updatedAt: Date.now() };
+        await storeJob(jobId, context);
+      }
       return json(request, {
         jobId,
         status: 'PROCESSING',
@@ -287,7 +375,8 @@ async function pollDualJob(request, env, jobId) {
       });
     }
     if (Number(task.status) !== 1) {
-      const failed = { ...context, phase: 'failed', error: 'SONARA dual batch did not complete successfully.', updatedAt: Date.now() };
+      const taskMessage = String(task?.error || task?.message || 'SONARA dual batch did not complete successfully.');
+      const failed = { ...context, phase: 'failed', error: taskMessage, retryable: false, updatedAt: Date.now() };
       await storeJob(jobId, failed);
       return json(request, { jobId, status: 'FAILED', progress: 0, error: failed.error });
     }
@@ -295,13 +384,13 @@ async function pollDualJob(request, env, jobId) {
     const items = parseItems(task.result);
     const paths = items.map(item => audioPathFromItem(item, env)).filter(Boolean).slice(0, 2);
     if (paths.length < 2) {
-      const failed = { ...context, phase: 'failed', error: `SONARA dual batch returned ${paths.length} audio file(s) instead of 2.`, updatedAt: Date.now() };
+      const failed = { ...context, phase: 'failed', error: `SONARA dual batch returned ${paths.length} audio file(s) instead of 2.`, retryable: false, updatedAt: Date.now() };
       await storeJob(jobId, failed);
       return json(request, { jobId, status: 'FAILED', progress: 0, error: failed.error });
     }
 
     const audioUrls = paths.map(path => `${PUBLIC_API_ORIGIN}/api/modal/audio?path=${encodeURIComponent(path)}`);
-    context = { ...context, phase: 'completed', audioPaths: paths, audioUrls, updatedAt: Date.now() };
+    context = { ...context, phase: 'completed', audioPaths: paths, audioUrls, queryFailures: 0, updatedAt: Date.now() };
     await storeJob(jobId, context);
     return json(request, {
       jobId,
@@ -320,12 +409,37 @@ async function pollDualJob(request, env, jobId) {
         currentStage: '2 brani pronti'
       }
     });
-  } catch (error) {
+  } catch (rawError) {
+    const error = engineError(rawError);
+    const failures = Number(context.queryFailures || 0) + 1;
+    const shouldFail = !error.retryable || failures >= MAX_QUERY_FAILURES;
+    context = {
+      ...context,
+      phase: shouldFail ? 'failed' : context.phase,
+      queryFailures: failures,
+      error: shouldFail ? error.message : context.error,
+      retryable: error.retryable,
+      updatedAt: Date.now()
+    };
+    await storeJob(jobId, context);
+
+    if (shouldFail) {
+      return json(request, {
+        jobId,
+        status: 'FAILED',
+        progress: 0,
+        retryable: error.retryable,
+        error: error.message,
+        metadata: { engine: 'SONARA', performanceProfile: 'dual-ultra-fast-v9', currentStage: 'SONARA: impossibile leggere il risultato dal motore' }
+      });
+    }
+
     return json(request, {
       jobId,
       status: 'PROCESSING',
       progress: 82,
-      metadata: { engine: 'SONARA', performanceProfile: 'dual-ultra-fast-v9', currentStage: 'SONARA: finalizzazione rapidissima dei 2 brani' }
+      retryable: true,
+      metadata: { engine: 'SONARA', performanceProfile: 'dual-ultra-fast-v9', currentStage: `SONARA: riconnessione al risultato (${failures}/${MAX_QUERY_FAILURES})` }
     });
   }
 }
@@ -361,7 +475,10 @@ export default {
           dualFastModel: FAST_MODEL,
           dualFastInferenceSteps: FAST_STEPS,
           dualFastCandidateCount: BATCH_SIZE,
-          dualFastAutoRegeneration: false
+          dualFastAutoRegeneration: false,
+          dualFastReadinessTimeoutMs: READINESS_TIMEOUT_MS,
+          dualFastSubmitTimeoutMs: SUBMIT_TIMEOUT_MS,
+          dualFastQueryTimeoutMs: QUERY_TIMEOUT_MS
         }, response.status);
       } catch {}
     }
