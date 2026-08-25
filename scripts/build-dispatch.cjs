@@ -7,9 +7,10 @@ if (process.env.WORKERS_CI === '1') {
 }
 
 const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+const node = process.execPath;
 
-function run(args) {
-  const result = spawnSync(npx, args, {
+function runCommand(command, args) {
+  const result = spawnSync(command, args, {
     stdio: 'inherit',
     shell: false
   });
@@ -23,6 +24,13 @@ function run(args) {
     process.exit(result.status ?? 1);
   }
 }
+
+function run(args) {
+  runCommand(npx, args);
+}
+
+console.log('[SONARA] Repairing Firebase authorized domains before build.');
+runCommand(node, ['scripts/ensure-firebase-authorized-domains.cjs']);
 
 console.log('[SONARA] Validating professional music taxonomy.');
 run(['tsx', 'src/musicStyleIntelligence.professional.test.ts']);
