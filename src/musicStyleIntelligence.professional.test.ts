@@ -69,6 +69,17 @@ assert.equal(genreCount, 86, 'all 86 genre categories must remain available');
 assert.equal(subgenreCount, 720, 'all 720 subgenres must remain available');
 assert.equal(allFingerprints.size, subgenreCount, 'every taxonomy path must produce a distinct professional fingerprint');
 
+const neapolitanFamily = WORLD_MUSIC_GENRES.find(group => group.family === 'Neomelodica Napoletana');
+assert.ok(neapolitanFamily, 'Neomelodica Napoletana family must remain available');
+const neapolitanModern = neapolitanFamily.genres.find(item => item.name === 'Neomelodica Napoletana Moderna');
+assert.ok(neapolitanModern, 'Neomelodica Napoletana Moderna genre must remain available');
+for (const requiredSubgenre of ['Rap Napoletano', 'Hip-Hop Napoletano', 'Trap Napoletano']) {
+  assert.ok(
+    neapolitanModern.subgenres.includes(requiredSubgenre),
+    `${requiredSubgenre} must remain selectable in the Neapolitan subgenre menu`
+  );
+}
+
 function assertAtmospherePrefix(family: string, genre: string, subgenre: string, expected: string[]) {
   assert.deepEqual(
     getAtmospheresForSelection(family, genre, subgenre).slice(0, expected.length),
