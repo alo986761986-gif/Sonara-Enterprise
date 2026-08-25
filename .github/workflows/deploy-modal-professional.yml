@@ -2,6 +2,11 @@ name: Deploy Modal ACE-Step Professional
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/modal-deploy-trigger"
 
 permissions:
   contents: read
@@ -67,9 +72,6 @@ jobs:
           token_id = extract("ak-", raw_id, raw_secret) or raw_id
           token_secret = extract("as-", raw_secret, raw_id) or raw_secret
 
-          # Explicitly mask normalized/extracted values before exporting them.
-          # GitHub only auto-masks the original secret strings, so transformed
-          # substrings must be registered separately to prevent log exposure.
           for value in (token_id, token_secret):
               if value:
                   print(f"::add-mask::{value}")
