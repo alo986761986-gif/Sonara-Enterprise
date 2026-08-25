@@ -171,8 +171,16 @@ export const WORLD_MUSIC_GENRES: MusicGenreFamily[] = [
     ]
   },
   {
+    family: 'Neomelodica Napoletana',
+    genres: [
+      { name: 'Neomelodica Napoletana Moderna', subgenres: ['Neomelodico Moderno', 'Neomelodico Pop', 'Neomelodico Urban', 'Neomelodico Trap', 'Neomelodico Dance', 'Ballata Neomelodica Moderna', 'Duetto Neomelodico', 'Neomelodico Romantico', 'Neomelodico Drammatico'] },
+      { name: 'Canzone Napoletana Contemporanea', subgenres: ['Canzone Napoletana Pop', 'Napoli Acoustic Pop', 'Napoli Piano Ballad', 'Napoli Pop Orchestrale', 'Napoli Latin Pop', 'Napoli Soul'] }
+    ]
+  },
+  {
     family: 'Classical / Art Music',
     genres: [
+      { name: 'Musica Classica', subgenres: ['Classica Medievale', 'Classica Rinascimentale', 'Classica Barocca', 'Classicismo Viennese', 'Classica Romantica', 'Classica Impressionista', 'Classica Moderna', 'Classica Contemporanea', 'Classica Minimalista'] },
       { name: 'Western Classical', subgenres: ['Medieval', 'Renaissance', 'Baroque', 'Classical Period', 'Romantic', 'Impressionist', 'Modern Classical', 'Contemporary Classical', 'Minimalism', 'Serialism', 'Avant-Garde Classical'] },
       { name: 'Orchestral / Chamber', subgenres: ['Symphony', 'Concerto', 'Chamber Music', 'String Quartet', 'Piano Solo', 'Choral', 'Sacred Classical'] },
       { name: 'Opera', subgenres: ['Opera', 'Bel Canto', 'Verismo', 'Operetta', 'Contemporary Opera'] }
