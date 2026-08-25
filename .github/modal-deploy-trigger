@@ -1,2 +1,2 @@
 trigger: 2026-08-25T08:05:00Z
-reason: persist ACE-Step dual-batch audio and eliminate intermittent v1/audio 404s
+reason: persist dual-batch audio with an image-safe Modal Volume mount
