@@ -10,6 +10,8 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +29,7 @@ DIT_MODEL = QUALITY_DIT_MODEL
 LM_MODEL = "acestep-5Hz-lm-4B"
 CHECKPOINTS_DIR = "/app/checkpoints"
 OUTPUTS_DIR = "/app/gradio_outputs"
+API_TMP_DIR = f"{OUTPUTS_DIR}/runtime"
 HF_CACHE_DIR = "/cache/huggingface"
 ACESTEP_ROOT = "/app"
 ACESTEP_VENV = "/app/.venv"
@@ -56,6 +59,11 @@ runtime_env = {
     "ACESTEP_COMPILE_MODEL": "false",
     "ACESTEP_QUEUE_WORKERS": "1",
     "ACESTEP_QUEUE_MAXSIZE": "200",
+    # ACE-Step writes API WAV files below $ACESTEP_TMPDIR/api_audio. Keep that
+    # directory on the mounted output Volume instead of the container-local
+    # /app/.cache tree, otherwise a later /v1/audio request can reach a
+    # different container (or a replacement container) and return HTTP 404.
+    "ACESTEP_TMPDIR": API_TMP_DIR,
     "ACESTEP_LLM_BACKEND": "pt",
     "TOKENIZERS_PARALLELISM": "false",
     "HF_HOME": HF_CACHE_DIR,
@@ -86,7 +94,7 @@ image = (
         "python -m pip install --no-cache-dir 'uv>=0.7,<1'",
         "git clone --depth 1 https://github.com/ace-step/ACE-Step-1.5.git /app",
         "cd /app && uv sync --frozen --no-dev --python python3.11",
-        "mkdir -p /app/checkpoints /app/gradio_outputs /app/output /cache/huggingface",
+        "mkdir -p /app/checkpoints /app/gradio_outputs/runtime/api_audio /app/output /cache/huggingface",
     )
     .env(runtime_env)
 )
@@ -127,6 +135,19 @@ def _professional_checkpoint_status() -> dict[str, Any]:
         "textEncoder": (checkpoints / "Qwen3-Embedding-0.6B").exists(),
     }
     return status
+
+
+def _commit_outputs_forever(interval_seconds: float = 2.0) -> None:
+    """Persist API audio written by the ACE-Step web-server subprocess."""
+
+    while True:
+        time.sleep(interval_seconds)
+        try:
+            output_volume.commit()
+        except Exception as exc:
+            # A transient commit failure must not stop music generation. The
+            # next pass retries automatically while the container stays alive.
+            print(f"[SONARA] Output Volume commit retry: {exc}", flush=True)
 
 
 @app.function(
@@ -220,7 +241,10 @@ def prepare_models() -> dict[str, object]:
     startup_timeout=30 * MINUTES,
     scaledown_window=10 * MINUTES,
     min_containers=0,
-    max_containers=2,
+    # ACE-Step keeps its task queue/result store in memory. A single
+    # authoritative container guarantees release_task, query_result and both
+    # /v1/audio downloads observe the same job state and files.
+    max_containers=1,
     name=FUNCTION_NAME,
 )
 @modal.concurrent(max_inputs=1)
@@ -231,6 +255,13 @@ def prepare_models() -> dict[str, object]:
 )
 def serve_acestep() -> None:
     """Run the official ACE-Step REST server behind Modal proxy authentication."""
+
+    output_volume.reload()
+    threading.Thread(
+        target=_commit_outputs_forever,
+        name="sonara-output-volume-commit",
+        daemon=True,
+    ).start()
 
     env = os.environ.copy()
     env.update(runtime_env)
@@ -288,7 +319,8 @@ def verify_configuration() -> dict[str, object]:
         "ditModel": QUALITY_DIT_MODEL,
         "lmModel": LM_MODEL,
         "proxyAuthentication": True,
-        "maxConcurrentGpuContainers": 2,
+        "maxConcurrentGpuContainers": 1,
+        "apiTemporaryDirectory": API_TMP_DIR,
         "maxInputsPerContainer": 1,
         "status": status,
         "paths": {
