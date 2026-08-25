@@ -25,12 +25,24 @@ function runCommand(command, args) {
   }
 }
 
+function runOptional(command, args) {
+  const result = spawnSync(command, args, {
+    stdio: 'inherit',
+    shell: false
+  });
+  if (result.error || result.status !== 0) {
+    console.warn('[SONARA][Firebase] Authorized-domain repair could not complete during build; application build will continue and runtime repair remains available.');
+    return false;
+  }
+  return true;
+}
+
 function run(args) {
   runCommand(npx, args);
 }
 
-console.log('[SONARA] Repairing Firebase authorized domains before build.');
-runCommand(node, ['scripts/ensure-firebase-authorized-domains.cjs']);
+console.log('[SONARA] Checking Firebase authorized domains before build.');
+runOptional(node, ['scripts/ensure-firebase-authorized-domains.cjs']);
 
 console.log('[SONARA] Validating professional music taxonomy.');
 run(['tsx', 'src/musicStyleIntelligence.professional.test.ts']);
