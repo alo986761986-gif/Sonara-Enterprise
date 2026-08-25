@@ -1,0 +1,85 @@
+name: Diagnose Modal Runtime
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/modal-runtime-diagnostic-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Inspect Sonara Modal runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RAW_MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      RAW_MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Normalize Modal credentials safely
+        shell: bash
+        run: |
+          python - <<'PY' > /tmp/modal-api-pair
+          import os, re
+          values = [os.environ.get('RAW_MODAL_TOKEN_ID',''), os.environ.get('RAW_MODAL_TOKEN_SECRET','')]
+          def extract(prefix):
+              pattern = re.compile(re.escape(prefix) + r'[A-Za-z0-9_-]+')
+              for value in values:
+                  match = pattern.search((value or '').strip())
+                  if match:
+                      return match.group(0)
+              return ''
+          token_id = extract('ak-')
+          token_secret = extract('as-')
+          if not token_id or not token_secret:
+              raise SystemExit('Modal API token pair not found.')
+          print(token_id)
+          print(token_secret)
+          PY
+          mapfile -t pair < /tmp/modal-api-pair
+          echo "::add-mask::${pair[0]}"
+          echo "::add-mask::${pair[1]}"
+          echo "MODAL_TOKEN_ID=${pair[0]}" >> "${GITHUB_ENV}"
+          echo "MODAL_TOKEN_SECRET=${pair[1]}" >> "${GITHUB_ENV}"
+          rm -f /tmp/modal-api-pair
+
+      - name: Install Modal CLI
+        run: python -m pip install --disable-pip-version-check 'modal>=1.4,<2'
+
+      - name: Show deployed app and containers
+        shell: bash
+        run: |
+          echo '=== APP LIST ==='
+          modal app list --env main --json || true
+          echo '=== APP HISTORY ==='
+          modal app history sonara-acestep --env main --json || true
+          echo '=== RUNNING CONTAINERS ==='
+          modal container list --env main --json || true
+
+      - name: Fetch recent Sonara app logs
+        shell: bash
+        run: |
+          echo '=== SONARA APP LOGS (last 30m) ==='
+          modal app logs sonara-acestep --env main --since 30m --tail 800 --timestamps --show-function-id --show-container-id || true
+
+      - name: Fetch recent stderr only
+        shell: bash
+        run: |
+          echo '=== SONARA STDERR (last 30m) ==='
+          modal app logs sonara-acestep --env main --since 30m --tail 500 --timestamps --show-function-id --show-container-id --source stderr || true
+
+      - name: Fetch recent system logs
+        shell: bash
+        run: |
+          echo '=== SONARA SYSTEM (last 30m) ==='
+          modal app logs sonara-acestep --env main --since 30m --tail 500 --timestamps --show-function-id --show-container-id --source system || true
