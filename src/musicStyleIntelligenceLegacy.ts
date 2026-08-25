@@ -142,6 +142,13 @@ const FAMILY_PROFILES: Record<string, ProfileCore> = {
     arrangement: 'narrative or dance-led development, instrumental dialogue, dynamic lift and complete acoustic ending',
     production: 'honest acoustic tone, natural room, preserved articulation and minimal artificial gloss'
   },
+  'Neomelodica Napoletana': {
+    instrumentation: 'expressive lead voice, piano or modern keyboards, lyrical strings, guitar, rounded bass, controlled contemporary drums and tasteful synth layers',
+    rhythm: 'song-led modern Italian pop pulse with natural vocal breathing, clear refrain lift and restrained Mediterranean rhythmic color',
+    harmony: 'emotionally direct tonal harmony, unmistakable Neapolitan melodic turns, strong cadences and memorable refrains',
+    arrangement: 'intimate narrative verse, rising pre-chorus, large emotional refrain, contrasting bridge, final vocal climax and resolved ending',
+    production: 'current commercial vocal clarity, warm low end, wide melodic layers and polished dynamics without losing Neapolitan identity'
+  },
   'Classical / Art Music': {
     instrumentation: 'credible period- or form-appropriate acoustic forces with realistic articulation, voicing and orchestral balance',
     rhythm: 'score-led timing, expressive rubato and form-appropriate pulse rather than loop-based repetition',
@@ -258,6 +265,9 @@ const GENRE_SIGNATURES: Record<string, string> = {
   Americana: 'Roots-oriented acoustic ensemble, narrative depth, organic dynamics and regional American character.',
   'European Folk': 'The selected European tradition’s exact instruments, meters, modes, ornamentation and social function lead.',
   'Contemporary Folk': 'Songwriting intimacy and organic instruments shaped by the exact indie, progressive or experimental folk subgenre.',
+  'Neomelodica Napoletana Moderna': 'Authentic Neapolitan language, emotionally direct melody and dramatic vocal storytelling shaped with contemporary pop or urban production.',
+  'Canzone Napoletana Contemporanea': 'Modern songwriting and production built around unmistakable Neapolitan melody, diction, romantic expression and Mediterranean musical character.',
+  'Musica Classica': 'Historically and stylistically correct acoustic composition, counterpoint, orchestration, articulation and formal development for the selected period.',
   'Western Classical': 'Period-correct harmony, counterpoint, articulation, form and acoustic instrumentation.',
   'Orchestral / Chamber': 'Realistic ensemble voicing, motivic development and formal balance appropriate to the exact forces.',
   Opera: 'Dramatic vocal writing, language-aware phrasing, orchestral support and the selected operatic period or form.',
@@ -291,6 +301,7 @@ const FAMILY_MOODS: Record<string, string[]> = {
   'Southeast Asia': ['Ceremonial', 'Joyful', 'Meditative', 'Romantic', 'Festive', 'Nostalgic', 'Playful', 'Serene'],
   'Country / Americana': ['Heartfelt', 'Nostalgic', 'Earthy', 'Hopeful', 'Melancholic', 'Rebellious', 'Warm', 'Reflective'],
   'Folk / Traditional Europe': ['Authentic', 'Earthy', 'Nostalgic', 'Festive', 'Melancholic', 'Romantic', 'Communal', 'Mystical'],
+  'Neomelodica Napoletana': ['Passionate', 'Romantic', 'Heartfelt', 'Dramatic', 'Melodic', 'Modern', 'Intense', 'Urban'],
   'Classical / Art Music': ['Elegant', 'Dramatic', 'Serene', 'Majestic', 'Melancholic', 'Triumphant', 'Contemplative', 'Tense'],
   'Gospel / Spiritual': ['Uplifting', 'Devotional', 'Joyful', 'Powerful', 'Hopeful', 'Spiritual', 'Reflective', 'Triumphant'],
   'Cinematic / Media': ['Epic', 'Dramatic', 'Suspenseful', 'Emotional', 'Heroic', 'Mysterious', 'Atmospheric', 'Tender'],
@@ -371,6 +382,9 @@ const GENRE_MOODS: Record<string, string[]> = {
   Americana: ['Earthy', 'Reflective', 'Nostalgic', 'Warm', 'Melancholic', 'Hopeful', 'Intimate', 'Haunting'],
   'European Folk': ['Authentic', 'Earthy', 'Nostalgic', 'Festive', 'Melancholic', 'Romantic', 'Communal', 'Mystical'],
   'Contemporary Folk': ['Intimate', 'Reflective', 'Organic', 'Melancholic', 'Hopeful', 'Dreamy', 'Earthy', 'Experimental'],
+  'Neomelodica Napoletana Moderna': ['Passionate', 'Romantic', 'Heartfelt', 'Modern', 'Dramatic', 'Melodic', 'Intense', 'Urban'],
+  'Canzone Napoletana Contemporanea': ['Romantic', 'Heartfelt', 'Modern', 'Mediterranean', 'Passionate', 'Melodic', 'Warm', 'Dramatic'],
+  'Musica Classica': ['Elegant', 'Dramatic', 'Serene', 'Majestic', 'Melancholic', 'Triumphant', 'Contemplative', 'Tense'],
   'Western Classical': ['Elegant', 'Dramatic', 'Serene', 'Majestic', 'Melancholic', 'Triumphant', 'Contemplative', 'Tense'],
   'Orchestral / Chamber': ['Majestic', 'Intimate', 'Dramatic', 'Elegant', 'Tense', 'Tender', 'Triumphant', 'Contemplative'],
   Opera: ['Dramatic', 'Passionate', 'Tragic', 'Romantic', 'Regal', 'Comic', 'Heroic', 'Intense'],
