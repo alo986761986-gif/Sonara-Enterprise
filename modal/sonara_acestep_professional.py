@@ -18,6 +18,7 @@ APP_NAME = "sonara-acestep"
 FUNCTION_NAME = "serve_acestep"
 API_PORT = 8001
 MINUTES = 60
+EPHEMERAL_DISK_MIB = 512 * 1024
 
 FAST_DIT_MODEL = "acestep-v15-xl-turbo"
 QUALITY_DIT_MODEL = "acestep-v15-xl-sft"
@@ -116,7 +117,7 @@ def _professional_checkpoint_status() -> dict[str, Any]:
     },
     cpu=4.0,
     memory=32768,
-    ephemeral_disk=120 * 1024,
+    ephemeral_disk=EPHEMERAL_DISK_MIB,
     timeout=4 * 60 * MINUTES,
 )
 def prepare_models() -> dict[str, object]:
@@ -193,7 +194,7 @@ def prepare_models() -> dict[str, object]:
     },
     cpu=8.0,
     memory=65536,
-    ephemeral_disk=120 * 1024,
+    ephemeral_disk=EPHEMERAL_DISK_MIB,
     timeout=24 * 60 * MINUTES,
     startup_timeout=30 * MINUTES,
     scaledown_window=10 * MINUTES,
