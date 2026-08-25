@@ -1,5 +1,13 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/billing/[...path].ts": {
+      "maxDuration": 300
+    },
+    "api/billing/job.ts": {
+      "maxDuration": 180
+    }
+  },
   "rewrites": [
     {
       "source": "/terms",
