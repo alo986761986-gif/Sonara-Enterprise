@@ -81,13 +81,30 @@ jobs:
 
           if [[ -z "${account_id}" ]]; then
             echo "Unable to resolve Cloudflare account ID from the configured API token." >&2
-            echo "Add CLOUDFLARE_ACCOUNT_ID as a GitHub Actions secret if this token can access multiple accounts." >&2
             exit 1
           fi
 
           echo "::add-mask::${account_id}"
           echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
           echo "Cloudflare deployment credentials resolved."
+
+      - name: Validate Modal runtime bindings
+        shell: bash
+        run: |
+          npx --yes wrangler@latest secret list --config wrangler.jsonc --format json > /tmp/sonara-secrets.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const records = JSON.parse(fs.readFileSync('/tmp/sonara-secrets.json', 'utf8'));
+          const names = new Set((Array.isArray(records) ? records : []).map((item) => String(item?.name || '')));
+          const required = ['MODAL_PROXY_KEY', 'MODAL_PROXY_SECRET'];
+          const missing = required.filter((name) => !names.has(name));
+          console.log(`Configured Worker secret names: ${[...names].sort().join(', ') || '(none)'}`);
+          if (missing.length) {
+            console.error(`Missing required Modal Worker secrets: ${missing.join(', ')}`);
+            process.exit(1);
+          }
+          console.log('Modal Worker credential bindings are configured.');
+          NODE
 
       - name: Validate Sonara Worker v9 source
         shell: bash
