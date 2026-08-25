@@ -1,0 +1,41 @@
+name: Verify Live Sonara Taxonomy Hotfix
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/verify-live-taxonomy-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify live frontend hotfix
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 20 -D /tmp/headers.txt https://sonaraenterprise.com/ -o /tmp/index.html
+          cat /tmp/headers.txt
+          grep -qi '^x-sonara-taxonomy-hotfix: neapolitan-urban-v1' /tmp/headers.txt
+          grep -q 'id="sonara-neapolitan-urban-hotfix"' /tmp/index.html
+          grep -q 'Rap Napoletano' /tmp/index.html
+          grep -q 'Hip-Hop Napoletano' /tmp/index.html
+          grep -q 'Trap Napoletano' /tmp/index.html
+          echo 'SONARA_LIVE_TAXONOMY_HOTFIX=VERIFIED'
+
+      - name: Verify engine health remains intact
+        shell: bash
+        run: |
+          curl -fsS --max-time 20 https://api.sonaraenterprise.com/api/health -o /tmp/health.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const data = JSON.parse(fs.readFileSync('/tmp/health.json', 'utf8'));
+          if (data.dualFast !== true) throw new Error('Dual-fast engine health regression');
+          console.log('SONARA_ENGINE_HEALTH=VERIFIED');
+          NODE
