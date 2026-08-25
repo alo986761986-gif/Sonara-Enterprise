@@ -12,6 +12,25 @@ function safeJson(data, status = 200) {
   });
 }
 
+function modelNames(payload) {
+  const names = new Set();
+  const visit = (value, key = '') => {
+    if (typeof value === 'string') {
+      if (/model|name|id/i.test(key) || /acestep/i.test(value)) names.add(value.trim());
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach(item => visit(item, key));
+      return;
+    }
+    if (value && typeof value === 'object') {
+      for (const [childKey, childValue] of Object.entries(value)) visit(childValue, childKey);
+    }
+  };
+  visit(payload);
+  return [...names].filter(Boolean);
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -38,13 +57,12 @@ export default {
             'Modal-Secret': secret,
             Accept: 'application/json'
           },
-          signal: AbortSignal.timeout(45000)
+          signal: AbortSignal.timeout(180000)
         });
         const raw = await response.text();
         let payload = null;
         try { payload = raw ? JSON.parse(raw) : null; } catch {}
-        const records = Array.isArray(payload?.data?.models) ? payload.data.models : [];
-        const models = records.map((item) => String(item?.name || '')).filter(Boolean);
+        const models = modelNames(payload);
         return safeJson({
           ok: response.ok,
           stage: 'modal-model-catalog',
@@ -53,7 +71,8 @@ export default {
           hasModalSecret: true,
           modelCount: models.length,
           models,
-          defaultModel: String(payload?.data?.default_model || ''),
+          hasXlTurbo: models.some(name => name.includes('acestep-v15-xl-turbo')),
+          defaultModel: String(payload?.data?.default_model || payload?.default_model || ''),
           error: response.ok ? null : String(payload?.detail || payload?.error || payload?.message || `Modal HTTP ${response.status}`)
         }, response.ok ? 200 : 502);
       } catch (error) {
