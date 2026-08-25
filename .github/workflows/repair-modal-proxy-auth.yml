@@ -42,14 +42,39 @@ jobs:
         run: |
           python - <<'PY' > /tmp/modal-api-pair
           import os, re
-          raw_id = os.environ.get('RAW_MODAL_TOKEN_ID', '')
-          raw_secret = os.environ.get('RAW_MODAL_TOKEN_SECRET', '')
-          id_match = re.search(r'ak-[A-Za-z0-9_-]+', raw_id)
-          secret_match = re.search(r'as-[A-Za-z0-9_-]+', raw_secret)
-          if not id_match or not secret_match:
+
+          def clean(value: str) -> str:
+              value = (value or '').strip()
+              if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+                  value = value[1:-1].strip()
+              return value
+
+          raw_id = clean(os.environ.get('RAW_MODAL_TOKEN_ID', ''))
+          raw_secret = clean(os.environ.get('RAW_MODAL_TOKEN_SECRET', ''))
+
+          for name in ('MODAL_TOKEN_ID', 'MODAL_TOKEN_SECRET'):
+              prefix = f'{name}='
+              if raw_id.startswith(prefix):
+                  raw_id = raw_id[len(prefix):].strip()
+              if raw_secret.startswith(prefix):
+                  raw_secret = raw_secret[len(prefix):].strip()
+
+          def extract(prefix: str, *values: str) -> str:
+              pattern = re.compile(re.escape(prefix) + r'[A-Za-z0-9_-]+')
+              for value in values:
+                  if value.startswith(prefix):
+                      return value
+                  match = pattern.search(value)
+                  if match:
+                      return match.group(0)
+              return ''
+
+          token_id = extract('ak-', raw_id, raw_secret)
+          token_secret = extract('as-', raw_secret, raw_id)
+          if not token_id or not token_secret:
               raise SystemExit('Valid Modal API credentials were not found in GitHub Actions secrets.')
-          print(id_match.group(0))
-          print(secret_match.group(0))
+          print(token_id)
+          print(token_secret)
           PY
           mapfile -t modal_pair < /tmp/modal-api-pair
           modal_id="${modal_pair[0]}"
@@ -123,7 +148,6 @@ jobs:
           echo "::add-mask::${proxy_id}"
           echo "::add-mask::${proxy_secret}"
 
-          # Scoped workspaces require explicit access to the deployment environment.
           modal workspace proxy-tokens allow "${proxy_id}" main >/dev/null 2>&1 || true
 
           direct_status="$(curl -sS --max-time 90 -w '%{http_code}' \
@@ -137,7 +161,7 @@ jobs:
             exit 1
           fi
 
-          PROXY_ID="${proxy_id}" PROXY_SECRET="${proxy_secret}" node - <<'NODE'
+          node - <<'NODE'
           const fs = require('fs');
           const payload = JSON.parse(fs.readFileSync('/tmp/modal-direct-models.json', 'utf8'));
           const models = Array.isArray(payload?.data?.models) ? payload.data.models.map((item) => String(item?.name || '')).filter(Boolean) : [];
