@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircle2,
   Clock3,
@@ -9,6 +9,8 @@ import {
   FileText,
   HardDrive,
   Library,
+  Pause,
+  Play,
   RefreshCw,
   ShieldCheck
 } from 'lucide-react';
@@ -19,6 +21,8 @@ import {
   type GeneratedProjectArchive,
   type StoredGeneratedAsset
 } from '../../services/generatedAssetVault';
+
+const DEMO_DURATION_SECONDS = 30;
 
 function formatBytes(value: number): string {
   if (!value) return 'Riferimento sicuro';
@@ -44,6 +48,76 @@ export default function GeneratedAssetLibrary() {
   const [projects, setProjects] = useState<GeneratedProjectArchive[]>([]);
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
+  const [playingAssetId, setPlayingAssetId] = useState<string | null>(null);
+  const demoAudioRef = useRef<HTMLAudioElement | null>(null);
+  const demoObjectUrlRef = useRef('');
+
+  const releaseDemoAudio = useCallback(() => {
+    const audio = demoAudioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.ontimeupdate = null;
+      audio.onended = null;
+      audio.onerror = null;
+      audio.removeAttribute('src');
+      audio.load();
+      demoAudioRef.current = null;
+    }
+    if (demoObjectUrlRef.current) {
+      URL.revokeObjectURL(demoObjectUrlRef.current);
+      demoObjectUrlRef.current = '';
+    }
+  }, []);
+
+  const stopDemo = useCallback(() => {
+    releaseDemoAudio();
+    setPlayingAssetId(null);
+  }, [releaseDemoAudio]);
+
+  const toggleDemo = useCallback(async (asset: StoredGeneratedAsset) => {
+    if (playingAssetId === asset.id) {
+      stopDemo();
+      return;
+    }
+
+    releaseDemoAudio();
+    const playbackUrl = asset.blob ? URL.createObjectURL(asset.blob) : asset.remoteUrl;
+    if (!playbackUrl) {
+      setNotice('La demo audio non è disponibile per questo file.');
+      setPlayingAssetId(null);
+      return;
+    }
+
+    if (asset.blob) demoObjectUrlRef.current = playbackUrl;
+    const audio = new Audio(playbackUrl);
+    audio.preload = 'metadata';
+    demoAudioRef.current = audio;
+
+    const finishDemo = () => {
+      if (demoAudioRef.current !== audio) return;
+      releaseDemoAudio();
+      setPlayingAssetId(null);
+    };
+
+    audio.ontimeupdate = () => {
+      if (audio.currentTime >= DEMO_DURATION_SECONDS) finishDemo();
+    };
+    audio.onended = finishDemo;
+    audio.onerror = () => {
+      finishDemo();
+      setNotice('Impossibile riprodurre la demo. Puoi comunque scaricare il brano.');
+    };
+
+    setNotice('');
+    setPlayingAssetId(asset.id);
+    try {
+      await audio.play();
+      if (demoAudioRef.current !== audio) audio.pause();
+    } catch {
+      finishDemo();
+      setNotice('Il browser ha bloccato la riproduzione. Premi di nuovo Play.');
+    }
+  }, [playingAssetId, releaseDemoAudio, stopDemo]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -63,6 +137,8 @@ export default function GeneratedAssetLibrary() {
     window.addEventListener(GENERATED_ASSET_EVENT, updateHandler);
     return () => window.removeEventListener(GENERATED_ASSET_EVENT, updateHandler);
   }, [refresh]);
+
+  useEffect(() => () => releaseDemoAudio(), [releaseDemoAudio]);
 
   const totals = useMemo(() => {
     const files = projects.flatMap(project => project.assets);
@@ -97,7 +173,7 @@ export default function GeneratedAssetLibrary() {
           <div className="rounded-lg bg-emerald-500/10 p-2 text-emerald-300"><ShieldCheck className="h-5 w-5" /></div>
           <div>
             <div className="text-sm font-bold text-emerald-200">Archivio automatico attivo</div>
-            <div className="mt-1 text-[11px] text-slate-400">Al termine di ogni generazione SONARA salva i file rilevati e il JSON completo della sessione.</div>
+            <div className="mt-1 text-[11px] text-slate-400">Play fa ascoltare i primi 30 secondi delle Versioni A e B; dopo la scelta puoi scaricare il brano completo.</div>
           </div>
         </div>
         <button type="button" onClick={() => void refresh()} disabled={loading} className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-200 disabled:opacity-50">
@@ -143,9 +219,24 @@ export default function GeneratedAssetLibrary() {
                       </div>
                     </div>
                   </div>
-                  <button type="button" onClick={() => downloadStoredAsset(asset)} disabled={!asset.blob && !asset.remoteUrl} className="flex shrink-0 items-center justify-center gap-2 rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-2 text-xs font-bold text-purple-200 hover:bg-purple-500/20 disabled:opacity-40">
-                    <Download className="h-4 w-4" />Scarica
-                  </button>
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    {asset.kind === 'audio' && (
+                      <button
+                        type="button"
+                        onClick={() => void toggleDemo(asset)}
+                        disabled={!asset.blob && !asset.remoteUrl}
+                        aria-label={playingAssetId === asset.id ? `Ferma la demo di ${asset.name}` : `Riproduci i primi 30 secondi di ${asset.name}`}
+                        aria-pressed={playingAssetId === asset.id}
+                        className="flex items-center justify-center gap-2 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-xs font-bold text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-40"
+                      >
+                        {playingAssetId === asset.id ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                        {playingAssetId === asset.id ? 'Pausa demo' : 'Play demo 0–30s'}
+                      </button>
+                    )}
+                    <button type="button" onClick={() => downloadStoredAsset(asset)} disabled={!asset.blob && !asset.remoteUrl} className="flex items-center justify-center gap-2 rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-2 text-xs font-bold text-purple-200 hover:bg-purple-500/20 disabled:opacity-40">
+                      <Download className="h-4 w-4" />Scarica
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

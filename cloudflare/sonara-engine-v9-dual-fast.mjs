@@ -185,8 +185,8 @@ function audioPathFromItem(item, env) {
   return '';
 }
 
-function buildPayload(body, env) {
-  const durationSec = Math.round(clamp(body.durationSec ?? body.duration, 30, 30, 240));
+export function buildPayload(body, env) {
+  const durationSec = Math.round(clamp(body.durationSec ?? body.duration, 30, 30, 480));
   const bpm = Math.round(clamp(body.bpm, 124, 40, 220));
   const prompt = String(body.prompt || '').trim();
   if (!prompt) throw new Error('Prompt richiesto.');
@@ -250,7 +250,7 @@ async function startDualGeneration(request, env, body) {
     title: String(body.title || 'SONARA Track'),
     genre: String(body.genre || ''),
     subgenre: String(body.subgenre || ''),
-    durationSec: Number(body.durationSec ?? body.duration ?? 30),
+    durationSec: payload.audio_duration,
     submitAttempts: 0,
     queryFailures: 0,
     createdAt: Date.now(),

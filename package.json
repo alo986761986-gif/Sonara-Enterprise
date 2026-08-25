@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "node scripts/build-dispatch.cjs",
-    "test:generation-prompt": "tsx src/generationPrompt.test.ts && tsx src/generationPrompt.creatorIntent.test.ts && node --test cloudflare/sonara-engine-v6.test.mjs cloudflare/sonara-engine-v6-final.test.mjs",
+    "test:generation-prompt": "tsx src/generationPrompt.test.ts && tsx src/generationPrompt.creatorIntent.test.ts && node --test cloudflare/sonara-engine-v6.test.mjs cloudflare/sonara-engine-v6-final.test.mjs cloudflare/sonara-engine-v9-dual-fast.test.mjs",
     "test:billing": "tsx backend/test/billing_plans.test.ts",
     "setup:stripe": "node scripts/setup-stripe-products.mjs",
     "start": "node dist/server.cjs",

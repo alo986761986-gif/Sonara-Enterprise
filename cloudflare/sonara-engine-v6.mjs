@@ -291,7 +291,7 @@ export function validateGenerationRequest(body) {
   const key = cleanField(body.key || body.key_scale, 40);
   const title = cleanField(body.title, 160);
   const bpm = Math.round(clamp(body.bpm, 124, 40, 220));
-  const durationSec = Math.round(clamp(body.durationSec ?? body.duration, 30, 30, 240));
+  const durationSec = Math.round(clamp(body.durationSec ?? body.duration, 30, 30, 480));
   const timeSignature = inferTimeSignature(body.timeSignature || body.time_signature, genre, subgenre);
   const lyrics = String(body.lyrics || '').trim().slice(0, MAX_LYRICS_CHARS);
   const requestedVocalMode = cleanField(body.vocalMode, 20).toLowerCase();
@@ -1171,7 +1171,7 @@ export default {
         outputFormat: PROFESSIONAL_OUTPUT_FORMAT,
         minimumSampleRate: MIN_SAMPLE_RATE,
         minDurationSeconds: 30,
-        maxDurationSeconds: 240,
+        maxDurationSeconds: 480,
         segmentation: false
       });
     }

@@ -156,7 +156,7 @@ export function buildRandomCreativeBrief(input: RandomCreativeBriefInput): strin
   const key = cleanText(input.key, 'A Minor', 40);
   const title = cleanText(input.title, `Sonara ${subgenre} Track`, 160);
   const bpm = clampInteger(input.bpm, 124, 40, 220);
-  const durationSec = clampInteger(input.durationSec, 30, 30, 240);
+  const durationSec = clampInteger(input.durationSec, 30, 30, 480);
   const lyrics = String(input.lyrics ?? '').trim();
   const vocalMode = input.vocalMode;
   const profile = getMusicStyleProfile(family, genre, subgenre);
@@ -210,7 +210,7 @@ export function buildGenerationPrompt(input: GenerationPromptInput): string {
   const key = cleanText(input.key, 'A Minor', 40);
   const title = cleanText(input.title, `Sonara ${subgenre} Track`, 160);
   const bpm = clampInteger(input.bpm, 124, 40, 220);
-  const durationSec = clampInteger(input.durationSec, 30, 30, 240);
+  const durationSec = clampInteger(input.durationSec, 30, 30, 480);
   const profile = getMusicStyleProfile(genreFamily, genre, subgenre);
   const fallbackBrief = buildRandomCreativeBrief({
     ...input,

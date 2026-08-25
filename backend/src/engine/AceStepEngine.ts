@@ -148,7 +148,7 @@ export class AceStepEngine extends IAudioGenerationEngine {
 
     const durationSec = Math.max(
       5,
-      Math.min(240, Number(params.durationSec || 15))
+      Math.min(480, Number(params.durationSec || 15))
     );
 
     const bpm = Math.max(

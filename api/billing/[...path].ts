@@ -544,9 +544,23 @@ async function finishReservation(uid: string, reservationId: string, outcome: 'c
 }
 
 async function proxyGeneration(user: AuthenticatedUser, body: Record<string, any>, res: any) {
-  const requestedSeconds = Math.max(30, Math.min(240, Math.round(Number(body.durationSec ?? body.duration ?? 30))));
+  const requestedSeconds = Math.max(30, Math.min(480, Math.round(Number(body.durationSec ?? body.duration ?? 30))));
   const enforcement = enforcementMode();
   let reservation: { reservationId: string; status: ReturnType<typeof publicBillingStatus> } | null = null;
+
+  try {
+    const billingRecord = await getBillingRecord(user.uid);
+    const planId = effectivePlan(billingRecord);
+    const plan = SONARA_PLANS[planId];
+    if (requestedSeconds > plan.maxTrackSeconds) {
+      return errorResponse(res, 403, 'TRACK_DURATION_LIMIT', 'La durata richiesta supera il limite del piano attivo.', {
+        planId,
+        maxTrackSeconds: plan.maxTrackSeconds
+      });
+    }
+  } catch {
+    return errorResponse(res, 503, 'BILLING_ENTITLEMENT_CHECK_FAILED', 'Il controllo del piano non è momentaneamente disponibile.');
+  }
 
   if (billingStoreReady() && enforcement !== 'observe') {
     try {

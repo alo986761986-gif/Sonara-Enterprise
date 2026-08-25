@@ -150,6 +150,16 @@ test("aligns the render target to a complete musical bar", () => {
   assert.equal(normalized.payload.audio_duration, 30.968);
 });
 
+test("accepts an eight-minute Studio generation", () => {
+  const normalized = normalizeRequest({
+    ...baseRequest,
+    prompt: baseRequest.prompt.replace("180 seconds", "480 seconds"),
+    durationSec: 480,
+  });
+  assert.equal(normalized.generationSpec.requestedDurationSec, 480);
+  assert.equal(normalized.payload.audio_duration, 480);
+});
+
 test("selects the best available ACE-Step professional model", () => {
   assert.equal(chooseProfessionalModel([
     "acestep-v15-turbo",

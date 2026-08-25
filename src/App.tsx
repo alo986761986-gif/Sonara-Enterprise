@@ -36,6 +36,7 @@ import {
 import { WORLD_MUSIC_GENRES, findGenre } from './data/worldMusicGenres';
 import { buildGenerationPrompt, buildRandomCreativeBrief, type VocalMode } from './generationPrompt';
 import { buildRandomLyrics } from './randomLyrics';
+import { SONARA_PLANS } from './billing/plans';
 import { getAtmospheresForSelection } from './musicStyleIntelligence';
 import {
   LANGUAGE_METADATA,
@@ -182,7 +183,7 @@ const SectionTitle = ({ icon: Icon, title, subtitle }: any) => (
   </div>
 );
 
-const DURATION_OPTIONS = [30, 45, 60, 90, 120, 150, 180, 210, 240];
+const DURATION_OPTIONS = [30, 45, 60, 90, 120, 150, 180, 210, 240, 300, 360, 420, 480];
 const KEYS = ['C Major', 'C Minor', 'C# Major', 'C# Minor', 'D Major', 'D Minor', 'D# Major', 'D# Minor', 'E Major', 'E Minor', 'F Major', 'F Minor', 'F# Major', 'F# Minor', 'G Major', 'G Minor', 'G# Major', 'G# Minor', 'A Major', 'A Minor', 'A# Major', 'A# Minor', 'B Major', 'B Minor'];
 const VOCAL_MODES: Array<{ value: VocalMode; label: string; description: string }> = [
   { value: 'instrumental', label: 'Strumentale', description: 'Nessuna voce' },
@@ -253,9 +254,8 @@ export default function App() {
   const vocalLyrics = vocalMode === 'instrumental' ? '' : lyrics;
   const vocalReady = vocalMode === 'instrumental' || Boolean(lyrics.trim());
   const statusLabel = health === 'READY' ? t('online') : health;
-  const allowedDurationOptions = billingUsage?.limitsEnforced
-    ? DURATION_OPTIONS.filter(value => value <= billingUsage.maxTrackSeconds)
-    : DURATION_OPTIONS;
+  const maxSelectableTrackSeconds = billingUsage?.maxTrackSeconds ?? SONARA_PLANS.free.maxTrackSeconds;
+  const allowedDurationOptions = DURATION_OPTIONS.filter(value => value <= maxSelectableTrackSeconds);
 
   const family = useMemo(() => WORLD_MUSIC_GENRES.find(group => group.family === genreFamily) || WORLD_MUSIC_GENRES[0], [genreFamily]);
   const genreEntry = useMemo(() => findGenre(genre), [genre]);
@@ -336,10 +336,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (billingUsage?.limitsEnforced && durationSec > billingUsage.maxTrackSeconds) {
-      updateDuration(billingUsage.maxTrackSeconds);
+    if (durationSec > maxSelectableTrackSeconds) {
+      updateDuration(maxSelectableTrackSeconds);
     }
-  }, [billingUsage, durationSec]);
+  }, [durationSec, maxSelectableTrackSeconds]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -401,7 +401,7 @@ export default function App() {
   };
 
   const updateDuration = (value: number) => {
-    const safe = Math.max(30, Math.min(240, value));
+    const safe = Math.max(30, Math.min(480, value));
     setDurationSec(safe);
     localStorage.setItem(DURATION_KEY, String(safe));
   };

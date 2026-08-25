@@ -58,14 +58,14 @@ export const SONARA_PLANS: Record<SonaraPlanId, SonaraPlan> = {
     monthlyPriceEur: 29.99,
     yearlyPriceEur: 287.9,
     includedSeconds: 500 * 60,
-    maxTrackSeconds: 240,
+    maxTrackSeconds: 480,
     commercialUse: true,
     badge: 'ALTO VOLUME',
     description: 'Per producer e studi che generano musica ogni giorno.',
     features: [
       '500 minuti di generazione al mese',
       'Tutte le funzioni Creator',
-      'Brani completi fino a 4 minuti',
+      'Brani completi fino a 8 minuti',
       'Download dei propri brani incluso',
       'Produzione ad alto volume',
       'Uso commerciale secondo i Termini SONARA'

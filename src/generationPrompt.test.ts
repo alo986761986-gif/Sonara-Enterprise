@@ -36,6 +36,11 @@ assert.match(first, /Strictly instrumental/);
 assert.match(first, /four-on-the-floor/);
 assert.match(first, /subgenre Tech House overrides generic family or genre conventions/);
 
+const studioEightMinutePrompt = buildGenerationPrompt({ ...techHouse, durationSec: 480 });
+const studioEightMinuteBrief = buildRandomCreativeBrief({ ...techHouse, durationSec: 480, variant: 2 });
+assert.match(studioEightMinutePrompt, /approximately 480 seconds/);
+assert.match(studioEightMinuteBrief, /approximately 480 seconds/);
+
 const lyrics = 'Core mio, torna a cantà\nSotto a sta luna chiara';
 const neapolitan = buildGenerationPrompt({
   rawPrompt: 'Traditional, intimate and emotionally direct.',
@@ -164,6 +169,6 @@ for (const family of WORLD_MUSIC_GENRES) {
 }
 
 assert.equal(genreCount, 83, 'all 83 genre categories must be covered');
-assert.equal(subgenreCount, 692, 'all catalog subgenres, including Jazz / Jazz Fusion, must be covered');
+assert.equal(subgenreCount, 693, 'all catalog subgenres, including Jazz / Jazz Fusion, must be covered');
 
 console.log(`generationPrompt: complete coverage passed for ${WORLD_MUSIC_GENRES.length} families, ${genreCount} genres and ${subgenreCount} subgenres`);
