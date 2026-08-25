@@ -12,6 +12,14 @@
       "custom_domain": true
     },
     {
+      "pattern": "sonaraenterprise.com/assets/index-*",
+      "zone_name": "sonaraenterprise.com"
+    },
+    {
+      "pattern": "www.sonaraenterprise.com/assets/index-*",
+      "zone_name": "sonaraenterprise.com"
+    },
+    {
       "pattern": "sonaraenterprise.com/*",
       "zone_name": "sonaraenterprise.com"
     },
