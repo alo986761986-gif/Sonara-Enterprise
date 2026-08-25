@@ -16,17 +16,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Verify live frontend hotfix
+      - name: Verify live frontend bundle hotfix
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS --max-time 20 -D /tmp/headers.txt https://sonaraenterprise.com/ -o /tmp/index.html
-          cat /tmp/headers.txt
-          grep -qi '^x-sonara-taxonomy-hotfix: neapolitan-urban-v1' /tmp/headers.txt
-          grep -q 'id="sonara-neapolitan-urban-hotfix"' /tmp/index.html
-          grep -q 'Rap Napoletano' /tmp/index.html
-          grep -q 'Hip-Hop Napoletano' /tmp/index.html
-          grep -q 'Trap Napoletano' /tmp/index.html
+          curl -fsS --max-time 20 https://sonaraenterprise.com/ -o /tmp/index.html
+          asset="$(grep -oE '/assets/index-[^\" ]+\.js' /tmp/index.html | head -n 1)"
+          test -n "$asset"
+          echo "SONARA_LIVE_BUNDLE=$asset"
+          curl -fsS --max-time 30 -D /tmp/bundle-headers.txt "https://sonaraenterprise.com${asset}" -o /tmp/bundle.js
+          cat /tmp/bundle-headers.txt
+          grep -qi '^x-sonara-taxonomy-hotfix: neapolitan-urban-v1' /tmp/bundle-headers.txt
+          grep -q '__SONARA_NEAPOLITAN_URBAN_HOTFIX__' /tmp/bundle.js
+          grep -q 'Rap Napoletano' /tmp/bundle.js
+          grep -q 'Hip-Hop Napoletano' /tmp/bundle.js
+          grep -q 'Trap Napoletano' /tmp/bundle.js
           echo 'SONARA_LIVE_TAXONOMY_HOTFIX=VERIFIED'
 
       - name: Verify engine health remains intact
