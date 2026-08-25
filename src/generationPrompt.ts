@@ -15,6 +15,7 @@ export interface GenerationPromptInput {
   weirdness?: number;
   styleInfluence?: number;
   vocalMode: VocalMode;
+  vocalLanguage?: string;
   lyrics?: string;
   title?: string;
 }
@@ -144,7 +145,7 @@ function arrangementBlueprint(durationSec: number): string {
   return 'Use a complete long-form arrangement: authored intro, thematic exposition, progressive development, contrast or breakdown, controlled rebuild, final climax, release and fully resolved ending. Do not repeat an unchanged loop to fill time.';
 }
 
-function vocalDirection(vocalMode: VocalMode, lyrics: string): string {
+function vocalDirection(vocalMode: VocalMode, lyrics: string, vocalLanguage: string): string {
   if (vocalMode === 'instrumental') {
     return 'Strictly instrumental. No vocals, no spoken words, no chants, no whispers and no vocal samples.';
   }
@@ -159,7 +160,7 @@ function vocalDirection(vocalMode: VocalMode, lyrics: string): string {
     return `${singerDirection} Lyrics are required for this vocal mode before generation can start.`;
   }
 
-  return `${singerDirection}\nUse the following lyrics exactly as written. Do not translate, replace, reorder or invent words:\n${lyrics}`;
+  return `${singerDirection}\nPerform the vocals in ${vocalLanguage}, with native pronunciation, natural prosody and culturally credible phrasing. Do not switch language unless the supplied lyrics explicitly require it.\nUse the following lyrics exactly as written. Do not translate, replace, reorder or invent words:\n${lyrics}`;
 }
 
 const PROFESSIONAL_VARIANTS = [
@@ -252,7 +253,8 @@ export function buildGenerationPrompt(input: GenerationPromptInput): string {
   const creatorAnalysis = analyzeCreatorBrief(input.rawPrompt ?? input.prompt, fallbackBrief);
   const userIntent = cleanMultilineText(creatorAnalysis.normalized, fallbackBrief, intentBudget);
   const vocalMode = input.vocalMode;
-  const vocalInstruction = vocalDirection(vocalMode, lyrics);
+  const vocalLanguage = cleanText(input.vocalLanguage, 'the language of the supplied lyrics', 80);
+  const vocalInstruction = vocalDirection(vocalMode, lyrics, vocalLanguage);
   const vocalNegative = vocalMode === 'instrumental'
     ? 'No unwanted vocals.'
     : vocalMode === 'male'
@@ -277,7 +279,7 @@ export function buildGenerationPrompt(input: GenerationPromptInput): string {
     `RHYTHM AND GROOVE:\nBuild ${compactProfileText(profile.rhythm, 680)}. Preserve human microtiming and phrase-level variation without losing the exact ${bpm} BPM pulse. The groove must evolve through fills, accents, orchestration and interaction rather than copy-pasting one unchanged loop.`,
     `HARMONY, MELODY AND PERFORMANCE:\nUse ${compactProfileText(profile.harmony, 680)}. Develop memorable motifs with musical cause and effect. Perform phrases with credible articulation, dynamics, breathing space, tension, release, call-and-response and ensemble interaction. Avoid impossible instrumental ranges, mechanical note repetition and random decorative notes.`,
     `ARRANGEMENT AND MUSICAL NARRATIVE:\nCreator-specified sections and order are mandatory. Otherwise, create ${compactProfileText(profile.arrangement, 680)}. ${arrangementBlueprint(durationSec)} Make every transition musically prepared; use risers, impacts, fills or silence only when authentic to ${subgenre} and requested energy.`,
-    `VOCALS AND TEXT:\nMode: ${vocalMode}\n${vocalInstruction}`,
+    `VOCALS AND TEXT:\nMode: ${vocalMode}\nLanguage: ${vocalLanguage}\n${vocalInstruction}`,
     `REALISM AND RECORDING CONTRACT:\nThe result must sound like a deliberately composed and performed record, not an AI demo, preset audition, stock loop collage or unfinished sketch. Preserve realistic attack, decay, resonance, room response, amplifier or signal-chain behavior, player interaction and controlled imperfections. Acoustic sources must feel physically recorded; electronic sources must feel intentionally programmed and mixed, not randomly layered.`,
     `PRODUCTION, MIX AND MASTER:\nUse ${compactProfileText(profile.production, 680)}. Build a credible mix before mastering: clear frequency ownership, audible separation, controlled low end, clean transients, stable but natural stereo imaging, sensible depth, musical headroom and dynamics. Deliver a real WAV-ready master with no clipping, no crushed loudness, no phase collapse, no fake stereo widening and no artificial silence padding.`,
     `NEGATIVE CONSTRAINTS:\n${compactProfileText(profile.avoid, 720)} No genre drift. No unrelated instruments. No generic replacement groove. No omission of creator-specified details. No incorrect key or BPM. ${vocalNegative} No invented lyrics. No unfinished ending. No abrupt truncation. No excessive distortion unless intrinsic to ${subgenre} or explicitly requested. No muddy low end. No repeated unchanged block used merely to fill duration.`
