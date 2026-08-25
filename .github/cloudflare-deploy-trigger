@@ -1,2 +1,2 @@
-trigger: 2026-08-25T14:27:00Z
-reason: recover failed dual batches with two safe independent renders
+trigger: 2026-08-25T16:05:00+02:00
+reason: deploy stable four-to-eight-minute long-form generation
