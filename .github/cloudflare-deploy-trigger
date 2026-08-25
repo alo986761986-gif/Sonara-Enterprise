@@ -1,2 +1,2 @@
-trigger: 2026-08-25T19:16:00+02:00
-reason: deploy live Neapolitan urban taxonomy hotfix to Sonara frontend
+trigger: 2026-08-25T19:20:00+02:00
+reason: deploy specific frontend bundle route for Neapolitan urban taxonomy
