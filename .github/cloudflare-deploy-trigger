@@ -1,2 +1,2 @@
-trigger: 2026-08-25T08:39:00Z
-reason: temporary safe Modal connectivity diagnostic
+trigger: 2026-08-25T08:41:00Z
+reason: rerun temporary safe Modal connectivity diagnostic after workflow guard fix
