@@ -1,8 +1,8 @@
 """Production Modal deployment for SONARA's professional ACE-Step engine.
 
-The deployment uses the official ACE-Step 1.5 XL-SFT DiT together with the
-4B 5 Hz language model. It preserves the existing Modal app/function names so
-SONARA can keep its protected endpoint URL after the professional rollout.
+The deployment keeps two official ACE-Step 1.5 DiT models resident in the API
+server: XL-Turbo for the fast first render and XL-SFT for professional quality
+fallbacks. The 4B 5 Hz language model remains enabled for prompt fidelity.
 """
 
 from __future__ import annotations
@@ -19,7 +19,10 @@ FUNCTION_NAME = "serve_acestep"
 API_PORT = 8001
 MINUTES = 60
 
-DIT_MODEL = "acestep-v15-xl-sft"
+FAST_DIT_MODEL = "acestep-v15-xl-turbo"
+QUALITY_DIT_MODEL = "acestep-v15-xl-sft"
+# Backward-compatible quality model name used by existing verification/reporting.
+DIT_MODEL = QUALITY_DIT_MODEL
 LM_MODEL = "acestep-5Hz-lm-4B"
 CHECKPOINTS_DIR = "/app/checkpoints"
 OUTPUTS_DIR = "/app/gradio_outputs"
@@ -36,7 +39,10 @@ runtime_env = {
     "ACESTEP_API_PORT": str(API_PORT),
     "ACESTEP_PROJECT_ROOT": "/app",
     "ACESTEP_CHECKPOINTS_DIR": CHECKPOINTS_DIR,
-    "ACESTEP_CONFIG_PATH": DIT_MODEL,
+    # Slot 1 is the low-latency production path. Slot 2 preserves XL-SFT for
+    # automatic quality fallback without replacing or reloading the fast model.
+    "ACESTEP_CONFIG_PATH": FAST_DIT_MODEL,
+    "ACESTEP_CONFIG_PATH2": QUALITY_DIT_MODEL,
     "ACESTEP_LM_MODEL_PATH": LM_MODEL,
     "ACESTEP_INIT_LLM": "true",
     "ACESTEP_NO_INIT": "false",
@@ -46,6 +52,8 @@ runtime_env = {
     "ACESTEP_OFFLOAD_TO_CPU": "false",
     "ACESTEP_OFFLOAD_DIT_TO_CPU": "false",
     "ACESTEP_COMPILE_MODEL": "false",
+    # ACE-Step recommends one queue worker on a single GPU. We keep the safe
+    # worker count and get the speedup from XL-Turbo + native batched candidates.
     "ACESTEP_QUEUE_WORKERS": "1",
     "ACESTEP_QUEUE_MAXSIZE": "200",
     "ACESTEP_LLM_BACKEND": "pt",
@@ -95,7 +103,10 @@ def _professional_checkpoint_status() -> dict[str, Any]:
     checkpoints = Path(CHECKPOINTS_DIR)
     status = {
         "main": check_main_model_exists(checkpoints),
-        "dit": check_model_exists(DIT_MODEL, checkpoints),
+        "fastDit": check_model_exists(FAST_DIT_MODEL, checkpoints),
+        "qualityDit": check_model_exists(QUALITY_DIT_MODEL, checkpoints),
+        # Keep the legacy key true only when the XL-SFT professional fallback exists.
+        "dit": check_model_exists(QUALITY_DIT_MODEL, checkpoints),
         "lm": check_model_exists(LM_MODEL, checkpoints),
         "vae": (checkpoints / "vae").exists(),
         "textEncoder": (checkpoints / "Qwen3-Embedding-0.6B").exists(),
@@ -115,7 +126,7 @@ def _professional_checkpoint_status() -> dict[str, Any]:
     timeout=4 * 60 * MINUTES,
 )
 def prepare_models() -> dict[str, object]:
-    """Download the official professional model stack into persistent storage."""
+    """Persist the fast, quality and language-model checkpoints before deploy."""
 
     os.chdir("/app")
     from acestep.model_downloader import (
@@ -132,13 +143,21 @@ def prepare_models() -> dict[str, object]:
             ),
             "ACE-Step main components",
         ),
-        "dit": _require_download(
+        "fastDit": _require_download(
             ensure_dit_model(
-                DIT_MODEL,
+                FAST_DIT_MODEL,
                 checkpoints_dir=Path(CHECKPOINTS_DIR),
                 prefer_source="huggingface",
             ),
-            DIT_MODEL,
+            FAST_DIT_MODEL,
+        ),
+        "qualityDit": _require_download(
+            ensure_dit_model(
+                QUALITY_DIT_MODEL,
+                checkpoints_dir=Path(CHECKPOINTS_DIR),
+                prefer_source="huggingface",
+            ),
+            QUALITY_DIT_MODEL,
         ),
         "lm": _require_download(
             ensure_lm_model(
@@ -160,7 +179,9 @@ def prepare_models() -> dict[str, object]:
 
     return {
         "ok": True,
-        "ditModel": DIT_MODEL,
+        "fastDitModel": FAST_DIT_MODEL,
+        "qualityDitModel": QUALITY_DIT_MODEL,
+        "ditModel": QUALITY_DIT_MODEL,
         "lmModel": LM_MODEL,
         "checkpointsDirectory": CHECKPOINTS_DIR,
         "status": status,
@@ -230,7 +251,7 @@ def serve_acestep() -> None:
     timeout=10 * MINUTES,
 )
 def verify_configuration() -> dict[str, object]:
-    """Fail deployment verification if the professional stack is incomplete."""
+    """Fail deployment verification if either production DiT path is missing."""
 
     os.chdir("/app")
     status = _professional_checkpoint_status()
@@ -243,12 +264,16 @@ def verify_configuration() -> dict[str, object]:
         "app": APP_NAME,
         "function": FUNCTION_NAME,
         "gpu": "L40S",
-        "ditModel": DIT_MODEL,
+        "fastDitModel": FAST_DIT_MODEL,
+        "qualityDitModel": QUALITY_DIT_MODEL,
+        "ditModel": QUALITY_DIT_MODEL,
         "lmModel": LM_MODEL,
         "proxyAuthentication": True,
         "status": status,
         "paths": {
-            "dit": str(Path(CHECKPOINTS_DIR) / DIT_MODEL),
+            "fastDit": str(Path(CHECKPOINTS_DIR) / FAST_DIT_MODEL),
+            "qualityDit": str(Path(CHECKPOINTS_DIR) / QUALITY_DIT_MODEL),
+            "dit": str(Path(CHECKPOINTS_DIR) / QUALITY_DIT_MODEL),
             "lm": str(Path(CHECKPOINTS_DIR) / LM_MODEL),
             "vae": str(Path(CHECKPOINTS_DIR) / "vae"),
             "textEncoder": str(Path(CHECKPOINTS_DIR) / "Qwen3-Embedding-0.6B"),
