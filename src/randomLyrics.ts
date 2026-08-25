@@ -108,6 +108,97 @@ const italianLyrics: LyricsVariant[] = [
   },
 ];
 
+const neapolitanLyrics: LyricsVariant[] = [
+  {
+    verse1: [
+      "'A notte scenne doce 'ncopp' 'e strate",
+      "'o mare parla piano cu 'a città",
+      "io cammino e penso sulo a tte",
+      "pecché stu core nun te vo' lassà",
+    ],
+    preChorus: ["E quanno 'o viento chiamma 'o nomme tuo", "me pare ca turnasse ccà cu mme"],
+    chorus: [
+      "Resta cu mme, nun te ne jì",
+      "senza 'e te nun saccio cchiù campà",
+      "Napule canta dint' a stu core",
+      "e ogni parola parla ancora 'e nuje",
+    ],
+    verse2: [
+      "Sott' 'e balcone dorme 'a luna",
+      "na luce lenta cade 'ncopp' 'o mare",
+      "si me guardi nun me serve niente",
+      "pecché cu tte me basta respirà",
+    ],
+    bridge: ["Si dimane cambia pure 'o tiempo", "io te cerco addó fernesce 'o mare"],
+  },
+  {
+    verse1: [
+      "Aggio tenuto 'e parole dint' 'o core",
+      "senza sapé comme te l'aggia dì",
+      "ogni ricordo torna tutte 'e sere",
+      "e dint' 'o suonno staje vicino a mme",
+    ],
+    preChorus: ["Nun ce sta strada ca me porta luntano", "si 'a voce toja me chiamma ancora ccà"],
+    chorus: [
+      "Chiamme 'o nomme mio, famme turnà",
+      "stringeme forte e nun parlà",
+      "stu sentimento nun se po' scurdà",
+      "è nato a Napule e nun fernesce maje",
+    ],
+    verse2: [
+      "'E juorne passano comme 'o viento",
+      "ma certi vase restano cu mme",
+      "nun voglio perdere n'ato mumento",
+      "si ancora 'o core batte pe' tte",
+    ],
+    bridge: ["E si 'a vita ce mette paura", "nuje ce tenimme ancora pe' mmane"],
+  },
+  {
+    verse1: [
+      "Me so' scetato cu 'o sole 'nfaccia",
+      "cu mille penziere e na verità",
+      "aggio deciso ca nun torno arreto",
+      "sta vita mo' me l'aggia piglià",
+    ],
+    preChorus: ["Sento 'o sanghe ca corre cchiù forte", "e na voce me dice: va' annanze"],
+    chorus: [
+      "Corro cchiù forte d' 'o viento",
+      "nun tengo paura 'e cadé",
+      "Napule mia damme curaggio",
+      "ca mo' è arrivato 'o tiempo pe' mme",
+    ],
+    verse2: [
+      "Lasso 'e scuse fore d' 'a porta",
+      "porto sulamente chello ca so'",
+      "ogni ferita m'ha fatto cchiù forte",
+      "e mo' nisciuno me ferma cchiù",
+    ],
+    bridge: ["Pure si 'a notte addeventa cchiù scura", "io veco 'a strada cu ll'uocchie d' 'o core"],
+  },
+  {
+    verse1: [
+      "Profuma 'e sale stasera 'o mare",
+      "'a luna se specchia vicino a nuje",
+      "na musica doce saglie d' 'e vicule",
+      "e pare ca 'o tiempo se ferma pe' nuje",
+    ],
+    preChorus: ["Dammi 'a mano e nun guardà luntano", "sta sera basta sulamente nuje"],
+    chorus: [
+      "Sott' 'o stesso cielo 'e Napule",
+      "duje core fanno na canzone",
+      "ballammo fino a quanno vene 'o sole",
+      "senza penzà a dimane e a nisciuno",
+    ],
+    verse2: [
+      "'E stelle tremmano 'ncopp' 'e terrazze",
+      "'o viento porta 'a voce toja cu mme",
+      "nun serve sapé chello ca succede",
+      "si chistu mumento parla già pe' nuje",
+    ],
+    bridge: ["E quanno ll'alba ce trova abbracciate", "sta melodia nun se ne va cchiù"],
+  },
+];
+
 const englishLyrics: LyricsVariant[] = [
   {
     verse1: [
@@ -209,10 +300,10 @@ const sectionLabel = (
   section: string,
   vocalMode: VocalMode,
   role: 'first' | 'second' | 'together',
-  italian: boolean,
+  italianLabels: boolean,
 ) => {
   if (vocalMode !== 'duet') return `[${section}]`;
-  const roles = italian
+  const roles = italianLabels
     ? { first: 'Voce maschile', second: 'Voce femminile', together: 'Insieme' }
     : { first: 'Male voice', second: 'Female voice', together: 'Together' };
   return `[${section} - ${roles[role]}]`;
@@ -226,18 +317,20 @@ export const buildRandomLyrics = ({
   vocalMode,
   variant,
 }: RandomLyricsInput) => {
+  const neapolitan = language === 'nap';
   const italian = language === 'it';
-  const bank = italian ? italianLyrics : englishLyrics;
+  const italianLabels = italian || neapolitan;
+  const bank = neapolitan ? neapolitanLyrics : italian ? italianLyrics : englishLyrics;
   const selectionSeed = hashSelection(`${genre}|${subgenre}|${mood}`);
   const selected = bank[(selectionSeed + Math.max(0, Math.trunc(variant))) % bank.length];
 
   const blocks = [
-    [sectionLabel('Verse 1', vocalMode, 'first', italian), ...selected.verse1],
-    [sectionLabel('Pre-Chorus', vocalMode, 'first', italian), ...selected.preChorus],
-    [sectionLabel('Chorus', vocalMode, 'together', italian), ...selected.chorus],
-    [sectionLabel('Verse 2', vocalMode, 'second', italian), ...selected.verse2],
-    [sectionLabel('Bridge', vocalMode, 'together', italian), ...selected.bridge],
-    [sectionLabel('Final Chorus', vocalMode, 'together', italian), ...selected.chorus],
+    [sectionLabel('Verse 1', vocalMode, 'first', italianLabels), ...selected.verse1],
+    [sectionLabel('Pre-Chorus', vocalMode, 'first', italianLabels), ...selected.preChorus],
+    [sectionLabel('Chorus', vocalMode, 'together', italianLabels), ...selected.chorus],
+    [sectionLabel('Verse 2', vocalMode, 'second', italianLabels), ...selected.verse2],
+    [sectionLabel('Bridge', vocalMode, 'together', italianLabels), ...selected.bridge],
+    [sectionLabel('Final Chorus', vocalMode, 'together', italianLabels), ...selected.chorus],
   ];
 
   return blocks.map(block => block.join('\n')).join('\n\n');
