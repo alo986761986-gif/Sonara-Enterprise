@@ -1,0 +1,40 @@
+name: Check Modal Connectivity
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/modal-connectivity-check-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify Cloudflare to Modal connectivity
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe Modal model catalog through production Worker
+        shell: bash
+        run: |
+          curl -fsS --max-time 60 \
+            https://api.sonaraenterprise.com/api/diagnostics/modal-connectivity \
+            -o /tmp/modal-diagnostic.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const result = JSON.parse(fs.readFileSync('/tmp/modal-diagnostic.json', 'utf8'));
+          console.log(JSON.stringify(result, null, 2));
+          if (!result.ok) {
+            console.error(`Modal connectivity failed: ${result.error || 'unknown error'}`);
+            process.exit(1);
+          }
+          const models = Array.isArray(result.models) ? result.models : [];
+          if (!models.includes('acestep-v15-xl-turbo')) {
+            console.error(`XL-Turbo missing. Available models: ${models.join(', ')}`);
+            process.exit(1);
+          }
+          console.log('Cloudflare -> Modal -> ACE-Step XL-Turbo connectivity verified.');
+          NODE
