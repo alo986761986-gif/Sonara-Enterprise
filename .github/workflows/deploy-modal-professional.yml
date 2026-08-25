@@ -2,12 +2,6 @@ name: Deploy Modal ACE-Step Professional
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - "modal/sonara_acestep_professional.py"
-      - ".github/workflows/deploy-modal-professional.yml"
 
 permissions:
   contents: read
@@ -72,6 +66,13 @@ jobs:
 
           token_id = extract("ak-", raw_id, raw_secret) or raw_id
           token_secret = extract("as-", raw_secret, raw_id) or raw_secret
+
+          # Explicitly mask normalized/extracted values before exporting them.
+          # GitHub only auto-masks the original secret strings, so transformed
+          # substrings must be registered separately to prevent log exposure.
+          for value in (token_id, token_secret):
+              if value:
+                  print(f"::add-mask::{value}")
 
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
               handle.write(f"MODAL_TOKEN_ID={token_id}\n")
