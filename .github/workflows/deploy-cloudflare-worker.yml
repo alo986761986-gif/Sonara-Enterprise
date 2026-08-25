@@ -88,33 +88,17 @@ jobs:
           echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
           echo "Cloudflare deployment credentials resolved."
 
-      - name: Inspect Sonara web DNS origin
+      - name: Inspect Sonara public web origin
         shell: bash
         run: |
           set -euo pipefail
-          zone_json="$(curl -fsS \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            -H "Content-Type: application/json" \
-            "https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50")"
-          zone_id="$(CF_RESPONSE="${zone_json}" node - <<'NODE'
-          const payload = JSON.parse(process.env.CF_RESPONSE || '{}');
-          const zone = Array.isArray(payload.result) ? payload.result.find((item) => item?.name === 'sonaraenterprise.com') : null;
-          process.stdout.write(String(zone?.id || ''));
-          NODE
-          )"
-          test -n "${zone_id}"
-          dns_json="$(curl -fsS \
-            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-            -H "Content-Type: application/json" \
-            "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?per_page=100")"
-          CF_RESPONSE="${dns_json}" node - <<'NODE'
-          const payload = JSON.parse(process.env.CF_RESPONSE || '{}');
-          for (const record of payload.result || []) {
-            if (record.name === 'sonaraenterprise.com' || record.name === 'www.sonaraenterprise.com') {
-              console.log(`SONARA_WEB_DNS type=${record.type} name=${record.name} content=${record.content} proxied=${record.proxied}`);
-            }
-          }
-          NODE
+          echo "SONARA_WEB_APEX_A=$(dig +short A sonaraenterprise.com | paste -sd, -)"
+          echo "SONARA_WEB_APEX_AAAA=$(dig +short AAAA sonaraenterprise.com | paste -sd, -)"
+          echo "SONARA_WEB_WWW_CNAME=$(dig +short CNAME www.sonaraenterprise.com | paste -sd, -)"
+          echo "SONARA_WEB_WWW_A=$(dig +short A www.sonaraenterprise.com | paste -sd, -)"
+          echo "SONARA_WEB_HEADERS_START"
+          curl -k -sS -I --max-time 15 https://sonaraenterprise.com/ || true
+          echo "SONARA_WEB_HEADERS_END"
 
       - name: Validate Modal runtime bindings
         shell: bash
