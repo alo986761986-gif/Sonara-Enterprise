@@ -889,6 +889,7 @@ export default function App() {
               <button
                 key={option.value}
                 type="button"
+                data-sonara-vocal-mode={option.value}
                 disabled={busy}
                 onClick={() => setVocalMode(option.value)}
                 className={`rounded-xl border px-3 py-3 text-left transition disabled:opacity-50 ${selected ? 'border-purple-400 bg-purple-500/20 text-white' : 'border-slate-800 bg-[#060a12] text-slate-400 hover:border-slate-600'}`}
