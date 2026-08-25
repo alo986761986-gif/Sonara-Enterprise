@@ -56,6 +56,15 @@ const INITIAL: CandidateState[] = [
 ];
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const JOB_POLL_INTERVAL_MS = 2_000;
+const MIN_JOB_TIMEOUT_MS = 30 * 60 * 1_000;
+
+function generationTimeoutMs(durationSec: number): number {
+  // Long-form audio can legitimately take several times its playback duration,
+  // especially after a cold GPU start. Never expire an active 4-8 minute job
+  // at the old fixed eight-minute client boundary.
+  return Math.max(MIN_JOB_TIMEOUT_MS, Math.round(durationSec * 6 * 1_000));
+}
 
 function normalizeJob(value: JobResponse): JobResponse {
   return value?.job || value?.data || value;
@@ -231,8 +240,9 @@ export default function DualTrackGenerationControl() {
       if (!jobId) throw new Error('SONARA non ha restituito il job ID doppio.');
       setAllProcessing(jobId, Math.max(10, Number(initial.progress || 10)), String(initial.metadata?.currentStage || 'SONARA: 2 brani nello stesso batch GPU'));
 
-      for (let attempt = 0; attempt < 1200; attempt += 1) {
-        await sleep(400);
+      const pollDeadline = Date.now() + generationTimeoutMs(context.durationSec);
+      while (Date.now() < pollDeadline) {
+        await sleep(JOB_POLL_INTERVAL_MS);
         const poll = await fetch(`/api/music/job/${encodeURIComponent(jobId)}`, { cache: 'no-store' });
         if (!poll.ok && poll.status !== 410) continue;
         const current = normalizeJob(await readJson<JobResponse>(poll));
@@ -283,7 +293,7 @@ export default function DualTrackGenerationControl() {
         await refreshBilling(token);
         return;
       }
-      throw new Error('Timeout generazione doppia.');
+      throw new Error('La generazione sta impiegando più del previsto. Riprova il controllo del brano senza avviare un nuovo addebito.');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setGlobalError(message);
