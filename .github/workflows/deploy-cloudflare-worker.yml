@@ -33,18 +33,61 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Validate Cloudflare deployment credentials
+      - name: Resolve Cloudflare deployment credentials
         shell: bash
         run: |
           if [[ -z "${CLOUDFLARE_API_TOKEN}" ]]; then
             echo "Missing GitHub Actions secret CLOUDFLARE_API_TOKEN (or CF_API_TOKEN)." >&2
             exit 1
           fi
-          if [[ -z "${CLOUDFLARE_ACCOUNT_ID}" ]]; then
-            echo "Missing GitHub Actions secret CLOUDFLARE_ACCOUNT_ID (or CF_ACCOUNT_ID)." >&2
+
+          account_id="${CLOUDFLARE_ACCOUNT_ID}"
+
+          if [[ -z "${account_id}" ]]; then
+            zone_response="$(curl -fsS \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H "Content-Type: application/json" \
+              "https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50" || true)"
+
+            account_id="$(CF_RESPONSE="${zone_response}" node - <<'NODE'
+          try {
+            const payload = JSON.parse(process.env.CF_RESPONSE || '{}');
+            const zone = Array.isArray(payload.result) ? payload.result.find((item) => item?.name === 'sonaraenterprise.com') : null;
+            process.stdout.write(String(zone?.account?.id || ''));
+          } catch {
+            process.stdout.write('');
+          }
+          NODE
+            )"
+          fi
+
+          if [[ -z "${account_id}" ]]; then
+            accounts_response="$(curl -fsS \
+              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+              -H "Content-Type: application/json" \
+              "https://api.cloudflare.com/client/v4/accounts?per_page=50" || true)"
+
+            account_id="$(CF_RESPONSE="${accounts_response}" node - <<'NODE'
+          try {
+            const payload = JSON.parse(process.env.CF_RESPONSE || '{}');
+            const accounts = Array.isArray(payload.result) ? payload.result : [];
+            process.stdout.write(accounts.length === 1 ? String(accounts[0]?.id || '') : '');
+          } catch {
+            process.stdout.write('');
+          }
+          NODE
+            )"
+          fi
+
+          if [[ -z "${account_id}" ]]; then
+            echo "Unable to resolve Cloudflare account ID from the configured API token." >&2
+            echo "Add CLOUDFLARE_ACCOUNT_ID as a GitHub Actions secret if this token can access multiple accounts." >&2
             exit 1
           fi
-          echo "Cloudflare deployment credentials are configured."
+
+          echo "::add-mask::${account_id}"
+          echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
+          echo "Cloudflare deployment credentials resolved."
 
       - name: Validate Sonara Worker v9 source
         shell: bash
