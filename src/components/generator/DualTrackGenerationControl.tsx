@@ -97,9 +97,9 @@ function readGeneratorContext(textarea: HTMLTextAreaElement): GeneratorContext {
     return field.type !== 'number' && field.type !== 'range';
   }) as HTMLInputElement | undefined;
   const details = card.querySelector('details');
-  const vocalButtons = details ? Array.from(details.querySelectorAll('button[aria-pressed]')) as HTMLButtonElement[] : [];
-  const activeIndex = Math.max(0, vocalButtons.findIndex(button => button.getAttribute('aria-pressed') === 'true'));
-  const vocalMode = (['instrumental', 'male', 'female', 'duet'][activeIndex] || 'instrumental') as VocalMode;
+  const activeVocalButton = details?.querySelector('button[data-sonara-vocal-mode][aria-pressed="true"]') as HTMLButtonElement | null;
+  const selectedVocalMode = String(activeVocalButton?.dataset.sonaraVocalMode || 'instrumental');
+  const vocalMode = (['instrumental', 'male', 'female', 'duet'].includes(selectedVocalMode) ? selectedVocalMode : 'instrumental') as VocalMode;
   const lyricsTextarea = details?.querySelector('textarea') as HTMLTextAreaElement | null;
   const vocalLanguageSelect = details?.querySelector('#sonara-vocal-language') as HTMLSelectElement | null;
   return {
