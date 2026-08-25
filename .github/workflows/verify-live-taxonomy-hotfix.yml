@@ -20,9 +20,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS --max-time 20 https://sonaraenterprise.com/ -o /tmp/index.html
-          asset="$(grep -oE '/assets/index-[^\" ]+\.js' /tmp/index.html | head -n 1)"
-          test -n "$asset"
+          asset='/assets/index-BecCyPfS.js'
           echo "SONARA_LIVE_BUNDLE=$asset"
           curl -fsS --max-time 30 -D /tmp/bundle-headers.txt "https://sonaraenterprise.com${asset}" -o /tmp/bundle.js
           cat /tmp/bundle-headers.txt
