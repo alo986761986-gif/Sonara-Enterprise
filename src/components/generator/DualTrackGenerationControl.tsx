@@ -32,6 +32,8 @@ type GeneratorContext = {
   styleInfluence: number;
   title: string;
   vocalMode: VocalMode;
+  vocalLanguageCode: string;
+  vocalLanguageName: string;
   lyrics: string;
 };
 
@@ -99,6 +101,7 @@ function readGeneratorContext(textarea: HTMLTextAreaElement): GeneratorContext {
   const activeIndex = Math.max(0, vocalButtons.findIndex(button => button.getAttribute('aria-pressed') === 'true'));
   const vocalMode = (['instrumental', 'male', 'female', 'duet'][activeIndex] || 'instrumental') as VocalMode;
   const lyricsTextarea = details?.querySelector('textarea') as HTMLTextAreaElement | null;
+  const vocalLanguageSelect = details?.querySelector('#sonara-vocal-language') as HTMLSelectElement | null;
   return {
     rawPrompt: textarea.value.trim(),
     genreFamily: value(0, 'Electronic / Dance'),
@@ -112,6 +115,8 @@ function readGeneratorContext(textarea: HTMLTextAreaElement): GeneratorContext {
     styleInfluence: Number(styleInfluenceInput?.value || 50),
     title: titleInput?.value?.trim() || `Sonara ${value(2, 'Track')}`,
     vocalMode,
+    vocalLanguageCode: vocalLanguageSelect?.value || 'en',
+    vocalLanguageName: vocalLanguageSelect?.selectedOptions?.[0]?.textContent?.split(' — ').pop()?.trim() || 'English',
     lyrics: vocalMode === 'instrumental' ? '' : String(lyricsTextarea?.value || '').trim()
   };
 }
@@ -196,6 +201,7 @@ export default function DualTrackGenerationControl() {
         weirdness: context.weirdness,
         styleInfluence: context.styleInfluence,
         vocalMode: context.vocalMode,
+        vocalLanguage: context.vocalLanguageName,
         lyrics: context.lyrics,
         title: context.title
       });
@@ -215,6 +221,7 @@ export default function DualTrackGenerationControl() {
           subgenre: context.subgenre,
           mood: context.mood,
           vocalMode: context.vocalMode,
+          vocalLanguage: context.vocalLanguageCode,
           lyrics: context.lyrics,
           title: context.title,
           bpm: context.bpm,
