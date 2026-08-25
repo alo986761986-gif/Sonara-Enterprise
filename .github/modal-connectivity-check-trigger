@@ -1,2 +1,2 @@
-trigger: 2026-08-25T08:42:00Z
-reason: verify Cloudflare to Modal ACE-Step connectivity without generation
+trigger: 2026-08-25T08:43:00Z
+reason: capture exact Modal connectivity error through production Worker
