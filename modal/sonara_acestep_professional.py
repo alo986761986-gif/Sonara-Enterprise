@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,9 @@ LM_MODEL = "acestep-5Hz-lm-4B"
 CHECKPOINTS_DIR = "/app/checkpoints"
 OUTPUTS_DIR = "/app/gradio_outputs"
 HF_CACHE_DIR = "/cache/huggingface"
+ACESTEP_ROOT = "/app"
+ACESTEP_VENV = "/app/.venv"
+ACESTEP_VENV_SITE = "/app/.venv/lib/python3.11/site-packages"
 
 app = modal.App(APP_NAME)
 model_volume = modal.Volume.from_name("sonara-acestep-models", create_if_missing=True)
@@ -37,7 +41,7 @@ runtime_env = {
     "ACESTEP_MODE": "api",
     "ACESTEP_API_HOST": "0.0.0.0",
     "ACESTEP_API_PORT": str(API_PORT),
-    "ACESTEP_PROJECT_ROOT": "/app",
+    "ACESTEP_PROJECT_ROOT": ACESTEP_ROOT,
     "ACESTEP_CHECKPOINTS_DIR": CHECKPOINTS_DIR,
     "ACESTEP_CONFIG_PATH": FAST_DIT_MODEL,
     "ACESTEP_CONFIG_PATH2": QUALITY_DIT_MODEL,
@@ -56,6 +60,8 @@ runtime_env = {
     "TOKENIZERS_PARALLELISM": "false",
     "HF_HOME": HF_CACHE_DIR,
     "HF_HUB_CACHE": f"{HF_CACHE_DIR}/hub",
+    "VIRTUAL_ENV": ACESTEP_VENV,
+    "PYTHONPATH": f"{ACESTEP_ROOT}:{ACESTEP_VENV_SITE}",
     "PYTHONUNBUFFERED": "1",
 }
 
@@ -86,6 +92,19 @@ image = (
 )
 
 
+def _activate_acestep_runtime() -> None:
+    """Expose the uv-managed ACE-Step environment to Modal's function Python."""
+
+    for path in (ACESTEP_VENV_SITE, ACESTEP_ROOT):
+        if path not in sys.path:
+            sys.path.insert(0, path)
+    os.environ["VIRTUAL_ENV"] = ACESTEP_VENV
+    current_path = os.environ.get("PATH", "")
+    venv_bin = f"{ACESTEP_VENV}/bin"
+    if not current_path.startswith(f"{venv_bin}:") and current_path != venv_bin:
+        os.environ["PATH"] = f"{venv_bin}:{current_path}" if current_path else venv_bin
+
+
 def _require_download(result: tuple[bool, str], component: str) -> str:
     success, message = result
     if not success:
@@ -94,6 +113,7 @@ def _require_download(result: tuple[bool, str], component: str) -> str:
 
 
 def _professional_checkpoint_status() -> dict[str, Any]:
+    _activate_acestep_runtime()
     from acestep.model_downloader import check_main_model_exists, check_model_exists
 
     checkpoints = Path(CHECKPOINTS_DIR)
@@ -123,7 +143,8 @@ def _professional_checkpoint_status() -> dict[str, Any]:
 def prepare_models() -> dict[str, object]:
     """Persist the fast, quality and language-model checkpoints before deploy."""
 
-    os.chdir("/app")
+    os.chdir(ACESTEP_ROOT)
+    _activate_acestep_runtime()
     from acestep.model_downloader import (
         ensure_dit_model,
         ensure_lm_model,
@@ -213,9 +234,11 @@ def serve_acestep() -> None:
 
     env = os.environ.copy()
     env.update(runtime_env)
+    venv_bin = f"{ACESTEP_VENV}/bin"
+    env["PATH"] = f"{venv_bin}:{env.get('PATH', '')}"
 
     command = [
-        "/app/.venv/bin/python",
+        f"{ACESTEP_VENV}/bin/python",
         "-m",
         "acestep.api_server",
         "--host",
@@ -231,7 +254,7 @@ def serve_acestep() -> None:
 
     subprocess.Popen(
         command,
-        cwd="/app",
+        cwd=ACESTEP_ROOT,
         env=env,
         start_new_session=True,
     )
@@ -248,7 +271,8 @@ def serve_acestep() -> None:
 def verify_configuration() -> dict[str, object]:
     """Fail deployment verification if either production DiT path is missing."""
 
-    os.chdir("/app")
+    os.chdir(ACESTEP_ROOT)
+    _activate_acestep_runtime()
     status = _professional_checkpoint_status()
     missing = [name for name, ready in status.items() if not ready]
     if missing:
