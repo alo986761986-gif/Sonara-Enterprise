@@ -35,6 +35,12 @@ class ModalAudioPersistenceTests(unittest.TestCase):
         self.assertIn("output_volume.commit()", self.source)
         self.assertIn("output_volume.reload()", self.source)
 
+    def test_image_keeps_volume_mount_point_empty(self) -> None:
+        self.assertNotIn(
+            "mkdir -p /app/checkpoints /app/gradio_outputs/runtime/api_audio",
+            self.source,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
