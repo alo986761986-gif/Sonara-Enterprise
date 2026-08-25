@@ -110,7 +110,7 @@ jobs:
         shell: bash
         run: |
           test -f cloudflare/sonara-engine-v9-dual-fast.mjs
-          grep -q 'cloudflare/sonara-engine-v9-dual-fast.mjs' wrangler.jsonc
+          grep -Eq 'cloudflare/sonara-engine-v9-(dual-fast|diagnostic-wrapper)\.mjs' wrangler.jsonc
           grep -q 'api.sonaraenterprise.com' wrangler.jsonc
           echo "Sonara Worker v9 configuration verified."
 
