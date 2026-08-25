@@ -99,6 +99,7 @@ interface BillingUsageSnapshot {
 }
 
 const LANGUAGE_KEY = 'sonara.language';
+const VOCAL_LANGUAGE_KEY = 'sonara.vocalLanguage';
 const DURATION_KEY = 'sonara.defaultDuration';
 const BPM_KEY = 'sonara.preferredBpm';
 const WEIRDNESS_KEY = 'sonara.weirdness';
@@ -267,6 +268,10 @@ export default function App() {
   const [title, setTitle] = useState(INITIAL_SELECTION.title);
   const [lyrics, setLyrics] = useState('');
   const [vocalMode, setVocalMode] = useState<VocalMode>(INITIAL_SELECTION.vocalMode);
+  const [vocalLanguage, setVocalLanguage] = useState<LanguageCode>(() => {
+    const saved = localStorage.getItem(VOCAL_LANGUAGE_KEY);
+    return (SUPPORTED_LANGUAGES as readonly string[]).includes(String(saved)) ? saved as LanguageCode : initialLanguage;
+  });
   const [bpm, setBpm] = useState(initialBpm);
   const [durationSec, setDurationSec] = useState(() => {
     const saved = Number(localStorage.getItem(DURATION_KEY));
@@ -332,6 +337,10 @@ export default function App() {
     document.documentElement.dir = RTL_LANGUAGES.includes(language) ? 'rtl' : 'ltr';
     localStorage.setItem(LANGUAGE_KEY, language);
   }, [language]);
+
+  useEffect(() => {
+    localStorage.setItem(VOCAL_LANGUAGE_KEY, vocalLanguage);
+  }, [vocalLanguage]);
 
   useEffect(() => {
     const languageHandler = (event: Event) => {
@@ -405,11 +414,12 @@ export default function App() {
       key: keySignature,
       durationSec,
       vocalMode,
+      vocalLanguage: LANGUAGE_METADATA[vocalLanguage].name,
       lyrics: vocalLyrics,
       title,
       variant: randomVariantRef.current
     }));
-  }, [genreFamily, genre, subgenre, mood, bpm, keySignature, durationSec, vocalMode, vocalLyrics, title]);
+  }, [genreFamily, genre, subgenre, mood, bpm, keySignature, durationSec, vocalMode, vocalLanguage, vocalLyrics, title]);
 
   const refreshDashboard = async () => {
     try {
@@ -494,7 +504,7 @@ export default function App() {
   const randomizeLyrics = () => {
     lyricsVariantRef.current = (lyricsVariantRef.current + 1) % 4;
     setLyrics(buildRandomLyrics({
-      language,
+      language: vocalLanguage,
       genre,
       subgenre,
       mood,
@@ -535,6 +545,7 @@ export default function App() {
         weirdness,
         styleInfluence,
         vocalMode,
+        vocalLanguage: LANGUAGE_METADATA[vocalLanguage].name,
         lyrics: vocalLyrics,
         title
       });
@@ -553,6 +564,7 @@ export default function App() {
           subgenre,
           mood,
           vocalMode,
+          vocalLanguage,
           lyrics: vocalLyrics,
           title,
           bpm,
@@ -888,6 +900,21 @@ export default function App() {
             );
           })}
         </div>
+        <label htmlFor="sonara-vocal-language" className="mt-4 block text-xs font-black uppercase tracking-[0.18em] text-slate-500">
+          Lingua del testo e della voce
+          <select
+            id="sonara-vocal-language"
+            value={vocalLanguage}
+            onChange={event => setVocalLanguage(event.target.value as LanguageCode)}
+            disabled={busy || vocalMode === 'instrumental'}
+            className="mt-2 w-full rounded-xl border border-purple-500/30 bg-[#060a12] p-3 text-sm font-semibold normal-case tracking-normal text-white outline-none focus:border-purple-400 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {SUPPORTED_LANGUAGES.map(code => (
+              <option key={code} value={code}>{LANGUAGE_METADATA[code].nativeName} — {LANGUAGE_METADATA[code].name}</option>
+            ))}
+          </select>
+          <span className="mt-2 block text-[10px] font-normal normal-case tracking-normal text-slate-500">La lingua scelta viene inviata al motore per pronuncia, accento e interpretazione vocale.</span>
+        </label>
         <div className="mb-2 mt-4 flex items-center justify-between gap-3">
           <label htmlFor="sonara-lyrics" className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">
             {t('lyrics')}
