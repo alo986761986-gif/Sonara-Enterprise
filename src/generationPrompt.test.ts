@@ -132,6 +132,10 @@ assert.match(duetVocal, /two-part harmony/i);
 assert.ok(maleVocal.includes(vocalLyrics));
 assert.ok(femaleVocal.includes(vocalLyrics));
 assert.ok(duetVocal.includes(vocalLyrics));
+
+const japaneseVocal = buildGenerationPrompt({ ...vocalBase, vocalMode: 'female', vocalLanguage: 'Japanese' });
+assert.match(japaneseVocal, /Language: Japanese/);
+assert.match(japaneseVocal, /native pronunciation/);
 assert.notEqual(maleVocal, femaleVocal);
 assert.notEqual(femaleVocal, duetVocal);
 
