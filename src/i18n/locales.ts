@@ -1,5 +1,5 @@
 export const SUPPORTED_LANGUAGES = [
-  'en', 'it', 'fr', 'de', 'es', 'pt', 'nl', 'ro', 'pl', 'cs', 'sk', 'hu', 'hr', 'sr', 'sl', 'bs', 'bg', 'el', 'sq', 'mk',
+  'en', 'it', 'nap', 'fr', 'de', 'es', 'pt', 'nl', 'ro', 'pl', 'cs', 'sk', 'hu', 'hr', 'sr', 'sl', 'bs', 'bg', 'el', 'sq', 'mk',
   'uk', 'ru', 'be', 'lt', 'lv', 'et', 'fi', 'sv', 'no', 'da', 'is', 'ga', 'cy', 'mt', 'tr', 'ar', 'he', 'fa', 'ur', 'hi',
   'bn', 'pa', 'gu', 'mr', 'ta', 'te', 'kn', 'ml', 'si', 'ne', 'th', 'vi', 'km', 'lo', 'my', 'id', 'ms', 'fil', 'ja', 'ko',
   'zh-CN', 'zh-TW', 'mn', 'kk', 'uz', 'az', 'ka', 'hy', 'sw', 'zu', 'xh', 'af', 'am', 'so', 'yo', 'ig', 'ha', 'fr-CA', 'es-419', 'pt-BR'
@@ -21,6 +21,7 @@ export interface LanguageMeta {
 export const LANGUAGE_METADATA: Record<LanguageCode, LanguageMeta> = {
   'en': { code: 'en', name: 'English', nativeName: 'English' },
   'it': { code: 'it', name: 'Italian', nativeName: 'Italiano' },
+  'nap': { code: 'nap', name: 'Neapolitan (Neapolitan dialect)', nativeName: 'Napulitano / Dialetto Napoletano' },
   'fr': { code: 'fr', name: 'French', nativeName: 'Français' },
   'de': { code: 'de', name: 'German', nativeName: 'Deutsch' },
   'es': { code: 'es', name: 'Spanish', nativeName: 'Español' },
@@ -118,4 +119,3 @@ export function detectDeviceLanguage(): LanguageCode {
   }
   return DEFAULT_LANGUAGE;
 }
-
