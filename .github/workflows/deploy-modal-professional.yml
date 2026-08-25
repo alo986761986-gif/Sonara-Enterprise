@@ -37,28 +37,45 @@ jobs:
       - name: Validate Modal deployment source
         run: python -m py_compile modal/sonara_acestep_professional.py
 
-      - name: Normalize Modal deployment credentials
+      - name: Normalize and auto-extract Modal deployment credentials
         shell: bash
         run: |
           python - <<'PY'
           import os
+          import re
 
-          def normalize(name: str) -> str:
-              value = os.environ.get(name, "").strip()
+          def clean(value: str) -> str:
+              value = (value or "").strip()
               if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
                   value = value[1:-1].strip()
-              prefix = f"{name}="
-              if value.startswith(prefix):
-                  value = value[len(prefix):].strip()
               return value
 
-          values = {
-              "MODAL_TOKEN_ID": normalize("MODAL_TOKEN_ID"),
-              "MODAL_TOKEN_SECRET": normalize("MODAL_TOKEN_SECRET"),
-          }
+          raw_id = clean(os.environ.get("MODAL_TOKEN_ID", ""))
+          raw_secret = clean(os.environ.get("MODAL_TOKEN_SECRET", ""))
+
+          for name in ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET"):
+              prefix = f"{name}="
+              if raw_id.startswith(prefix):
+                  raw_id = raw_id[len(prefix):].strip()
+              if raw_secret.startswith(prefix):
+                  raw_secret = raw_secret[len(prefix):].strip()
+
+          def extract(prefix: str, *values: str) -> str:
+              pattern = re.compile(re.escape(prefix) + r"[A-Za-z0-9_-]+")
+              for value in values:
+                  if value.startswith(prefix):
+                      return value
+                  match = pattern.search(value)
+                  if match:
+                      return match.group(0)
+              return ""
+
+          token_id = extract("ak-", raw_id, raw_secret) or raw_id
+          token_secret = extract("as-", raw_secret, raw_id) or raw_secret
+
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
-              for key, value in values.items():
-                  handle.write(f"{key}={value}\n")
+              handle.write(f"MODAL_TOKEN_ID={token_id}\n")
+              handle.write(f"MODAL_TOKEN_SECRET={token_secret}\n")
           PY
 
       - name: Diagnose Modal credential families safely
@@ -92,11 +109,11 @@ jobs:
             exit 1
           fi
           if [[ "${MODAL_TOKEN_ID}" != ak-* ]]; then
-            echo "MODAL_TOKEN_ID must be the API token ID from the same Modal API token pair and begin with ak-." >&2
+            echo "MODAL_TOKEN_ID must contain a Modal API token ID beginning with ak-." >&2
             exit 1
           fi
           if [[ "${MODAL_TOKEN_SECRET}" != as-* ]]; then
-            echo "MODAL_TOKEN_SECRET must be the API token secret from the same Modal API token pair and begin with as-." >&2
+            echo "MODAL_TOKEN_SECRET must contain the matching Modal API token secret beginning with as-." >&2
             exit 1
           fi
           echo "Modal API token format verified."
