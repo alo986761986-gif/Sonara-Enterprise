@@ -4,6 +4,7 @@ import App from './App';
 import BootAuth from './components/auth/BootAuth';
 import LegalDocumentPage from './components/legal/LegalDocumentPage';
 import IntelligentPromptControl from './components/generator/IntelligentPromptControl';
+import DualTrackGenerationControl from './components/generator/DualTrackGenerationControl';
 import './index.css';
 
 const legalPath = window.location.pathname.replace(/\/+$/, '').toLowerCase();
@@ -17,6 +18,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <App />
         </BootAuth>
         <IntelligentPromptControl />
+        <DualTrackGenerationControl />
       </>
     )}
   </React.StrictMode>
