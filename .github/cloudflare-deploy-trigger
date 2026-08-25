@@ -1,2 +1,2 @@
-trigger: 2026-08-25T19:13:00+02:00
-reason: public DNS diagnosis for immediate Sonara frontend publication
+trigger: 2026-08-25T19:16:00+02:00
+reason: deploy live Neapolitan urban taxonomy hotfix to Sonara frontend
