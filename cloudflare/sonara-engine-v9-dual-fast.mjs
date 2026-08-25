@@ -7,6 +7,7 @@ const JOB_TTL_SECONDS = 3 * 60 * 60;
 const FAST_MODEL = 'acestep-v15-xl-turbo';
 const FAST_STEPS = 6;
 const BATCH_SIZE = 2;
+const LONG_FORM_THRESHOLD_SECONDS = 240;
 const READINESS_TIMEOUT_MS = 180_000;
 const SUBMIT_TIMEOUT_MS = 120_000;
 const QUERY_TIMEOUT_MS = 30_000;
@@ -445,6 +446,14 @@ async function startDualGeneration(request, env, body) {
   await storeJob(jobId, context);
 
   try {
+    // A native batch of two 4-8 minute tracks can exceed the GPU memory/runtime
+    // envelope even though each individual track is supported. Long-form jobs
+    // therefore use two independent queued renders from the start. This keeps
+    // both requested candidates without shortening the selected duration.
+    if (payload.audio_duration >= LONG_FORM_THRESHOLD_SECONDS) {
+      await ensureEngineReady(env);
+      return startSafeFallback(request, env, jobId, context, 'long-form generation uses memory-safe independent renders');
+    }
     const taskId = await submitTask(env, payload);
     await storeJob(jobId, { ...context, phase: 'submitted', taskId, submitAttempts: 1, updatedAt: Date.now() });
     return json(request, {
