@@ -92,8 +92,16 @@ const HOTFIX_SCRIPT = String.raw`<script id="sonara-neapolitan-urban-hotfix" dat
 })();
 </script>`;
 
+const HOTFIX_JS = HOTFIX_SCRIPT
+  .replace(/^<script[^>]*>/i, '')
+  .replace(/<\/script>$/i, '');
+
 function isEngineRequest(url) {
   return ENGINE_PATHS.some(prefix => url.pathname.startsWith(prefix));
+}
+
+function isFrontendBundle(url, contentType) {
+  return /^\/assets\/index-[^/]+\.js$/i.test(url.pathname) || /javascript|ecmascript/i.test(contentType);
 }
 
 async function proxyWeb(request) {
@@ -122,6 +130,24 @@ async function proxyWeb(request) {
       ? html
       : html.replace(/<\/body>/i, `${HOTFIX_SCRIPT}</body>`);
     responseHeaders.delete('content-length');
+    responseHeaders.delete('content-encoding');
+    responseHeaders.delete('etag');
+    responseHeaders.set('cache-control', 'no-store, max-age=0');
+    return new Response(patched, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: responseHeaders
+    });
+  }
+
+  if (request.method === 'GET' && isFrontendBundle(incoming, contentType)) {
+    const source = await response.text();
+    const patched = source.includes('__SONARA_NEAPOLITAN_URBAN_HOTFIX__')
+      ? source
+      : `${source}\n;${HOTFIX_JS}\n`;
+    responseHeaders.delete('content-length');
+    responseHeaders.delete('content-encoding');
+    responseHeaders.delete('etag');
     responseHeaders.set('cache-control', 'no-store, max-age=0');
     return new Response(patched, {
       status: response.status,
