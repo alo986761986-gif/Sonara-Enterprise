@@ -94,7 +94,9 @@ image = (
         "python -m pip install --no-cache-dir 'uv>=0.7,<1'",
         "git clone --depth 1 https://github.com/ace-step/ACE-Step-1.5.git /app",
         "cd /app && uv sync --frozen --no-dev --python python3.11",
-        "mkdir -p /app/checkpoints /app/gradio_outputs/runtime/api_audio /app/output /cache/huggingface",
+        # The Volume mount point must stay empty in the image. ACE-Step creates
+        # runtime/api_audio after Modal has mounted OUTPUTS_DIR.
+        "mkdir -p /app/checkpoints /app/gradio_outputs /app/output /cache/huggingface",
     )
     .env(runtime_env)
 )
