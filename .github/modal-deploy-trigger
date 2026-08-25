@@ -1,2 +1,2 @@
 trigger: 2026-08-25T08:05:00Z
-reason: deploy after ACE-Step virtualenv import fix
+reason: persist ACE-Step dual-batch audio and eliminate intermittent v1/audio 404s
