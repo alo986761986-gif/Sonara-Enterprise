@@ -270,7 +270,7 @@ export default function App() {
   const [vocalMode, setVocalMode] = useState<VocalMode>(INITIAL_SELECTION.vocalMode);
   const [vocalLanguage, setVocalLanguage] = useState<LanguageCode>(() => {
     const saved = localStorage.getItem(VOCAL_LANGUAGE_KEY);
-    return (SUPPORTED_LANGUAGES as readonly string[]).includes(String(saved)) ? saved as LanguageCode : initialLanguage;
+    return (SUPPORTED_LANGUAGES as readonly string[]).includes(String(saved)) ? saved as LanguageCode : initialLanguage();
   });
   const [bpm, setBpm] = useState(initialBpm);
   const [durationSec, setDurationSec] = useState(() => {
