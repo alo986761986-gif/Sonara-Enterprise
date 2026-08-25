@@ -1,2 +1,2 @@
-trigger: 2026-08-25
-reason: publish Sonara Engine v9 to api.sonaraenterprise.com
+trigger: 2026-08-25T08:28:00Z
+reason: deploy Sonara Engine v9 with automatic Cloudflare account resolution
