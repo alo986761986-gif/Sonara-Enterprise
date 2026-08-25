@@ -111,17 +111,14 @@ async function engineJson(env, path, init = {}, timeoutMs = QUERY_TIMEOUT_MS) {
   return payload;
 }
 
-async function ensureEngineReady(env, model) {
-  const data = await engineJson(env, '/v1/models', {
+async function ensureEngineReady(env) {
+  // A successful /v1/models response is the readiness contract. ACE-Step has used
+  // more than one response shape for this endpoint, so readiness must not depend
+  // on a brittle catalog parser.
+  return engineJson(env, '/v1/models', {
     method: 'GET',
     headers: { Accept: 'application/json' }
   }, READINESS_TIMEOUT_MS);
-  const records = Array.isArray(data?.data?.models) ? data.data.models : [];
-  const models = records.map(item => String(item?.name || '')).filter(Boolean);
-  if (!models.includes(model)) {
-    throw new SonaraEngineError(`SONARA model ${model} is not available on the production endpoint.`, 503, false);
-  }
-  return models;
 }
 
 function cacheUrl(jobId) {
@@ -225,7 +222,7 @@ function buildPayload(body, env) {
 }
 
 async function submitTask(env, payload) {
-  await ensureEngineReady(env, payload.model || FAST_MODEL);
+  await ensureEngineReady(env);
   const data = await engineJson(env, '/release_task', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -452,6 +449,28 @@ export default {
 
     if (jobMatch && request.method === 'GET') {
       return pollDualJob(request, env, decodeURIComponent(jobMatch[1]));
+    }
+
+    if (url.pathname === '/api/engine/ready' && request.method === 'GET') {
+      try {
+        await ensureEngineReady(env);
+        return json(request, {
+          ready: true,
+          engine: 'ACE-Step',
+          model: FAST_MODEL,
+          profile: 'single-job-native-batch-v9',
+          coldStartAllowanceMs: READINESS_TIMEOUT_MS
+        });
+      } catch (rawError) {
+        const error = engineError(rawError);
+        return json(request, {
+          ready: false,
+          engine: 'ACE-Step',
+          model: FAST_MODEL,
+          retryable: error.retryable,
+          error: error.message
+        }, error.status >= 400 && error.status < 600 ? error.status : 503);
+      }
     }
 
     if (url.pathname === '/api/engine/generate' && request.method === 'POST') {
