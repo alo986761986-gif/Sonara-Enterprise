@@ -184,7 +184,6 @@ def prepare_models() -> dict[str, object]:
     scaledown_window=10 * MINUTES,
     min_containers=0,
     max_containers=1,
-    retries=2,
     name=FUNCTION_NAME,
 )
 @modal.concurrent(max_inputs=100)
