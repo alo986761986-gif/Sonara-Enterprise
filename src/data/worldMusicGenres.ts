@@ -173,7 +173,7 @@ export const WORLD_MUSIC_GENRES: MusicGenreFamily[] = [
   {
     family: 'Neomelodica Napoletana',
     genres: [
-      { name: 'Neomelodica Napoletana Moderna', subgenres: ['Neomelodico Moderno', 'Neomelodico Pop', 'Neomelodico Urban', 'Neomelodico Trap', 'Neomelodico Dance', 'Ballata Neomelodica Moderna', 'Duetto Neomelodico', 'Neomelodico Romantico', 'Neomelodico Drammatico'] },
+      { name: 'Neomelodica Napoletana Moderna', subgenres: ['Neomelodico Moderno', 'Neomelodico Pop', 'Neomelodico Urban', 'Neomelodico Trap', 'Rap Napoletano', 'Hip-Hop Napoletano', 'Trap Napoletano', 'Neomelodico Dance', 'Ballata Neomelodica Moderna', 'Duetto Neomelodico', 'Neomelodico Romantico', 'Neomelodico Drammatico'] },
       { name: 'Canzone Napoletana Contemporanea', subgenres: ['Canzone Napoletana Pop', 'Napoli Acoustic Pop', 'Napoli Piano Ballad', 'Napoli Pop Orchestrale', 'Napoli Latin Pop', 'Napoli Soul'] }
     ]
   },
