@@ -1,2 +1,2 @@
-trigger: 2026-08-25T08:47:00Z
-reason: rotate stale Modal proxy credentials using proven API token extraction
+trigger: 2026-08-25T08:52:00Z
+reason: rotate stale Modal proxy credentials with 240s cold-start allowance
