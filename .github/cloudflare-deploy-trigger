@@ -1,2 +1,2 @@
-trigger: 2026-08-25T08:28:00Z
-reason: deploy Sonara Engine v9 with automatic Cloudflare account resolution
+trigger: 2026-08-25T08:36:00Z
+reason: validate Modal credential bindings and redeploy Sonara Engine v9
