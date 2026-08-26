@@ -1,2 +1,2 @@
-trigger: 2026-08-26T10:52:00+02:00
-reason: activate compact House subgenre caption lock and 8-second intro cap in production engine
+trigger: 2026-08-26T10:57:00+02:00
+reason: redeploy v10 after updating Cloudflare validation and health checks for House genre lock
