@@ -1,0 +1,29 @@
+const fs = require('node:fs');
+const path = require('node:path');
+
+const appPath = path.resolve(process.cwd(), 'src/App.tsx');
+let source = fs.readFileSync(appPath, 'utf8');
+
+const lazyMarker = `const ProfessionalAudioEqualizer = React.lazy(() =>\n  import('./components/eq/ProfessionalAudioEqualizer').then(module => ({ default: module.ProfessionalAudioEqualizer }))\n);\n\ntype JobStatus`;
+const lazyReplacement = `const ProfessionalAudioEqualizer = React.lazy(() =>\n  import('./components/eq/ProfessionalAudioEqualizer').then(module => ({ default: module.ProfessionalAudioEqualizer }))\n);\nconst ProductionCenter = React.lazy(() =>\n  import('./components/production/ProductionCenter').then(module => ({ default: module.ProductionCenter }))\n);\n\ntype JobStatus`;
+
+if (!source.includes("./components/production/ProductionCenter")) {
+  if (!source.includes(lazyMarker)) {
+    throw new Error('SONARA production activation failed: lazy import marker not found.');
+  }
+  source = source.replace(lazyMarker, lazyReplacement);
+}
+
+const oldProductionView = `  const productionView = (\n    <Card className=\"p-6\"><SectionTitle icon={Cpu} title={t('productionTitle')} subtitle={t('productionSubtitle')} /><div className=\"grid gap-4 md:grid-cols-2 xl:grid-cols-4\"><MiniCard icon={SlidersHorizontal} title=\"Mixing Console\" text=\"Balance, panorama, dynamics and spatial processing.\" /><MiniCard icon={Disc3} title=\"Mastering\" text=\"Loudness, tone, stereo image and delivery targets.\" /><MiniCard icon={Library} title=\"Stem Manager\" text=\"Vocals, drums, bass, instruments and reusable stems.\" /><MiniCard icon={UploadCloud} title=\"Export Center\" text=\"Master, stems and release-ready formats.\" /></div></Card>\n  );`;
+
+const newProductionView = `  const productionView = (\n    <React.Suspense fallback={<Card className=\"flex min-h-[420px] items-center justify-center p-6 text-xs text-slate-500\"><RefreshCw className=\"mr-2 h-4 w-4 animate-spin text-purple-400\" />Caricamento SONARA Production Suite...</Card>}>\n      <ProductionCenter\n        audioUrl={audioUrl}\n        audioFormat={audioFormat}\n        title={title}\n        onProcessedAudio={(url, metrics) => void handleProcessedAudio(url, metrics)}\n        onOpenMastering={() => setActiveTab('eq')}\n      />\n    </React.Suspense>\n  );`;
+
+if (!source.includes('<ProductionCenter')) {
+  if (!source.includes(oldProductionView)) {
+    throw new Error('SONARA production activation failed: production view marker not found.');
+  }
+  source = source.replace(oldProductionView, newProductionView);
+}
+
+fs.writeFileSync(appPath, source, 'utf8');
+console.log('[SONARA] Production Suite activated: Mixing Console, Mastering, Stem Manager, Export Center.');
