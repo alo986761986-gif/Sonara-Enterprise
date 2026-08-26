@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 import { Sparkles } from 'lucide-react';
 import { LANGUAGE_METADATA, type LanguageCode } from '../../i18n/locales';
 
+type LyricsLength = 'short' | 'normal' | 'long';
+
 type LyricsContext = {
   language: LanguageCode;
   genreFamily: string;
@@ -14,6 +16,27 @@ type LyricsContext = {
   bpm: number;
   title: string;
 };
+
+const LYRICS_LENGTH_STORAGE_KEY = 'sonara-lyrics-length';
+
+const LENGTH_OPTIONS: Array<{ value: LyricsLength; label: string; durationSec: number; title: string }> = [
+  { value: 'short', label: 'CORTO', durationSec: 60, title: 'Testo corto: struttura compatta e meno strofe' },
+  { value: 'normal', label: 'NORMALE', durationSec: 180, title: 'Testo normale: struttura completa standard' },
+  { value: 'long', label: 'LUNGO', durationSec: 360, title: 'Testo lungo: struttura estesa con più strofe e sviluppo' }
+];
+
+function lyricsDurationFor(length: LyricsLength): number {
+  return LENGTH_OPTIONS.find(option => option.value === length)?.durationSec || 180;
+}
+
+function readStoredLength(): LyricsLength {
+  try {
+    const saved = window.localStorage.getItem(LYRICS_LENGTH_STORAGE_KEY);
+    return saved === 'short' || saved === 'long' || saved === 'normal' ? saved : 'normal';
+  } catch {
+    return 'normal';
+  }
+}
 
 function setControlledTextareaValue(textarea: HTMLTextAreaElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
@@ -50,6 +73,7 @@ export default function IntelligentLyricsControl() {
   const [mountNode, setMountNode] = useState<HTMLElement | null>(null);
   const [loading, setLoading] = useState(false);
   const [disabled, setDisabled] = useState(true);
+  const [lyricsLength, setLyricsLength] = useState<LyricsLength>(() => readStoredLength());
 
   useEffect(() => {
     const connect = () => {
@@ -80,6 +104,15 @@ export default function IntelligentLyricsControl() {
     return () => observer.disconnect();
   }, []);
 
+  const selectLength = (next: LyricsLength) => {
+    setLyricsLength(next);
+    try {
+      window.localStorage.setItem(LYRICS_LENGTH_STORAGE_KEY, next);
+    } catch {
+      // Storage is optional; the current session selection still works.
+    }
+  };
+
   const generateIntelligentLyrics = async () => {
     if (loading || disabled) return;
     const textarea = document.getElementById('sonara-lyrics') as HTMLTextAreaElement | null;
@@ -102,7 +135,9 @@ export default function IntelligentLyricsControl() {
           mood: context.mood,
           vocalMode: context.vocalMode,
           variant: Date.now() + Math.floor(Math.random() * 1_000_000),
-          durationSec: context.durationSec,
+          durationSec: lyricsDurationFor(lyricsLength),
+          songDurationSec: context.durationSec,
+          lyricsLength,
           bpm: context.bpm,
           title: context.title,
           smartRandom: true
@@ -124,17 +159,37 @@ export default function IntelligentLyricsControl() {
   if (!mountNode) return null;
 
   return createPortal(
-    <button
-      type="button"
-      onClick={() => void generateIntelligentLyrics()}
-      disabled={disabled || loading}
-      className="inline-flex items-center gap-1.5 rounded-lg border border-purple-500/40 bg-purple-500/10 px-3 py-1.5 text-[10px] font-black tracking-wide text-purple-200 transition hover:border-fuchsia-400 hover:bg-purple-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-      title={disabled ? 'Seleziona prima una voce' : 'Crea un testo intelligente casuale e professionale coerente con genere, atmosfera, BPM e durata'}
-      aria-label="Testo Intelligente"
-    >
-      <Sparkles className="h-3.5 w-3.5" />
-      {loading ? 'CREAZIONE...' : 'Testo Intelligente'}
-    </button>,
+    <span className="inline-flex flex-wrap items-center gap-1.5" data-sonara-lyrics-length-control="true">
+      <span className="inline-flex overflow-hidden rounded-lg border border-slate-700/80 bg-slate-950/90" aria-label="Lunghezza testo">
+        {LENGTH_OPTIONS.map(option => {
+          const selected = lyricsLength === option.value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => selectLength(option.value)}
+              disabled={loading}
+              title={option.title}
+              aria-pressed={selected}
+              className={`px-2.5 py-1.5 text-[9px] font-black tracking-wider transition ${selected ? 'bg-purple-500/30 text-purple-100' : 'text-slate-500 hover:bg-slate-800 hover:text-slate-200'} disabled:opacity-50`}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </span>
+      <button
+        type="button"
+        onClick={() => void generateIntelligentLyrics()}
+        disabled={disabled || loading}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-purple-500/40 bg-purple-500/10 px-3 py-1.5 text-[10px] font-black tracking-wide text-purple-200 transition hover:border-fuchsia-400 hover:bg-purple-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+        title={disabled ? 'Seleziona prima una voce' : `Crea un Testo Intelligente ${lyricsLength === 'short' ? 'corto' : lyricsLength === 'long' ? 'lungo' : 'normale'}`}
+        aria-label="Testo Intelligente"
+      >
+        <Sparkles className="h-3.5 w-3.5" />
+        {loading ? 'CREAZIONE...' : 'Testo Intelligente'}
+      </button>
+    </span>,
     mountNode
   );
 }
