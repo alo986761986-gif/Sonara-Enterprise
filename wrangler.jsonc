@@ -1,9 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "sonara-enterprise",
-  // The web wrapper delegates SONARA engine traffic to the House genre-lock v10 layer,
-  // which then calls the stable dual-fast v9 engine.
-  "main": "cloudflare/sonara-web-taxonomy-hotfix.mjs",
+  "main": "cloudflare/sonara-web-live-ui.mjs",
   "compatibility_date": "2026-08-23",
   "workers_dev": true,
   "keep_vars": true,
@@ -27,6 +25,14 @@
     {
       "pattern": "www.sonaraenterprise.com/*",
       "zone_name": "sonaraenterprise.com"
+    },
+    {
+      "pattern": "sonaraenterprice.com/*",
+      "zone_name": "sonaraenterprice.com"
+    },
+    {
+      "pattern": "www.sonaraenterprice.com/*",
+      "zone_name": "sonaraenterprice.com"
     }
   ]
 }
