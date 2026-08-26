@@ -10,6 +10,29 @@ export const config = { api: { bodyParser: true } };
 const MAX_BODY_CHARS = 24_000;
 const MAX_OUTPUT_CHARS = 4_100;
 
+const SMART_CONCEPTS = [
+  'a decisive night when the protagonist finally chooses a new direction and cannot return to the old life',
+  'an unresolved relationship told through one concrete place and one object that keeps returning with a different meaning',
+  'a comeback after being underestimated, focused on earned confidence rather than empty boasting',
+  'two people meeting again after years and realizing that memory and reality no longer match',
+  'a private confession that starts guarded and becomes emotionally direct by the final section',
+  'leaving a familiar city before dawn, carrying only what matters and facing an uncertain future',
+  'a celebration after a difficult period, where joy feels deserved because the earlier struggle remains visible',
+  'a conflict between ambition and loyalty, with the narrator forced to choose what kind of person to become',
+  'a late-night drive in which changing streets mirror a changing emotional decision',
+  'a spiritual search that moves from doubt to a grounded sense of connection without becoming preachy',
+  'the exact moment a friendship becomes love, told through small physical details instead of declarations',
+  'recovering from loss without pretending the past disappeared, ending with acceptance rather than a perfect resolution',
+  'a tense confrontation where neither person says the central truth until the bridge or final section',
+  'returning to a childhood place and noticing what changed, what remained, and what the narrator now understands differently',
+  'a restless night before an important decision, with increasing urgency and a clear emotional release at the end',
+  'a communal moment where individual voices gradually become one shared statement or response',
+  'a forbidden attraction where restraint, distance and timing create more tension than explicit description',
+  'a self-reinvention story built around work, repetition and small victories instead of sudden transformation',
+  'a mysterious message, object or encounter that gradually changes the narrator’s interpretation of the night',
+  'a peaceful reset after burnout, focused on ordinary sensory details and learning to slow down without guilt'
+] as const;
+
 function clean(value: unknown, max = 160): string {
   return String(value ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 }
@@ -74,18 +97,31 @@ function qualityLooksValid(text: string, input: ProfessionalLyricsInput): boolea
   return uniqueRatio >= 0.68;
 }
 
-async function generateWithGemini(input: ProfessionalLyricsInput): Promise<string | null> {
+function smartConceptFor(input: ProfessionalLyricsInput): string {
+  const seed = `${input.genreFamily}|${input.genre}|${input.subgenre}|${input.mood}|${input.variant}`;
+  let hash = 2166136261;
+  for (const char of seed) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return SMART_CONCEPTS[(hash >>> 0) % SMART_CONCEPTS.length];
+}
+
+async function generateWithGemini(input: ProfessionalLyricsInput, creativeConcept = ''): Promise<string | null> {
   const apiKey = clean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '', 512);
   if (!apiKey || input.vocalMode === 'instrumental') return null;
 
   const ai = new GoogleGenAI({ apiKey });
-  const instruction = buildProfessionalLyricsInstruction(input);
+  const baseInstruction = buildProfessionalLyricsInstruction(input);
+  const instruction = creativeConcept
+    ? `${baseInstruction}\n\nINTELLIGENT RANDOM CONCEPT: ${creativeConcept}. Use this as the narrative engine of the song, interpreted through the selected genre, subgenre and atmosphere. Do not quote or explain this instruction; transform it into original lyrics.`
+    : baseInstruction;
   const response = await ai.models.generateContent({
     model: String(process.env.SONARA_LYRICS_MODEL || 'gemini-2.5-flash').trim(),
     contents: instruction,
     config: {
-      temperature: 1.05,
-      topP: 0.95,
+      temperature: creativeConcept ? 1.18 : 1.05,
+      topP: creativeConcept ? 0.97 : 0.95,
       maxOutputTokens: 1900,
       responseMimeType: 'text/plain'
     }
@@ -101,16 +137,18 @@ export default async function handler(req: any, res: any) {
     if (raw.length > MAX_BODY_CHARS) return json(res, 413, { error: 'REQUEST_TOO_LARGE' });
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
     const input = inputFromBody(body);
+    const smartRandom = body.smartRandom === true;
+    const creativeConcept = smartRandom ? smartConceptFor(input) : '';
 
     if (input.vocalMode === 'instrumental') {
       return json(res, 200, { lyrics: '', source: 'instrumental', quality: 'professional-v2' });
     }
 
     let lyrics: string | null = null;
-    let source = 'professional-fallback-v2';
+    let source = smartRandom ? 'professional-smart-fallback-v2' : 'professional-fallback-v2';
     try {
-      lyrics = await generateWithGemini(input);
-      if (lyrics) source = 'gemini-professional-v2';
+      lyrics = await generateWithGemini(input, creativeConcept);
+      if (lyrics) source = smartRandom ? 'gemini-intelligent-random-v2' : 'gemini-professional-v2';
     } catch (error) {
       console.warn('[SONARA][Lyrics] Gemini generation unavailable, using professional fallback.', error instanceof Error ? error.message : String(error));
     }
@@ -120,11 +158,13 @@ export default async function handler(req: any, res: any) {
     return json(res, 200, {
       lyrics,
       source,
-      quality: 'professional-v2',
+      quality: smartRandom ? 'intelligent-random-v2' : 'professional-v2',
       taxonomy: `${input.genreFamily} > ${input.genre} > ${input.subgenre}`,
       atmosphere: input.mood,
       durationSec: input.durationSec,
-      bpm: input.bpm
+      bpm: input.bpm,
+      smartRandom,
+      ...(smartRandom ? { creativeConcept } : {})
     });
   } catch (error) {
     return json(res, 400, { error: 'LYRICS_GENERATION_FAILED', message: error instanceof Error ? error.message : 'Unable to generate lyrics.' });
