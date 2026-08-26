@@ -6,6 +6,7 @@ import {
   Copy,
   Download,
   Gauge,
+  Headphones,
   KeyboardMusic,
   Layers3,
   Loader2,
@@ -34,6 +35,7 @@ import { audioBufferToWav, decodeAudioFromUrl, downloadBlob, safeAudioFilename }
 type TrackKind = 'audio' | 'midi' | 'vocal' | 'instrument';
 type QuantizeValue = '1/4' | '1/8' | '1/16' | '1/32';
 type MarkerLabel = 'Intro' | 'Verse' | 'Pre' | 'Chorus' | 'Drop' | 'Bridge' | 'Outro';
+type LatencyMode = 'low' | 'balanced' | 'safe';
 
 type Clip = {
   id: string;
@@ -43,6 +45,9 @@ type Clip = {
   offset: number;
   duration: number;
   kind: TrackKind;
+  takeGroup?: string;
+  takeNumber?: number;
+  muted?: boolean;
 };
 
 type AutomationPoint = { time: number; value: number };
@@ -73,6 +78,12 @@ type ClipAudioGraph = {
   panner: StereoPannerNode;
 };
 
+type PunchSnapshot = {
+  enabled: boolean;
+  punchIn: number;
+  punchOut: number;
+};
+
 interface SonaraStudioProps {
   audioUrl?: string;
   title?: string;
@@ -87,6 +98,7 @@ const MIN_TIMELINE_SECONDS = 180;
 const MAX_TIMELINE_SECONDS = 480;
 const MARKER_LABELS: MarkerLabel[] = ['Intro', 'Verse', 'Pre', 'Chorus', 'Drop', 'Bridge', 'Outro'];
 const QUANTIZE_DIVISOR: Record<QuantizeValue, number> = { '1/4': 1, '1/8': 2, '1/16': 4, '1/32': 8 };
+const LATENCY_LABELS: Record<LatencyMode, string> = { low: 'LOW', balanced: 'BAL', safe: 'SAFE' };
 const TRACK_COLORS: Record<TrackKind, string> = {
   audio: 'from-violet-600/80 to-indigo-600/65',
   vocal: 'from-fuchsia-600/80 to-purple-600/65',
@@ -100,6 +112,7 @@ const formatTime = (seconds: number) => `${Math.floor(seconds / 60)}:${Math.floo
 const sleep = (milliseconds: number) => new Promise<void>(resolve => window.setTimeout(resolve, milliseconds));
 const toDb = (level: number) => level <= 0.00001 ? -60 : Math.max(-60, 20 * Math.log10(level));
 const meterPercent = (level: number) => clamp(((toDb(level) + 60) / 60) * 100, 0, 100);
+const dbToGain = (db: number) => Math.pow(10, db / 20);
 
 function baseTrack(name: string, kind: TrackKind): Track {
   return {
@@ -215,14 +228,28 @@ export default function SonaraStudio({
   const [masterVolume, setMasterVolume] = useState(0.92);
   const [masterMuted, setMasterMuted] = useState(false);
   const [masterMeter, setMasterMeter] = useState({ left: 0, right: 0, peakLeft: 0, peakRight: 0 });
-  const [panel, setPanel] = useState<'mixer' | 'effects' | 'automation' | 'synth'>('mixer');
+  const [panel, setPanel] = useState<'mixer' | 'effects' | 'automation' | 'synth' | 'takes'>('mixer');
   const [assistantText, setAssistantText] = useState('');
-  const [assistantNotice, setAssistantNotice] = useState('Studio pronto. Arma una traccia con R per registrare oppure importa audio, stem e MIDI.');
+  const [assistantNotice, setAssistantNotice] = useState('Studio pronto. Arma una traccia con R oppure apri INPUT per configurare microfono o interfaccia audio.');
   const [rendering, setRendering] = useState(false);
   const [saving, setSaving] = useState(false);
   const [musicalTyping, setMusicalTyping] = useState(false);
   const [history, setHistory] = useState<Track[][]>([]);
   const [future, setFuture] = useState<Track[][]>([]);
+
+  const [inputDevices, setInputDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedInputId, setSelectedInputId] = useState('');
+  const [inputGainDb, setInputGainDb] = useState(0);
+  const [monitoring, setMonitoring] = useState(false);
+  const [inputReady, setInputReady] = useState(false);
+  const [inputMeter, setInputMeter] = useState(0);
+  const [inputError, setInputError] = useState('');
+  const [latencyMode, setLatencyMode] = useState<LatencyMode>('low');
+  const [latencyMs, setLatencyMs] = useState<number | null>(null);
+
+  const [punchEnabled, setPunchEnabled] = useState(false);
+  const [punchIn, setPunchIn] = useState(0);
+  const [punchOut, setPunchOut] = useState(16);
 
   const audioInputRef = useRef<HTMLInputElement | null>(null);
   const stemInputRef = useRef<HTMLInputElement | null>(null);
@@ -233,9 +260,11 @@ export default function SonaraStudio({
   const playingClips = useRef(new Set<string>());
   const frameRef = useRef<number | null>(null);
   const meterFrameRef = useRef<number | null>(null);
+  const inputMeterFrameRef = useRef<number | null>(null);
   const transportTokenRef = useRef(0);
   const lastMetronomeBeatRef = useRef(-1);
   const fallbackMeterRef = useRef({ left: 0, right: 0 });
+  const recordingActiveRef = useRef(false);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const masterGainNodeRef = useRef<GainNode | null>(null);
@@ -246,10 +275,18 @@ export default function SonaraStudio({
   const meterRightDataRef = useRef(new Float32Array(256));
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const recordingStreamRef = useRef<MediaStream | null>(null);
   const recordingChunksRef = useRef<Blob[]>([]);
   const recordingStartRef = useRef(0);
   const recordingTrackIdsRef = useRef<string[]>([]);
+  const recordingPunchRef = useRef<PunchSnapshot>({ enabled: false, punchIn: 0, punchOut: 16 });
+
+  const inputStreamRef = useRef<MediaStream | null>(null);
+  const inputSourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const inputGainNodeRef = useRef<GainNode | null>(null);
+  const inputAnalyserRef = useRef<AnalyserNode | null>(null);
+  const inputMonitorGainRef = useRef<GainNode | null>(null);
+  const inputRecordDestinationRef = useRef<MediaStreamAudioDestinationNode | null>(null);
+  const inputMeterDataRef = useRef(new Float32Array(256));
 
   useEffect(() => setProjectName(title || 'SONARA Project'), [title]);
 
@@ -279,6 +316,7 @@ export default function SonaraStudio({
   const timelineWidth = Math.max(900, totalDuration * pxPerSecond);
   const selectedTrack = tracks.find(track => track.id === selectedTrackId) || tracks[0];
   const anySolo = tracks.some(track => track.solo);
+  const selectedTakes = selectedTrack?.clips.filter(clip => clip.takeGroup) || [];
 
   const pushHistory = () => {
     setHistory(current => [...current.slice(-29), structuredClone(tracks)]);
@@ -360,7 +398,7 @@ export default function SonaraStudio({
     setTracks(current => [...current, track]);
     setSelectedTrackId(track.id);
     setSelectedClipId('');
-    setAssistantNotice(`${track.name} creata e armata. Premi REC per registrare dal microfono/interfaccia selezionata dal browser.`);
+    setAssistantNotice(`${track.name} creata e armata. Configura INPUT e premi REC.`);
   };
 
   const removeTrack = (id: string) => {
@@ -401,6 +439,20 @@ export default function SonaraStudio({
     setSelectedClipId('');
   };
 
+  const selectTake = (trackId: string, clipId: string) => {
+    pushHistory();
+    setTracks(current => current.map(track => {
+      if (track.id !== trackId) return track;
+      const target = track.clips.find(clip => clip.id === clipId);
+      if (!target?.takeGroup) return track;
+      return {
+        ...track,
+        clips: track.clips.map(clip => clip.takeGroup === target.takeGroup ? { ...clip, muted: clip.id !== clipId } : clip)
+      };
+    }));
+    setSelectedClipId(clipId);
+  };
+
   const addMarker = () => {
     const time = snapTime(playhead);
     setMarkers(current => {
@@ -412,6 +464,18 @@ export default function SonaraStudio({
     setAssistantNotice(`${markerLabel} marker inserito a ${formatTime(time)}.`);
   };
 
+  const setPunchPoint = (point: 'in' | 'out') => {
+    const time = snapTime(playhead);
+    const bar = (60 / Math.max(1, bpm)) * 4;
+    if (point === 'in') {
+      setPunchIn(time);
+      if (time >= punchOut) setPunchOut(clamp(time + bar, 0, totalDuration));
+    } else {
+      setPunchOut(Math.max(time, punchIn + 0.05));
+    }
+    setPunchEnabled(true);
+  };
+
   const startMeterLoop = () => {
     if (meterFrameRef.current) return;
     const tick = () => {
@@ -419,7 +483,6 @@ export default function SonaraStudio({
       const rightAnalyser = analyserRightRef.current;
       let left = 0;
       let right = 0;
-
       if (leftAnalyser && rightAnalyser) {
         const leftData = meterLeftDataRef.current;
         const rightData = meterRightDataRef.current;
@@ -434,10 +497,8 @@ export default function SonaraStudio({
         left = Math.sqrt(leftSum / leftData.length);
         right = Math.sqrt(rightSum / rightData.length);
       }
-
       left = Math.max(left, fallbackMeterRef.current.left);
       right = Math.max(right, fallbackMeterRef.current.right);
-
       setMasterMeter(current => ({
         left: current.left * 0.55 + left * 0.45,
         right: current.right * 0.55 + right * 0.45,
@@ -452,10 +513,10 @@ export default function SonaraStudio({
   const ensureAudioEngine = async () => {
     const AudioCtor = window.AudioContext || (window as any).webkitAudioContext;
     if (!AudioCtor) throw new Error('Web Audio non supportato dal browser.');
-
     let context = audioContextRef.current;
     if (!context || context.state === 'closed') {
-      context = new AudioCtor();
+      const latencyHint = latencyMode === 'low' ? 'interactive' : latencyMode === 'safe' ? 'playback' : 'balanced';
+      context = new AudioCtor({ latencyHint });
       audioContextRef.current = context;
 
       const master = context.createGain();
@@ -473,20 +534,19 @@ export default function SonaraStudio({
       right.fftSize = 256;
       left.smoothingTimeConstant = 0.72;
       right.smoothingTimeConstant = 0.72;
-
       master.connect(limiter);
       limiter.connect(context.destination);
       limiter.connect(splitter);
       splitter.connect(left, 0);
       splitter.connect(right, 1);
-
       masterGainNodeRef.current = master;
       masterLimiterRef.current = limiter;
       analyserLeftRef.current = left;
       analyserRightRef.current = right;
       startMeterLoop();
+      const outputLatency = Number((context as AudioContext & { outputLatency?: number }).outputLatency || 0);
+      setLatencyMs(Math.round(((context.baseLatency || 0) + outputLatency) * 1000));
     }
-
     if (context.state === 'suspended') await context.resume();
     return context;
   };
@@ -494,6 +554,134 @@ export default function SonaraStudio({
   useEffect(() => {
     if (masterGainNodeRef.current) masterGainNodeRef.current.gain.value = masterMuted ? 0 : masterVolume;
   }, [masterVolume, masterMuted]);
+
+  useEffect(() => {
+    if (inputGainNodeRef.current) inputGainNodeRef.current.gain.value = dbToGain(inputGainDb);
+  }, [inputGainDb]);
+
+  useEffect(() => {
+    if (inputMonitorGainRef.current) inputMonitorGainRef.current.gain.value = monitoring ? 1 : 0;
+  }, [monitoring]);
+
+  const refreshInputDevices = async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    try {
+      const devices = (await navigator.mediaDevices.enumerateDevices()).filter(device => device.kind === 'audioinput');
+      setInputDevices(devices);
+      setSelectedInputId(current => current || devices[0]?.deviceId || '');
+    } catch {
+      setInputDevices([]);
+    }
+  };
+
+  useEffect(() => {
+    void refreshInputDevices();
+    const onDeviceChange = () => void refreshInputDevices();
+    navigator.mediaDevices?.addEventListener?.('devicechange', onDeviceChange);
+    return () => navigator.mediaDevices?.removeEventListener?.('devicechange', onDeviceChange);
+  }, []);
+
+  const stopInputSession = () => {
+    if (inputMeterFrameRef.current) cancelAnimationFrame(inputMeterFrameRef.current);
+    inputMeterFrameRef.current = null;
+    inputSourceNodeRef.current?.disconnect();
+    inputGainNodeRef.current?.disconnect();
+    inputAnalyserRef.current?.disconnect();
+    inputMonitorGainRef.current?.disconnect();
+    inputStreamRef.current?.getTracks().forEach(track => track.stop());
+    inputStreamRef.current = null;
+    inputSourceNodeRef.current = null;
+    inputGainNodeRef.current = null;
+    inputAnalyserRef.current = null;
+    inputMonitorGainRef.current = null;
+    inputRecordDestinationRef.current = null;
+    setInputReady(false);
+    setInputMeter(0);
+  };
+
+  const startInputMeterLoop = () => {
+    if (inputMeterFrameRef.current) cancelAnimationFrame(inputMeterFrameRef.current);
+    const tick = () => {
+      const analyser = inputAnalyserRef.current;
+      if (!analyser) return;
+      const data = inputMeterDataRef.current;
+      analyser.getFloatTimeDomainData(data);
+      let sum = 0;
+      for (let index = 0; index < data.length; index += 1) sum += data[index] * data[index];
+      const rms = Math.sqrt(sum / data.length);
+      setInputMeter(current => current * 0.55 + rms * 0.45);
+      inputMeterFrameRef.current = requestAnimationFrame(tick);
+    };
+    inputMeterFrameRef.current = requestAnimationFrame(tick);
+  };
+
+  const ensureInputSession = async (force = false, deviceIdOverride?: string) => {
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error('Ingresso audio non supportato dal browser.');
+    if (inputRecordDestinationRef.current && inputStreamRef.current && !force) return inputRecordDestinationRef.current.stream;
+    if (force) stopInputSession();
+
+    const context = await ensureAudioEngine();
+    const deviceId = deviceIdOverride ?? selectedInputId;
+    const audioConstraints: MediaTrackConstraints = {
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
+      channelCount: { ideal: 2 },
+      ...(deviceId ? { deviceId: { exact: deviceId } } : {})
+    };
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
+    inputStreamRef.current = stream;
+
+    const source = context.createMediaStreamSource(stream);
+    const gain = context.createGain();
+    gain.gain.value = dbToGain(inputGainDb);
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.68;
+    const monitorGain = context.createGain();
+    monitorGain.gain.value = monitoring ? 1 : 0;
+    const recordDestination = context.createMediaStreamDestination();
+
+    source.connect(gain);
+    gain.connect(analyser);
+    gain.connect(recordDestination);
+    gain.connect(monitorGain);
+    monitorGain.connect(masterGainNodeRef.current || context.destination);
+
+    inputSourceNodeRef.current = source;
+    inputGainNodeRef.current = gain;
+    inputAnalyserRef.current = analyser;
+    inputMonitorGainRef.current = monitorGain;
+    inputRecordDestinationRef.current = recordDestination;
+    setInputReady(true);
+    setInputError('');
+    startInputMeterLoop();
+    await refreshInputDevices();
+    return recordDestination.stream;
+  };
+
+  const enableInput = async () => {
+    try {
+      await ensureInputSession(true);
+      setAssistantNotice('Ingresso audio pronto. Gain, meter e monitoring sono attivi sul segnale selezionato.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setInputError(message);
+      setAssistantNotice(`Ingresso audio non disponibile: ${message}`);
+    }
+  };
+
+  const changeInputDevice = async (deviceId: string) => {
+    setSelectedInputId(deviceId);
+    if (!inputReady) return;
+    try {
+      await ensureInputSession(true, deviceId);
+      setAssistantNotice('Ingresso audio cambiato.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setInputError(message);
+    }
+  };
 
   const canRouteThroughWebAudio = (src: string) => {
     try {
@@ -508,7 +696,6 @@ export default function SonaraStudio({
     const context = await ensureAudioEngine();
     const master = masterGainNodeRef.current;
     if (!master) return;
-
     for (const track of tracks) {
       for (const clip of track.clips) {
         if (!clip.src || clip.kind === 'midi') continue;
@@ -519,14 +706,12 @@ export default function SonaraStudio({
           if ('preservesPitch' in audio) (audio as HTMLAudioElement & { preservesPitch: boolean }).preservesPitch = false;
           audioElements.current.set(clip.id, audio);
         }
-
         audio.playbackRate = Math.pow(2, track.pitch / 12);
         if (!canRouteThroughWebAudio(clip.src)) {
           directClips.current.add(clip.id);
           audio.volume = clamp(track.volume * (masterMuted ? 0 : masterVolume), 0, 1);
           continue;
         }
-
         if (!clipGraphs.current.has(clip.id)) {
           try {
             const source = context.createMediaElementSource(audio);
@@ -538,7 +723,6 @@ export default function SonaraStudio({
             directClips.current.add(clip.id);
           }
         }
-
         const graph = clipGraphs.current.get(clip.id);
         if (graph) {
           audio.volume = 1;
@@ -588,16 +772,14 @@ export default function SonaraStudio({
   const syncClips = (time: number) => {
     let fallbackLeft = 0;
     let fallbackRight = 0;
-
     for (const track of tracks) {
       const audible = !track.mute && (!anySolo || track.solo);
       for (const clip of track.clips) {
         if (!clip.src || clip.kind === 'midi') continue;
-        const active = audible && !masterMuted && time >= clip.start && time < clip.start + clip.duration;
+        const active = audible && !clip.muted && !masterMuted && time >= clip.start && time < clip.start + clip.duration;
         const audio = audioElements.current.get(clip.id);
         if (!audio) continue;
         const graph = clipGraphs.current.get(clip.id);
-
         audio.playbackRate = Math.pow(2, track.pitch / 12);
         if (graph) {
           graph.gain.gain.value = track.volume;
@@ -605,7 +787,6 @@ export default function SonaraStudio({
         } else {
           audio.volume = clamp(track.volume * masterVolume, 0, 1);
         }
-
         if (active && !playingClips.current.has(clip.id)) {
           audio.currentTime = Math.max(0, clip.offset + (time - clip.start));
           void audio.play().catch(() => undefined);
@@ -614,7 +795,6 @@ export default function SonaraStudio({
           audio.pause();
           playingClips.current.delete(clip.id);
         }
-
         if (active && directClips.current.has(clip.id)) {
           const level = clamp(track.volume * masterVolume * 0.72, 0, 1.2);
           const pan = clamp(track.pan / 100, -1, 1);
@@ -625,6 +805,13 @@ export default function SonaraStudio({
       }
     }
     fallbackMeterRef.current = { left: fallbackLeft, right: fallbackRight };
+  };
+
+  const stopRecorderOnly = () => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder?.state === 'recording') recorder.stop();
+    recordingActiveRef.current = false;
+    setRecording(false);
   };
 
   const stopPlayback = (reset = false) => {
@@ -638,7 +825,7 @@ export default function SonaraStudio({
     playingClips.current.clear();
     lastMetronomeBeatRef.current = -1;
     fallbackMeterRef.current = { left: 0, right: 0 };
-    if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
+    stopRecorderOnly();
     if (reset) setPlayhead(0);
   };
 
@@ -647,12 +834,11 @@ export default function SonaraStudio({
     setPlaying(true);
     lastMetronomeBeatRef.current = -1;
     const started = performance.now() - startAt * 1000;
-
     const tick = () => {
       if (token !== transportTokenRef.current) return;
       const next = (performance.now() - started) / 1000;
       if (next >= totalDuration) {
-        if (loop && !recording) {
+        if (loop && !recordingActiveRef.current) {
           audioElements.current.forEach(audio => audio.pause());
           playingClips.current.clear();
           setPlayhead(0);
@@ -662,10 +848,8 @@ export default function SonaraStudio({
         stopPlayback(true);
         return;
       }
-
       setPlayhead(next);
       syncClips(next);
-
       if (metronome) {
         const beatSeconds = 60 / Math.max(1, bpm);
         const beatIndex = Math.floor((next + 0.002) / beatSeconds);
@@ -674,7 +858,11 @@ export default function SonaraStudio({
           lastMetronomeBeatRef.current = beatIndex;
         }
       }
-
+      const punch = recordingPunchRef.current;
+      if (recordingActiveRef.current && punch.enabled && next >= punch.punchOut) {
+        stopRecorderOnly();
+        setAssistantNotice(`Punch-out eseguito a ${formatTime(punch.punchOut)}. Playback continua.`);
+      }
       frameRef.current = requestAnimationFrame(tick);
     };
     frameRef.current = requestAnimationFrame(tick);
@@ -695,98 +883,114 @@ export default function SonaraStudio({
     }
   };
 
-  const stopRecordingStream = () => {
-    recordingStreamRef.current?.getTracks().forEach(track => track.stop());
-    recordingStreamRef.current = null;
-  };
-
   const startRecording = async () => {
     if (recording) {
-      stopPlayback(false);
+      stopRecorderOnly();
+      setAssistantNotice('Registrazione fermata. Playback lasciato in esecuzione.');
       return;
     }
-
     const armedTracks = tracks.filter(track => track.armed && track.kind !== 'midi');
     if (!armedTracks.length) {
-      setAssistantNotice('Arma almeno una traccia audio con il tasto R, oppure crea + TRACK.');
+      setAssistantNotice('Arma almeno una traccia audio con R, oppure crea + TRACK.');
       return;
     }
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
-      setAssistantNotice('Registrazione microfono non supportata da questo browser.');
+    if (punchEnabled && playhead >= punchOut) {
+      setAssistantNotice('Il playhead e oltre il Punch Out. Spostalo prima del punto OUT.');
+      return;
+    }
+    if (typeof MediaRecorder === 'undefined') {
+      setAssistantNotice('MediaRecorder non supportato da questo browser.');
       return;
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      recordingStreamRef.current = stream;
-
+      const processedStream = await ensureInputSession();
       let token = transportTokenRef.current;
       if (!playing) {
         token = ++transportTokenRef.current;
         await preparePlayback();
         const completed = await runCountIn(token);
-        if (!completed) {
-          stopRecordingStream();
-          return;
-        }
+        if (!completed) return;
       }
 
       const preferred = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'].find(type => MediaRecorder.isTypeSupported(type));
-      const recorder = new MediaRecorder(stream, preferred ? { mimeType: preferred } : undefined);
+      const recorder = new MediaRecorder(processedStream, preferred ? { mimeType: preferred } : undefined);
       mediaRecorderRef.current = recorder;
       recordingChunksRef.current = [];
       recordingStartRef.current = playhead;
       recordingTrackIdsRef.current = armedTracks.map(track => track.id);
+      recordingPunchRef.current = { enabled: punchEnabled, punchIn, punchOut };
 
       recorder.ondataavailable = event => {
         if (event.data.size > 0) recordingChunksRef.current.push(event.data);
       };
-
-      recorder.onerror = () => {
-        setAssistantNotice('Errore durante la registrazione audio.');
-      };
-
+      recorder.onerror = () => setAssistantNotice('Errore durante la registrazione audio.');
       recorder.onstop = () => {
         const chunks = recordingChunksRef.current;
         const armedIds = [...recordingTrackIdsRef.current];
         const startAt = recordingStartRef.current;
+        const punch = recordingPunchRef.current;
         const type = recorder.mimeType || preferred || 'audio/webm';
+        recordingActiveRef.current = false;
         setRecording(false);
-        stopRecordingStream();
         if (!chunks.length) return;
 
         const blob = new Blob(chunks, { type });
         const url = URL.createObjectURL(blob);
-        void probeDuration(url).then(duration => {
+        void probeDuration(url).then(rawDuration => {
+          const rawEnd = startAt + rawDuration;
+          const clipStart = punch.enabled ? Math.max(startAt, punch.punchIn) : startAt;
+          const desiredEnd = punch.enabled ? Math.min(rawEnd, punch.punchOut) : rawEnd;
+          const sourceOffset = Math.max(0, clipStart - startAt);
+          const clipDuration = Math.max(0, Math.min(rawDuration - sourceOffset, desiredEnd - clipStart));
+          if (clipDuration < 0.05) {
+            setAssistantNotice('Take troppo breve: nessuna clip aggiunta.');
+            return;
+          }
+
           let firstClipId = '';
+          let highestTake = 1;
           setTracks(current => current.map(track => {
             if (!armedIds.includes(track.id)) return track;
-            const clipId = uid('recording');
+            const takeGroup = `${track.id}:${Math.round(clipStart * 1000)}:${Math.round(desiredEnd * 1000)}`;
+            const previousTakes = track.clips.filter(clip => clip.takeGroup === takeGroup);
+            const takeNumber = Math.max(0, ...previousTakes.map(clip => clip.takeNumber || 0)) + 1;
+            highestTake = Math.max(highestTake, takeNumber);
+            const clipId = uid('take');
             if (!firstClipId) firstClipId = clipId;
-            const clip: Clip = {
+            const recordedClip: Clip = {
               id: clipId,
-              name: `Recording ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+              name: `Take ${takeNumber}`,
               src: url,
-              start: snapTime(startAt),
-              offset: 0,
-              duration,
-              kind: track.kind === 'vocal' ? 'vocal' : 'audio'
+              start: snapTime(clipStart),
+              offset: sourceOffset,
+              duration: clipDuration,
+              kind: track.kind === 'vocal' ? 'vocal' : 'audio',
+              takeGroup,
+              takeNumber,
+              muted: false
             };
-            return { ...track, clips: [...track.clips, clip] };
+            return {
+              ...track,
+              clips: [...track.clips.map(clip => clip.takeGroup === takeGroup ? { ...clip, muted: true } : clip), recordedClip]
+            };
           }));
           if (armedIds[0]) setSelectedTrackId(armedIds[0]);
           if (firstClipId) setSelectedClipId(firstClipId);
-          setAssistantNotice(`Registrazione acquisita realmente: ${formatTime(duration)} su ${armedIds.length} traccia/e armata/e.`);
+          setPanel('takes');
+          setAssistantNotice(`Take ${highestTake} registrata: ${formatTime(clipDuration)}. Le take precedenti dello stesso passaggio restano disponibili per il comp.`);
         });
       };
 
-      recorder.start(200);
+      recorder.start(150);
+      recordingActiveRef.current = true;
       setRecording(true);
-      setAssistantNotice(`REC attivo su ${armedTracks.map(track => track.name).join(', ')}.`);
+      setAssistantNotice(`REC attivo da ${inputDevices.find(device => device.deviceId === selectedInputId)?.label || 'ingresso selezionato'}${punchEnabled ? ` · Punch ${formatTime(punchIn)}-${formatTime(punchOut)}` : ''}.`);
       if (!playing) beginPlayback(token, playhead);
     } catch (error) {
-      stopRecordingStream();
-      setAssistantNotice(error instanceof Error ? `Registrazione non disponibile: ${error.message}` : 'Registrazione non disponibile.');
+      const message = error instanceof Error ? error.message : String(error);
+      setInputError(message);
+      setAssistantNotice(`Registrazione non disponibile: ${message}`);
     }
   };
 
@@ -794,9 +998,10 @@ export default function SonaraStudio({
     transportTokenRef.current += 1;
     if (frameRef.current) cancelAnimationFrame(frameRef.current);
     if (meterFrameRef.current) cancelAnimationFrame(meterFrameRef.current);
+    if (inputMeterFrameRef.current) cancelAnimationFrame(inputMeterFrameRef.current);
     audioElements.current.forEach(audio => audio.pause());
-    if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
-    stopRecordingStream();
+    stopRecorderOnly();
+    stopInputSession();
     if (audioContextRef.current && audioContextRef.current.state !== 'closed') void audioContextRef.current.close();
   }, []);
 
@@ -825,7 +1030,7 @@ export default function SonaraStudio({
 
   const renderTracks = async (sourceTracks: Track[]) => {
     const audibleTracks = sourceTracks.filter(track => !track.mute && (!sourceTracks.some(item => item.solo) || track.solo));
-    const audioClips = audibleTracks.flatMap(track => track.clips.filter(clip => clip.src).map(clip => ({ track, clip })));
+    const audioClips = audibleTracks.flatMap(track => track.clips.filter(clip => clip.src && !clip.muted).map(clip => ({ track, clip })));
     if (!audioClips.length) throw new Error('Nessuna clip audio reale da renderizzare.');
     const duration = Math.min(MAX_TIMELINE_SECONDS, Math.max(1, ...audioClips.map(({ clip }) => clip.start + clip.duration)));
     const sampleRate = 48000;
@@ -848,13 +1053,11 @@ export default function SonaraStudio({
       const source = offline.createBufferSource();
       source.buffer = decoded;
       source.playbackRate.value = Math.pow(2, track.pitch / 12);
-
       const gain = offline.createGain();
       gain.gain.value = track.volume;
       for (const point of [...track.automation].sort((a, b) => a.time - b.time)) {
         if (point.time <= duration) gain.gain.linearRampToValueAtTime(clamp(point.value, 0, 1), point.time);
       }
-
       const low = offline.createBiquadFilter();
       low.type = 'lowshelf';
       low.frequency.value = 180;
@@ -876,9 +1079,7 @@ export default function SonaraStudio({
       compressor.release.value = 0.2;
       const panner = offline.createStereoPanner();
       panner.pan.value = track.pan / 100;
-
       source.connect(gain).connect(low).connect(mid).connect(high).connect(compressor).connect(panner).connect(master);
-
       if (track.reverb > 0) {
         const convolver = offline.createConvolver();
         const impulseLength = Math.floor(sampleRate * 1.8);
@@ -892,11 +1093,9 @@ export default function SonaraStudio({
         wet.gain.value = clamp(track.reverb / 100, 0, 0.5);
         high.connect(convolver).connect(wet).connect(master);
       }
-
       const availableSource = Math.max(0.05, Math.min(clip.duration, decoded.duration - clip.offset));
       source.start(clip.start, Math.max(0, clip.offset), availableSource);
     }
-
     return offline.startRendering();
   };
 
@@ -921,7 +1120,7 @@ export default function SonaraStudio({
     setRendering(true);
     setAssistantNotice('Rendering stems time-aligned a 48 kHz...');
     try {
-      const audioTracks = tracks.filter(track => track.clips.some(clip => clip.src));
+      const audioTracks = tracks.filter(track => track.clips.some(clip => clip.src && !clip.muted));
       if (!audioTracks.length) throw new Error('Nessuna traccia audio reale da esportare.');
       for (const track of audioTracks) {
         const rendered = await renderTracks([{ ...track, mute: false, solo: false }]);
@@ -939,7 +1138,7 @@ export default function SonaraStudio({
     setSaving(true);
     try {
       const project = {
-        version: 3,
+        version: 4,
         name: projectName,
         bpm,
         keySignature,
@@ -949,10 +1148,12 @@ export default function SonaraStudio({
         metronome,
         countInBars,
         masterVolume,
+        input: { selectedInputId, inputGainDb, monitoring, latencyMode },
+        punch: { punchEnabled, punchIn, punchOut },
         savedAt: new Date().toISOString()
       };
-      localStorage.setItem('sonara.studio.project.v3', JSON.stringify(project));
-      setAssistantNotice('Sessione Studio Pro salvata sul dispositivo.');
+      localStorage.setItem('sonara.studio.project.v4', JSON.stringify(project));
+      setAssistantNotice('Sessione Studio Pro v4 salvata sul dispositivo.');
     } catch {
       setAssistantNotice('Impossibile salvare la sessione sul dispositivo.');
     } finally {
@@ -969,6 +1170,14 @@ export default function SonaraStudio({
       const next = clamp(Number(bpmMatch[1]), 40, 220);
       onBpmChange?.(next);
       setAssistantNotice(`Tempo impostato a ${next} BPM.`);
+    } else if (lower.includes('monitor')) {
+      setMonitoring(true);
+      void enableInput();
+    } else if (lower.includes('punch')) {
+      setPunchEnabled(true);
+      setAssistantNotice(`Punch attivo tra ${formatTime(punchIn)} e ${formatTime(punchOut)}.`);
+    } else if (lower.includes('input') || lower.includes('microfono')) {
+      void enableInput();
     } else if (lower.includes('metronom') || lower.includes('click')) {
       setMetronome(true);
       setAssistantNotice('Metronomo attivato.');
@@ -989,7 +1198,7 @@ export default function SonaraStudio({
       onOpenProduction?.();
       setAssistantNotice('Apro la suite Produzione / Mastering SONARA.');
     } else {
-      setAssistantNotice('Prova: “tempo 128 BPM”, “attiva metronomo”, “aggiungi marker”, “traccia audio”, “aggiungi synth”, “importa stem” oppure “apri mastering”.');
+      setAssistantNotice('Prova: “input microfono”, “monitoring”, “attiva punch”, “tempo 128 BPM”, “aggiungi marker”, “traccia audio” o “apri mastering”.');
     }
     setAssistantText('');
   };
@@ -1017,7 +1226,7 @@ export default function SonaraStudio({
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-fuchsia-600 to-indigo-600 shadow-lg shadow-purple-950/40"><Music2 className="h-4 w-4 text-white" /></div>
             <div className="min-w-0">
-              <div className="flex items-center gap-2"><span className="text-[9px] font-black uppercase tracking-[0.2em] text-purple-300">SONARA STUDIO PRO</span><span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[8px] font-black text-emerald-300">LIVE DAW</span></div>
+              <div className="flex items-center gap-2"><span className="text-[9px] font-black uppercase tracking-[0.2em] text-purple-300">SONARA STUDIO PRO 4</span><span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[8px] font-black text-emerald-300">RECORDING DAW</span></div>
               <input value={projectName} onChange={event => setProjectName(event.target.value)} className="mt-0.5 w-full min-w-48 bg-transparent text-sm font-black text-white outline-none" aria-label="Nome progetto" />
             </div>
           </div>
@@ -1041,9 +1250,9 @@ export default function SonaraStudio({
       <div className="flex min-h-[690px] flex-col xl:flex-row">
         <aside className="w-full shrink-0 border-b border-slate-800 bg-[#080b12] p-3 xl:w-56 xl:border-b-0 xl:border-r">
           <div className="grid grid-cols-3 gap-2 xl:grid-cols-1">
-            <button onClick={() => audioInputRef.current?.click()} className="flex items-center justify-center gap-2 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2.5 text-[10px] font-black text-slate-300 hover:border-purple-500/40"><Upload className="h-3.5 w-3.5" /> AUDIO</button>
-            <button onClick={() => stemInputRef.current?.click()} className="flex items-center justify-center gap-2 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2.5 text-[10px] font-black text-slate-300 hover:border-cyan-500/40"><Layers3 className="h-3.5 w-3.5" /> STEM</button>
-            <button onClick={() => midiInputRef.current?.click()} className="flex items-center justify-center gap-2 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2.5 text-[10px] font-black text-slate-300 hover:border-emerald-500/40"><KeyboardMusic className="h-3.5 w-3.5" /> MIDI</button>
+            <button onClick={() => audioInputRef.current?.click()} className="flex items-center justify-center gap-2 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2.5 text-[10px] font-black text-slate-300"><Upload className="h-3.5 w-3.5" /> AUDIO</button>
+            <button onClick={() => stemInputRef.current?.click()} className="flex items-center justify-center gap-2 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2.5 text-[10px] font-black text-slate-300"><Layers3 className="h-3.5 w-3.5" /> STEM</button>
+            <button onClick={() => midiInputRef.current?.click()} className="flex items-center justify-center gap-2 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2.5 text-[10px] font-black text-slate-300"><KeyboardMusic className="h-3.5 w-3.5" /> MIDI</button>
           </div>
           <div className="mt-4 border-t border-slate-800 pt-4">
             <div className="mb-2 text-[9px] font-black uppercase tracking-[0.18em] text-slate-600">Sessione</div>
@@ -1054,13 +1263,6 @@ export default function SonaraStudio({
               <button onClick={() => setMusicalTyping(value => !value)} className={`flex items-center gap-2 rounded-lg px-2 py-2 text-[10px] font-bold ${musicalTyping ? 'bg-emerald-500/10 text-emerald-300' : 'text-slate-400 hover:bg-slate-900 hover:text-white'}`}><KeyboardMusic className="h-3.5 w-3.5" /> Musical typing</button>
             </div>
           </div>
-          <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950 p-3">
-            <div className="text-[9px] font-black uppercase tracking-wider text-slate-600">Project</div>
-            <div className="mt-2 grid grid-cols-2 gap-2 text-[10px]">
-              <label className="text-slate-500">BPM<input type="number" min={40} max={220} value={bpm} onChange={event => onBpmChange?.(clamp(Number(event.target.value), 40, 220))} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 p-2 font-black text-white outline-none" /></label>
-              <div className="text-slate-500">Key<div className="mt-1 rounded-lg border border-slate-800 bg-slate-900 p-2 font-black text-white">{keySignature}</div></div>
-            </div>
-          </div>
         </aside>
 
         <main className="min-w-0 flex-1 bg-[#06080d]">
@@ -1068,40 +1270,52 @@ export default function SonaraStudio({
             <div className="flex flex-wrap items-center gap-2">
               <button onClick={() => playing ? stopPlayback() : void startPlayback()} disabled={countingIn} className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black disabled:opacity-50">{playing ? <Pause className="h-4 w-4 fill-current" /> : <Play className="ml-0.5 h-4 w-4 fill-current" />}</button>
               <button onClick={() => stopPlayback(true)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-800 bg-slate-900 text-slate-300"><Square className="h-3.5 w-3.5 fill-current" /></button>
-              <button onClick={() => void startRecording()} className={`flex h-8 items-center gap-1.5 rounded-lg border px-2 text-[9px] font-black ${recording ? 'border-rose-400 bg-rose-500 text-white shadow-[0_0_16px_rgba(244,63,94,.35)]' : 'border-rose-500/30 bg-rose-500/10 text-rose-300'}`} title="Registra sulle tracce armate"><Mic2 className="h-3.5 w-3.5" /> {recording ? 'REC' : 'REC'}</button>
-              <button onClick={addAudioTrack} className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900 px-2 text-[9px] font-black text-slate-400" title="Crea traccia audio armata"><Plus className="h-3.5 w-3.5" /> TRACK</button>
+              <button onClick={() => void startRecording()} className={`flex h-8 items-center gap-1.5 rounded-lg border px-2 text-[9px] font-black ${recording ? 'border-rose-400 bg-rose-500 text-white shadow-[0_0_16px_rgba(244,63,94,.35)]' : 'border-rose-500/30 bg-rose-500/10 text-rose-300'}`}><Mic2 className="h-3.5 w-3.5" /> REC</button>
+              <button onClick={addAudioTrack} className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900 px-2 text-[9px] font-black text-slate-400"><Plus className="h-3.5 w-3.5" /> TRACK</button>
               <div className="min-w-20 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-center font-mono text-xs font-black text-white">{countingIn ? `-${countInBeat}` : formatTime(playhead)}</div>
+
+              <details className="relative">
+                <summary className={`flex h-8 cursor-pointer list-none items-center gap-2 rounded-lg border px-2 text-[9px] font-black ${inputReady ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-slate-800 bg-slate-900 text-slate-500'}`}>
+                  <Headphones className="h-3.5 w-3.5" /> INPUT
+                  <span className="h-1.5 w-10 overflow-hidden rounded-full bg-slate-800"><span className="block h-full rounded-full bg-emerald-400" style={{ width: `${meterPercent(inputMeter)}%` }} /></span>
+                </summary>
+                <div className="absolute left-0 top-full z-50 mt-2 w-[310px] rounded-xl border border-slate-700 bg-[#080b12] p-3 shadow-2xl">
+                  <div className="flex items-center justify-between"><div className="text-[9px] font-black uppercase tracking-wider text-slate-400">Audio Input</div><button onClick={() => void enableInput()} className="rounded-lg bg-white px-2 py-1 text-[8px] font-black text-black">{inputReady ? 'RECONNECT' : 'ENABLE'}</button></div>
+                  <select value={selectedInputId} onChange={event => void changeInputDevice(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-800 bg-slate-950 px-2 py-2 text-[9px] font-bold text-slate-300 outline-none">
+                    {!inputDevices.length && <option value="">Default input</option>}
+                    {inputDevices.map((device, index) => <option key={device.deviceId || index} value={device.deviceId}>{device.label || `Audio input ${index + 1}`}</option>)}
+                  </select>
+                  <div className="mt-3 flex items-center gap-2"><span className="w-12 text-[8px] font-black text-slate-600">LEVEL</span><div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-emerald-400" style={{ width: `${meterPercent(inputMeter)}%` }} /></div><span className="w-12 text-right font-mono text-[8px] text-slate-400">{toDb(inputMeter).toFixed(1)} dB</span></div>
+                  <label className="mt-3 block text-[8px] font-black text-slate-600">INPUT GAIN <span className="float-right text-slate-300">{inputGainDb > 0 ? '+' : ''}{inputGainDb} dB</span><input type="range" min={-24} max={24} step={1} value={inputGainDb} onChange={event => setInputGainDb(Number(event.target.value))} className="mt-1 w-full accent-emerald-400" /></label>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button onClick={() => setMonitoring(value => !value)} className={`rounded-lg border px-2 py-2 text-[8px] font-black ${monitoring ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-200' : 'border-slate-800 bg-slate-950 text-slate-500'}`}>MONITOR {monitoring ? 'ON' : 'OFF'}</button>
+                    <select value={latencyMode} onChange={event => setLatencyMode(event.target.value as LatencyMode)} disabled={latencyMs !== null} className="rounded-lg border border-slate-800 bg-slate-950 px-2 py-2 text-[8px] font-black text-slate-400 outline-none disabled:opacity-50"><option value="low">LATENCY LOW</option><option value="balanced">LATENCY BAL</option><option value="safe">LATENCY SAFE</option></select>
+                  </div>
+                  <div className="mt-2 text-[8px] leading-4 text-slate-600">Mode {LATENCY_LABELS[latencyMode]}{latencyMs !== null ? ` · browser reports ~${latencyMs} ms` : ' · applies when audio engine starts'}. Monitoring can create feedback: use headphones.</div>
+                  {inputError && <div className="mt-2 text-[8px] text-rose-300">{inputError}</div>}
+                </div>
+              </details>
+
               <button onClick={() => setMetronome(value => !value)} className={`rounded-lg border px-2 py-2 text-[9px] font-black ${metronome ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-200' : 'border-slate-800 bg-slate-900 text-slate-500'}`}>CLICK</button>
-              <select value={countInBars} onChange={event => setCountInBars(Number(event.target.value) as 0 | 1 | 2)} className="h-8 rounded-lg border border-slate-800 bg-slate-900 px-2 text-[9px] font-black text-slate-400 outline-none" title="Count-in">
-                <option value={0}>IN OFF</option><option value={1}>IN 1 BAR</option><option value={2}>IN 2 BAR</option>
-              </select>
+              <select value={countInBars} onChange={event => setCountInBars(Number(event.target.value) as 0 | 1 | 2)} className="h-8 rounded-lg border border-slate-800 bg-slate-900 px-2 text-[9px] font-black text-slate-400 outline-none"><option value={0}>IN OFF</option><option value={1}>IN 1 BAR</option><option value={2}>IN 2 BAR</option></select>
+              <button onClick={() => setPunchEnabled(value => !value)} className={`rounded-lg border px-2 py-2 text-[9px] font-black ${punchEnabled ? 'border-rose-500/50 bg-rose-500/15 text-rose-200' : 'border-slate-800 bg-slate-900 text-slate-500'}`}>PUNCH</button>
+              <button onClick={() => setPunchPoint('in')} className="rounded-lg border border-slate-800 bg-slate-900 px-2 py-2 text-[8px] font-black text-slate-500">IN {formatTime(punchIn)}</button>
+              <button onClick={() => setPunchPoint('out')} className="rounded-lg border border-slate-800 bg-slate-900 px-2 py-2 text-[8px] font-black text-slate-500">OUT {formatTime(punchOut)}</button>
               <button onClick={() => setLoop(value => !value)} className={`rounded-lg border px-2 py-2 text-[9px] font-black ${loop ? 'border-purple-500/50 bg-purple-500/15 text-purple-200' : 'border-slate-800 bg-slate-900 text-slate-500'}`}>LOOP</button>
               <button onClick={() => setSnap(value => !value)} className={`rounded-lg border px-2 py-2 text-[9px] font-black ${snap ? 'border-cyan-500/50 bg-cyan-500/15 text-cyan-200' : 'border-slate-800 bg-slate-900 text-slate-500'}`}>Q</button>
-              <select value={quantize} onChange={event => setQuantize(event.target.value as QuantizeValue)} disabled={!snap} className="h-8 rounded-lg border border-slate-800 bg-slate-900 px-2 text-[9px] font-black text-slate-400 outline-none disabled:opacity-40" title="Quantizzazione">
-                <option>1/4</option><option>1/8</option><option>1/16</option><option>1/32</option>
-              </select>
+              <select value={quantize} onChange={event => setQuantize(event.target.value as QuantizeValue)} disabled={!snap} className="h-8 rounded-lg border border-slate-800 bg-slate-900 px-2 text-[9px] font-black text-slate-400 outline-none disabled:opacity-40"><option>1/4</option><option>1/8</option><option>1/16</option><option>1/32</option></select>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex h-8 items-center gap-1 rounded-lg border border-slate-800 bg-slate-900 p-1">
-                <select value={markerLabel} onChange={event => setMarkerLabel(event.target.value as MarkerLabel)} className="h-6 bg-transparent px-1 text-[8px] font-black text-slate-400 outline-none">{MARKER_LABELS.map(label => <option key={label} value={label}>{label}</option>)}</select>
-                <button onClick={addMarker} className="h-6 rounded bg-slate-800 px-2 text-[8px] font-black text-white">+ MARK</button>
-              </div>
+              <div className="flex h-8 items-center gap-1 rounded-lg border border-slate-800 bg-slate-900 p-1"><select value={markerLabel} onChange={event => setMarkerLabel(event.target.value as MarkerLabel)} className="h-6 bg-transparent px-1 text-[8px] font-black text-slate-400 outline-none">{MARKER_LABELS.map(label => <option key={label} value={label}>{label}</option>)}</select><button onClick={addMarker} className="h-6 rounded bg-slate-800 px-2 text-[8px] font-black text-white">+ MARK</button></div>
               <button onClick={splitSelectedClip} className="rounded-lg border border-slate-800 bg-slate-900 p-2 text-slate-300" title="Split"><Scissors className="h-3.5 w-3.5" /></button>
               <button onClick={duplicateSelectedClip} className="rounded-lg border border-slate-800 bg-slate-900 p-2 text-slate-300" title="Duplicate"><Copy className="h-3.5 w-3.5" /></button>
               <button onClick={deleteSelectedClip} className="rounded-lg border border-slate-800 bg-slate-900 p-2 text-rose-300" title="Delete clip"><Trash2 className="h-3.5 w-3.5" /></button>
-              <button onClick={() => setZoom(value => clamp(value - 0.15, 0.55, 2.2))} className="p-2 text-slate-500"><ZoomOut className="h-4 w-4" /></button>
-              <span className="w-10 text-center text-[9px] font-black text-slate-500">{Math.round(zoom * 100)}%</span>
-              <button onClick={() => setZoom(value => clamp(value + 0.15, 0.55, 2.2))} className="p-2 text-slate-500"><ZoomIn className="h-4 w-4" /></button>
-
+              <button onClick={() => setZoom(value => clamp(value - 0.15, 0.55, 2.2))} className="p-2 text-slate-500"><ZoomOut className="h-4 w-4" /></button><span className="w-10 text-center text-[9px] font-black text-slate-500">{Math.round(zoom * 100)}%</span><button onClick={() => setZoom(value => clamp(value + 0.15, 0.55, 2.2))} className="p-2 text-slate-500"><ZoomIn className="h-4 w-4" /></button>
               <div className="ml-1 flex h-10 items-center gap-2 rounded-lg border border-slate-800 bg-[#080b10] px-2" title={`Master peak ${Math.max(toDb(masterMeter.peakLeft), toDb(masterMeter.peakRight)).toFixed(1)} dBFS`}>
                 <button onClick={() => setMasterMuted(value => !value)} className={`text-[8px] font-black ${masterMuted ? 'text-rose-300' : 'text-slate-500'}`}>MASTER</button>
-                <div className="w-14 space-y-1">
-                  <div className="flex items-center gap-1"><span className="w-2 text-[7px] text-slate-600">L</span><div className="h-1 flex-1 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-emerald-400 transition-[width] duration-75" style={{ width: `${meterPercent(masterMeter.left)}%` }} /></div></div>
-                  <div className="flex items-center gap-1"><span className="w-2 text-[7px] text-slate-600">R</span><div className="h-1 flex-1 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-emerald-400 transition-[width] duration-75" style={{ width: `${meterPercent(masterMeter.right)}%` }} /></div></div>
-                </div>
-                <input type="range" min={0} max={1.25} step={0.01} value={masterVolume} onChange={event => setMasterVolume(Number(event.target.value))} className="w-16 accent-emerald-400" aria-label="Master volume" />
-                <button onClick={() => setMasterMeter({ left: 0, right: 0, peakLeft: 0, peakRight: 0 })} className="w-10 text-right font-mono text-[8px] font-bold text-slate-400">{Math.max(toDb(masterMeter.peakLeft), toDb(masterMeter.peakRight)).toFixed(1)}</button>
+                <div className="w-14 space-y-1"><div className="flex items-center gap-1"><span className="w-2 text-[7px] text-slate-600">L</span><div className="h-1 flex-1 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-emerald-400" style={{ width: `${meterPercent(masterMeter.left)}%` }} /></div></div><div className="flex items-center gap-1"><span className="w-2 text-[7px] text-slate-600">R</span><div className="h-1 flex-1 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-emerald-400" style={{ width: `${meterPercent(masterMeter.right)}%` }} /></div></div></div>
+                <input type="range" min={0} max={1.25} step={0.01} value={masterVolume} onChange={event => setMasterVolume(Number(event.target.value))} className="w-16 accent-emerald-400" aria-label="Master volume" /><button onClick={() => setMasterMeter({ left: 0, right: 0, peakLeft: 0, peakRight: 0 })} className="w-10 text-right font-mono text-[8px] font-bold text-slate-400">{Math.max(toDb(masterMeter.peakLeft), toDb(masterMeter.peakRight)).toFixed(1)}</button>
               </div>
             </div>
           </div>
@@ -1111,32 +1325,19 @@ export default function SonaraStudio({
               <div className="sticky left-0 z-30 flex w-[190px] shrink-0 items-center border-r border-slate-800 bg-[#090c13] px-3 text-[9px] font-black uppercase tracking-wider text-slate-600">Tracks</div>
               <div className="relative h-full" style={{ width: timelineWidth }}>
                 {Array.from({ length: Math.floor(totalDuration / 10) + 1 }, (_, index) => index * 10).map(second => <div key={second} className="absolute top-0 h-full border-l border-slate-800/80 pl-1 pt-1 text-[8px] text-slate-600" style={{ left: second * pxPerSecond }}>{formatTime(second)}</div>)}
-                {markers.map(marker => <button key={marker.id} onClick={() => setPlayhead(marker.time)} onDoubleClick={() => setMarkers(current => current.filter(item => item.id !== marker.id))} className="absolute bottom-0 z-10 -translate-x-1/2 rounded-t border border-cyan-400/25 bg-cyan-400/10 px-1.5 py-0.5 text-[7px] font-black text-cyan-200" style={{ left: marker.time * pxPerSecond }} title="Click: vai al marker · doppio click: elimina">{marker.label}</button>)}
+                {punchEnabled && <div className="pointer-events-none absolute bottom-0 top-0 border-x border-rose-400/50 bg-rose-500/[0.06]" style={{ left: punchIn * pxPerSecond, width: Math.max(2, (punchOut - punchIn) * pxPerSecond) }} />}
+                {markers.map(marker => <button key={marker.id} onClick={() => setPlayhead(marker.time)} onDoubleClick={() => setMarkers(current => current.filter(item => item.id !== marker.id))} className="absolute bottom-0 z-10 -translate-x-1/2 rounded-t border border-cyan-400/25 bg-cyan-400/10 px-1.5 py-0.5 text-[7px] font-black text-cyan-200" style={{ left: marker.time * pxPerSecond }}>{marker.label}</button>)}
               </div>
             </div>
 
-            {tracks.length === 0 && (
-              <div className="flex min-h-[330px] w-full items-center justify-center p-8">
-                <div className="max-w-md text-center"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-purple-500/20 bg-purple-500/10 text-purple-300"><WandSparkles className="h-6 w-6" /></div><h3 className="mt-4 text-lg font-black text-white">Inizia una sessione SONARA Studio Pro</h3><p className="mt-2 text-xs leading-5 text-slate-500">Importa audio o stem, crea MIDI oppure aggiungi una traccia audio e registra realmente dal microfono/interfaccia del browser.</p><div className="mt-4 flex flex-wrap justify-center gap-2"><button onClick={() => audioInputRef.current?.click()} className="rounded-xl bg-purple-600 px-4 py-2 text-xs font-black text-white">Importa audio</button><button onClick={addAudioTrack} className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-xs font-black text-rose-200">Crea traccia REC</button><button onClick={addMidiTrack} className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-xs font-black text-white">Crea MIDI</button></div></div>
-              </div>
-            )}
+            {tracks.length === 0 && <div className="flex min-h-[330px] w-full items-center justify-center p-8"><div className="max-w-md text-center"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-purple-500/20 bg-purple-500/10 text-purple-300"><WandSparkles className="h-6 w-6" /></div><h3 className="mt-4 text-lg font-black text-white">Inizia una sessione SONARA Studio Pro</h3><p className="mt-2 text-xs leading-5 text-slate-500">Importa audio o stem, crea MIDI oppure aggiungi una traccia audio, seleziona l'ingresso e registra con monitoring, punch e take.</p><div className="mt-4 flex flex-wrap justify-center gap-2"><button onClick={() => audioInputRef.current?.click()} className="rounded-xl bg-purple-600 px-4 py-2 text-xs font-black text-white">Importa audio</button><button onClick={addAudioTrack} className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-xs font-black text-rose-200">Crea traccia REC</button><button onClick={addMidiTrack} className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-xs font-black text-white">Crea MIDI</button></div></div></div>}
 
             {tracks.map(track => (
               <div key={track.id} className={`flex min-h-[86px] border-b border-slate-800/80 ${selectedTrackId === track.id ? 'bg-purple-500/[0.025]' : ''}`} style={{ width: 190 + timelineWidth }}>
                 <div className="sticky left-0 z-10 w-[190px] shrink-0 border-r border-slate-800 bg-[#090c13] p-2.5">
-                  <div className="flex items-start gap-2">
-                    <button onClick={() => setSelectedTrackId(track.id)} className="min-w-0 flex-1 text-left"><div className="truncate text-[11px] font-black text-white">{track.name}</div><div className="mt-0.5 text-[8px] font-bold uppercase tracking-wider text-slate-600">{track.kind}{track.armed ? ' · ARMED' : ''}</div></button>
-                    <button onClick={() => removeTrack(track.id)} className="text-slate-700 hover:text-rose-300"><Trash2 className="h-3 w-3" /></button>
-                  </div>
-                  <div className="mt-2 flex items-center gap-1.5">
-                    <button disabled={track.kind === 'midi'} onClick={() => updateTrack(track.id, { armed: !track.armed })} className={`h-6 w-6 rounded text-[8px] font-black disabled:cursor-not-allowed disabled:opacity-25 ${track.armed ? 'bg-rose-500 text-white shadow-[0_0_12px_rgba(244,63,94,.3)]' : 'bg-slate-800 text-slate-500'}`} title={track.kind === 'midi' ? 'Record arm audio non disponibile per MIDI' : 'Record arm'}>R</button>
-                    <button onClick={() => updateTrack(track.id, { mute: !track.mute })} className={`h-6 w-6 rounded text-[8px] font-black ${track.mute ? 'bg-amber-500 text-black' : 'bg-slate-800 text-slate-500'}`}>M</button>
-                    <button onClick={() => updateTrack(track.id, { solo: !track.solo })} className={`h-6 w-6 rounded text-[8px] font-black ${track.solo ? 'bg-emerald-400 text-black' : 'bg-slate-800 text-slate-500'}`}>S</button>
-                    <Volume2 className="ml-0.5 h-3 w-3 text-slate-600" />
-                    <input type="range" min={0} max={1} step={0.01} value={track.volume} onChange={event => updateTrack(track.id, { volume: Number(event.target.value) })} className="w-16 accent-purple-500" />
-                  </div>
+                  <div className="flex items-start gap-2"><button onClick={() => setSelectedTrackId(track.id)} className="min-w-0 flex-1 text-left"><div className="truncate text-[11px] font-black text-white">{track.name}</div><div className="mt-0.5 text-[8px] font-bold uppercase tracking-wider text-slate-600">{track.kind}{track.armed ? ' · ARMED' : ''}</div></button><button onClick={() => removeTrack(track.id)} className="text-slate-700 hover:text-rose-300"><Trash2 className="h-3 w-3" /></button></div>
+                  <div className="mt-2 flex items-center gap-1.5"><button disabled={track.kind === 'midi'} onClick={() => updateTrack(track.id, { armed: !track.armed })} className={`h-6 w-6 rounded text-[8px] font-black disabled:opacity-25 ${track.armed ? 'bg-rose-500 text-white shadow-[0_0_12px_rgba(244,63,94,.3)]' : 'bg-slate-800 text-slate-500'}`}>R</button><button onClick={() => updateTrack(track.id, { mute: !track.mute })} className={`h-6 w-6 rounded text-[8px] font-black ${track.mute ? 'bg-amber-500 text-black' : 'bg-slate-800 text-slate-500'}`}>M</button><button onClick={() => updateTrack(track.id, { solo: !track.solo })} className={`h-6 w-6 rounded text-[8px] font-black ${track.solo ? 'bg-emerald-400 text-black' : 'bg-slate-800 text-slate-500'}`}>S</button><Volume2 className="ml-0.5 h-3 w-3 text-slate-600" /><input type="range" min={0} max={1} step={0.01} value={track.volume} onChange={event => updateTrack(track.id, { volume: Number(event.target.value) })} className="w-16 accent-purple-500" /></div>
                 </div>
-
                 <div className="relative min-h-[86px] bg-[linear-gradient(to_right,rgba(51,65,85,.2)_1px,transparent_1px)]" style={{ width: timelineWidth, backgroundSize: `${Math.max(20, pxPerSecond * ((60 / Math.max(1, bpm)) / QUANTIZE_DIVISOR[quantize]))}px 100%` }} onClick={timelineClick} onDragOver={event => event.preventDefault()} onDrop={event => {
                   const clipId = event.dataTransfer.getData('text/sonara-clip');
                   if (!clipId) return;
@@ -1153,20 +1354,8 @@ export default function SonaraStudio({
                   }));
                   setSelectedTrackId(track.id);
                 }}>
-                  {track.clips.map(clip => (
-                    <button
-                      key={clip.id}
-                      draggable
-                      onDragStart={event => event.dataTransfer.setData('text/sonara-clip', clip.id)}
-                      onClick={event => { event.stopPropagation(); setSelectedTrackId(track.id); setSelectedClipId(clip.id); }}
-                      className={`absolute top-2 h-[68px] overflow-hidden rounded-lg border bg-gradient-to-r px-2 text-left shadow-lg ${TRACK_COLORS[clip.kind]} ${selectedClipId === clip.id ? 'border-white/70 ring-2 ring-white/20' : 'border-white/10'}`}
-                      style={{ left: clip.start * pxPerSecond, width: Math.max(34, clip.duration * pxPerSecond) }}
-                    >
-                      <div className="truncate text-[9px] font-black text-white">{clip.name}</div>
-                      <div className="mt-1 flex h-8 items-end gap-[2px] overflow-hidden opacity-55">{Array.from({ length: Math.min(70, Math.max(10, Math.floor(clip.duration / 2))) }, (_, index) => <span key={index} className="w-[2px] shrink-0 rounded-full bg-white" style={{ height: `${20 + ((index * 37) % 75)}%` }} />)}</div>
-                      <div className="mt-1 text-[7px] font-bold text-white/60">{formatTime(clip.duration)} {clip.kind === 'midi' ? '· MIDI' : '· AUDIO'}</div>
-                    </button>
-                  ))}
+                  {punchEnabled && <div className="pointer-events-none absolute bottom-0 top-0 border-x border-rose-400/20 bg-rose-500/[0.035]" style={{ left: punchIn * pxPerSecond, width: Math.max(2, (punchOut - punchIn) * pxPerSecond) }} />}
+                  {track.clips.map(clip => <button key={clip.id} draggable onDragStart={event => event.dataTransfer.setData('text/sonara-clip', clip.id)} onClick={event => { event.stopPropagation(); setSelectedTrackId(track.id); setSelectedClipId(clip.id); }} className={`absolute top-2 h-[68px] overflow-hidden rounded-lg border bg-gradient-to-r px-2 text-left shadow-lg ${TRACK_COLORS[clip.kind]} ${clip.muted ? 'opacity-30 grayscale' : ''} ${selectedClipId === clip.id ? 'border-white/70 ring-2 ring-white/20' : 'border-white/10'}`} style={{ left: clip.start * pxPerSecond, width: Math.max(34, clip.duration * pxPerSecond) }}><div className="flex items-center gap-1"><div className="min-w-0 flex-1 truncate text-[9px] font-black text-white">{clip.name}</div>{clip.takeNumber && <span className="rounded bg-black/25 px-1 text-[7px] font-black text-white/70">T{clip.takeNumber}</span>}</div><div className="mt-1 flex h-8 items-end gap-[2px] overflow-hidden opacity-55">{Array.from({ length: Math.min(70, Math.max(10, Math.floor(clip.duration / 2))) }, (_, index) => <span key={index} className="w-[2px] shrink-0 rounded-full bg-white" style={{ height: `${20 + ((index * 37) % 75)}%` }} />)}</div><div className="mt-1 text-[7px] font-bold text-white/60">{formatTime(clip.duration)} {clip.kind === 'midi' ? '· MIDI' : clip.takeNumber ? '· TAKE' : '· AUDIO'}</div></button>)}
                   <div className="pointer-events-none absolute bottom-0 top-0 z-20 w-px bg-fuchsia-400 shadow-[0_0_10px_rgba(232,121,249,.9)]" style={{ left: playhead * pxPerSecond }} />
                 </div>
               </div>
@@ -1175,31 +1364,21 @@ export default function SonaraStudio({
 
           <div className="grid border-b border-slate-800 lg:grid-cols-[1fr_320px]">
             <div className="border-b border-slate-800 p-3 lg:border-b-0 lg:border-r">
-              <div className="mb-3 flex flex-wrap gap-2">
-                {(['mixer', 'effects', 'automation', 'synth'] as const).map(id => <button key={id} onClick={() => setPanel(id)} className={`rounded-lg px-3 py-1.5 text-[9px] font-black uppercase tracking-wider ${panel === id ? 'bg-purple-600 text-white' : 'border border-slate-800 bg-slate-950 text-slate-500'}`}>{id}</button>)}
-              </div>
-              {!selectedTrack ? <div className="py-8 text-center text-xs text-slate-600">Seleziona una traccia per modificarla.</div> : (
-                <div>
-                  {panel === 'mixer' && <div className="grid gap-3 sm:grid-cols-3"><label className="text-[9px] font-bold text-slate-500">Volume <span className="float-right text-white">{Math.round(selectedTrack.volume * 100)}%</span><input type="range" min={0} max={1} step={0.01} value={selectedTrack.volume} onChange={event => updateTrack(selectedTrack.id, { volume: Number(event.target.value) })} className="mt-2 w-full accent-purple-500" /></label><label className="text-[9px] font-bold text-slate-500">Pan <span className="float-right text-white">{selectedTrack.pan}</span><input type="range" min={-100} max={100} value={selectedTrack.pan} onChange={event => updateTrack(selectedTrack.id, { pan: Number(event.target.value) })} className="mt-2 w-full accent-purple-500" /></label><label className="text-[9px] font-bold text-slate-500">Pitch / varispeed <span className="float-right text-white">{selectedTrack.pitch > 0 ? '+' : ''}{selectedTrack.pitch} st</span><input type="range" min={-12} max={12} step={1} value={selectedTrack.pitch} onChange={event => updateTrack(selectedTrack.id, { pitch: Number(event.target.value) })} className="mt-2 w-full accent-purple-500" /></label></div>}
-                  {panel === 'effects' && <div className="grid gap-3 sm:grid-cols-5">{([['Low EQ', 'low', -12, 12], ['Mid EQ', 'mid', -12, 12], ['High EQ', 'high', -12, 12], ['Compression', 'compression', 0, 100], ['Reverb', 'reverb', 0, 100]] as const).map(([label, key, min, max]) => <label key={key} className="text-[9px] font-bold text-slate-500">{label}<span className="float-right text-white">{selectedTrack[key]}</span><input type="range" min={min} max={max} value={selectedTrack[key]} onChange={event => updateTrack(selectedTrack.id, { [key]: Number(event.target.value) } as Partial<Track>)} className="mt-2 w-full accent-fuchsia-500" /></label>)}</div>}
-                  {panel === 'automation' && <div className="flex flex-wrap items-center gap-3"><button onClick={addAutomationPoint} className="flex items-center gap-2 rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-2 text-[10px] font-black text-purple-200"><Activity className="h-3.5 w-3.5" /> Punto volume @ {formatTime(playhead)}</button><span className="text-[9px] text-slate-500">{selectedTrack.automation.length} punti · applicati realmente nel render offline</span><button onClick={() => updateTrack(selectedTrack.id, { automation: [] }, true)} className="text-[9px] font-bold text-rose-300">Reset</button></div>}
-                  {panel === 'synth' && <div className="flex flex-wrap items-center gap-3"><button onClick={() => setMusicalTyping(value => !value)} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-[10px] font-black ${musicalTyping ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200' : 'border-slate-800 bg-slate-950 text-slate-400'}`}><KeyboardMusic className="h-3.5 w-3.5" /> {musicalTyping ? 'TASTIERA ATTIVA' : 'ATTIVA TASTIERA'}</button><span className="text-[9px] text-slate-500">Tasti A W S E D F T G Y H U J K · synth sawtooth Web Audio</span></div>}
-                </div>
-              )}
+              <div className="mb-3 flex flex-wrap gap-2">{(['mixer', 'effects', 'automation', 'synth', 'takes'] as const).map(id => <button key={id} onClick={() => setPanel(id)} className={`rounded-lg px-3 py-1.5 text-[9px] font-black uppercase tracking-wider ${panel === id ? 'bg-purple-600 text-white' : 'border border-slate-800 bg-slate-950 text-slate-500'}`}>{id}</button>)}</div>
+              {!selectedTrack ? <div className="py-8 text-center text-xs text-slate-600">Seleziona una traccia per modificarla.</div> : <div>
+                {panel === 'mixer' && <div className="grid gap-3 sm:grid-cols-3"><label className="text-[9px] font-bold text-slate-500">Volume <span className="float-right text-white">{Math.round(selectedTrack.volume * 100)}%</span><input type="range" min={0} max={1} step={0.01} value={selectedTrack.volume} onChange={event => updateTrack(selectedTrack.id, { volume: Number(event.target.value) })} className="mt-2 w-full accent-purple-500" /></label><label className="text-[9px] font-bold text-slate-500">Pan <span className="float-right text-white">{selectedTrack.pan}</span><input type="range" min={-100} max={100} value={selectedTrack.pan} onChange={event => updateTrack(selectedTrack.id, { pan: Number(event.target.value) })} className="mt-2 w-full accent-purple-500" /></label><label className="text-[9px] font-bold text-slate-500">Pitch / varispeed <span className="float-right text-white">{selectedTrack.pitch > 0 ? '+' : ''}{selectedTrack.pitch} st</span><input type="range" min={-12} max={12} step={1} value={selectedTrack.pitch} onChange={event => updateTrack(selectedTrack.id, { pitch: Number(event.target.value) })} className="mt-2 w-full accent-purple-500" /></label></div>}
+                {panel === 'effects' && <div className="grid gap-3 sm:grid-cols-5">{([['Low EQ', 'low', -12, 12], ['Mid EQ', 'mid', -12, 12], ['High EQ', 'high', -12, 12], ['Compression', 'compression', 0, 100], ['Reverb', 'reverb', 0, 100]] as const).map(([label, key, min, max]) => <label key={key} className="text-[9px] font-bold text-slate-500">{label}<span className="float-right text-white">{selectedTrack[key]}</span><input type="range" min={min} max={max} value={selectedTrack[key]} onChange={event => updateTrack(selectedTrack.id, { [key]: Number(event.target.value) } as Partial<Track>)} className="mt-2 w-full accent-fuchsia-500" /></label>)}</div>}
+                {panel === 'automation' && <div className="flex flex-wrap items-center gap-3"><button onClick={addAutomationPoint} className="flex items-center gap-2 rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-2 text-[10px] font-black text-purple-200"><Activity className="h-3.5 w-3.5" /> Punto volume @ {formatTime(playhead)}</button><span className="text-[9px] text-slate-500">{selectedTrack.automation.length} punti · applicati nel render offline</span><button onClick={() => updateTrack(selectedTrack.id, { automation: [] }, true)} className="text-[9px] font-bold text-rose-300">Reset</button></div>}
+                {panel === 'synth' && <div className="flex flex-wrap items-center gap-3"><button onClick={() => setMusicalTyping(value => !value)} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-[10px] font-black ${musicalTyping ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200' : 'border-slate-800 bg-slate-950 text-slate-400'}`}><KeyboardMusic className="h-3.5 w-3.5" /> {musicalTyping ? 'TASTIERA ATTIVA' : 'ATTIVA TASTIERA'}</button><span className="text-[9px] text-slate-500">Tasti A W S E D F T G Y H U J K · synth Web Audio</span></div>}
+                {panel === 'takes' && <div>{!selectedTakes.length ? <div className="py-5 text-[10px] text-slate-600">Nessuna take registrata sulla traccia selezionata.</div> : <div className="flex flex-wrap gap-2">{selectedTakes.sort((a, b) => (a.takeNumber || 0) - (b.takeNumber || 0)).map(clip => <button key={clip.id} onClick={() => selectTake(selectedTrack.id, clip.id)} className={`rounded-xl border px-3 py-2 text-left ${clip.muted ? 'border-slate-800 bg-slate-950 text-slate-500' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'}`}><div className="text-[9px] font-black">TAKE {clip.takeNumber}</div><div className="mt-0.5 text-[8px]">{formatTime(clip.start)} · {formatTime(clip.duration)} {clip.muted ? '· USE' : '· ACTIVE'}</div></button>)}</div>}<div className="mt-3 text-[8px] text-slate-600">Whole-take comp: scegli la take attiva; le altre restano non distruttivamente nella sessione.</div></div>}
+              </div>}
             </div>
-            <div className="bg-slate-950/60 p-3">
-              <div className="flex items-center justify-between"><div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-wider text-purple-300"><Bot className="h-3.5 w-3.5" /> Studio AI Bar</div><span className="text-[8px] text-slate-700">BETA</span></div>
-              <div className="mt-2 flex gap-2"><input value={assistantText} onChange={event => setAssistantText(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') runAssistant(); }} placeholder="Es. tempo 128 BPM, metronomo, marker..." className="min-w-0 flex-1 rounded-lg border border-slate-800 bg-[#070a10] px-3 py-2 text-[10px] text-white outline-none focus:border-purple-500" /><button onClick={runAssistant} className="rounded-lg bg-purple-600 p-2.5 text-white"><Sparkles className="h-3.5 w-3.5" /></button></div>
-              <div className="mt-2 min-h-8 text-[9px] leading-4 text-slate-500">{assistantNotice}</div>
-            </div>
+            <div className="bg-slate-950/60 p-3"><div className="flex items-center justify-between"><div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-wider text-purple-300"><Bot className="h-3.5 w-3.5" /> Studio AI Bar</div><span className="text-[8px] text-slate-700">BETA</span></div><div className="mt-2 flex gap-2"><input value={assistantText} onChange={event => setAssistantText(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') runAssistant(); }} placeholder="Es. input microfono, monitoring, punch..." className="min-w-0 flex-1 rounded-lg border border-slate-800 bg-[#070a10] px-3 py-2 text-[10px] text-white outline-none focus:border-purple-500" /><button onClick={runAssistant} className="rounded-lg bg-purple-600 p-2.5 text-white"><Sparkles className="h-3.5 w-3.5" /></button></div><div className="mt-2 min-h-8 text-[9px] leading-4 text-slate-500">{assistantNotice}</div></div>
           </div>
         </main>
       </div>
 
-      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 bg-slate-950 px-4 py-2 text-[8px] font-bold uppercase tracking-wider text-slate-600">
-        <div className="flex items-center gap-4"><span className="flex items-center gap-1.5"><Gauge className="h-3 w-3" /> {bpm} BPM</span><span>{keySignature}</span><span>{tracks.length} tracks</span><span>{tracks.reduce((sum, track) => sum + track.clips.length, 0)} clips</span><span>{markers.length} markers</span></div>
-        <div className="flex items-center gap-3"><span>Q {quantize}</span><span>Master {Math.round(masterVolume * 100)}%</span><span>48 kHz render</span><span>32-bit float export</span>{recording && <span className="text-rose-300">● REC</span>}{rendering && <span className="flex items-center gap-1 text-purple-300"><Loader2 className="h-3 w-3 animate-spin" /> rendering</span>}</div>
-      </footer>
+      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 bg-slate-950 px-4 py-2 text-[8px] font-bold uppercase tracking-wider text-slate-600"><div className="flex items-center gap-4"><span className="flex items-center gap-1.5"><Gauge className="h-3 w-3" /> {bpm} BPM</span><span>{keySignature}</span><span>{tracks.length} tracks</span><span>{tracks.reduce((sum, track) => sum + track.clips.length, 0)} clips</span><span>{markers.length} markers</span></div><div className="flex items-center gap-3"><span>Q {quantize}</span><span>Input {inputReady ? 'ready' : 'off'}</span>{latencyMs !== null && <span>~{latencyMs}ms</span>}<span>48 kHz render</span><span>32-bit float export</span>{recording && <span className="text-rose-300">● REC</span>}{rendering && <span className="flex items-center gap-1 text-purple-300"><Loader2 className="h-3 w-3 animate-spin" /> rendering</span>}</div></footer>
     </div>
   );
 }
