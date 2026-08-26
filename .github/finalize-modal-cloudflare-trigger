@@ -1,2 +1,2 @@
-trigger: 2026-08-25T08:56:00Z
-reason: refresh Modal proxy auth and deploy hardened Sonara v9
+trigger: 2026-08-26T20:45:00+02:00
+reason: synchronize new Modal workspace endpoint and fresh proxy auth to Cloudflare production
