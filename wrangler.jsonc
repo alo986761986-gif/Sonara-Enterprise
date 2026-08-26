@@ -25,14 +25,6 @@
     {
       "pattern": "www.sonaraenterprise.com/*",
       "zone_name": "sonaraenterprise.com"
-    },
-    {
-      "pattern": "sonaraenterprice.com/*",
-      "zone_name": "sonaraenterprice.com"
-    },
-    {
-      "pattern": "www.sonaraenterprice.com/*",
-      "zone_name": "sonaraenterprice.com"
     }
   ]
 }
