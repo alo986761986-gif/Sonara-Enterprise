@@ -132,6 +132,25 @@ function userIntentBudget(lyricsLength: number): number {
   );
 }
 
+function introMaxSeconds(durationSec: number): number {
+  if (durationSec <= 45) return 6;
+  if (durationSec <= 90) return 8;
+  if (durationSec <= 150) return 12;
+  if (durationSec < 240) return 16;
+  return 20;
+}
+
+function openingTimingContract(durationSec: number, vocalMode: VocalMode): string {
+  const maxIntroSec = introMaxSeconds(durationSec);
+  const entryRule = vocalMode === 'instrumental'
+    ? `The full groove, main instrumental hook or unmistakable primary section must be established by ${maxIntroSec} seconds.`
+    : `The lead vocal must begin by ${maxIntroSec} seconds, preferably after only 2–4 bars of instrumental setup. Do not delay the first sung line with a long atmospheric prelude, extended build or repeated instrumental vamp.`;
+  const longFormRule = durationSec >= 240
+    ? 'For 4–8 minute tracks, use the additional duration for verses, choruses, thematic development, instrumental variation, bridge or breakdown, rebuild, final climax and a resolved ending. Never make the intro longer merely because the total track is longer.'
+    : 'Use the remaining duration for musical development rather than extending the opening.';
+  return `Opening timing is a hard arrangement lock. Keep the intro concise and purposeful: target 2–4 bars and never exceed approximately ${maxIntroSec} seconds. ${entryRule} ${longFormRule}`;
+}
+
 function arrangementBlueprint(durationSec: number): string {
   if (durationSec <= 45) {
     return 'Establish the identity in the first one or two bars, develop one main musical statement, introduce one meaningful contrast and finish with a composed cadence rather than a fade or abrupt cut.';
@@ -140,9 +159,9 @@ function arrangementBlueprint(durationSec: number): string {
     return 'Use a concise but complete form: immediate identity, developed A section, variation or lift, contrasting passage, return or climax and a resolved final cadence.';
   }
   if (durationSec <= 150) {
-    return 'Use a full short-form arrangement: purposeful intro, exposition, development, contrasting section, main return or climax and a performed ending, with audible evolution at every phrase boundary.';
+    return 'Use a full short-form arrangement: a brief purposeful intro, exposition, development, contrasting section, main return or climax and a performed ending, with audible evolution at every phrase boundary.';
   }
-  return 'Use a complete long-form arrangement: authored intro, thematic exposition, progressive development, contrast or breakdown, controlled rebuild, final climax, release and fully resolved ending. Do not repeat an unchanged loop to fill time.';
+  return 'Use a complete long-form arrangement with a short opening, immediate thematic exposition, progressive development, contrast or breakdown, controlled rebuild, final climax, release and fully resolved ending. Do not repeat an unchanged loop to fill time and do not use the long total duration to justify a long intro.';
 }
 
 function vocalDirection(vocalMode: VocalMode, lyrics: string, vocalLanguage: string): string {
@@ -192,6 +211,7 @@ export function buildRandomCreativeBrief(input: RandomCreativeBriefInput): strin
     `Rhythm and groove: ${sentence(profile.rhythm)}`,
     `Harmony and melody: ${sentence(profile.harmony)}`,
     `Arrangement: ${sentence(profile.arrangement)}`,
+    openingTimingContract(durationSec, vocalMode),
     `Production: ${sentence(profile.production)}`,
     PROFESSIONAL_VARIANTS[variantIndex],
     `Lock the result to exactly ${bpm} BPM, ${key}, and approximately ${durationSec} seconds with a complete musical-bar ending.`,
@@ -267,22 +287,23 @@ export function buildGenerationPrompt(input: GenerationPromptInput): string {
     : '- No additional exclusions were stated by the creator.';
 
   const sections = [
-    `EXECUTION PRIORITY — NON-NEGOTIABLE:\n1. The creator brief is the primary artistic source of truth for instruments, sections, energy, texture, era, performance behavior, transitions and exclusions.\n2. The interface controls remain exact locks for Family, Genre, Subgenre, Atmosphere, BPM, key, duration and vocal mode.\n3. Curated style DNA may fill only details the creator did not specify. It must never replace a specific creator instruction with a generic genre default.\n4. Interpret the creator's language directly. Italian or any other non-English wording is semantically binding, not decorative.\n5. Produce an original composition and performance; do not imitate or reproduce any identifiable existing recording.`,
+    `EXECUTION PRIORITY — NON-NEGOTIABLE:\n1. The creator brief is the primary artistic source of truth for instruments, sections, energy, texture, era, performance behavior, transitions and exclusions.\n2. The interface controls remain exact locks for Family, Genre, Subgenre, Atmosphere, BPM, key, duration and vocal mode.\n3. SONARA opening timing is also a hard lock: creator-specified sections remain mandatory, but the intro may not expand into a long prelude or consume a large fraction of the track.\n4. Curated style DNA may fill only details the creator did not specify. It must never replace a specific creator instruction with a generic genre default.\n5. Interpret the creator's language directly. Italian or any other non-English wording is semantically binding, not decorative.\n6. Produce an original composition and performance; do not imitate or reproduce any identifiable existing recording.`,
     `CREATOR BRIEF — VERBATIM:\n<<<\n${userIntent}\n>>>`,
-    `CREATOR DIRECTIVE CONTRACT:\nPreserve every explicit instrument, sound source, musical action, section, dynamic change, emotional contrast, production treatment and exclusion stated above. Concrete creator details take precedence over generic defaults. Do not silently omit, weaken, rename or substitute them. Where the brief leaves a detail unspecified, complete it using authentic ${subgenre} practice.`,
+    `CREATOR DIRECTIVE CONTRACT:\nPreserve every explicit instrument, sound source, musical action, section, dynamic change, emotional contrast, production treatment and exclusion stated above. Concrete creator details take precedence over generic defaults except for the global opening-timing lock. Do not silently omit, weaken, rename or substitute them. Where the brief leaves a detail unspecified, complete it using authentic ${subgenre} practice.`,
     `EXPLICIT CREATOR EXCLUSIONS:\n${explicitExclusions}`,
     `AUTHORITATIVE MUSICAL IDENTITY:\nTitle: ${title}\nFamily: ${genreFamily}\nGenre: ${genre}\nSubgenre: ${subgenre}\nAtmosphere: ${mood}\nPriority rule: the selected subgenre ${subgenre} overrides generic family or genre conventions whenever they conflict, while the creator brief overrides generic style-fill details.`,
     `CREATIVE CONTROLS:\n${creativeControlDirection(weirdness, styleInfluence, subgenre)}`,
     `SUBGENRE STYLE DNA — FILL UNSPECIFIED DETAILS ONLY:\n${compactProfileText(profile.identity, 720)}`,
     `TECHNICAL PARAMETERS:\nTempo: exactly ${bpm} BPM\nKey: exactly ${key}\nDuration: approximately ${durationSec} seconds, ending on a complete musical bar\nTime signature: use the meter authentic to ${subgenre}; otherwise use 4/4\nDo not drift from tempo or key. Any expressive timing must occur inside the pulse, not by changing the requested BPM.`,
+    `OPENING AND PACING LOCK — NON-NEGOTIABLE:\n${openingTimingContract(durationSec, vocalMode)}`,
     `INSTRUMENTATION AND ORCHESTRATION:\nCreator-specified instruments are mandatory and must remain clearly audible in their requested roles. Use ${compactProfileText(profile.instrumentation, 680)} only to complete missing ensemble roles. Give each part a physically credible register, articulation, note length, velocity, breath, bowing, picking, striking, sustain or synthesis behavior appropriate to the real instrument or sound source.`,
     `RHYTHM AND GROOVE:\nBuild ${compactProfileText(profile.rhythm, 680)}. Preserve human microtiming and phrase-level variation without losing the exact ${bpm} BPM pulse. The groove must evolve through fills, accents, orchestration and interaction rather than copy-pasting one unchanged loop.`,
     `HARMONY, MELODY AND PERFORMANCE:\nUse ${compactProfileText(profile.harmony, 680)}. Develop memorable motifs with musical cause and effect. Perform phrases with credible articulation, dynamics, breathing space, tension, release, call-and-response and ensemble interaction. Avoid impossible instrumental ranges, mechanical note repetition and random decorative notes.`,
-    `ARRANGEMENT AND MUSICAL NARRATIVE:\nCreator-specified sections and order are mandatory. Otherwise, create ${compactProfileText(profile.arrangement, 680)}. ${arrangementBlueprint(durationSec)} Make every transition musically prepared; use risers, impacts, fills or silence only when authentic to ${subgenre} and requested energy.`,
+    `ARRANGEMENT AND MUSICAL NARRATIVE:\nCreator-specified sections and order are mandatory, subject to the opening-timing lock above. Otherwise, create ${compactProfileText(profile.arrangement, 680)}. ${arrangementBlueprint(durationSec)} Make every transition musically prepared; use risers, impacts, fills or silence only when authentic to ${subgenre} and requested energy.`,
     `VOCALS AND TEXT:\nMode: ${vocalMode}\nLanguage: ${vocalLanguage}\n${vocalInstruction}`,
     `REALISM AND RECORDING CONTRACT:\nThe result must sound like a deliberately composed and performed record, not an AI demo, preset audition, stock loop collage or unfinished sketch. Preserve realistic attack, decay, resonance, room response, amplifier or signal-chain behavior, player interaction and controlled imperfections. Acoustic sources must feel physically recorded; electronic sources must feel intentionally programmed and mixed, not randomly layered.`,
     `PRODUCTION, MIX AND MASTER:\nUse ${compactProfileText(profile.production, 680)}. Build a credible mix before mastering: clear frequency ownership, audible separation, controlled low end, clean transients, stable but natural stereo imaging, sensible depth, musical headroom and dynamics. Deliver a real WAV-ready master with no clipping, no crushed loudness, no phase collapse, no fake stereo widening and no artificial silence padding.`,
-    `NEGATIVE CONSTRAINTS:\n${compactProfileText(profile.avoid, 720)} No genre drift. No unrelated instruments. No generic replacement groove. No omission of creator-specified details. No incorrect key or BPM. ${vocalNegative} No invented lyrics. No unfinished ending. No abrupt truncation. No excessive distortion unless intrinsic to ${subgenre} or explicitly requested. No muddy low end. No repeated unchanged block used merely to fill duration.`
+    `NEGATIVE CONSTRAINTS:\n${compactProfileText(profile.avoid, 720)} No genre drift. No unrelated instruments. No generic replacement groove. No omission of creator-specified details. No incorrect key or BPM. ${vocalNegative} No invented lyrics. No unfinished ending. No abrupt truncation. No excessive distortion unless intrinsic to ${subgenre} or explicitly requested. No muddy low end. No repeated unchanged block used merely to fill duration. No extended ambient prelude. No 60–120 second intro. No delaying the actual song body merely because a 4–8 minute duration was requested.`
   ];
 
   return finalPromptWithinBudget(sections, userIntent);
