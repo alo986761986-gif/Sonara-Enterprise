@@ -50,6 +50,9 @@ runCommand(node, ['scripts/activate-production-suite.cjs']);
 console.log('[SONARA] Activating electronic genre-specific lyric engines.');
 runCommand(node, ['scripts/activate-electronic-genres.cjs']);
 
+console.log('[SONARA] Activating universal taxonomy generation.');
+runCommand(node, ['scripts/activate-universal-genres.cjs']);
+
 console.log('[SONARA] Validating professional music taxonomy.');
 run(['tsx', 'src/musicStyleIntelligence.professional.test.ts']);
 
