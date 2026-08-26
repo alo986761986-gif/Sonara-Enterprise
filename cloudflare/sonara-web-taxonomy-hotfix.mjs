@@ -3,7 +3,146 @@ import sonaraEngine from './sonara-engine-v14-universal-taxonomy-lock.mjs';
 const VERCEL_WEB_ORIGIN = 'https://sonara-enterprise-sonaramusicai86-2765s-projects.vercel.app';
 const WEB_HOSTS = new Set(['sonaraenterprise.com', 'www.sonaraenterprise.com']);
 const EDGE_LYRICS_SCRIPT_PATH = '/sonara-intelligent-lyrics-edge.js';
+const EDGE_DEFAULT_SCRIPT_PATH = '/sonara-default-music-edge.js';
 const ENGINE_PATHS = ['/api/music/job/', '/api/modal/audio', '/api/engine/'];
+
+const DEFAULT_MUSIC_EDGE_SCRIPT = String.raw`(() => {
+  const DEFAULT_VALUE = '__sonara_default__';
+  const DEFAULT_LABEL = 'DEFAULT';
+  const defaultFlags = [true, true, true, true];
+  let resolving = false;
+  let bypassGenerate = false;
+  let taxonomySelects = [];
+  let generatorCard = null;
+
+  const randomIndex = (length) => {
+    if (length <= 1) return 0;
+    try {
+      const values = new Uint32Array(1);
+      crypto.getRandomValues(values);
+      return values[0] % length;
+    } catch { return Math.floor(Math.random() * length); }
+  };
+
+  const actualOptions = (select) => Array.from(select.options).filter(option => option.value !== DEFAULT_VALUE && !option.disabled);
+
+  const installDefaultOption = (select) => {
+    if (Array.from(select.options).some(option => option.value === DEFAULT_VALUE)) return;
+    const option = document.createElement('option');
+    option.value = DEFAULT_VALUE;
+    option.textContent = DEFAULT_LABEL;
+    select.insertBefore(option, select.firstChild);
+  };
+
+  const dispatchSelection = (select, value) => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+    if (setter) setter.call(select, value); else select.value = value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+
+  const nextFrame = () => new Promise(resolve => requestAnimationFrame(() => resolve()));
+
+  const findGenerator = () => {
+    const prompt = document.getElementById('sonara-prompt');
+    const card = prompt?.closest('section');
+    if (!(card instanceof HTMLElement)) return false;
+    const selects = Array.from(card.querySelectorAll('select')).slice(0, 4);
+    if (selects.length < 4) return false;
+    generatorCard = card;
+    taxonomySelects = selects;
+    return true;
+  };
+
+  const ensureDefaults = () => {
+    if (!findGenerator()) return;
+    taxonomySelects.forEach((select, index) => {
+      installDefaultOption(select);
+      select.dataset.sonaraTaxonomyDefault = defaultFlags[index] ? 'true' : 'false';
+      if (defaultFlags[index] && !resolving && !select.disabled) select.value = DEFAULT_VALUE;
+    });
+  };
+
+  const markDownstreamDefault = (index) => {
+    for (let cursor = index + 1; cursor < defaultFlags.length; cursor += 1) defaultFlags[cursor] = true;
+  };
+
+  const onChangeCapture = (event) => {
+    if (!(event.target instanceof HTMLSelectElement)) return;
+    ensureDefaults();
+    const index = taxonomySelects.indexOf(event.target);
+    if (index < 0 || resolving) return;
+
+    if (event.target.value === DEFAULT_VALUE) {
+      defaultFlags[index] = true;
+      markDownstreamDefault(index);
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      queueMicrotask(ensureDefaults);
+      return;
+    }
+
+    defaultFlags[index] = false;
+    markDownstreamDefault(index);
+    queueMicrotask(ensureDefaults);
+  };
+
+  const findGenerateButton = () => {
+    if (!(generatorCard instanceof HTMLElement)) return null;
+    return Array.from(generatorCard.querySelectorAll('button')).find(button => {
+      const className = String(button.className || '');
+      return className.includes('w-full') && className.includes('bg-gradient-to-r');
+    }) || null;
+  };
+
+  const resolveSelect = async (index) => {
+    ensureDefaults();
+    const select = taxonomySelects[index];
+    if (!(select instanceof HTMLSelectElement) || !defaultFlags[index]) return;
+    const options = actualOptions(select);
+    if (!options.length) return;
+    const selected = options[randomIndex(options.length)];
+    dispatchSelection(select, selected.value);
+    await nextFrame();
+    await nextFrame();
+  };
+
+  const resolveDefaultsAndGenerate = async (button) => {
+    resolving = true;
+    try {
+      for (let index = 0; index < 4; index += 1) await resolveSelect(index);
+      await nextFrame();
+      bypassGenerate = true;
+      button.click();
+    } catch (error) {
+      console.error('[SONARA][DEFAULT music]', error);
+    } finally {
+      resolving = false;
+      window.setTimeout(ensureDefaults, 0);
+    }
+  };
+
+  const onClickCapture = (event) => {
+    if (!(event.target instanceof Node)) return;
+    ensureDefaults();
+    const button = findGenerateButton();
+    if (!(button instanceof HTMLButtonElement) || !button.contains(event.target)) return;
+    if (bypassGenerate) {
+      bypassGenerate = false;
+      return;
+    }
+    if (!defaultFlags.some(Boolean)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void resolveDefaultsAndGenerate(button);
+  };
+
+  ensureDefaults();
+  document.addEventListener('change', onChangeCapture, true);
+  document.addEventListener('click', onClickCapture, true);
+  const observer = new MutationObserver(ensureDefaults);
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  window.addEventListener('pageshow', ensureDefaults);
+})();`;
 
 const INTELLIGENT_LYRICS_EDGE_SCRIPT = String.raw`(() => {
   const BUTTON_ID = 'sonara-testo-intelligente-edge';
@@ -187,13 +326,13 @@ function isEngineRequest(url) {
   return ENGINE_PATHS.some(prefix => url.pathname.startsWith(prefix));
 }
 
-function intelligentLyricsEdgeScriptResponse() {
-  return new Response(INTELLIGENT_LYRICS_EDGE_SCRIPT, {
+function scriptResponse(body, feature) {
+  return new Response(body, {
     status: 200,
     headers: {
       'content-type': 'application/javascript; charset=utf-8',
       'cache-control': 'no-store, max-age=0',
-      'x-sonara-edge-feature': 'testo-intelligente-v2-lengths'
+      'x-sonara-edge-feature': feature
     }
   });
 }
@@ -217,7 +356,9 @@ async function proxyWeb(request) {
     responseHeaders.delete('content-length');
     const proxied = new Response(response.body, { status: response.status, statusText: response.statusText, headers: responseHeaders });
     return new HTMLRewriter().on('body', {
-      element(element) { element.append(`<script src="${EDGE_LYRICS_SCRIPT_PATH}?v=2" defer></script>`, { html: true }); }
+      element(element) {
+        element.append(`<script src="${EDGE_DEFAULT_SCRIPT_PATH}?v=1" defer></script><script src="${EDGE_LYRICS_SCRIPT_PATH}?v=2" defer></script>`, { html: true });
+      }
     }).transform(proxied);
   }
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers: responseHeaders });
@@ -226,7 +367,8 @@ async function proxyWeb(request) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    if (WEB_HOSTS.has(url.hostname) && url.pathname === EDGE_LYRICS_SCRIPT_PATH) return intelligentLyricsEdgeScriptResponse();
+    if (WEB_HOSTS.has(url.hostname) && url.pathname === EDGE_DEFAULT_SCRIPT_PATH) return scriptResponse(DEFAULT_MUSIC_EDGE_SCRIPT, 'default-music-random-v1');
+    if (WEB_HOSTS.has(url.hostname) && url.pathname === EDGE_LYRICS_SCRIPT_PATH) return scriptResponse(INTELLIGENT_LYRICS_EDGE_SCRIPT, 'testo-intelligente-v2-lengths');
     if (WEB_HOSTS.has(url.hostname) && !isEngineRequest(url)) return proxyWeb(request);
     return sonaraEngine.fetch(request, env, ctx);
   }
