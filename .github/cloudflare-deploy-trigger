@@ -1,2 +1,2 @@
-trigger: 2026-08-26T13:07:00+02:00
-reason: deploy DEFAULT random family genre subgenre atmosphere selection while preserving SONARA engine v14 audio locks
+trigger: 2026-08-26T13:15:00+02:00
+reason: emergency rollback of global DEFAULT click interceptor; restore all SONARA UI interactions while preserving lyrics controls and engine v14 audio locks
