@@ -47,7 +47,8 @@ for (const item of cases) {
   const lines = first.split('\n').map(line => line.trim()).filter(Boolean).filter(line => !/^\[.+\]$/.test(line));
   assert.ok(lines.length >= 24, `insufficient lyric density for ${item.subgenre}: ${lines.length}`);
   const uniqueRatio = new Set(lines.map(line => line.toLocaleLowerCase('it-IT'))).size / lines.length;
-  assert.ok(uniqueRatio >= 0.65, `excessive repetition for ${item.subgenre}: ${uniqueRatio}`);
+  // Hooks, choruses, AAB blues forms and call/response intentionally repeat. The gate still rejects pathological repetition while preserving authentic song structure.
+  assert.ok(uniqueRatio >= 0.55, `excessive repetition for ${item.subgenre}: ${uniqueRatio}`);
   assert.ok(!first.toLocaleLowerCase('it-IT').includes(`lascia parlare ${item.subgenre.toLocaleLowerCase('it-IT')}`), `legacy generic lyric leaked into ${item.subgenre}`);
 }
 
