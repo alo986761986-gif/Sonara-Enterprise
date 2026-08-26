@@ -1,4 +1,3 @@
-import { GoogleGenAI } from '@google/genai';
 import {
   buildProfessionalLyricsFallback,
   buildProfessionalLyricsInstruction,
@@ -111,6 +110,7 @@ async function generateWithGemini(input: ProfessionalLyricsInput, creativeConcep
   const apiKey = clean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '', 512);
   if (!apiKey || input.vocalMode === 'instrumental') return null;
 
+  const { GoogleGenAI } = await import('@google/genai');
   const ai = new GoogleGenAI({ apiKey });
   const baseInstruction = buildProfessionalLyricsInstruction(input);
   const instruction = creativeConcept
