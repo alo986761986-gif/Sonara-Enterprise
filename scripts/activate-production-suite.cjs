@@ -4,6 +4,26 @@ const path = require('node:path');
 const appPath = path.resolve(process.cwd(), 'src/App.tsx');
 let source = fs.readFileSync(appPath, 'utf8');
 
+const randomLyricsImport = `import { buildRandomLyrics } from './randomLyrics';`;
+const houseLyricsImport = `import { buildHouseLyrics, hasHouseLyricsProfile } from './houseLyrics';`;
+if (!source.includes(houseLyricsImport)) {
+  if (!source.includes(randomLyricsImport)) {
+    throw new Error('SONARA House lyrics activation failed: random lyrics import marker not found.');
+  }
+  source = source.replace(randomLyricsImport, `${randomLyricsImport}\n${houseLyricsImport}`);
+}
+
+const oldRandomizeLyrics = `  const randomizeLyrics = () => {\n    lyricsVariantRef.current = (lyricsVariantRef.current + 1) % 4;\n    setLyrics(buildRandomLyrics({\n      language: vocalLanguage,\n      genre,\n      subgenre,\n      mood,\n      vocalMode,\n      variant: lyricsVariantRef.current\n    }));\n  };`;
+
+const newRandomizeLyrics = `  const randomizeLyrics = () => {\n    lyricsVariantRef.current = (lyricsVariantRef.current + 1) % 4;\n    const useHouseLyrics = genreFamily === 'Electronic / Dance' && genre === 'House' && hasHouseLyricsProfile(subgenre);\n    setLyrics(useHouseLyrics\n      ? buildHouseLyrics({\n          language: vocalLanguage,\n          subgenre,\n          mood,\n          vocalMode,\n          variant: lyricsVariantRef.current,\n          durationSec\n        })\n      : buildRandomLyrics({\n          language: vocalLanguage,\n          genre,\n          subgenre,\n          mood,\n          vocalMode,\n          variant: lyricsVariantRef.current\n        }));\n  };`;
+
+if (!source.includes('const useHouseLyrics = genreFamily')) {
+  if (!source.includes(oldRandomizeLyrics)) {
+    throw new Error('SONARA House lyrics activation failed: randomizeLyrics marker not found.');
+  }
+  source = source.replace(oldRandomizeLyrics, newRandomizeLyrics);
+}
+
 const firebaseImport = `import { getFirebaseIdToken, watchFirebaseUser } from './lib/firebaseClient';`;
 const socialImport = `import SocialDiscoveryCenter from './components/discovery/SocialDiscoveryCenter';`;
 if (!source.includes(socialImport)) {
@@ -59,6 +79,7 @@ if (!source.includes('const discoveryView = (\n    <SocialDiscoveryCenter />')) 
 }
 
 fs.writeFileSync(appPath, source, 'utf8');
+console.log('[SONARA] House Lyrics activated: subgenre-aware writing and duration-aware extended structure.');
 console.log('[SONARA] Production Suite activated: Mixing Console, Mastering, Stem Manager, Export Center.');
 console.log('[SONARA] Marketplace activated: SONARA Store with verified catalog and Stripe one-time checkout.');
 console.log('[SONARA] Social Discovery activated in main bundle: staged API loading, no WebGL chunk and no lazy-loading deadlock.');
