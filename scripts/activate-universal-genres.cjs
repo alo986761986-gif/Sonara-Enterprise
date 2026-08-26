@@ -7,12 +7,15 @@ let source = fs.readFileSync(appPath, 'utf8');
 const electronicImport = `import { buildElectronicLyrics, hasElectronicLyricsProfile } from './electronicLyrics';`;
 const universalLyricsImport = `import { buildUniversalLyrics } from './universalLyrics';`;
 const universalCaptionImport = `import { buildUniversalStyleCaption } from './universalStyleCaption';`;
+const professionalLyricsImport = `import { buildProfessionalLyricsFallback } from './professionalLyrics';`;
 
 if (!source.includes(universalLyricsImport)) {
   if (!source.includes(electronicImport)) {
     throw new Error('SONARA universal lyrics activation failed: electronic lyrics import marker not found.');
   }
-  source = source.replace(electronicImport, `${electronicImport}\n${universalLyricsImport}\n${universalCaptionImport}`);
+  source = source.replace(electronicImport, `${electronicImport}\n${universalLyricsImport}\n${universalCaptionImport}\n${professionalLyricsImport}`);
+} else if (!source.includes(professionalLyricsImport)) {
+  source = source.replace(universalCaptionImport, `${universalCaptionImport}\n${professionalLyricsImport}`);
 }
 
 const electronicFallback = `          : buildRandomLyrics({\n              language: vocalLanguage,\n              genre,\n              subgenre,\n              mood,\n              vocalMode,\n              variant: lyricsVariantRef.current\n            }));`;
@@ -26,6 +29,18 @@ if (!source.includes(': buildUniversalLyrics({')) {
   source = source.replace(electronicFallback, universalFallback);
 }
 
+const randomizeStart = `  const randomizeLyrics = `;
+const generateMarker = `\n\n  const generate = async () => {`;
+const randomizeIndex = source.indexOf(randomizeStart);
+const generateIndex = source.indexOf(generateMarker, randomizeIndex);
+if (randomizeIndex < 0 || generateIndex < 0) {
+  throw new Error('SONARA Professional Lyrics v2 activation failed: randomizeLyrics block not found.');
+}
+
+const professionalRandomize = `  const randomizeLyrics = async () => {\n    if (vocalMode === 'instrumental') {\n      setLyrics('');\n      return;\n    }\n\n    lyricsVariantRef.current = (lyricsVariantRef.current + 1) % Number.MAX_SAFE_INTEGER;\n    const variant = Date.now() + lyricsVariantRef.current;\n    const request = {\n      language: vocalLanguage,\n      languageName: LANGUAGE_METADATA[vocalLanguage].name,\n      genreFamily,\n      genre,\n      subgenre,\n      mood,\n      vocalMode,\n      variant,\n      durationSec,\n      bpm,\n      title\n    };\n\n    try {\n      setStage('SONARA is writing professional lyrics...');\n      const response = await fetch('/api/lyrics', {\n        method: 'POST',\n        headers: { 'Content-Type': 'application/json' },\n        body: JSON.stringify(request)\n      });\n      if (!response.ok) throw new Error(\`Lyrics service HTTP \${response.status}\`);\n      const payload = await response.json();\n      const nextLyrics = String(payload?.lyrics || '').trim();\n      if (!nextLyrics) throw new Error('Lyrics service returned empty content.');\n      setLyrics(nextLyrics);\n      setStage(payload?.source === 'gemini-professional-v2' ? 'Professional AI lyrics ready' : 'Professional lyrics ready');\n    } catch (lyricsError) {\n      console.warn('[SONARA][Lyrics] Professional API unavailable, using local composer.', lyricsError);\n      setLyrics(buildProfessionalLyricsFallback(request));\n      setStage('Professional lyrics ready');\n    }\n  };`;
+
+source = source.slice(0, randomizeIndex) + professionalRandomize + source.slice(generateIndex);
+
 const payloadMarker = `        body: JSON.stringify({\n          prompt: finalPrompt,\n          rawPrompt,\n          genre,\n          genreFamily,\n          subgenre,\n          mood,`;
 const payloadReplacement = `        body: JSON.stringify({\n          prompt: finalPrompt,\n          rawPrompt,\n          genre,\n          genreFamily,\n          subgenre,\n          mood,\n          styleCaption: buildUniversalStyleCaption({ genreFamily, genre, subgenre, mood }),`;
 
@@ -37,5 +52,6 @@ if (!source.includes('styleCaption: buildUniversalStyleCaption')) {
 }
 
 fs.writeFileSync(appPath, source, 'utf8');
-console.log('[SONARA] Universal Lyrics activated: full non-electronic taxonomy with atmosphere-aware long-form structures.');
+console.log('[SONARA] Professional Lyrics v2 activated: AI-first generation with local professional fallback, genre-specific structure, BPM/duration synchronization and unlimited variants.');
+console.log('[SONARA] Legacy House/Techno/Electronic lyric files preserved; Professional Lyrics v2 is now authoritative at generation time.');
 console.log('[SONARA] Universal Style Caption activated: family + genre + subgenre + atmosphere fingerprint sent to engine.');
