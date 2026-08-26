@@ -1,2 +1,2 @@
-trigger: 2026-08-26T23:37:00+02:00
-reason: deploy free-plan generation 524 retry and JSON normalization hotfix
+trigger: 2026-08-27T00:06:00+02:00
+reason: deploy direct user-gesture generated audio playback hotfix
