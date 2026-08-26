@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Cable, CheckCircle2, Disc3, Download, ExternalLink, Settings2, SlidersHorizontal, Usb, XCircle } from 'lucide-react';
 import DJLiveMixer from './DJLiveMixer';
+import DJAudioRouting from './DJAudioRouting';
 import { bipolarMidiValue, emitDJControl, normalizedMidiValue } from './djRuntime';
 
 type CoreAction =
@@ -121,7 +122,7 @@ export default function NIMinimalConsole() {
     setDevices(next);
     const x1 = next.some(item => item.family === 'X1 MK2');
     const z1 = next.some(item => item.family === 'Z1 MK2');
-    setStatus(x1 && z1 ? 'X1 MK2 + Z1 MK2 collegati. Console pronta.' : x1 ? 'X1 MK2 rilevato. Collega anche Z1 MK2.' : z1 ? 'Z1 MK2 rilevato. Collega anche X1 MK2.' : next.length ? 'MIDI rilevato, ma non identificato come X1/Z1 MK2.' : 'Nessun controller MIDI rilevato.');
+    setStatus(x1 && z1 ? 'X1 MK2 + Z1 MK2 collegati. Adesso configura AUDIO Z1 sotto.' : x1 ? 'X1 MK2 rilevato. Collega anche Z1 MK2.' : z1 ? 'Z1 MK2 rilevato. Collega anche X1 MK2.' : next.length ? 'MIDI rilevato, ma non identificato come X1/Z1 MK2.' : 'Nessun controller MIDI rilevato.');
   };
 
   const connect = async () => {
@@ -153,7 +154,7 @@ export default function NIMinimalConsole() {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <div className="flex items-center gap-2"><Disc3 className="h-4 w-4 text-cyan-300"/><h1 className="text-sm font-black text-white">SONARA DJ PRO · X1 MK2 + Z1 MK2</h1></div>
-          <p className="mt-1 text-[10px] text-slate-500">X1 controlla i deck. Z1 controlla mixer, EQ, filtri, volumi e crossfader.</p>
+          <p className="mt-1 text-[10px] text-slate-500">X1 controlla i deck. Z1 controlla mixer e fornisce la scheda audio: selezionala nel blocco AUDIO Z1 MK2.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={() => void connect()} className="inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-4 py-2.5 text-[9px] font-black text-black"><Usb className="h-4 w-4"/>CONNETTI X1 + Z1</button>
@@ -167,10 +168,12 @@ export default function NIMinimalConsole() {
         <div className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-[9px] text-slate-400"><Cable className="h-4 w-4 shrink-0 text-cyan-300"/><span>{status}</span></div>
       </div>
       <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-900 pt-3">
-        <span className="text-[8px] font-bold text-slate-600">I driver vengono installati nel sistema operativo tramite Native Instruments; SONARA non simula driver proprietari.</span>
+        <span className="text-[8px] font-bold text-slate-600">X1 non è una scheda audio. Il Master deve uscire dallo Z1 MK2 oppure dall'uscita Windows scelta.</span>
         <button type="button" onClick={() => setAdvanced(value => !value)} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-1.5 text-[8px] font-black text-slate-400"><Settings2 className="h-3 w-3"/>{advanced ? 'CHIUDI CONFIG' : `CONFIGURA CONTROLLI · ${mappedCount}/20`}</button>
       </div>
     </section>
+
+    <div className="ni-audio"><DJAudioRouting/></div>
 
     {advanced ? <section className="rounded-2xl border border-slate-800 bg-[#080b11] p-4">
       <div className="flex items-center justify-between gap-3"><div><div className="flex items-center gap-2"><SlidersHorizontal className="h-4 w-4 text-fuchsia-300"/><h2 className="text-xs font-black text-white">Configurazione una tantum X1 / Z1</h2></div><p className="mt-1 text-[9px] text-slate-600">Premi una funzione e muovi il controllo fisico corrispondente. Il messaggio MIDI reale viene salvato con il dispositivo sorgente.</p></div><button onClick={reset} className="rounded-lg border border-slate-800 px-2 py-1.5 text-[8px] font-black text-slate-500">RESET</button></div>
@@ -179,6 +182,13 @@ export default function NIMinimalConsole() {
 
     <div className="ni-decks"><DJLiveMixer/></div>
     <style>{`
+      [data-ni-console] .ni-audio > section { border-radius:18px!important; background:#080b11!important; border-color:rgba(34,211,238,.18)!important; }
+      [data-ni-console] .ni-audio > section > div:first-child p { display:none; }
+      [data-ni-console] .ni-audio > section > div:first-child h2::after { content:' · Z1 MK2'; color:#67e8f9; }
+      [data-ni-console] .ni-audio > section > div:nth-child(2) { grid-template-columns:1fr!important; }
+      [data-ni-console] .ni-audio > section > div:nth-child(2) > label:nth-child(2),
+      [data-ni-console] .ni-audio > section > div:nth-child(2) > label:nth-child(3),
+      [data-ni-console] .ni-audio > section > div:nth-child(3) { display:none!important; }
       [data-ni-console] .ni-decks > section { border-radius: 18px !important; border-color: rgba(51,65,85,.75) !important; background: #05070b !important; }
       [data-ni-console] .ni-decks > section > div:first-child p { display:none; }
       [data-ni-console] .ni-decks > section > div:nth-child(2) > div { min-height: 470px; position:relative; overflow:hidden; border-color:rgba(51,65,85,.8)!important; background:linear-gradient(180deg,#090d14,#05070b)!important; }
