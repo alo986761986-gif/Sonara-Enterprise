@@ -15,7 +15,7 @@ jobs:
   repair:
     name: Refresh Modal proxy auth and deploy Sonara v9
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       RAW_MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
       RAW_MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
@@ -130,7 +130,7 @@ jobs:
       - name: Validate fresh proxy token directly against Modal
         shell: bash
         run: |
-          status="$(curl -sS --max-time 240 -w '%{http_code}' \
+          status="$(curl -sS --location --max-time 900 -w '%{http_code}' \
             -H "Modal-Key: ${FRESH_MODAL_PROXY_ID}" \
             -H "Modal-Secret: ${FRESH_MODAL_PROXY_SECRET}" \
             -H "Accept: application/json" \
