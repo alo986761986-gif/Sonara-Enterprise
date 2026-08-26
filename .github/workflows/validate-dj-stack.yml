@@ -1,0 +1,45 @@
+name: Validate SONARA DJ Stack
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/components/dj/**'
+      - 'dj-bridge/**'
+      - 'src/main.tsx'
+      - '.github/workflows/validate-dj-stack.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install root dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build SONARA web application
+        run: npm run build
+
+      - name: Check DJ Bridge syntax
+        run: node --check dj-bridge/server.mjs
+
+      - name: Verify DJ files exist
+        run: |
+          test -f src/components/dj/DJConnectHub.tsx
+          test -f src/components/dj/DJLiveMixer.tsx
+          test -f src/components/dj/deviceProfiles.ts
+          test -f src/components/dj/DJAudioRouting.tsx
+          test -f src/components/dj/DJDiagnostics.tsx
+          test -f dj-bridge/server.mjs
