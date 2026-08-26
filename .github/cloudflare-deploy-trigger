@@ -1,2 +1,2 @@
-trigger: 2026-08-26T10:57:00+02:00
-reason: redeploy v10 after updating Cloudflare validation and health checks for House genre lock
+trigger: 2026-08-26T11:04:00+02:00
+reason: activate Techno subgenre lock, compact ACE-Step captions and 8-second intro cap in production
