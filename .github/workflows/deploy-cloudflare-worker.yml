@@ -1,4 +1,4 @@
-name: Deploy Cloudflare Sonara Engine v13
+name: Deploy Cloudflare Sonara Engine v14
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy Sonara Engine v13 to Cloudflare
+    name: Deploy Sonara Engine v14 to Cloudflare
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -98,22 +98,28 @@ jobs:
           console.log('Modal Worker credential bindings are configured.');
           NODE
 
-      - name: Validate Sonara Worker v13 source
+      - name: Validate full music taxonomy
+        shell: bash
+        run: npx --yes tsx src/musicStyleIntelligence.professional.test.ts
+
+      - name: Validate Sonara Worker v14 source
         shell: bash
         run: |
+          test -f cloudflare/sonara-engine-v14-universal-taxonomy-lock.mjs
           test -f cloudflare/sonara-engine-v13-electronic-taxonomy-lock.mjs
           test -f cloudflare/sonara-engine-v12-electronic-lock.mjs
           test -f cloudflare/sonara-engine-v11-house-techno-lock.mjs
           test -f cloudflare/sonara-engine-v10-house-lock.mjs
           test -f cloudflare/sonara-engine-v9-dual-fast.mjs
-          grep -q "sonara-engine-v13-electronic-taxonomy-lock.mjs" cloudflare/sonara-web-taxonomy-hotfix.mjs
+          grep -q "sonara-engine-v14-universal-taxonomy-lock.mjs" cloudflare/sonara-web-taxonomy-hotfix.mjs
+          grep -q 'universal-v14-taxonomy720-atmosphere' cloudflare/sonara-engine-v14-universal-taxonomy-lock.mjs
+          grep -q 'existingElectronicLocksPreserved: true' cloudflare/sonara-engine-v14-universal-taxonomy-lock.mjs
           grep -q 'electronic-v13-taxonomy89-futuregarage2' cloudflare/sonara-engine-v13-electronic-taxonomy-lock.mjs
           grep -q 'electronic-v12-caption500-intro8' cloudflare/sonara-engine-v12-electronic-lock.mjs
-          grep -q 'electronicLockedGenres: 10' cloudflare/sonara-engine-v12-electronic-lock.mjs
           grep -q 'techno-v11-caption500-intro8' cloudflare/sonara-engine-v11-house-techno-lock.mjs
           grep -q 'house-v10-caption500-intro8' cloudflare/sonara-engine-v10-house-lock.mjs
           grep -q 'api.sonaraenterprise.com' wrangler.jsonc
-          echo "Sonara Worker v13 full electronic taxonomy lock configuration verified."
+          echo "Sonara Worker v14 full taxonomy lock configuration verified."
 
       - name: Deploy Worker to Cloudflare production
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
@@ -135,23 +141,23 @@ jobs:
             dualFastCandidateCount: 2,
             dualFastAutoRegeneration: false,
             houseGenreLock: 'v10-caption500',
-            houseIntroMaxSeconds: 8,
-            houseStyleInfluenceFloor: 90,
-            houseWeirdnessCeiling: 65,
             technoGenreLock: 'v11-caption500',
-            technoIntroMaxSeconds: 8,
-            technoStyleInfluenceFloor: 92,
-            technoWeirdnessCeiling: 60,
             technoSubgenreProfiles: 14,
             electronicGenreLock: 'v12-caption500',
-            electronicIntroMaxSeconds: 8,
-            electronicStyleInfluenceFloor: 92,
-            electronicWeirdnessCeiling: 60,
             electronicLockedGenres: 10,
             electronicSubgenreProfiles: 88,
             electronicTaxonomyLock: 'v13-taxonomy89',
             electronicTaxonomySelections: 89,
-            futureGarageVariants: 2
+            futureGarageVariants: 2,
+            universalGenreLock: 'v14-taxonomy720-atmosphere',
+            universalTaxonomyFamilies: 25,
+            universalTaxonomyGenres: 86,
+            universalTaxonomySubgenres: 720,
+            universalAtmosphereAware: true,
+            universalIntroIdentitySeconds: 8,
+            universalStyleInfluenceFloor: 90,
+            universalWeirdnessCeiling: 65,
+            existingElectronicLocksPreserved: true
           };
           for (const [key, value] of Object.entries(expected)) {
             if (health[key] !== value) {
@@ -159,7 +165,7 @@ jobs:
               process.exit(1);
             }
           }
-          console.log('SONARA Cloudflare v13 full 89-selection electronic taxonomy health verified.');
+          console.log('SONARA Cloudflare v14 full 720-subgenre taxonomy health verified.');
           NODE
               then
                 exit 0
@@ -168,5 +174,5 @@ jobs:
             echo "Health endpoint not ready yet (attempt ${attempt}/12)."
             sleep 5
           done
-          echo "api.sonaraenterprise.com did not become healthy after v13 deployment." >&2
+          echo "api.sonaraenterprise.com did not become healthy after v14 deployment." >&2
           exit 1
