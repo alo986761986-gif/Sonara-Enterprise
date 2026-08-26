@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Cable, CircleAlert, Disc3, Layers3, Palette, Radio, Sparkles, Usb, Zap } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Check, Cable, CircleAlert, Disc3, Layers3, Palette, Sparkles, Usb } from 'lucide-react';
 
 type DeckSkinId = 'club' | 'carbon' | 'neon' | 'festival' | 'vinyl' | 'minimal';
 type DeckSkinState = { A: DeckSkinId; B: DeckSkinId };
@@ -9,14 +9,6 @@ type SkinDefinition = {
   name: string;
   description: string;
   swatch: string;
-};
-
-type MidiDeviceState = {
-  id: string;
-  name: string;
-  manufacturer: string;
-  state: string;
-  kind: 'X1 MK2' | 'Z1 MK2' | 'NI / MIDI';
 };
 
 const SKINS: SkinDefinition[] = [
@@ -59,20 +51,10 @@ function annotateLiveDecks(skins: DeckSkinState) {
   return Boolean(decks[0] && decks[1]);
 }
 
-function classifyNI(name: string): MidiDeviceState['kind'] {
-  const normalized = name.toLowerCase();
-  if (normalized.includes('x1') && normalized.includes('mk2')) return 'X1 MK2';
-  if (normalized.includes('z1') && normalized.includes('mk2')) return 'Z1 MK2';
-  return 'NI / MIDI';
-}
-
 export default function DJDeckSkinManager({ profileId, profileName }: { profileId: string; profileName: string }) {
   const [skins, setSkins] = useState<DeckSkinState>(() => readSaved(profileId));
   const [target, setTarget] = useState<'A' | 'B' | 'ALL'>('ALL');
-  const [midiDevices, setMidiDevices] = useState<MidiDeviceState[]>([]);
-  const [midiStatus, setMidiStatus] = useState('Collega X1 MK2 e Z1 MK2 via USB, mettili in MIDI Mode e premi RILEVA NI.');
-  const [midiTraffic, setMidiTraffic] = useState<string[]>([]);
-  const midiAccessRef = useRef<any>(null);
+  const [midiStatus, setMidiStatus] = useState('Collega X1 MK2 e Z1 MK2 via USB, mettili in MIDI Mode e premi CONNETTI X1 + Z1.');
 
   useEffect(() => {
     const next = readSaved(profileId);
@@ -88,60 +70,21 @@ export default function DJDeckSkinManager({ profileId, profileName }: { profileI
     return () => observer.disconnect();
   }, [profileId, skins]);
 
-  useEffect(() => () => {
-    const access = midiAccessRef.current;
-    if (access) {
-      access.onstatechange = null;
-      for (const input of Array.from(access.inputs?.values?.() || []) as any[]) input.onmidimessage = null;
-    }
-  }, []);
-
   const activeLabel = useMemo(() => target === 'ALL' ? `A ${skins.A} · B ${skins.B}` : `${target} ${skins[target]}`, [skins, target]);
 
   const applySkin = (skin: DeckSkinId) => {
     setSkins(current => target === 'ALL' ? { A: skin, B: skin } : { ...current, [target]: skin });
   };
 
-  const syncMidiDevices = (access: any) => {
-    const devices = (Array.from(access.inputs?.values?.() || []) as any[]).map(input => ({
-      id: String(input.id || input.name),
-      name: String(input.name || 'MIDI Controller'),
-      manufacturer: String(input.manufacturer || 'Unknown'),
-      state: String(input.state || 'connected'),
-      kind: classifyNI(`${input.manufacturer || ''} ${input.name || ''}`)
-    } as MidiDeviceState));
-    setMidiDevices(devices);
-    const x1 = devices.some(device => device.kind === 'X1 MK2');
-    const z1 = devices.some(device => device.kind === 'Z1 MK2');
-    if (x1 && z1) setMidiStatus('X1 MK2 + Z1 MK2 rilevati. Muovi un controllo: i byte reali devono apparire nel monitor. Poi usa Universal MIDI Learn per assegnare i controlli una sola volta.');
-    else if (devices.length) setMidiStatus(`Rilevati ${devices.length} ingressi MIDI. Se X1/Z1 non sono nominati correttamente, il driver NI o il MIDI Mode non e attivo.`);
-    else setMidiStatus('Nessun ingresso MIDI rilevato. Verifica driver Native Instruments, cavi USB e MIDI Mode.');
-  };
-
-  const connectNI = async () => {
-    const request = (navigator as any).requestMIDIAccess;
-    if (typeof request !== 'function') {
-      setMidiStatus('Web MIDI non disponibile. Usa Chrome o Edge desktop su Windows.');
+  const connectNI = () => {
+    const midiButton = (Array.from(document.querySelectorAll('button')) as HTMLButtonElement[])
+      .find(button => button.textContent?.trim() === 'MIDI');
+    if (!midiButton) {
+      setMidiStatus('Motore MIDI DJ non trovato nella pagina. Chiudi e riapri DJ PRO, poi riprova.');
       return;
     }
-    try {
-      const access = await request.call(navigator, { sysex: false });
-      midiAccessRef.current = access;
-      const bind = () => {
-        syncMidiDevices(access);
-        for (const input of Array.from(access.inputs?.values?.() || []) as any[]) {
-          input.onmidimessage = (event: any) => {
-            const data = Array.from(event.data || []) as number[];
-            const line = `${input.name || 'MIDI'} · ${data.map(value => value.toString(16).padStart(2, '0').toUpperCase()).join(' ')} · ${data.join(' ')}`;
-            setMidiTraffic(current => [line, ...current].slice(0, 14));
-          };
-        }
-      };
-      bind();
-      access.onstatechange = bind;
-    } catch (error) {
-      setMidiStatus(error instanceof Error ? error.message : 'Permesso MIDI non concesso.');
-    }
+    midiButton.click();
+    setMidiStatus('Richiesta MIDI inviata al motore DJ principale. Autorizza Chrome/Edge; poi controlla “Hardware collegato” e “Live hardware monitor” sotto. RILEVA NI non apre più un secondo listener MIDI.');
   };
 
   return <div className="space-y-4">
@@ -172,24 +115,20 @@ export default function DJDeckSkinManager({ profileId, profileName }: { profileI
     <section className="rounded-3xl border border-amber-500/20 bg-[linear-gradient(145deg,#100b04,#07090d)] p-4 sm:p-5" data-sonara-ni-hardware-setup="true">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div className="max-w-3xl">
-          <div className="flex flex-wrap items-center gap-2"><Usb className="h-4 w-4 text-amber-300"/><h2 className="text-sm font-black text-white">NATIVE INSTRUMENTS · X1 MK2 + Z1 MK2</h2><span className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2 py-0.5 text-[8px] font-black text-cyan-200">USB / MIDI REAL CHECK</span></div>
-          <p className="mt-2 text-[10px] leading-5 text-slate-400">X1 MK2: entra/esci dal MIDI Mode con SHIFT + LOAD LEFT + LOAD RIGHT. Z1 MK2: usa il comando MIDI Mode previsto da Native Instruments. Su Windows installa i driver NI se i dispositivi non compaiono come ingressi MIDI/audio.</p>
-          <div className="mt-3 flex items-start gap-2 rounded-xl border border-slate-800 bg-black/25 px-3 py-2 text-[9px] leading-4 text-slate-400"><CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300"/><span>SONARA non finge un mapping proprietario: i controlli vengono assegnati dai messaggi MIDI realmente prodotti dal tuo X1/Z1 tramite Universal MIDI Learn. Dopo il primo mapping resta salvato nel browser.</span></div>
+          <div className="flex flex-wrap items-center gap-2"><Usb className="h-4 w-4 text-amber-300"/><h2 className="text-sm font-black text-white">NATIVE INSTRUMENTS · X1 MK2 + Z1 MK2</h2><span className="rounded-full border border-cyan-500/20 bg-cyan-500/10 px-2 py-0.5 text-[8px] font-black text-cyan-200">SINGLE MIDI OWNER</span></div>
+          <p className="mt-2 text-[10px] leading-5 text-slate-400">X1 MK2: entra/esci dal MIDI Mode con SHIFT + LOAD LEFT + LOAD RIGHT. Su Windows installa i driver Native Instruments quando Windows non espone i dispositivi come MIDI/audio.</p>
+          <div className="mt-3 flex items-start gap-2 rounded-xl border border-slate-800 bg-black/25 px-3 py-2 text-[9px] leading-4 text-slate-400"><CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300"/><span>Correzione importante: questo pulsante ora usa il medesimo motore MIDI di DJConnectHub. Non assegna più <code>onmidimessage</code> separati e quindi non può disattivare Play/Cue/EQ/MIDI Learn.</span></div>
         </div>
-        <button onClick={() => void connectNI()} className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-5 py-3 text-[10px] font-black text-black shadow-lg shadow-orange-950/20"><Cable className="h-4 w-4"/>RILEVA NI</button>
+        <button onClick={connectNI} className="flex shrink-0 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-5 py-3 text-[10px] font-black text-black shadow-lg shadow-orange-950/20"><Cable className="h-4 w-4"/>CONNETTI X1 + Z1</button>
       </div>
       <div className="mt-3 rounded-xl border border-slate-800 bg-slate-950/70 px-3 py-2 text-[9px] text-slate-400">{midiStatus}</div>
-      <div className="mt-3 grid gap-2 md:grid-cols-2">
-        {midiDevices.length ? midiDevices.map(device => <div key={device.id} className="flex items-center justify-between gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3"><div className="min-w-0"><div className="truncate text-[10px] font-black text-white">{device.name}</div><div className="mt-1 text-[8px] text-slate-500">{device.manufacturer} · {device.kind}</div></div><span className="rounded-full bg-emerald-500/15 px-2 py-1 text-[8px] font-black text-emerald-300">{device.state.toUpperCase()}</span></div>) : <div className="md:col-span-2 flex min-h-20 items-center justify-center rounded-xl border border-dashed border-slate-800 bg-black/20 text-[9px] text-slate-600"><Radio className="mr-2 h-3.5 w-3.5"/>Nessun controller MIDI ancora rilevato</div>}
-      </div>
-      {midiTraffic.length ? <div className="mt-3 max-h-32 overflow-auto rounded-xl border border-slate-800 bg-[#020403] p-3 font-mono text-[8px] leading-4 text-emerald-300/80">{midiTraffic.map((line,index)=><div key={`${line}-${index}`}>{line}</div>)}</div> : null}
     </section>
 
     <section className="rounded-3xl border border-cyan-500/15 bg-[linear-gradient(145deg,#071018,#05070b)] p-4 sm:p-5" data-sonara-deck-skin-manager="true">
       <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
         <div>
           <div className="flex items-center gap-2"><Palette className="h-4 w-4 text-cyan-300"/><h2 className="text-sm font-black text-white">DECK SKIN ENGINE</h2><span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[8px] font-black text-emerald-300">PRO DECK UI</span></div>
-          <p className="mt-1 text-[10px] leading-5 text-slate-500">Deck A/B ridisegnati con platter, waveform estesa e superficie performance. Le skin modificano soltanto la grafica: playback, Web Audio e MIDI restano attivi.</p>
+          <p className="mt-1 text-[10px] leading-5 text-slate-500">Le skin restano solo grafiche. Playback, Web Audio e MIDI appartengono al Live Deck Engine e al DJConnectHub.</p>
         </div>
         <div className="rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2 text-[9px] text-slate-400"><span className="font-black text-white">Profilo:</span> {profileName} · {activeLabel}</div>
       </div>
@@ -205,7 +144,7 @@ export default function DJDeckSkinManager({ profileId, profileName }: { profileI
           </button>;
         })}
       </div>
-      <div className="mt-4 flex items-center gap-2 rounded-xl border border-fuchsia-500/15 bg-fuchsia-500/5 px-3 py-2 text-[9px] text-slate-500"><Disc3 className="h-3.5 w-3.5 text-fuchsia-300"/><span><strong className="text-slate-300">Deck A/B:</strong> platter visuale, waveform reale dal file, Play/Cue/Loop, 8 Hot Cue, BPM, volume, EQ, filter, echo, pitch/sync e master mixer restano collegati al motore Web Audio.</span></div>
+      <div className="mt-4 flex items-center gap-2 rounded-xl border border-fuchsia-500/15 bg-fuchsia-500/5 px-3 py-2 text-[9px] text-slate-500"><Disc3 className="h-3.5 w-3.5 text-fuchsia-300"/><span><strong className="text-slate-300">Nota:</strong> il platter mostrato da queste skin è ancora visuale. Il jog interattivo vero va implementato direttamente nel Live Deck Engine, non tramite CSS.</span></div>
     </section>
   </div>;
 }
