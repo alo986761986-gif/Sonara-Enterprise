@@ -8,6 +8,42 @@ const BLOCKED_GENERATOR_EDGE_SCRIPTS = [
 const BILLING_GENERATE_PATH = '/api/billing/generate';
 const RETRYABLE_GENERATION_STATUSES = new Set([502, 503, 504, 524]);
 const GENERATION_RETRY_DELAY_MS = 1200;
+const AUDIO_GESTURE_UNLOCK_SCRIPT = String.raw`(() => {
+  if (window.__sonaraAudioGestureUnlockV1) return;
+  window.__sonaraAudioGestureUnlockV1 = true;
+
+  const findGeneratedAudio = button => {
+    let node = button;
+    for (let depth = 0; depth < 7 && node; depth += 1, node = node.parentElement) {
+      const audio = node.querySelector && node.querySelector('audio[src]');
+      if (audio instanceof HTMLAudioElement) return audio;
+    }
+    return null;
+  };
+
+  const playInsideGesture = event => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest('button');
+    if (!(button instanceof HTMLButtonElement) || button.disabled) return;
+
+    const playIcon = button.querySelector('svg.lucide-play, svg[class*="lucide-play"], .lucide-play');
+    if (!playIcon) return;
+
+    const audio = findGeneratedAudio(button);
+    if (!(audio instanceof HTMLAudioElement) || !audio.paused) return;
+
+    audio.playsInline = true;
+    const attempt = audio.play();
+    if (attempt && typeof attempt.catch === 'function') {
+      attempt.catch(error => {
+        console.warn('[SONARA][Playback Gesture]', error instanceof Error ? error.message : String(error));
+      });
+    }
+  };
+
+  document.addEventListener('click', playInsideGesture, true);
+})();`;
 
 function stripDuplicateGeneratorScripts(html) {
   return BLOCKED_GENERATOR_EDGE_SCRIPTS.reduce((output, scriptName) => {
@@ -15,6 +51,12 @@ function stripDuplicateGeneratorScripts(html) {
     const pattern = new RegExp(`<script\\b[^>]*\\bsrc=["'][^"']*${escaped}[^"']*["'][^>]*>\\s*<\\/script>`, 'gi');
     return output.replace(pattern, '');
   }, html);
+}
+
+function injectAudioGestureUnlock(html) {
+  if (html.includes('__sonaraAudioGestureUnlockV1')) return html;
+  const script = `<script>${AUDIO_GESTURE_UNLOCK_SCRIPT}</script>`;
+  return html.includes('</body>') ? html.replace('</body>', `${script}</body>`) : `${html}${script}`;
 }
 
 function wait(ms) {
@@ -87,12 +129,13 @@ export default {
       return response;
     }
 
-    const html = stripDuplicateGeneratorScripts(await response.text());
+    const html = injectAudioGestureUnlock(stripDuplicateGeneratorScripts(await response.text()));
     const headers = new Headers(response.headers);
     headers.delete('content-length');
     headers.delete('content-encoding');
     headers.set('cache-control', 'no-store, max-age=0');
     headers.set('x-sonara-generator-stability', 'native-react-controls-v1');
+    headers.set('x-sonara-playback-fix', 'direct-user-gesture-v1');
 
     return new Response(html, {
       status: response.status,
