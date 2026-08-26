@@ -4,6 +4,7 @@ import App from './App';
 import BootAuth from './components/auth/BootAuth';
 import LegalDocumentPage from './components/legal/LegalDocumentPage';
 import IntelligentPromptControl from './components/generator/IntelligentPromptControl';
+import IntelligentLyricsControl from './components/generator/IntelligentLyricsControl';
 import DualTrackGenerationControl from './components/generator/DualTrackGenerationControl';
 import './index.css';
 
@@ -18,6 +19,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <App />
         </BootAuth>
         <IntelligentPromptControl />
+        <IntelligentLyricsControl />
         <DualTrackGenerationControl />
       </>
     )}
