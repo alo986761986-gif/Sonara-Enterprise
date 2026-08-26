@@ -86,10 +86,9 @@ export function useDJBridge() {
     }
   }, [close, send, sessionId]);
 
-  useEffect(() => {
-    connect();
-    return close;
-  }, [connect, close]);
+  // DJ Bridge is an optional native helper. Never probe loopback automatically:
+  // browser MIDI/HID/audio must stay fully usable without a local installation.
+  useEffect(() => close, [close]);
 
   return { state, devices, latencyMs, bridgeVersion, lastError, url: bridgeUrl(), connect, close, send };
 }
