@@ -5,7 +5,6 @@ import {
   ChevronDown,
   Copy,
   Download,
-  FileAudio,
   Gauge,
   KeyboardMusic,
   Layers3,
@@ -18,7 +17,6 @@ import {
   Redo2,
   Save,
   Scissors,
-  Settings2,
   ShoppingBag,
   SlidersHorizontal,
   Sparkles,
@@ -34,6 +32,8 @@ import {
 import { audioBufferToWav, decodeAudioFromUrl, downloadBlob, safeAudioFilename } from '../production/audioUtils';
 
 type TrackKind = 'audio' | 'midi' | 'vocal' | 'instrument';
+type QuantizeValue = '1/4' | '1/8' | '1/16' | '1/32';
+type MarkerLabel = 'Intro' | 'Verse' | 'Pre' | 'Chorus' | 'Drop' | 'Bridge' | 'Outro';
 
 type Clip = {
   id: string;
@@ -46,6 +46,7 @@ type Clip = {
 };
 
 type AutomationPoint = { time: number; value: number };
+type StudioMarker = { id: string; label: MarkerLabel; time: number };
 
 type Track = {
   id: string;
@@ -56,6 +57,7 @@ type Track = {
   pitch: number;
   mute: boolean;
   solo: boolean;
+  armed: boolean;
   low: number;
   mid: number;
   high: number;
@@ -63,6 +65,12 @@ type Track = {
   reverb: number;
   automation: AutomationPoint[];
   clips: Clip[];
+};
+
+type ClipAudioGraph = {
+  source: MediaElementAudioSourceNode;
+  gain: GainNode;
+  panner: StereoPannerNode;
 };
 
 interface SonaraStudioProps {
@@ -77,6 +85,8 @@ interface SonaraStudioProps {
 
 const MIN_TIMELINE_SECONDS = 180;
 const MAX_TIMELINE_SECONDS = 480;
+const MARKER_LABELS: MarkerLabel[] = ['Intro', 'Verse', 'Pre', 'Chorus', 'Drop', 'Bridge', 'Outro'];
+const QUANTIZE_DIVISOR: Record<QuantizeValue, number> = { '1/4': 1, '1/8': 2, '1/16': 4, '1/32': 8 };
 const TRACK_COLORS: Record<TrackKind, string> = {
   audio: 'from-violet-600/80 to-indigo-600/65',
   vocal: 'from-fuchsia-600/80 to-purple-600/65',
@@ -87,45 +97,47 @@ const TRACK_COLORS: Record<TrackKind, string> = {
 const uid = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 const formatTime = (seconds: number) => `${Math.floor(seconds / 60)}:${Math.floor(seconds % 60).toString().padStart(2, '0')}`;
+const sleep = (milliseconds: number) => new Promise<void>(resolve => window.setTimeout(resolve, milliseconds));
+const toDb = (level: number) => level <= 0.00001 ? -60 : Math.max(-60, 20 * Math.log10(level));
+const meterPercent = (level: number) => clamp(((toDb(level) + 60) / 60) * 100, 0, 100);
 
-function makeAudioTrack(name: string, src: string, duration = 180, kind: TrackKind = 'audio'): Track {
+function baseTrack(name: string, kind: TrackKind): Track {
   return {
     id: uid('track'),
     name,
     kind,
-    volume: 0.86,
+    volume: kind === 'midi' ? 0.8 : 0.86,
     pan: 0,
     pitch: 0,
     mute: false,
     solo: false,
+    armed: false,
     low: 0,
     mid: 0,
     high: 0,
-    compression: 18,
-    reverb: 8,
+    compression: kind === 'midi' ? 10 : 18,
+    reverb: kind === 'midi' ? 14 : 8,
     automation: [],
-    clips: [{ id: uid('clip'), name, src, start: 0, offset: 0, duration, kind }]
+    clips: []
   };
 }
 
+function makeAudioTrack(name: string, src: string, duration = 180, kind: TrackKind = 'audio'): Track {
+  const track = baseTrack(name, kind);
+  track.clips = [{ id: uid('clip'), name, src, start: 0, offset: 0, duration, kind }];
+  return track;
+}
+
+function makeEmptyAudioTrack(name = 'Audio Track'): Track {
+  const track = baseTrack(name, 'audio');
+  track.armed = true;
+  return track;
+}
+
 function makeMidiTrack(name = 'MIDI / Synth'): Track {
-  return {
-    id: uid('track'),
-    name,
-    kind: 'midi',
-    volume: 0.8,
-    pan: 0,
-    pitch: 0,
-    mute: false,
-    solo: false,
-    low: 0,
-    mid: 0,
-    high: 0,
-    compression: 10,
-    reverb: 14,
-    automation: [],
-    clips: [{ id: uid('clip'), name: 'MIDI Clip', start: 0, offset: 0, duration: 16, kind: 'midi' }]
-  };
+  const track = baseTrack(name, 'midi');
+  track.clips = [{ id: uid('clip'), name: 'MIDI Clip', start: 0, offset: 0, duration: 16, kind: 'midi' }];
+  return track;
 }
 
 async function probeDuration(src: string): Promise<number> {
@@ -189,24 +201,55 @@ export default function SonaraStudio({
   const [selectedClipId, setSelectedClipId] = useState('');
   const [playhead, setPlayhead] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [countingIn, setCountingIn] = useState(false);
+  const [countInBeat, setCountInBeat] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [snap, setSnap] = useState(true);
+  const [quantize, setQuantize] = useState<QuantizeValue>('1/16');
   const [loop, setLoop] = useState(false);
+  const [metronome, setMetronome] = useState(false);
+  const [countInBars, setCountInBars] = useState<0 | 1 | 2>(1);
+  const [markerLabel, setMarkerLabel] = useState<MarkerLabel>('Intro');
+  const [markers, setMarkers] = useState<StudioMarker[]>([]);
+  const [masterVolume, setMasterVolume] = useState(0.92);
+  const [masterMuted, setMasterMuted] = useState(false);
+  const [masterMeter, setMasterMeter] = useState({ left: 0, right: 0, peakLeft: 0, peakRight: 0 });
   const [panel, setPanel] = useState<'mixer' | 'effects' | 'automation' | 'synth'>('mixer');
   const [assistantText, setAssistantText] = useState('');
-  const [assistantNotice, setAssistantNotice] = useState('Studio pronto. Puoi chiedere modifiche rapide al progetto.');
+  const [assistantNotice, setAssistantNotice] = useState('Studio pronto. Arma una traccia con R per registrare oppure importa audio, stem e MIDI.');
   const [rendering, setRendering] = useState(false);
   const [saving, setSaving] = useState(false);
   const [musicalTyping, setMusicalTyping] = useState(false);
   const [history, setHistory] = useState<Track[][]>([]);
   const [future, setFuture] = useState<Track[][]>([]);
+
   const audioInputRef = useRef<HTMLInputElement | null>(null);
   const stemInputRef = useRef<HTMLInputElement | null>(null);
   const midiInputRef = useRef<HTMLInputElement | null>(null);
   const audioElements = useRef(new Map<string, HTMLAudioElement>());
+  const clipGraphs = useRef(new Map<string, ClipAudioGraph>());
+  const directClips = useRef(new Set<string>());
   const playingClips = useRef(new Set<string>());
   const frameRef = useRef<number | null>(null);
+  const meterFrameRef = useRef<number | null>(null);
+  const transportTokenRef = useRef(0);
+  const lastMetronomeBeatRef = useRef(-1);
+  const fallbackMeterRef = useRef({ left: 0, right: 0 });
+
   const audioContextRef = useRef<AudioContext | null>(null);
+  const masterGainNodeRef = useRef<GainNode | null>(null);
+  const masterLimiterRef = useRef<DynamicsCompressorNode | null>(null);
+  const analyserLeftRef = useRef<AnalyserNode | null>(null);
+  const analyserRightRef = useRef<AnalyserNode | null>(null);
+  const meterLeftDataRef = useRef(new Float32Array(256));
+  const meterRightDataRef = useRef(new Float32Array(256));
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingStreamRef = useRef<MediaStream | null>(null);
+  const recordingChunksRef = useRef<Blob[]>([]);
+  const recordingStartRef = useRef(0);
+  const recordingTrackIdsRef = useRef<string[]>([]);
 
   useEffect(() => setProjectName(title || 'SONARA Project'), [title]);
 
@@ -263,9 +306,16 @@ export default function SonaraStudio({
     setFuture(current => current.slice(1));
   };
 
+  const snapTime = (value: number) => {
+    if (!snap) return clamp(value, 0, totalDuration);
+    const quarter = 60 / Math.max(1, bpm);
+    const grid = quarter / QUANTIZE_DIVISOR[quantize];
+    return clamp(Math.round(value / grid) * grid, 0, totalDuration);
+  };
+
   const importFiles = async (files: FileList | null, asStems = false) => {
     if (!files?.length) return;
-    const audioFiles = Array.from(files).filter(file => file.type.startsWith('audio/') || /\.(wav|mp3|flac|ogg|m4a|aac)$/i.test(file.name));
+    const audioFiles = Array.from(files).filter(file => file.type.startsWith('audio/') || /\.(wav|mp3|flac|ogg|m4a|aac|webm)$/i.test(file.name));
     if (!audioFiles.length) return;
     pushHistory();
     const imported: Track[] = [];
@@ -288,7 +338,7 @@ export default function SonaraStudio({
     pushHistory();
     const next = Array.from(files).filter(file => /\.(mid|midi)$/i.test(file.name)).map(file => ({
       ...makeMidiTrack(file.name.replace(/\.(mid|midi)$/i, '')),
-      clips: [{ id: uid('clip'), name: file.name, start: playhead, offset: 0, duration: 16, kind: 'midi' as TrackKind }]
+      clips: [{ id: uid('clip'), name: file.name, start: snapTime(playhead), offset: 0, duration: 16, kind: 'midi' as TrackKind }]
     }));
     setTracks(current => [...current, ...next]);
     setAssistantNotice(next.length ? `${next.length} traccia/e MIDI aggiunte alla timeline.` : 'Nessun file MIDI valido selezionato.');
@@ -297,10 +347,20 @@ export default function SonaraStudio({
   const addMidiTrack = () => {
     pushHistory();
     const track = makeMidiTrack();
-    track.clips[0].start = playhead;
+    track.clips[0].start = snapTime(playhead);
     setTracks(current => [...current, track]);
     setSelectedTrackId(track.id);
     setSelectedClipId(track.clips[0].id);
+  };
+
+  const addAudioTrack = () => {
+    pushHistory();
+    const number = tracks.filter(track => track.kind !== 'midi').length + 1;
+    const track = makeEmptyAudioTrack(`Audio ${number}`);
+    setTracks(current => [...current, track]);
+    setSelectedTrackId(track.id);
+    setSelectedClipId('');
+    setAssistantNotice(`${track.name} creata e armata. Premi REC per registrare dal microfono/interfaccia selezionata dal browser.`);
   };
 
   const removeTrack = (id: string) => {
@@ -314,10 +374,12 @@ export default function SonaraStudio({
     const clip = track?.clips.find(item => item.id === selectedClipId);
     if (!track || !clip || playhead <= clip.start + 0.05 || playhead >= clip.start + clip.duration - 0.05) return;
     pushHistory();
-    const leftDuration = playhead - clip.start;
+    const splitAt = snapTime(playhead);
+    if (splitAt <= clip.start + 0.05 || splitAt >= clip.start + clip.duration - 0.05) return;
+    const leftDuration = splitAt - clip.start;
     const rightDuration = clip.duration - leftDuration;
     const left = { ...clip, duration: leftDuration };
-    const right = { ...clip, id: uid('clip'), name: `${clip.name} B`, start: playhead, offset: clip.offset + leftDuration, duration: rightDuration };
+    const right = { ...clip, id: uid('clip'), name: `${clip.name} B`, start: splitAt, offset: clip.offset + leftDuration, duration: rightDuration };
     setTracks(current => current.map(item => item.id === track.id ? { ...item, clips: item.clips.flatMap(existing => existing.id === clip.id ? [left, right] : [existing]) } : item));
     setSelectedClipId(right.id);
   };
@@ -339,42 +401,211 @@ export default function SonaraStudio({
     setSelectedClipId('');
   };
 
-  const snapTime = (value: number) => {
-    if (!snap) return clamp(value, 0, totalDuration);
-    const beat = 60 / Math.max(1, bpm);
-    return clamp(Math.round(value / beat) * beat, 0, totalDuration);
+  const addMarker = () => {
+    const time = snapTime(playhead);
+    setMarkers(current => {
+      const withoutSame = current.filter(marker => Math.abs(marker.time - time) > 0.05);
+      return [...withoutSame, { id: uid('marker'), label: markerLabel, time }].sort((a, b) => a.time - b.time);
+    });
+    const currentIndex = MARKER_LABELS.indexOf(markerLabel);
+    setMarkerLabel(MARKER_LABELS[(currentIndex + 1) % MARKER_LABELS.length]);
+    setAssistantNotice(`${markerLabel} marker inserito a ${formatTime(time)}.`);
   };
 
-  const moveClip = (trackId: string, clipId: string, start: number) => {
-    setTracks(current => current.map(track => track.id === trackId ? {
-      ...track,
-      clips: track.clips.map(clip => clip.id === clipId ? { ...clip, start: snapTime(start) } : clip)
-    } : track));
+  const startMeterLoop = () => {
+    if (meterFrameRef.current) return;
+    const tick = () => {
+      const leftAnalyser = analyserLeftRef.current;
+      const rightAnalyser = analyserRightRef.current;
+      let left = 0;
+      let right = 0;
+
+      if (leftAnalyser && rightAnalyser) {
+        const leftData = meterLeftDataRef.current;
+        const rightData = meterRightDataRef.current;
+        leftAnalyser.getFloatTimeDomainData(leftData);
+        rightAnalyser.getFloatTimeDomainData(rightData);
+        let leftSum = 0;
+        let rightSum = 0;
+        for (let index = 0; index < leftData.length; index += 1) {
+          leftSum += leftData[index] * leftData[index];
+          rightSum += rightData[index] * rightData[index];
+        }
+        left = Math.sqrt(leftSum / leftData.length);
+        right = Math.sqrt(rightSum / rightData.length);
+      }
+
+      left = Math.max(left, fallbackMeterRef.current.left);
+      right = Math.max(right, fallbackMeterRef.current.right);
+
+      setMasterMeter(current => ({
+        left: current.left * 0.55 + left * 0.45,
+        right: current.right * 0.55 + right * 0.45,
+        peakLeft: Math.max(left, current.peakLeft * 0.992),
+        peakRight: Math.max(right, current.peakRight * 0.992)
+      }));
+      meterFrameRef.current = requestAnimationFrame(tick);
+    };
+    meterFrameRef.current = requestAnimationFrame(tick);
   };
 
-  const stopPlayback = (reset = false) => {
-    setPlaying(false);
-    if (frameRef.current) cancelAnimationFrame(frameRef.current);
-    frameRef.current = null;
-    audioElements.current.forEach(audio => audio.pause());
-    playingClips.current.clear();
-    if (reset) setPlayhead(0);
+  const ensureAudioEngine = async () => {
+    const AudioCtor = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtor) throw new Error('Web Audio non supportato dal browser.');
+
+    let context = audioContextRef.current;
+    if (!context || context.state === 'closed') {
+      context = new AudioCtor();
+      audioContextRef.current = context;
+
+      const master = context.createGain();
+      master.gain.value = masterMuted ? 0 : masterVolume;
+      const limiter = context.createDynamicsCompressor();
+      limiter.threshold.value = -1.2;
+      limiter.knee.value = 0;
+      limiter.ratio.value = 20;
+      limiter.attack.value = 0.002;
+      limiter.release.value = 0.08;
+      const splitter = context.createChannelSplitter(2);
+      const left = context.createAnalyser();
+      const right = context.createAnalyser();
+      left.fftSize = 256;
+      right.fftSize = 256;
+      left.smoothingTimeConstant = 0.72;
+      right.smoothingTimeConstant = 0.72;
+
+      master.connect(limiter);
+      limiter.connect(context.destination);
+      limiter.connect(splitter);
+      splitter.connect(left, 0);
+      splitter.connect(right, 1);
+
+      masterGainNodeRef.current = master;
+      masterLimiterRef.current = limiter;
+      analyserLeftRef.current = left;
+      analyserRightRef.current = right;
+      startMeterLoop();
+    }
+
+    if (context.state === 'suspended') await context.resume();
+    return context;
   };
 
-  const syncClips = (time: number) => {
+  useEffect(() => {
+    if (masterGainNodeRef.current) masterGainNodeRef.current.gain.value = masterMuted ? 0 : masterVolume;
+  }, [masterVolume, masterMuted]);
+
+  const canRouteThroughWebAudio = (src: string) => {
+    try {
+      const url = new URL(src, window.location.href);
+      return url.protocol === 'blob:' || url.protocol === 'data:' || url.origin === window.location.origin;
+    } catch {
+      return true;
+    }
+  };
+
+  const preparePlayback = async () => {
+    const context = await ensureAudioEngine();
+    const master = masterGainNodeRef.current;
+    if (!master) return;
+
     for (const track of tracks) {
-      const audible = !track.mute && (!anySolo || track.solo);
       for (const clip of track.clips) {
         if (!clip.src || clip.kind === 'midi') continue;
-        const active = audible && time >= clip.start && time < clip.start + clip.duration;
         let audio = audioElements.current.get(clip.id);
         if (!audio) {
           audio = new Audio(clip.src);
           audio.preload = 'auto';
+          if ('preservesPitch' in audio) (audio as HTMLAudioElement & { preservesPitch: boolean }).preservesPitch = false;
           audioElements.current.set(clip.id, audio);
         }
-        audio.volume = clamp(track.volume, 0, 1);
+
         audio.playbackRate = Math.pow(2, track.pitch / 12);
+        if (!canRouteThroughWebAudio(clip.src)) {
+          directClips.current.add(clip.id);
+          audio.volume = clamp(track.volume * (masterMuted ? 0 : masterVolume), 0, 1);
+          continue;
+        }
+
+        if (!clipGraphs.current.has(clip.id)) {
+          try {
+            const source = context.createMediaElementSource(audio);
+            const gain = context.createGain();
+            const panner = context.createStereoPanner();
+            source.connect(gain).connect(panner).connect(master);
+            clipGraphs.current.set(clip.id, { source, gain, panner });
+          } catch {
+            directClips.current.add(clip.id);
+          }
+        }
+
+        const graph = clipGraphs.current.get(clip.id);
+        if (graph) {
+          audio.volume = 1;
+          graph.gain.gain.value = track.volume;
+          graph.panner.pan.value = clamp(track.pan / 100, -1, 1);
+        }
+      }
+    }
+  };
+
+  const emitMetronomeClick = (accent: boolean) => {
+    const context = audioContextRef.current;
+    if (!context || context.state === 'closed') return;
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = 'sine';
+    oscillator.frequency.value = accent ? 1760 : 1180;
+    gain.gain.setValueAtTime(0.0001, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(accent ? 0.18 : 0.11, context.currentTime + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.055);
+    oscillator.connect(gain).connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.06);
+  };
+
+  const runCountIn = async (token: number) => {
+    if (!countInBars) return true;
+    await ensureAudioEngine();
+    setCountingIn(true);
+    const totalBeats = countInBars * 4;
+    const beatMilliseconds = 60000 / Math.max(1, bpm);
+    for (let beat = 0; beat < totalBeats; beat += 1) {
+      if (token !== transportTokenRef.current) {
+        setCountingIn(false);
+        setCountInBeat(0);
+        return false;
+      }
+      setCountInBeat(totalBeats - beat);
+      emitMetronomeClick(beat % 4 === 0);
+      await sleep(beatMilliseconds);
+    }
+    setCountingIn(false);
+    setCountInBeat(0);
+    return token === transportTokenRef.current;
+  };
+
+  const syncClips = (time: number) => {
+    let fallbackLeft = 0;
+    let fallbackRight = 0;
+
+    for (const track of tracks) {
+      const audible = !track.mute && (!anySolo || track.solo);
+      for (const clip of track.clips) {
+        if (!clip.src || clip.kind === 'midi') continue;
+        const active = audible && !masterMuted && time >= clip.start && time < clip.start + clip.duration;
+        const audio = audioElements.current.get(clip.id);
+        if (!audio) continue;
+        const graph = clipGraphs.current.get(clip.id);
+
+        audio.playbackRate = Math.pow(2, track.pitch / 12);
+        if (graph) {
+          graph.gain.gain.value = track.volume;
+          graph.panner.pan.value = clamp(track.pan / 100, -1, 1);
+        } else {
+          audio.volume = clamp(track.volume * masterVolume, 0, 1);
+        }
+
         if (active && !playingClips.current.has(clip.id)) {
           audio.currentTime = Math.max(0, clip.offset + (time - clip.start));
           void audio.play().catch(() => undefined);
@@ -383,38 +614,190 @@ export default function SonaraStudio({
           audio.pause();
           playingClips.current.delete(clip.id);
         }
+
+        if (active && directClips.current.has(clip.id)) {
+          const level = clamp(track.volume * masterVolume * 0.72, 0, 1.2);
+          const pan = clamp(track.pan / 100, -1, 1);
+          const angle = (pan + 1) * Math.PI / 4;
+          fallbackLeft = Math.max(fallbackLeft, level * Math.cos(angle));
+          fallbackRight = Math.max(fallbackRight, level * Math.sin(angle));
+        }
       }
     }
+    fallbackMeterRef.current = { left: fallbackLeft, right: fallbackRight };
   };
 
-  const startPlayback = () => {
-    if (playing) return;
+  const stopPlayback = (reset = false) => {
+    transportTokenRef.current += 1;
+    setPlaying(false);
+    setCountingIn(false);
+    setCountInBeat(0);
+    if (frameRef.current) cancelAnimationFrame(frameRef.current);
+    frameRef.current = null;
+    audioElements.current.forEach(audio => audio.pause());
+    playingClips.current.clear();
+    lastMetronomeBeatRef.current = -1;
+    fallbackMeterRef.current = { left: 0, right: 0 };
+    if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
+    if (reset) setPlayhead(0);
+  };
+
+  const beginPlayback = (token: number, startAt: number) => {
+    if (token !== transportTokenRef.current) return;
     setPlaying(true);
-    const started = performance.now() - playhead * 1000;
+    lastMetronomeBeatRef.current = -1;
+    const started = performance.now() - startAt * 1000;
+
     const tick = () => {
+      if (token !== transportTokenRef.current) return;
       const next = (performance.now() - started) / 1000;
       if (next >= totalDuration) {
-        if (loop) {
-          setPlayhead(0);
+        if (loop && !recording) {
           audioElements.current.forEach(audio => audio.pause());
           playingClips.current.clear();
-          stopPlayback();
-          window.setTimeout(startPlayback, 0);
+          setPlayhead(0);
+          beginPlayback(token, 0);
           return;
         }
         stopPlayback(true);
         return;
       }
+
       setPlayhead(next);
       syncClips(next);
+
+      if (metronome) {
+        const beatSeconds = 60 / Math.max(1, bpm);
+        const beatIndex = Math.floor((next + 0.002) / beatSeconds);
+        if (beatIndex !== lastMetronomeBeatRef.current) {
+          emitMetronomeClick(beatIndex % 4 === 0);
+          lastMetronomeBeatRef.current = beatIndex;
+        }
+      }
+
       frameRef.current = requestAnimationFrame(tick);
     };
     frameRef.current = requestAnimationFrame(tick);
   };
 
+  const startPlayback = async (skipCountIn = false) => {
+    if (playing || countingIn) return;
+    const token = ++transportTokenRef.current;
+    try {
+      await preparePlayback();
+      if (!skipCountIn) {
+        const completed = await runCountIn(token);
+        if (!completed) return;
+      }
+      beginPlayback(token, playhead);
+    } catch (error) {
+      setAssistantNotice(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const stopRecordingStream = () => {
+    recordingStreamRef.current?.getTracks().forEach(track => track.stop());
+    recordingStreamRef.current = null;
+  };
+
+  const startRecording = async () => {
+    if (recording) {
+      stopPlayback(false);
+      return;
+    }
+
+    const armedTracks = tracks.filter(track => track.armed && track.kind !== 'midi');
+    if (!armedTracks.length) {
+      setAssistantNotice('Arma almeno una traccia audio con il tasto R, oppure crea + TRACK.');
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setAssistantNotice('Registrazione microfono non supportata da questo browser.');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recordingStreamRef.current = stream;
+
+      let token = transportTokenRef.current;
+      if (!playing) {
+        token = ++transportTokenRef.current;
+        await preparePlayback();
+        const completed = await runCountIn(token);
+        if (!completed) {
+          stopRecordingStream();
+          return;
+        }
+      }
+
+      const preferred = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'].find(type => MediaRecorder.isTypeSupported(type));
+      const recorder = new MediaRecorder(stream, preferred ? { mimeType: preferred } : undefined);
+      mediaRecorderRef.current = recorder;
+      recordingChunksRef.current = [];
+      recordingStartRef.current = playhead;
+      recordingTrackIdsRef.current = armedTracks.map(track => track.id);
+
+      recorder.ondataavailable = event => {
+        if (event.data.size > 0) recordingChunksRef.current.push(event.data);
+      };
+
+      recorder.onerror = () => {
+        setAssistantNotice('Errore durante la registrazione audio.');
+      };
+
+      recorder.onstop = () => {
+        const chunks = recordingChunksRef.current;
+        const armedIds = [...recordingTrackIdsRef.current];
+        const startAt = recordingStartRef.current;
+        const type = recorder.mimeType || preferred || 'audio/webm';
+        setRecording(false);
+        stopRecordingStream();
+        if (!chunks.length) return;
+
+        const blob = new Blob(chunks, { type });
+        const url = URL.createObjectURL(blob);
+        void probeDuration(url).then(duration => {
+          let firstClipId = '';
+          setTracks(current => current.map(track => {
+            if (!armedIds.includes(track.id)) return track;
+            const clipId = uid('recording');
+            if (!firstClipId) firstClipId = clipId;
+            const clip: Clip = {
+              id: clipId,
+              name: `Recording ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+              src: url,
+              start: snapTime(startAt),
+              offset: 0,
+              duration,
+              kind: track.kind === 'vocal' ? 'vocal' : 'audio'
+            };
+            return { ...track, clips: [...track.clips, clip] };
+          }));
+          if (armedIds[0]) setSelectedTrackId(armedIds[0]);
+          if (firstClipId) setSelectedClipId(firstClipId);
+          setAssistantNotice(`Registrazione acquisita realmente: ${formatTime(duration)} su ${armedIds.length} traccia/e armata/e.`);
+        });
+      };
+
+      recorder.start(200);
+      setRecording(true);
+      setAssistantNotice(`REC attivo su ${armedTracks.map(track => track.name).join(', ')}.`);
+      if (!playing) beginPlayback(token, playhead);
+    } catch (error) {
+      stopRecordingStream();
+      setAssistantNotice(error instanceof Error ? `Registrazione non disponibile: ${error.message}` : 'Registrazione non disponibile.');
+    }
+  };
+
   useEffect(() => () => {
+    transportTokenRef.current += 1;
     if (frameRef.current) cancelAnimationFrame(frameRef.current);
+    if (meterFrameRef.current) cancelAnimationFrame(meterFrameRef.current);
     audioElements.current.forEach(audio => audio.pause());
+    if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
+    stopRecordingStream();
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') void audioContextRef.current.close();
   }, []);
 
   useEffect(() => {
@@ -422,21 +805,19 @@ export default function SonaraStudio({
     const notes: Record<string, number> = { a: 60, w: 61, s: 62, e: 63, d: 64, f: 65, t: 66, g: 67, y: 68, h: 69, u: 70, j: 71, k: 72 };
     const onKey = (event: KeyboardEvent) => {
       if (event.repeat || !notes[event.key.toLowerCase()] || ['INPUT', 'TEXTAREA', 'SELECT'].includes((event.target as HTMLElement)?.tagName)) return;
-      const AudioCtor = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioCtor) return;
-      const context = audioContextRef.current || new AudioCtor();
-      audioContextRef.current = context;
-      const osc = context.createOscillator();
-      const gain = context.createGain();
-      const midi = notes[event.key.toLowerCase()];
-      osc.type = 'sawtooth';
-      osc.frequency.value = 440 * Math.pow(2, (midi - 69) / 12);
-      gain.gain.setValueAtTime(0.0001, context.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.16, context.currentTime + 0.015);
-      gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.42);
-      osc.connect(gain).connect(context.destination);
-      osc.start();
-      osc.stop(context.currentTime + 0.45);
+      void ensureAudioEngine().then(context => {
+        const oscillator = context.createOscillator();
+        const gain = context.createGain();
+        const midi = notes[event.key.toLowerCase()];
+        oscillator.type = 'sawtooth';
+        oscillator.frequency.value = 440 * Math.pow(2, (midi - 69) / 12);
+        gain.gain.setValueAtTime(0.0001, context.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.16, context.currentTime + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.42);
+        oscillator.connect(gain).connect(masterGainNodeRef.current || context.destination);
+        oscillator.start();
+        oscillator.stop(context.currentTime + 0.45);
+      });
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -451,6 +832,16 @@ export default function SonaraStudio({
     const OfflineCtor = window.OfflineAudioContext || (window as any).webkitOfflineAudioContext;
     if (!OfflineCtor) throw new Error('Offline AudioContext non supportato dal browser.');
     const offline: OfflineAudioContext = new OfflineCtor(2, Math.ceil(duration * sampleRate), sampleRate);
+
+    const master = offline.createGain();
+    master.gain.value = masterMuted ? 0 : masterVolume;
+    const limiter = offline.createDynamicsCompressor();
+    limiter.threshold.value = -1.2;
+    limiter.knee.value = 0;
+    limiter.ratio.value = 20;
+    limiter.attack.value = 0.002;
+    limiter.release.value = 0.08;
+    master.connect(limiter).connect(offline.destination);
 
     for (const { track, clip } of audioClips) {
       const decoded = await decodeAudioFromUrl(String(clip.src));
@@ -486,7 +877,7 @@ export default function SonaraStudio({
       const panner = offline.createStereoPanner();
       panner.pan.value = track.pan / 100;
 
-      source.connect(gain).connect(low).connect(mid).connect(high).connect(compressor).connect(panner).connect(offline.destination);
+      source.connect(gain).connect(low).connect(mid).connect(high).connect(compressor).connect(panner).connect(master);
 
       if (track.reverb > 0) {
         const convolver = offline.createConvolver();
@@ -494,12 +885,12 @@ export default function SonaraStudio({
         const impulse = offline.createBuffer(2, impulseLength, sampleRate);
         for (let channel = 0; channel < 2; channel += 1) {
           const data = impulse.getChannelData(channel);
-          for (let i = 0; i < impulseLength; i += 1) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / impulseLength, 3);
+          for (let index = 0; index < impulseLength; index += 1) data[index] = (Math.random() * 2 - 1) * Math.pow(1 - index / impulseLength, 3);
         }
         convolver.buffer = impulse;
         const wet = offline.createGain();
         wet.gain.value = clamp(track.reverb / 100, 0, 0.5);
-        high.connect(convolver).connect(wet).connect(offline.destination);
+        high.connect(convolver).connect(wet).connect(master);
       }
 
       const availableSource = Math.max(0.05, Math.min(clip.duration, decoded.duration - clip.offset));
@@ -512,12 +903,12 @@ export default function SonaraStudio({
   const exportMix = async (float = true) => {
     if (rendering) return;
     setRendering(true);
-    setAssistantNotice('Rendering multitraccia reale a 48 kHz...');
+    setAssistantNotice('Rendering multitraccia reale a 48 kHz attraverso il master limiter...');
     try {
       const rendered = await renderTracks(tracks);
       const blob = float ? float32Wav(rendered) : audioBufferToWav(rendered);
       downloadBlob(blob, `${safeAudioFilename(projectName)}-${float ? '32bit-48k' : 'pcm16'}`, 'wav');
-      setAssistantNotice(`Mix esportato realmente in WAV ${float ? '32-bit float / 48 kHz' : 'PCM 16-bit'}.`);
+      setAssistantNotice(`Mix esportato realmente in WAV ${float ? '32-bit float / 48 kHz' : 'PCM 16-bit'} con master channel.`);
     } catch (error) {
       setAssistantNotice(error instanceof Error ? error.message : String(error));
     } finally {
@@ -547,9 +938,21 @@ export default function SonaraStudio({
   const saveProject = () => {
     setSaving(true);
     try {
-      const project = { version: 2, name: projectName, bpm, keySignature, tracks, savedAt: new Date().toISOString() };
-      localStorage.setItem('sonara.studio.project.v2', JSON.stringify(project));
-      setAssistantNotice('Sessione Studio salvata sul dispositivo.');
+      const project = {
+        version: 3,
+        name: projectName,
+        bpm,
+        keySignature,
+        tracks,
+        markers,
+        quantize,
+        metronome,
+        countInBars,
+        masterVolume,
+        savedAt: new Date().toISOString()
+      };
+      localStorage.setItem('sonara.studio.project.v3', JSON.stringify(project));
+      setAssistantNotice('Sessione Studio Pro salvata sul dispositivo.');
     } catch {
       setAssistantNotice('Impossibile salvare la sessione sul dispositivo.');
     } finally {
@@ -566,6 +969,13 @@ export default function SonaraStudio({
       const next = clamp(Number(bpmMatch[1]), 40, 220);
       onBpmChange?.(next);
       setAssistantNotice(`Tempo impostato a ${next} BPM.`);
+    } else if (lower.includes('metronom') || lower.includes('click')) {
+      setMetronome(true);
+      setAssistantNotice('Metronomo attivato.');
+    } else if (lower.includes('marker') || lower.includes('segnaposto')) {
+      addMarker();
+    } else if (lower.includes('traccia audio')) {
+      addAudioTrack();
     } else if (lower.includes('midi') || lower.includes('synth')) {
       addMidiTrack();
       setAssistantNotice('Nuova traccia MIDI / Synth aggiunta alla posizione del playhead.');
@@ -579,7 +989,7 @@ export default function SonaraStudio({
       onOpenProduction?.();
       setAssistantNotice('Apro la suite Produzione / Mastering SONARA.');
     } else {
-      setAssistantNotice('Comando ricevuto. Prova: “tempo 128 BPM”, “aggiungi synth”, “importa stem”, “apri market” oppure “apri mastering”.');
+      setAssistantNotice('Prova: “tempo 128 BPM”, “attiva metronomo”, “aggiungi marker”, “traccia audio”, “aggiungi synth”, “importa stem” oppure “apri mastering”.');
     }
     setAssistantText('');
   };
@@ -593,13 +1003,13 @@ export default function SonaraStudio({
   const timelineClick = (event: React.MouseEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     const scrollLeft = event.currentTarget.parentElement?.scrollLeft || 0;
-    setPlayhead(clamp((event.clientX - rect.left + scrollLeft) / pxPerSecond, 0, totalDuration));
+    setPlayhead(snapTime((event.clientX - rect.left + scrollLeft) / pxPerSecond));
   };
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-800 bg-[#05070c] shadow-2xl shadow-black/40">
-      <input ref={audioInputRef} type="file" accept="audio/*,.wav,.mp3,.flac,.ogg,.m4a,.aac" className="hidden" onChange={event => void importFiles(event.target.files)} />
-      <input ref={stemInputRef} type="file" multiple accept="audio/*,.wav,.mp3,.flac,.ogg,.m4a,.aac" className="hidden" onChange={event => void importFiles(event.target.files, true)} />
+      <input ref={audioInputRef} type="file" accept="audio/*,.wav,.mp3,.flac,.ogg,.m4a,.aac,.webm" className="hidden" onChange={event => void importFiles(event.target.files)} />
+      <input ref={stemInputRef} type="file" multiple accept="audio/*,.wav,.mp3,.flac,.ogg,.m4a,.aac,.webm" className="hidden" onChange={event => void importFiles(event.target.files, true)} />
       <input ref={midiInputRef} type="file" multiple accept=".mid,.midi,audio/midi,audio/x-midi" className="hidden" onChange={event => importMidi(event.target.files)} />
 
       <header className="border-b border-slate-800 bg-slate-950/95 px-4 py-3">
@@ -607,7 +1017,7 @@ export default function SonaraStudio({
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-fuchsia-600 to-indigo-600 shadow-lg shadow-purple-950/40"><Music2 className="h-4 w-4 text-white" /></div>
             <div className="min-w-0">
-              <div className="flex items-center gap-2"><span className="text-[9px] font-black uppercase tracking-[0.2em] text-purple-300">SONARA STUDIO 2</span><span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[8px] font-black text-emerald-300">LIVE DAW</span></div>
+              <div className="flex items-center gap-2"><span className="text-[9px] font-black uppercase tracking-[0.2em] text-purple-300">SONARA STUDIO PRO</span><span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[8px] font-black text-emerald-300">LIVE DAW</span></div>
               <input value={projectName} onChange={event => setProjectName(event.target.value)} className="mt-0.5 w-full min-w-48 bg-transparent text-sm font-black text-white outline-none" aria-label="Nome progetto" />
             </div>
           </div>
@@ -638,6 +1048,7 @@ export default function SonaraStudio({
           <div className="mt-4 border-t border-slate-800 pt-4">
             <div className="mb-2 text-[9px] font-black uppercase tracking-[0.18em] text-slate-600">Sessione</div>
             <div className="grid grid-cols-2 gap-2 xl:grid-cols-1">
+              <button onClick={addAudioTrack} className="flex items-center gap-2 rounded-lg px-2 py-2 text-[10px] font-bold text-slate-400 hover:bg-slate-900 hover:text-white"><Plus className="h-3.5 w-3.5" /> Nuova traccia audio</button>
               <button onClick={addMidiTrack} className="flex items-center gap-2 rounded-lg px-2 py-2 text-[10px] font-bold text-slate-400 hover:bg-slate-900 hover:text-white"><Plus className="h-3.5 w-3.5" /> Nuova traccia MIDI</button>
               <button onClick={onOpenProduction} className="flex items-center gap-2 rounded-lg px-2 py-2 text-[10px] font-bold text-slate-400 hover:bg-slate-900 hover:text-white"><SlidersHorizontal className="h-3.5 w-3.5" /> Mix / Master</button>
               <button onClick={() => setMusicalTyping(value => !value)} className={`flex items-center gap-2 rounded-lg px-2 py-2 text-[10px] font-bold ${musicalTyping ? 'bg-emerald-500/10 text-emerald-300' : 'text-slate-400 hover:bg-slate-900 hover:text-white'}`}><KeyboardMusic className="h-3.5 w-3.5" /> Musical typing</button>
@@ -653,35 +1064,60 @@ export default function SonaraStudio({
         </aside>
 
         <main className="min-w-0 flex-1 bg-[#06080d]">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 bg-slate-950/75 px-3 py-2">
-            <div className="flex items-center gap-2">
-              <button onClick={() => playing ? stopPlayback() : startPlayback()} className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black">{playing ? <Pause className="h-4 w-4 fill-current" /> : <Play className="ml-0.5 h-4 w-4 fill-current" />}</button>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-slate-950/75 px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button onClick={() => playing ? stopPlayback() : void startPlayback()} disabled={countingIn} className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black disabled:opacity-50">{playing ? <Pause className="h-4 w-4 fill-current" /> : <Play className="ml-0.5 h-4 w-4 fill-current" />}</button>
               <button onClick={() => stopPlayback(true)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-800 bg-slate-900 text-slate-300"><Square className="h-3.5 w-3.5 fill-current" /></button>
-              <div className="min-w-20 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-center font-mono text-xs font-black text-white">{formatTime(playhead)}</div>
+              <button onClick={() => void startRecording()} className={`flex h-8 items-center gap-1.5 rounded-lg border px-2 text-[9px] font-black ${recording ? 'border-rose-400 bg-rose-500 text-white shadow-[0_0_16px_rgba(244,63,94,.35)]' : 'border-rose-500/30 bg-rose-500/10 text-rose-300'}`} title="Registra sulle tracce armate"><Mic2 className="h-3.5 w-3.5" /> {recording ? 'REC' : 'REC'}</button>
+              <button onClick={addAudioTrack} className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-900 px-2 text-[9px] font-black text-slate-400" title="Crea traccia audio armata"><Plus className="h-3.5 w-3.5" /> TRACK</button>
+              <div className="min-w-20 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-center font-mono text-xs font-black text-white">{countingIn ? `-${countInBeat}` : formatTime(playhead)}</div>
+              <button onClick={() => setMetronome(value => !value)} className={`rounded-lg border px-2 py-2 text-[9px] font-black ${metronome ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-200' : 'border-slate-800 bg-slate-900 text-slate-500'}`}>CLICK</button>
+              <select value={countInBars} onChange={event => setCountInBars(Number(event.target.value) as 0 | 1 | 2)} className="h-8 rounded-lg border border-slate-800 bg-slate-900 px-2 text-[9px] font-black text-slate-400 outline-none" title="Count-in">
+                <option value={0}>IN OFF</option><option value={1}>IN 1 BAR</option><option value={2}>IN 2 BAR</option>
+              </select>
               <button onClick={() => setLoop(value => !value)} className={`rounded-lg border px-2 py-2 text-[9px] font-black ${loop ? 'border-purple-500/50 bg-purple-500/15 text-purple-200' : 'border-slate-800 bg-slate-900 text-slate-500'}`}>LOOP</button>
-              <button onClick={() => setSnap(value => !value)} className={`rounded-lg border px-2 py-2 text-[9px] font-black ${snap ? 'border-cyan-500/50 bg-cyan-500/15 text-cyan-200' : 'border-slate-800 bg-slate-900 text-slate-500'}`}>SNAP</button>
+              <button onClick={() => setSnap(value => !value)} className={`rounded-lg border px-2 py-2 text-[9px] font-black ${snap ? 'border-cyan-500/50 bg-cyan-500/15 text-cyan-200' : 'border-slate-800 bg-slate-900 text-slate-500'}`}>Q</button>
+              <select value={quantize} onChange={event => setQuantize(event.target.value as QuantizeValue)} disabled={!snap} className="h-8 rounded-lg border border-slate-800 bg-slate-900 px-2 text-[9px] font-black text-slate-400 outline-none disabled:opacity-40" title="Quantizzazione">
+                <option>1/4</option><option>1/8</option><option>1/16</option><option>1/32</option>
+              </select>
             </div>
-            <div className="flex items-center gap-2">
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex h-8 items-center gap-1 rounded-lg border border-slate-800 bg-slate-900 p-1">
+                <select value={markerLabel} onChange={event => setMarkerLabel(event.target.value as MarkerLabel)} className="h-6 bg-transparent px-1 text-[8px] font-black text-slate-400 outline-none">{MARKER_LABELS.map(label => <option key={label} value={label}>{label}</option>)}</select>
+                <button onClick={addMarker} className="h-6 rounded bg-slate-800 px-2 text-[8px] font-black text-white">+ MARK</button>
+              </div>
               <button onClick={splitSelectedClip} className="rounded-lg border border-slate-800 bg-slate-900 p-2 text-slate-300" title="Split"><Scissors className="h-3.5 w-3.5" /></button>
               <button onClick={duplicateSelectedClip} className="rounded-lg border border-slate-800 bg-slate-900 p-2 text-slate-300" title="Duplicate"><Copy className="h-3.5 w-3.5" /></button>
               <button onClick={deleteSelectedClip} className="rounded-lg border border-slate-800 bg-slate-900 p-2 text-rose-300" title="Delete clip"><Trash2 className="h-3.5 w-3.5" /></button>
               <button onClick={() => setZoom(value => clamp(value - 0.15, 0.55, 2.2))} className="p-2 text-slate-500"><ZoomOut className="h-4 w-4" /></button>
               <span className="w-10 text-center text-[9px] font-black text-slate-500">{Math.round(zoom * 100)}%</span>
               <button onClick={() => setZoom(value => clamp(value + 0.15, 0.55, 2.2))} className="p-2 text-slate-500"><ZoomIn className="h-4 w-4" /></button>
+
+              <div className="ml-1 flex h-10 items-center gap-2 rounded-lg border border-slate-800 bg-[#080b10] px-2" title={`Master peak ${Math.max(toDb(masterMeter.peakLeft), toDb(masterMeter.peakRight)).toFixed(1)} dBFS`}>
+                <button onClick={() => setMasterMuted(value => !value)} className={`text-[8px] font-black ${masterMuted ? 'text-rose-300' : 'text-slate-500'}`}>MASTER</button>
+                <div className="w-14 space-y-1">
+                  <div className="flex items-center gap-1"><span className="w-2 text-[7px] text-slate-600">L</span><div className="h-1 flex-1 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-emerald-400 transition-[width] duration-75" style={{ width: `${meterPercent(masterMeter.left)}%` }} /></div></div>
+                  <div className="flex items-center gap-1"><span className="w-2 text-[7px] text-slate-600">R</span><div className="h-1 flex-1 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-emerald-400 transition-[width] duration-75" style={{ width: `${meterPercent(masterMeter.right)}%` }} /></div></div>
+                </div>
+                <input type="range" min={0} max={1.25} step={0.01} value={masterVolume} onChange={event => setMasterVolume(Number(event.target.value))} className="w-16 accent-emerald-400" aria-label="Master volume" />
+                <button onClick={() => setMasterMeter({ left: 0, right: 0, peakLeft: 0, peakRight: 0 })} className="w-10 text-right font-mono text-[8px] font-bold text-slate-400">{Math.max(toDb(masterMeter.peakLeft), toDb(masterMeter.peakRight)).toFixed(1)}</button>
+              </div>
             </div>
           </div>
 
           <div className="overflow-x-auto border-b border-slate-800" style={{ maxHeight: 500 }}>
-            <div className="sticky top-0 z-20 flex h-8 border-b border-slate-800 bg-[#090c13]" style={{ width: 190 + timelineWidth }}>
+            <div className="sticky top-0 z-20 flex h-10 border-b border-slate-800 bg-[#090c13]" style={{ width: 190 + timelineWidth }}>
               <div className="sticky left-0 z-30 flex w-[190px] shrink-0 items-center border-r border-slate-800 bg-[#090c13] px-3 text-[9px] font-black uppercase tracking-wider text-slate-600">Tracks</div>
               <div className="relative h-full" style={{ width: timelineWidth }}>
-                {Array.from({ length: Math.floor(totalDuration / 10) + 1 }, (_, index) => index * 10).map(second => <div key={second} className="absolute top-0 h-full border-l border-slate-800/80 pl-1 pt-2 text-[8px] text-slate-600" style={{ left: second * pxPerSecond }}>{formatTime(second)}</div>)}
+                {Array.from({ length: Math.floor(totalDuration / 10) + 1 }, (_, index) => index * 10).map(second => <div key={second} className="absolute top-0 h-full border-l border-slate-800/80 pl-1 pt-1 text-[8px] text-slate-600" style={{ left: second * pxPerSecond }}>{formatTime(second)}</div>)}
+                {markers.map(marker => <button key={marker.id} onClick={() => setPlayhead(marker.time)} onDoubleClick={() => setMarkers(current => current.filter(item => item.id !== marker.id))} className="absolute bottom-0 z-10 -translate-x-1/2 rounded-t border border-cyan-400/25 bg-cyan-400/10 px-1.5 py-0.5 text-[7px] font-black text-cyan-200" style={{ left: marker.time * pxPerSecond }} title="Click: vai al marker · doppio click: elimina">{marker.label}</button>)}
               </div>
             </div>
 
             {tracks.length === 0 && (
               <div className="flex min-h-[330px] w-full items-center justify-center p-8">
-                <div className="max-w-md text-center"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-purple-500/20 bg-purple-500/10 text-purple-300"><WandSparkles className="h-6 w-6" /></div><h3 className="mt-4 text-lg font-black text-white">Inizia una sessione SONARA Studio</h3><p className="mt-2 text-xs leading-5 text-slate-500">Genera un brano, importa audio o stem reali, oppure crea una traccia MIDI. La timeline mantiene BPM, tonalità e sessione.</p><div className="mt-4 flex flex-wrap justify-center gap-2"><button onClick={() => audioInputRef.current?.click()} className="rounded-xl bg-purple-600 px-4 py-2 text-xs font-black text-white">Importa audio</button><button onClick={addMidiTrack} className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-xs font-black text-white">Crea MIDI</button></div></div>
+                <div className="max-w-md text-center"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-purple-500/20 bg-purple-500/10 text-purple-300"><WandSparkles className="h-6 w-6" /></div><h3 className="mt-4 text-lg font-black text-white">Inizia una sessione SONARA Studio Pro</h3><p className="mt-2 text-xs leading-5 text-slate-500">Importa audio o stem, crea MIDI oppure aggiungi una traccia audio e registra realmente dal microfono/interfaccia del browser.</p><div className="mt-4 flex flex-wrap justify-center gap-2"><button onClick={() => audioInputRef.current?.click()} className="rounded-xl bg-purple-600 px-4 py-2 text-xs font-black text-white">Importa audio</button><button onClick={addAudioTrack} className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2 text-xs font-black text-rose-200">Crea traccia REC</button><button onClick={addMidiTrack} className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-2 text-xs font-black text-white">Crea MIDI</button></div></div>
               </div>
             )}
 
@@ -689,17 +1125,19 @@ export default function SonaraStudio({
               <div key={track.id} className={`flex min-h-[86px] border-b border-slate-800/80 ${selectedTrackId === track.id ? 'bg-purple-500/[0.025]' : ''}`} style={{ width: 190 + timelineWidth }}>
                 <div className="sticky left-0 z-10 w-[190px] shrink-0 border-r border-slate-800 bg-[#090c13] p-2.5">
                   <div className="flex items-start gap-2">
-                    <button onClick={() => setSelectedTrackId(track.id)} className="min-w-0 flex-1 text-left"><div className="truncate text-[11px] font-black text-white">{track.name}</div><div className="mt-0.5 text-[8px] font-bold uppercase tracking-wider text-slate-600">{track.kind}</div></button>
+                    <button onClick={() => setSelectedTrackId(track.id)} className="min-w-0 flex-1 text-left"><div className="truncate text-[11px] font-black text-white">{track.name}</div><div className="mt-0.5 text-[8px] font-bold uppercase tracking-wider text-slate-600">{track.kind}{track.armed ? ' · ARMED' : ''}</div></button>
                     <button onClick={() => removeTrack(track.id)} className="text-slate-700 hover:text-rose-300"><Trash2 className="h-3 w-3" /></button>
                   </div>
                   <div className="mt-2 flex items-center gap-1.5">
+                    <button disabled={track.kind === 'midi'} onClick={() => updateTrack(track.id, { armed: !track.armed })} className={`h-6 w-6 rounded text-[8px] font-black disabled:cursor-not-allowed disabled:opacity-25 ${track.armed ? 'bg-rose-500 text-white shadow-[0_0_12px_rgba(244,63,94,.3)]' : 'bg-slate-800 text-slate-500'}`} title={track.kind === 'midi' ? 'Record arm audio non disponibile per MIDI' : 'Record arm'}>R</button>
                     <button onClick={() => updateTrack(track.id, { mute: !track.mute })} className={`h-6 w-6 rounded text-[8px] font-black ${track.mute ? 'bg-amber-500 text-black' : 'bg-slate-800 text-slate-500'}`}>M</button>
                     <button onClick={() => updateTrack(track.id, { solo: !track.solo })} className={`h-6 w-6 rounded text-[8px] font-black ${track.solo ? 'bg-emerald-400 text-black' : 'bg-slate-800 text-slate-500'}`}>S</button>
-                    <Volume2 className="ml-1 h-3 w-3 text-slate-600" />
-                    <input type="range" min={0} max={1} step={0.01} value={track.volume} onChange={event => updateTrack(track.id, { volume: Number(event.target.value) })} className="w-20 accent-purple-500" />
+                    <Volume2 className="ml-0.5 h-3 w-3 text-slate-600" />
+                    <input type="range" min={0} max={1} step={0.01} value={track.volume} onChange={event => updateTrack(track.id, { volume: Number(event.target.value) })} className="w-16 accent-purple-500" />
                   </div>
                 </div>
-                <div className="relative min-h-[86px] bg-[linear-gradient(to_right,rgba(51,65,85,.2)_1px,transparent_1px)]" style={{ width: timelineWidth, backgroundSize: `${Math.max(20, pxPerSecond * (60 / Math.max(1, bpm)) * 4)}px 100%` }} onClick={timelineClick} onDragOver={event => event.preventDefault()} onDrop={event => {
+
+                <div className="relative min-h-[86px] bg-[linear-gradient(to_right,rgba(51,65,85,.2)_1px,transparent_1px)]" style={{ width: timelineWidth, backgroundSize: `${Math.max(20, pxPerSecond * ((60 / Math.max(1, bpm)) / QUANTIZE_DIVISOR[quantize]))}px 100%` }} onClick={timelineClick} onDragOver={event => event.preventDefault()} onDrop={event => {
                   const clipId = event.dataTransfer.getData('text/sonara-clip');
                   if (!clipId) return;
                   const rect = event.currentTarget.getBoundingClientRect();
@@ -751,7 +1189,7 @@ export default function SonaraStudio({
             </div>
             <div className="bg-slate-950/60 p-3">
               <div className="flex items-center justify-between"><div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-wider text-purple-300"><Bot className="h-3.5 w-3.5" /> Studio AI Bar</div><span className="text-[8px] text-slate-700">BETA</span></div>
-              <div className="mt-2 flex gap-2"><input value={assistantText} onChange={event => setAssistantText(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') runAssistant(); }} placeholder="Es. tempo 128 BPM, aggiungi synth..." className="min-w-0 flex-1 rounded-lg border border-slate-800 bg-[#070a10] px-3 py-2 text-[10px] text-white outline-none focus:border-purple-500" /><button onClick={runAssistant} className="rounded-lg bg-purple-600 p-2.5 text-white"><Sparkles className="h-3.5 w-3.5" /></button></div>
+              <div className="mt-2 flex gap-2"><input value={assistantText} onChange={event => setAssistantText(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') runAssistant(); }} placeholder="Es. tempo 128 BPM, metronomo, marker..." className="min-w-0 flex-1 rounded-lg border border-slate-800 bg-[#070a10] px-3 py-2 text-[10px] text-white outline-none focus:border-purple-500" /><button onClick={runAssistant} className="rounded-lg bg-purple-600 p-2.5 text-white"><Sparkles className="h-3.5 w-3.5" /></button></div>
               <div className="mt-2 min-h-8 text-[9px] leading-4 text-slate-500">{assistantNotice}</div>
             </div>
           </div>
@@ -759,8 +1197,8 @@ export default function SonaraStudio({
       </div>
 
       <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 bg-slate-950 px-4 py-2 text-[8px] font-bold uppercase tracking-wider text-slate-600">
-        <div className="flex items-center gap-4"><span className="flex items-center gap-1.5"><Gauge className="h-3 w-3" /> {bpm} BPM</span><span>{keySignature}</span><span>{tracks.length} tracks</span><span>{tracks.reduce((sum, track) => sum + track.clips.length, 0)} clips</span></div>
-        <div className="flex items-center gap-3"><span>48 kHz render</span><span>32-bit float export</span>{rendering && <span className="flex items-center gap-1 text-purple-300"><Loader2 className="h-3 w-3 animate-spin" /> rendering</span>}</div>
+        <div className="flex items-center gap-4"><span className="flex items-center gap-1.5"><Gauge className="h-3 w-3" /> {bpm} BPM</span><span>{keySignature}</span><span>{tracks.length} tracks</span><span>{tracks.reduce((sum, track) => sum + track.clips.length, 0)} clips</span><span>{markers.length} markers</span></div>
+        <div className="flex items-center gap-3"><span>Q {quantize}</span><span>Master {Math.round(masterVolume * 100)}%</span><span>48 kHz render</span><span>32-bit float export</span>{recording && <span className="text-rose-300">● REC</span>}{rendering && <span className="flex items-center gap-1 text-purple-300"><Loader2 className="h-3 w-3 animate-spin" /> rendering</span>}</div>
       </footer>
     </div>
   );
