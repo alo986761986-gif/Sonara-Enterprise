@@ -5,11 +5,11 @@ const appPath = path.resolve(process.cwd(), 'src/App.tsx');
 let source = fs.readFileSync(appPath, 'utf8');
 
 const lazyMarker = `const ProfessionalAudioEqualizer = React.lazy(() =>\n  import('./components/eq/ProfessionalAudioEqualizer').then(module => ({ default: module.ProfessionalAudioEqualizer }))\n);\n\ntype JobStatus`;
-const lazyReplacement = `const ProfessionalAudioEqualizer = React.lazy(() =>\n  import('./components/eq/ProfessionalAudioEqualizer').then(module => ({ default: module.ProfessionalAudioEqualizer }))\n);\nconst ProductionCenter = React.lazy(() =>\n  import('./components/production/ProductionCenter').then(module => ({ default: module.ProductionCenter }))\n);\nconst SonaraStore = React.lazy(() => import('./components/marketplace/SonaraStore'));\n\ntype JobStatus`;
+const lazyReplacement = `const ProfessionalAudioEqualizer = React.lazy(() =>\n  import('./components/eq/ProfessionalAudioEqualizer').then(module => ({ default: module.ProfessionalAudioEqualizer }))\n);\nconst ProductionCenter = React.lazy(() =>\n  import('./components/production/ProductionCenter').then(module => ({ default: module.ProductionCenter }))\n);\nconst SonaraStore = React.lazy(() => import('./components/marketplace/SonaraStore'));\nconst SocialDiscoveryCenter = React.lazy(() => import('./components/discovery/SocialDiscoveryCenter'));\n\ntype JobStatus`;
 
-if (!source.includes("./components/production/ProductionCenter") || !source.includes("./components/marketplace/SonaraStore")) {
+if (!source.includes("./components/production/ProductionCenter") || !source.includes("./components/marketplace/SonaraStore") || !source.includes("./components/discovery/SocialDiscoveryCenter")) {
   if (!source.includes(lazyMarker)) {
-    throw new Error('SONARA production activation failed: lazy import marker not found.');
+    throw new Error('SONARA activation failed: lazy import marker not found.');
   }
   source = source.replace(lazyMarker, lazyReplacement);
 }
@@ -19,9 +19,7 @@ const oldProductionView = `  const productionView = (\n    <Card className=\"p-6
 const newProductionView = `  const productionView = (\n    <React.Suspense fallback={<Card className=\"flex min-h-[420px] items-center justify-center p-6 text-xs text-slate-500\"><RefreshCw className=\"mr-2 h-4 w-4 animate-spin text-purple-400\" />Caricamento SONARA Production Suite...</Card>}>\n      <ProductionCenter\n        audioUrl={audioUrl}\n        audioFormat={audioFormat}\n        title={title}\n        onProcessedAudio={(url, metrics) => void handleProcessedAudio(url, metrics)}\n        onOpenMastering={() => setActiveTab('eq')}\n      />\n    </React.Suspense>\n  );`;
 
 if (!source.includes('<ProductionCenter')) {
-  if (!source.includes(oldProductionView)) {
-    throw new Error('SONARA production activation failed: production view marker not found.');
-  }
+  if (!source.includes(oldProductionView)) throw new Error('SONARA production activation failed: production view marker not found.');
   source = source.replace(oldProductionView, newProductionView);
 }
 
@@ -30,12 +28,21 @@ const oldMarketplaceView = `  const marketplaceView = (\n    <Card className=\"p
 const newMarketplaceView = `  const marketplaceView = (\n    <React.Suspense fallback={<Card className=\"flex min-h-[420px] items-center justify-center p-6 text-xs text-slate-500\"><RefreshCw className=\"mr-2 h-4 w-4 animate-spin text-purple-400\" />Caricamento SONARA Store...</Card>}>\n      <SonaraStore />\n    </React.Suspense>\n  );`;
 
 if (!source.includes('<SonaraStore')) {
-  if (!source.includes(oldMarketplaceView)) {
-    throw new Error('SONARA marketplace activation failed: marketplace view marker not found.');
-  }
+  if (!source.includes(oldMarketplaceView)) throw new Error('SONARA marketplace activation failed: marketplace view marker not found.');
   source = source.replace(oldMarketplaceView, newMarketplaceView);
+}
+
+const discoveryStart = `  const discoveryView = (`;
+const discoveryEnd = `\n\n  const analyticsView = (`;
+if (!source.includes('<SocialDiscoveryCenter')) {
+  const start = source.indexOf(discoveryStart);
+  const end = source.indexOf(discoveryEnd, start);
+  if (start < 0 || end < 0) throw new Error('SONARA social discovery activation failed: discovery view marker not found.');
+  const replacement = `  const discoveryView = (\n    <React.Suspense fallback={<Card className=\"flex min-h-[520px] items-center justify-center p-6 text-xs text-slate-500\"><RefreshCw className=\"mr-2 h-4 w-4 animate-spin text-purple-400\" />Caricamento SONARA Social Discovery...</Card>}>\n      <SocialDiscoveryCenter />\n    </React.Suspense>\n  );`;
+  source = source.slice(0, start) + replacement + source.slice(end);
 }
 
 fs.writeFileSync(appPath, source, 'utf8');
 console.log('[SONARA] Production Suite activated: Mixing Console, Mastering, Stem Manager, Export Center.');
 console.log('[SONARA] Marketplace activated: SONARA Store with verified catalog and Stripe one-time checkout.');
+console.log('[SONARA] Social Discovery activated: real profiles, chat, follows, collaborations, matching, live rooms and real trends.');
