@@ -13,6 +13,13 @@ if (!source.includes(socialImport)) {
   source = source.replace(firebaseImport, `${firebaseImport}\n${socialImport}`);
 }
 
+// Social Discovery is bundled directly so navigation never waits on a large WebGL chunk.
+// Remove the legacy globe loader: even unused, it creates a ~1.9 MB production chunk.
+const legacyGlobeImport = `const WorldDiscoveryGlobe = React.lazy(() => import('./components/discovery/WorldDiscoveryGlobe'));\n`;
+if (source.includes(legacyGlobeImport)) {
+  source = source.replace(legacyGlobeImport, '');
+}
+
 const lazyMarker = `const ProfessionalAudioEqualizer = React.lazy(() =>\n  import('./components/eq/ProfessionalAudioEqualizer').then(module => ({ default: module.ProfessionalAudioEqualizer }))\n);\n\ntype JobStatus`;
 const lazyReplacement = `const ProfessionalAudioEqualizer = React.lazy(() =>\n  import('./components/eq/ProfessionalAudioEqualizer').then(module => ({ default: module.ProfessionalAudioEqualizer }))\n);\nconst ProductionCenter = React.lazy(() =>\n  import('./components/production/ProductionCenter').then(module => ({ default: module.ProductionCenter }))\n);\nconst SonaraStore = React.lazy(() => import('./components/marketplace/SonaraStore'));\n\ntype JobStatus`;
 
@@ -54,4 +61,4 @@ if (!source.includes('const discoveryView = (\n    <SocialDiscoveryCenter />')) 
 fs.writeFileSync(appPath, source, 'utf8');
 console.log('[SONARA] Production Suite activated: Mixing Console, Mastering, Stem Manager, Export Center.');
 console.log('[SONARA] Marketplace activated: SONARA Store with verified catalog and Stripe one-time checkout.');
-console.log('[SONARA] Social Discovery activated in main bundle: no lazy-loading deadlock.');
+console.log('[SONARA] Social Discovery activated in main bundle: staged API loading, no WebGL chunk and no lazy-loading deadlock.');

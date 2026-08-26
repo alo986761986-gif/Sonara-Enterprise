@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Bell, CircleUserRound, Globe2, Handshake, Heart, MapPin, MessageCircle, Music2, Plus, Radio, Search, Send, ShieldAlert, Sparkles, Upload, Users, X } from 'lucide-react';
+import React, { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Bell, CircleUserRound, Globe2, Handshake, Heart, MapPin, MessageCircle, Plus, Radio, RefreshCw, Search, Send, ShieldAlert, Sparkles, Upload, Users } from 'lucide-react';
 import { getFirebaseIdToken, getCurrentFirebaseUser } from '../../lib/firebaseClient';
 import { Card } from '../core/Card';
 import { Button } from '../core/Button';
@@ -13,16 +13,31 @@ interface Match { profile: Profile; score: number; }
 interface Room { id: string; name: string; kind: string; genre: string; ownerUid: string; participantCount: number; participantUids: string[]; }
 
 type Tab = 'world' | 'people' | 'chat' | 'collabs' | 'match' | 'live' | 'trending';
+const SOCIAL_REQUEST_TIMEOUT_MS = 12_000;
 
 async function socialFetch(path: string, init: RequestInit = {}) {
-  const token = await getFirebaseIdToken();
-  const response = await fetch(`/api/social/${path}`, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(init.headers || {}) }
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload?.error?.message || `SONARA Social HTTP ${response.status}`);
-  return payload;
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), SOCIAL_REQUEST_TIMEOUT_MS);
+  const abortFromCaller = () => controller.abort();
+  init.signal?.addEventListener('abort', abortFromCaller, { once: true });
+
+  try {
+    const token = await getFirebaseIdToken();
+    const response = await fetch(`/api/social/${path}`, {
+      ...init,
+      signal: controller.signal,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...(init.headers || {}) }
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload?.error?.message || `SONARA Social HTTP ${response.status}`);
+    return payload;
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error('Scoperta non ha risposto in tempo. Riprova tra qualche secondo.');
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+    init.signal?.removeEventListener('abort', abortFromCaller);
+  }
 }
 
 const ROLES = ['Artist', 'Producer', 'DJ', 'Studio', 'Label', 'Songwriter', 'Vocalist', 'Instrumentalist', 'AI Creator'];
@@ -43,23 +58,22 @@ export default function SocialDiscoveryCenter() {
   const [stats, setStats] = useState<any>(null);
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
+  const [loadingCore, setLoadingCore] = useState(true);
+  const [loadingTab, setLoadingTab] = useState<Tab | null>(null);
   const [error, setError] = useState('');
   const [profileDraft, setProfileDraft] = useState<any>({ displayName: '', bio: '', role: 'Artist', genres: '', languages: '', cityId: '', discoverable: false });
   const [collabDraft, setCollabDraft] = useState<any>({ title: '', description: '', genre: '', roleWanted: '', language: '', bpm: '' });
   const [roomDraft, setRoomDraft] = useState<any>({ name: '', kind: 'Studio aperto', genre: '' });
+  const loadedTabsRef = useRef(new Set<Tab>());
   const me = getCurrentFirebaseUser();
 
   const loadCore = useCallback(async () => {
+    setLoadingCore(true);
+    setError('');
     try {
-      const [boot, discovered, dashboard] = await Promise.all([
-        socialFetch('bootstrap', { method: 'POST', body: JSON.stringify({ displayName: me?.displayName || '', photoURL: me?.photoURL || '' }) }),
-        socialFetch('discover'),
-        socialFetch('dashboard')
-      ]);
+      const boot = await socialFetch('bootstrap', { method: 'POST', body: JSON.stringify({ displayName: me?.displayName || '', photoURL: me?.photoURL || '' }) });
       setProfile(boot.profile);
       setHubs(boot.hubs || []);
-      setPeople(discovered.profiles || []);
-      setStats(dashboard);
       setProfileDraft({
         displayName: boot.profile.displayName || '',
         bio: boot.profile.bio || '',
@@ -69,27 +83,65 @@ export default function SocialDiscoveryCenter() {
         cityId: boot.profile.cityId || '',
         discoverable: Boolean(boot.profile.discoverable)
       });
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+      setLoadingCore(false);
+
+      const [discovered, dashboard] = await Promise.allSettled([
+        socialFetch('discover'),
+        socialFetch('dashboard')
+      ]);
+      if (discovered.status === 'fulfilled') setPeople(discovered.value.profiles || []);
+      if (dashboard.status === 'fulfilled') setStats(dashboard.value);
+      if (discovered.status === 'rejected' && dashboard.status === 'rejected') {
+        setError('I dati della community non sono disponibili in questo momento. La pagina resta utilizzabile.');
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoadingCore(false);
+    }
   }, [me?.displayName, me?.photoURL]);
 
-  const loadSocial = useCallback(async () => {
+  const loadTabData = useCallback(async (target: Tab, force = false) => {
+    if (target === 'world' || target === 'people' || target === 'trending') return;
+    if (!force && loadedTabsRef.current.has(target)) return;
+    setLoadingTab(target);
+    setError('');
     try {
-      const [threadData, collabData, matchData, roomData] = await Promise.all([
-        socialFetch('threads'), socialFetch('collaborations'), socialFetch('matches'), socialFetch('rooms')
-      ]);
-      setThreads(threadData.threads || []);
-      setCollabs(collabData.collaborations || []);
-      setMatches(matchData.matches || []);
-      setRooms(roomData.rooms || []);
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+      if (target === 'chat') {
+        const data = await socialFetch('threads');
+        setThreads(data.threads || []);
+      } else if (target === 'collabs') {
+        const data = await socialFetch('collaborations');
+        setCollabs(data.collaborations || []);
+      } else if (target === 'match') {
+        const data = await socialFetch('matches');
+        setMatches(data.matches || []);
+      } else if (target === 'live') {
+        const data = await socialFetch('rooms');
+        setRooms(data.rooms || []);
+      }
+      loadedTabsRef.current.add(target);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoadingTab(current => current === target ? null : current);
+    }
   }, []);
 
-  useEffect(() => { void loadCore(); void loadSocial(); }, [loadCore, loadSocial]);
+  useEffect(() => { void loadCore(); }, [loadCore]);
+  useEffect(() => { void loadTabData(tab); }, [loadTabData, tab]);
   useEffect(() => {
-    const ping = () => socialFetch('presence', { method: 'POST', body: '{}' }).catch(() => undefined);
-    void ping();
-    const id = window.setInterval(ping, 45_000);
-    return () => window.clearInterval(id);
+    const ping = () => {
+      if (document.visibilityState === 'visible') {
+        void socialFetch('presence', { method: 'POST', body: '{}' }).catch(() => undefined);
+      }
+    };
+    const firstPingId = window.setTimeout(ping, 2_000);
+    const intervalId = window.setInterval(ping, 60_000);
+    return () => {
+      window.clearTimeout(firstPingId);
+      window.clearInterval(intervalId);
+    };
   }, []);
 
   useEffect(() => {
@@ -127,8 +179,8 @@ export default function SocialDiscoveryCenter() {
     try {
       const data = await socialFetch('thread', { method: 'POST', body: JSON.stringify({ participantUids: [uid] }) });
       setSelectedThread(data.threadId);
-      setTab('chat');
-      await loadSocial();
+      startTransition(() => setTab('chat'));
+      await loadTabData('chat', true);
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
   };
@@ -140,7 +192,7 @@ export default function SocialDiscoveryCenter() {
     await socialFetch('message', { method: 'POST', body: JSON.stringify({ threadId: selectedThread, text }) });
     const data = await socialFetch(`messages?threadId=${encodeURIComponent(selectedThread)}`);
     setMessages(data.messages || []);
-    await loadSocial();
+    await loadTabData('chat', true);
   };
 
   const uploadAttachment = async (file: File) => {
@@ -158,18 +210,18 @@ export default function SocialDiscoveryCenter() {
   const createCollab = async () => {
     await socialFetch('collaboration', { method: 'POST', body: JSON.stringify(collabDraft) });
     setCollabDraft({ title: '', description: '', genre: '', roleWanted: '', language: '', bpm: '' });
-    await loadSocial();
+    await loadTabData('collabs', true);
   };
 
   const createRoom = async () => {
     await socialFetch('room', { method: 'POST', body: JSON.stringify(roomDraft) });
     setRoomDraft({ name: '', kind: 'Studio aperto', genre: '' });
-    await loadSocial();
+    await loadTabData('live', true);
   };
 
   const joinRoom = async (roomId: string) => {
     await socialFetch('room/join', { method: 'POST', body: JSON.stringify({ roomId }) });
-    await loadSocial();
+    await loadTabData('live', true);
   };
 
   const tabs: Array<{ id: Tab; label: string; icon: any }> = [
@@ -178,13 +230,14 @@ export default function SocialDiscoveryCenter() {
   ];
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5" aria-busy={loadingCore || loadingTab !== null}>
       <Card className="p-5 sm:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-cyan-300"><Globe2 className="h-4 w-4" />SONARA Social Discovery</div>
             <h2 className="mt-1 text-2xl font-black text-white">Scopri, parla e collabora con creator reali</h2>
             <p className="mt-2 max-w-3xl text-sm text-slate-400">Profili opt-in, posizione solo a livello città, chat reale, collaborazioni, matching musicale e stanze LIVE.</p>
+            {loadingCore && <div className="mt-3 flex items-center gap-2 text-xs font-bold text-cyan-300"><RefreshCw className="h-3.5 w-3.5 animate-spin" />Connessione alla community...</div>}
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <Stat label="Creator" value={stats?.stats?.discoverableCreators ?? 0} />
@@ -196,7 +249,7 @@ export default function SocialDiscoveryCenter() {
       </Card>
 
       <div className="flex gap-2 overflow-x-auto pb-1">
-        {tabs.map(item => { const Icon = item.icon; return <button key={item.id} onClick={() => setTab(item.id)} className={`flex shrink-0 items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold ${tab === item.id ? 'border-purple-400/40 bg-purple-500/15 text-white' : 'border-slate-800 bg-slate-950 text-slate-400'}`}><Icon className="h-4 w-4" />{item.label}</button>; })}
+        {tabs.map(item => { const Icon = item.icon; const isLoading = loadingTab === item.id; return <button key={item.id} type="button" onClick={() => startTransition(() => setTab(item.id))} className={`flex shrink-0 items-center gap-2 rounded-xl border px-3 py-2 text-xs font-bold ${tab === item.id ? 'border-purple-400/40 bg-purple-500/15 text-white' : 'border-slate-800 bg-slate-950 text-slate-400'}`} aria-pressed={tab === item.id}>{isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Icon className="h-4 w-4" />}{item.label}</button>; })}
       </div>
 
       {error && <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-3 text-xs text-rose-300">{error}</div>}
@@ -241,7 +294,7 @@ function WorldTab({ profile, draft, setDraft, hubs, people, busy, onSave, onChat
   </div>;
 }
 
-function ProfileCard({ p, onChat }: { p: Profile; onChat: (uid:string)=>void }) { return <div className="rounded-2xl border border-white/5 bg-white/[0.025] p-4"><div className="flex items-center gap-3"><div className="relative"><div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-purple-500/15">{p.photoURL ? <img src={p.photoURL} className="h-full w-full object-cover" /> : <CircleUserRound className="h-6 w-6 text-purple-300" />}</div>{p.online && <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-slate-950 bg-emerald-400" />}</div><div className="min-w-0"><div className="truncate font-bold text-white">{p.displayName}</div><div className="text-[10px] text-slate-500">{p.flag} {p.city} · {p.role}</div></div></div><div className="mt-3 flex flex-wrap gap-1">{(p.genres||[]).slice(0,4).map(g=><span key={g} className="rounded-full bg-purple-500/10 px-2 py-1 text-[9px] text-purple-300">{g}</span>)}</div><button onClick={()=>onChat(p.uid)} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-xs font-bold text-cyan-300"><MessageCircle className="h-4 w-4" />Messaggio</button></div>; }
+function ProfileCard({ p, onChat }: { p: Profile; onChat: (uid:string)=>void }) { return <div className="rounded-2xl border border-white/5 bg-white/[0.025] p-4" style={{ contentVisibility: 'auto', containIntrinsicSize: '180px' }}><div className="flex items-center gap-3"><div className="relative"><div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-purple-500/15">{p.photoURL ? <img src={p.photoURL} alt={`Profilo di ${p.displayName}`} loading="lazy" decoding="async" className="h-full w-full object-cover" /> : <CircleUserRound className="h-6 w-6 text-purple-300" />}</div>{p.online && <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-slate-950 bg-emerald-400" />}</div><div className="min-w-0"><div className="truncate font-bold text-white">{p.displayName}</div><div className="text-[10px] text-slate-500">{p.flag} {p.city} · {p.role}</div></div></div><div className="mt-3 flex flex-wrap gap-1">{(p.genres||[]).slice(0,4).map(g=><span key={g} className="rounded-full bg-purple-500/10 px-2 py-1 text-[9px] text-purple-300">{g}</span>)}</div><button onClick={()=>onChat(p.uid)} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-xs font-bold text-cyan-300"><MessageCircle className="h-4 w-4" />Messaggio</button></div>; }
 
 function PeopleTab({ people, search, setSearch, onChat, onFollow, onBlock }: any) { return <Card className="p-5"><div className="relative mb-4"><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-500" /><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Cerca creator, città, genere, ruolo..." className="w-full rounded-xl border border-slate-800 bg-slate-950 py-3 pl-10 pr-3 text-sm" /></div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{people.map((p:Profile)=><div key={p.uid} className="rounded-xl border border-slate-800 bg-slate-950 p-4"><ProfileCard p={p} onChat={onChat}/><div className="mt-2 grid grid-cols-2 gap-2"><button onClick={()=>onFollow(p.uid)} className="rounded-lg border border-rose-500/20 px-3 py-2 text-xs text-rose-300"><Heart className="mr-1 inline h-3.5 w-3.5"/>Segui</button><button onClick={()=>onBlock(p.uid)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-400"><ShieldAlert className="mr-1 inline h-3.5 w-3.5"/>Blocca</button></div></div>)}</div></Card>; }
 
