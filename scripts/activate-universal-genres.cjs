@@ -47,7 +47,7 @@ if (!source.includes('onClick={intelligentRandomLyrics}')) {
   if (!source.includes(clearButtonMarker)) {
     throw new Error('SONARA Intelligent Lyrics activation failed: clear button marker not found.');
   }
-  const smartButton = `            <button\n              type="button"\n              onClick={intelligentRandomLyrics}\n              disabled={busy || vocalMode === 'instrumental'}\n              title={vocalMode === 'instrumental' ? 'Seleziona prima una voce' : 'Crea un testo intelligente casuale, coerente con genere e atmosfera'}\n              aria-label="Genera un testo intelligente casuale"\n              className="flex items-center gap-1.5 rounded-lg border border-purple-500/40 bg-purple-500/10 px-3 py-1.5 text-[10px] font-black tracking-widest text-purple-200 transition hover:border-fuchsia-400 hover:bg-purple-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"\n            >\n              <Sparkles className="h-3 w-3" />\n              INTELLIGENTE\n            </button>\n`;
+  const smartButton = `            <button\n              type="button"\n              onClick={intelligentRandomLyrics}\n              disabled={busy || vocalMode === 'instrumental'}\n              title={vocalMode === 'instrumental' ? 'Seleziona prima una voce' : 'Crea un testo intelligente casuale, coerente con genere e atmosfera'}\n              aria-label="Genera Testo Intelligente"\n              className="flex items-center gap-1.5 rounded-lg border border-purple-500/40 bg-purple-500/10 px-3 py-1.5 text-[10px] font-black tracking-widest text-purple-200 transition hover:border-fuchsia-400 hover:bg-purple-500/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"\n            >\n              <Sparkles className="h-3 w-3" />\n              Testo Intelligente\n            </button>\n`;
   source = source.replace(clearButtonMarker, `${smartButton}${clearButtonMarker}`);
 }
 
@@ -63,6 +63,6 @@ if (!source.includes('styleCaption: buildUniversalStyleCaption')) {
 
 fs.writeFileSync(appPath, source, 'utf8');
 console.log('[SONARA] Professional Lyrics v2 activated: AI-first generation with local professional fallback, genre-specific structure, BPM/duration synchronization and unlimited variants.');
-console.log('[SONARA] Intelligent Lyrics button activated: smart random narrative concept + selected genre/subgenre/atmosphere constraints.');
+console.log('[SONARA] Testo Intelligente activated in the Lyrics toolbar: smart random narrative concept + selected genre/subgenre/atmosphere constraints.');
 console.log('[SONARA] Legacy House/Techno/Electronic lyric files preserved; Professional Lyrics v2 is now authoritative at generation time.');
 console.log('[SONARA] Universal Style Caption activated: family + genre + subgenre + atmosphere fingerprint sent to engine.');
