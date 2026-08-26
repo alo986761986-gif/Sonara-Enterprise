@@ -60,10 +60,6 @@ runtime_env = {
     "ACESTEP_COMPILE_MODEL": "false",
     "ACESTEP_QUEUE_WORKERS": "1",
     "ACESTEP_QUEUE_MAXSIZE": "200",
-    # ACE-Step writes API WAV files below $ACESTEP_TMPDIR/api_audio. Keep that
-    # directory on the mounted output Volume instead of the container-local
-    # /app/.cache tree, otherwise a later /v1/audio request can reach a
-    # different container (or a replacement container) and return HTTP 404.
     "ACESTEP_TMPDIR": API_TMP_DIR,
     "ACESTEP_LLM_BACKEND": "pt",
     "TOKENIZERS_PARALLELISM": "false",
@@ -95,8 +91,6 @@ image = (
         "python -m pip install --no-cache-dir 'uv>=0.7,<1'",
         "git clone --depth 1 https://github.com/ace-step/ACE-Step-1.5.git /app",
         "cd /app && uv sync --frozen --no-dev --python python3.11",
-        # The Volume mount point must stay empty in the image. ACE-Step creates
-        # runtime/api_audio after Modal has mounted OUTPUTS_DIR.
         "mkdir -p /app/checkpoints /app/gradio_outputs /app/output /cache/huggingface",
     )
     .env(runtime_env)
@@ -104,8 +98,6 @@ image = (
 
 
 def _activate_acestep_runtime() -> None:
-    """Expose the uv-managed ACE-Step environment to Modal's function Python."""
-
     for path in (ACESTEP_VENV_SITE, ACESTEP_ROOT):
         if path not in sys.path:
             sys.path.insert(0, path)
@@ -128,7 +120,7 @@ def _professional_checkpoint_status() -> dict[str, Any]:
     from acestep.model_downloader import check_main_model_exists, check_model_exists
 
     checkpoints = Path(CHECKPOINTS_DIR)
-    status = {
+    return {
         "main": check_main_model_exists(checkpoints),
         "fastDit": check_model_exists(FAST_DIT_MODEL, checkpoints),
         "qualityDit": check_model_exists(QUALITY_DIT_MODEL, checkpoints),
@@ -137,86 +129,42 @@ def _professional_checkpoint_status() -> dict[str, Any]:
         "vae": (checkpoints / "vae").exists(),
         "textEncoder": (checkpoints / "Qwen3-Embedding-0.6B").exists(),
     }
-    return status
 
 
 def _commit_outputs_forever(interval_seconds: float = 2.0) -> None:
-    """Persist API audio written by the ACE-Step web-server subprocess."""
-
     while True:
         time.sleep(interval_seconds)
         try:
             output_volume.commit()
         except Exception as exc:
-            # A transient commit failure must not stop music generation. The
-            # next pass retries automatically while the container stays alive.
             print(f"[SONARA] Output Volume commit retry: {exc}", flush=True)
 
 
 @app.function(
     image=image,
-    volumes={
-        CHECKPOINTS_DIR: model_volume,
-        HF_CACHE_DIR: cache_volume,
-    },
+    volumes={CHECKPOINTS_DIR: model_volume, HF_CACHE_DIR: cache_volume},
     cpu=4.0,
     memory=32768,
     ephemeral_disk=EPHEMERAL_DISK_MIB,
     timeout=4 * 60 * MINUTES,
 )
 def prepare_models() -> dict[str, object]:
-    """Persist the fast, quality and language-model checkpoints before deploy."""
-
     os.chdir(ACESTEP_ROOT)
     _activate_acestep_runtime()
-    from acestep.model_downloader import (
-        ensure_dit_model,
-        ensure_lm_model,
-        ensure_main_model,
-    )
+    from acestep.model_downloader import ensure_dit_model, ensure_lm_model, ensure_main_model
 
     messages = {
-        "main": _require_download(
-            ensure_main_model(
-                checkpoints_dir=Path(CHECKPOINTS_DIR),
-                prefer_source="huggingface",
-            ),
-            "ACE-Step main components",
-        ),
-        "fastDit": _require_download(
-            ensure_dit_model(
-                FAST_DIT_MODEL,
-                checkpoints_dir=Path(CHECKPOINTS_DIR),
-                prefer_source="huggingface",
-            ),
-            FAST_DIT_MODEL,
-        ),
-        "qualityDit": _require_download(
-            ensure_dit_model(
-                QUALITY_DIT_MODEL,
-                checkpoints_dir=Path(CHECKPOINTS_DIR),
-                prefer_source="huggingface",
-            ),
-            QUALITY_DIT_MODEL,
-        ),
-        "lm": _require_download(
-            ensure_lm_model(
-                LM_MODEL,
-                checkpoints_dir=Path(CHECKPOINTS_DIR),
-                prefer_source="huggingface",
-            ),
-            LM_MODEL,
-        ),
+        "main": _require_download(ensure_main_model(checkpoints_dir=Path(CHECKPOINTS_DIR), prefer_source="huggingface"), "ACE-Step main components"),
+        "fastDit": _require_download(ensure_dit_model(FAST_DIT_MODEL, checkpoints_dir=Path(CHECKPOINTS_DIR), prefer_source="huggingface"), FAST_DIT_MODEL),
+        "qualityDit": _require_download(ensure_dit_model(QUALITY_DIT_MODEL, checkpoints_dir=Path(CHECKPOINTS_DIR), prefer_source="huggingface"), QUALITY_DIT_MODEL),
+        "lm": _require_download(ensure_lm_model(LM_MODEL, checkpoints_dir=Path(CHECKPOINTS_DIR), prefer_source="huggingface"), LM_MODEL),
     }
-
     model_volume.commit()
     cache_volume.commit()
-
     status = _professional_checkpoint_status()
     missing = [name for name, ready in status.items() if not ready]
     if missing:
         raise RuntimeError(f"ACE-Step model preparation incomplete: {missing}")
-
     return {
         "ok": True,
         "fastDitModel": FAST_DIT_MODEL,
@@ -243,10 +191,7 @@ def prepare_models() -> dict[str, object]:
     timeout=24 * 60 * MINUTES,
     startup_timeout=30 * MINUTES,
     scaledown_window=SCALEDOWN_WINDOW_SECONDS,
-    min_containers=0,
-    # ACE-Step keeps its task queue/result store in memory. A single
-    # authoritative container guarantees release_task, query_result and both
-    # /v1/audio downloads observe the same job state and files.
+    min_containers=1,
     max_containers=1,
     name=FUNCTION_NAME,
 )
@@ -257,8 +202,6 @@ def prepare_models() -> dict[str, object]:
     requires_proxy_auth=True,
 )
 def serve_acestep() -> None:
-    """Run the official ACE-Step REST server behind Modal proxy authentication."""
-
     output_volume.reload()
     threading.Thread(
         target=_commit_outputs_forever,
@@ -286,25 +229,15 @@ def serve_acestep() -> None:
         LM_MODEL,
     ]
 
-    subprocess.Popen(
-        command,
-        cwd=ACESTEP_ROOT,
-        env=env,
-        start_new_session=True,
-    )
+    subprocess.Popen(command, cwd=ACESTEP_ROOT, env=env, start_new_session=True)
 
 
 @app.function(
     image=image,
-    volumes={
-        CHECKPOINTS_DIR: model_volume,
-        HF_CACHE_DIR: cache_volume,
-    },
+    volumes={CHECKPOINTS_DIR: model_volume, HF_CACHE_DIR: cache_volume},
     timeout=10 * MINUTES,
 )
 def verify_configuration() -> dict[str, object]:
-    """Fail deployment verification if either production DiT path is missing."""
-
     os.chdir(ACESTEP_ROOT)
     _activate_acestep_runtime()
     status = _professional_checkpoint_status()
@@ -322,7 +255,7 @@ def verify_configuration() -> dict[str, object]:
         "ditModel": QUALITY_DIT_MODEL,
         "lmModel": LM_MODEL,
         "proxyAuthentication": True,
-        "minGpuContainers": 0,
+        "minGpuContainers": 1,
         "maxConcurrentGpuContainers": 1,
         "scaledownWindowSeconds": SCALEDOWN_WINDOW_SECONDS,
         "apiTemporaryDirectory": API_TMP_DIR,
