@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import { createRequire } from 'node:module';
-import { WebSocketServer } from 'ws';
+import { WebSocket, WebSocketServer } from 'ws';
 
 const require = createRequire(import.meta.url);
 const HOST = '127.0.0.1';
@@ -34,7 +34,7 @@ let link = null;
 let linkTimer = null;
 
 const safeSend = (socket, payload) => {
-  if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(payload));
+  if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
 };
 const broadcast = payload => { for (const client of clients) safeSend(client, payload); };
 
@@ -79,9 +79,8 @@ function listHid() {
 
 function listAudio() {
   if (!audify?.RtAudio) return [];
-  let rt = null;
   try {
-    rt = new audify.RtAudio();
+    const rt = new audify.RtAudio();
     const source = rt.getDevices?.() || [];
     return source.map(device => ({
       id: `audio-${device.id}`,
