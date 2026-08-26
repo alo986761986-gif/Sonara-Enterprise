@@ -1,3 +1,3 @@
-Production prebuilt redeploy trigger for SONARA DJ Pro X1 MK2 + Z1 MK2 fix.
-Application source is unchanged by this trigger file.
-Use GitHub Actions local build + Vercel --prebuilt production deploy to bypass remote build-rate limits.
+Production redeploy trigger for SONARA DJ Pro NI MIDI listener hotfix.
+Source fix: PR #29 / merge 238d6f1a16459d8181627df75a1ae7d473cbe795.
+Retry production deployment after Vercel build-rate-limit.
