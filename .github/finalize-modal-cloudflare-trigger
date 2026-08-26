@@ -1,2 +1,2 @@
-trigger: 2026-08-26T20:45:00+02:00
-reason: synchronize new Modal workspace endpoint and fresh proxy auth to Cloudflare production
+trigger: 2026-08-26T20:56:00+02:00
+reason: rerun final Modal Cloudflare readiness after following Modal long-request redirects
