@@ -1,2 +1,2 @@
-trigger: 2026-08-26T23:15:00+02:00
-reason: deploy generator stability hotfix to stop duplicate edge MutationObserver controls from freezing the UI
+trigger: 2026-08-26T23:37:00+02:00
+reason: deploy free-plan generation 524 retry and JSON normalization hotfix
