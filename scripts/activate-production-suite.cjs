@@ -6,22 +6,34 @@ let source = fs.readFileSync(appPath, 'utf8');
 
 const randomLyricsImport = `import { buildRandomLyrics } from './randomLyrics';`;
 const houseLyricsImport = `import { buildHouseLyrics, hasHouseLyricsProfile } from './houseLyrics';`;
+const technoLyricsImport = `import { buildTechnoLyrics, hasTechnoLyricsProfile } from './technoLyrics';`;
 if (!source.includes(houseLyricsImport)) {
   if (!source.includes(randomLyricsImport)) {
-    throw new Error('SONARA House lyrics activation failed: random lyrics import marker not found.');
+    throw new Error('SONARA genre lyrics activation failed: random lyrics import marker not found.');
   }
   source = source.replace(randomLyricsImport, `${randomLyricsImport}\n${houseLyricsImport}`);
+}
+if (!source.includes(technoLyricsImport)) {
+  if (!source.includes(houseLyricsImport)) {
+    throw new Error('SONARA Techno lyrics activation failed: House lyrics import marker not found.');
+  }
+  source = source.replace(houseLyricsImport, `${houseLyricsImport}\n${technoLyricsImport}`);
 }
 
 const oldRandomizeLyrics = `  const randomizeLyrics = () => {\n    lyricsVariantRef.current = (lyricsVariantRef.current + 1) % 4;\n    setLyrics(buildRandomLyrics({\n      language: vocalLanguage,\n      genre,\n      subgenre,\n      mood,\n      vocalMode,\n      variant: lyricsVariantRef.current\n    }));\n  };`;
 
-const newRandomizeLyrics = `  const randomizeLyrics = () => {\n    lyricsVariantRef.current = (lyricsVariantRef.current + 1) % 4;\n    const useHouseLyrics = genreFamily === 'Electronic / Dance' && genre === 'House' && hasHouseLyricsProfile(subgenre);\n    setLyrics(useHouseLyrics\n      ? buildHouseLyrics({\n          language: vocalLanguage,\n          subgenre,\n          mood,\n          vocalMode,\n          variant: lyricsVariantRef.current,\n          durationSec\n        })\n      : buildRandomLyrics({\n          language: vocalLanguage,\n          genre,\n          subgenre,\n          mood,\n          vocalMode,\n          variant: lyricsVariantRef.current\n        }));\n  };`;
+const houseOnlyRandomizeLyrics = `  const randomizeLyrics = () => {\n    lyricsVariantRef.current = (lyricsVariantRef.current + 1) % 4;\n    const useHouseLyrics = genreFamily === 'Electronic / Dance' && genre === 'House' && hasHouseLyricsProfile(subgenre);\n    setLyrics(useHouseLyrics\n      ? buildHouseLyrics({\n          language: vocalLanguage,\n          subgenre,\n          mood,\n          vocalMode,\n          variant: lyricsVariantRef.current,\n          durationSec\n        })\n      : buildRandomLyrics({\n          language: vocalLanguage,\n          genre,\n          subgenre,\n          mood,\n          vocalMode,\n          variant: lyricsVariantRef.current\n        }));\n  };`;
 
-if (!source.includes('const useHouseLyrics = genreFamily')) {
-  if (!source.includes(oldRandomizeLyrics)) {
-    throw new Error('SONARA House lyrics activation failed: randomizeLyrics marker not found.');
+const houseTechnoRandomizeLyrics = `  const randomizeLyrics = () => {\n    lyricsVariantRef.current = (lyricsVariantRef.current + 1) % 4;\n    const useHouseLyrics = genreFamily === 'Electronic / Dance' && genre === 'House' && hasHouseLyricsProfile(subgenre);\n    const useTechnoLyrics = genreFamily === 'Electronic / Dance' && genre === 'Techno' && hasTechnoLyricsProfile(subgenre);\n    setLyrics(useHouseLyrics\n      ? buildHouseLyrics({\n          language: vocalLanguage,\n          subgenre,\n          mood,\n          vocalMode,\n          variant: lyricsVariantRef.current,\n          durationSec\n        })\n      : useTechnoLyrics\n        ? buildTechnoLyrics({\n            language: vocalLanguage,\n            subgenre,\n            mood,\n            vocalMode,\n            variant: lyricsVariantRef.current,\n            durationSec\n          })\n        : buildRandomLyrics({\n            language: vocalLanguage,\n            genre,\n            subgenre,\n            mood,\n            vocalMode,\n            variant: lyricsVariantRef.current\n          }));\n  };`;
+
+if (!source.includes('const useTechnoLyrics = genreFamily')) {
+  if (source.includes(houseOnlyRandomizeLyrics)) {
+    source = source.replace(houseOnlyRandomizeLyrics, houseTechnoRandomizeLyrics);
+  } else if (source.includes(oldRandomizeLyrics)) {
+    source = source.replace(oldRandomizeLyrics, houseTechnoRandomizeLyrics);
+  } else {
+    throw new Error('SONARA Techno lyrics activation failed: randomizeLyrics marker not found.');
   }
-  source = source.replace(oldRandomizeLyrics, newRandomizeLyrics);
 }
 
 const firebaseImport = `import { getFirebaseIdToken, watchFirebaseUser } from './lib/firebaseClient';`;
@@ -33,8 +45,6 @@ if (!source.includes(socialImport)) {
   source = source.replace(firebaseImport, `${firebaseImport}\n${socialImport}`);
 }
 
-// Social Discovery is bundled directly so navigation never waits on a large WebGL chunk.
-// Remove the legacy globe loader: even unused, it creates a ~1.9 MB production chunk.
 const legacyGlobeImport = `const WorldDiscoveryGlobe = React.lazy(() => import('./components/discovery/WorldDiscoveryGlobe'));\n`;
 if (source.includes(legacyGlobeImport)) {
   source = source.replace(legacyGlobeImport, '');
@@ -80,6 +90,7 @@ if (!source.includes('const discoveryView = (\n    <SocialDiscoveryCenter />')) 
 
 fs.writeFileSync(appPath, source, 'utf8');
 console.log('[SONARA] House Lyrics activated: subgenre-aware writing and duration-aware extended structure.');
+console.log('[SONARA] Techno Lyrics activated: 14 subgenre-aware profiles and duration-aware extended structure.');
 console.log('[SONARA] Production Suite activated: Mixing Console, Mastering, Stem Manager, Export Center.');
 console.log('[SONARA] Marketplace activated: SONARA Store with verified catalog and Stripe one-time checkout.');
 console.log('[SONARA] Social Discovery activated in main bundle: staged API loading, no WebGL chunk and no lazy-loading deadlock.');
