@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Cable, CheckCircle2, Disc3, Download, ExternalLink, Settings2, SlidersHorizontal, Usb, XCircle } from 'lucide-react';
 import DJLiveMixer from './DJLiveMixer';
 import DJAudioRouting from './DJAudioRouting';
+import DJDeckSkinManager from './DJDeckSkinManager';
 import { bipolarMidiValue, emitDJControl, normalizedMidiValue } from './djRuntime';
 
 type CoreAction =
@@ -180,6 +181,7 @@ export default function NIMinimalConsole() {
       <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">{ACTIONS.map(action => { const rule = mapping[action.id]; const active = learning === action.id; return <button key={action.id} onClick={() => { const next = active ? '' : action.id; setLearning(next); learningRef.current = next; }} className={`rounded-xl border p-3 text-left ${active ? 'border-amber-400/40 bg-amber-400/10' : rule ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-slate-800 bg-slate-950'}`}><div className="text-[8px] font-black text-white">{action.label}</div><div className="mt-1 text-[7px] font-bold text-slate-600">{active ? `MUOVI ORA · ${action.preferred}` : rule ? `OK · ${action.preferred}` : action.preferred}</div></button>; })}</div>
     </section> : null}
 
+    <DJDeckSkinManager profileId="ni-x1mk2-z1mk2" profileName="X1 MK2 + Z1 MK2" />
     <div className="ni-decks"><DJLiveMixer/></div>
     <style>{`
       [data-ni-console] .ni-audio > section { border-radius:18px!important; background:#080b11!important; border-color:rgba(34,211,238,.18)!important; }
@@ -189,13 +191,9 @@ export default function NIMinimalConsole() {
       [data-ni-console] .ni-audio > section > div:nth-child(2) > label:nth-child(2),
       [data-ni-console] .ni-audio > section > div:nth-child(2) > label:nth-child(3),
       [data-ni-console] .ni-audio > section > div:nth-child(3) { display:none!important; }
-      [data-ni-console] .ni-decks > section { border-radius: 18px !important; border-color: rgba(51,65,85,.75) !important; background: #05070b !important; }
+      [data-ni-console] .ni-decks > section { border-radius:18px!important; border-color:rgba(51,65,85,.75)!important; background:#05070b!important; }
       [data-ni-console] .ni-decks > section > div:first-child p { display:none; }
-      [data-ni-console] .ni-decks > section > div:nth-child(2) > div { min-height: 470px; position:relative; overflow:hidden; border-color:rgba(51,65,85,.8)!important; background:linear-gradient(180deg,#090d14,#05070b)!important; }
-      [data-ni-console] .ni-decks > section > div:nth-child(2) > div::after { content:''; position:absolute; right:20px; top:78px; width:126px; height:126px; border-radius:9999px; border:12px solid #111827; box-shadow:inset 0 0 0 1px #334155,0 10px 28px rgba(0,0,0,.35); background:repeating-radial-gradient(circle,#111827 0 2px,#020617 3px 5px); opacity:.72; pointer-events:none; }
-      [data-ni-console] .ni-decks > section > div:nth-child(2) > div > div:nth-child(2) { margin-top:150px!important; height:110px!important; }
       [data-ni-console] input[type=range] { min-height:20px; }
-      @media (max-width:1279px){ [data-ni-console] .ni-decks > section > div:nth-child(2) > div::after{width:104px;height:104px;top:82px} [data-ni-console] .ni-decks > section > div:nth-child(2) > div > div:nth-child(2){margin-top:130px!important;} }
     `}</style>
   </div>;
 }
