@@ -1,3 +1,4 @@
 Production redeploy trigger for SONARA DJ Pro NI MIDI listener hotfix.
 Source fix: PR #29 / merge 238d6f1a16459d8181627df75a1ae7d473cbe795.
 Retry production deployment after Vercel build-rate-limit.
+Manual retry requested at 2026-08-26 18:47 Europe/Rome.
