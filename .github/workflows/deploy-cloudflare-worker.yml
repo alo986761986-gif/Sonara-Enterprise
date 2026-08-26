@@ -1,4 +1,4 @@
-name: Deploy Cloudflare Sonara Engine v10
+name: Deploy Cloudflare Sonara Engine v11
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy Sonara Engine v10 to Cloudflare
+    name: Deploy Sonara Engine v11 to Cloudflare
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -98,15 +98,17 @@ jobs:
           console.log('Modal Worker credential bindings are configured.');
           NODE
 
-      - name: Validate Sonara Worker v10 source
+      - name: Validate Sonara Worker v11 source
         shell: bash
         run: |
+          test -f cloudflare/sonara-engine-v11-house-techno-lock.mjs
           test -f cloudflare/sonara-engine-v10-house-lock.mjs
           test -f cloudflare/sonara-engine-v9-dual-fast.mjs
-          grep -q "sonara-engine-v10-house-lock.mjs" cloudflare/sonara-web-taxonomy-hotfix.mjs
+          grep -q "sonara-engine-v11-house-techno-lock.mjs" cloudflare/sonara-web-taxonomy-hotfix.mjs
+          grep -q 'techno-v11-caption500-intro8' cloudflare/sonara-engine-v11-house-techno-lock.mjs
           grep -q 'house-v10-caption500-intro8' cloudflare/sonara-engine-v10-house-lock.mjs
           grep -q 'api.sonaraenterprise.com' wrangler.jsonc
-          echo "Sonara Worker v10 House lock configuration verified."
+          echo "Sonara Worker v11 House + Techno lock configuration verified."
 
       - name: Deploy Worker to Cloudflare production
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
@@ -130,7 +132,12 @@ jobs:
             houseGenreLock: 'v10-caption500',
             houseIntroMaxSeconds: 8,
             houseStyleInfluenceFloor: 90,
-            houseWeirdnessCeiling: 65
+            houseWeirdnessCeiling: 65,
+            technoGenreLock: 'v11-caption500',
+            technoIntroMaxSeconds: 8,
+            technoStyleInfluenceFloor: 92,
+            technoWeirdnessCeiling: 60,
+            technoSubgenreProfiles: 14
           };
           for (const [key, value] of Object.entries(expected)) {
             if (health[key] !== value) {
@@ -138,7 +145,7 @@ jobs:
               process.exit(1);
             }
           }
-          console.log('SONARA Cloudflare v10 House lock health verified.');
+          console.log('SONARA Cloudflare v11 House + Techno lock health verified.');
           NODE
               then
                 exit 0
@@ -147,5 +154,5 @@ jobs:
             echo "Health endpoint not ready yet (attempt ${attempt}/12)."
             sleep 5
           done
-          echo "api.sonaraenterprise.com did not become healthy after v10 deployment." >&2
+          echo "api.sonaraenterprise.com did not become healthy after v11 deployment." >&2
           exit 1
