@@ -1,2 +1,2 @@
-trigger: 2026-08-25T08:05:00Z
-reason: persist dual-batch audio with an image-safe Modal Volume mount
+trigger: 2026-08-26T19:42:00+02:00
+reason: redeploy SONARA ACE-Step Professional because Cloudflare engine upstream returned HTTP 404 non-JSON
