@@ -45,7 +45,10 @@ export type BridgeServerMessage =
 export function bridgeUrl() {
   const configured = localStorage.getItem('sonara.dj.bridge-url');
   if (configured) return configured;
-  return window.location.protocol === 'https:' ? `wss://127.0.0.1:${DJ_BRIDGE_PORT}` : `ws://127.0.0.1:${DJ_BRIDGE_PORT}`;
+  // Chrome 147+ gates loopback WebSockets behind Local Network Access permission.
+  // The local Bridge starts as plain WS by default; WSS remains available through
+  // the explicit sonara.dj.bridge-url override when a trusted local TLS cert is used.
+  return `ws://127.0.0.1:${DJ_BRIDGE_PORT}`;
 }
 
 export function createBridgeSessionId() {
