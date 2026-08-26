@@ -47,6 +47,9 @@ runOptional(node, ['scripts/ensure-firebase-authorized-domains.cjs']);
 console.log('[SONARA] Activating production audio suite.');
 runCommand(node, ['scripts/activate-production-suite.cjs']);
 
+console.log('[SONARA] Activating electronic genre-specific lyric engines.');
+runCommand(node, ['scripts/activate-electronic-genres.cjs']);
+
 console.log('[SONARA] Validating professional music taxonomy.');
 run(['tsx', 'src/musicStyleIntelligence.professional.test.ts']);
 
