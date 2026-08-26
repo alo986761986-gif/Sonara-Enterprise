@@ -1,4 +1,4 @@
-import sonaraEngine from './sonara-engine-v10-house-lock.mjs';
+import sonaraEngine from './sonara-engine-v11-house-techno-lock.mjs';
 
 const VERCEL_WEB_ORIGIN = 'https://sonara-enterprise-sonaramusicai86-2765s-projects.vercel.app';
 const WEB_HOSTS = new Set(['sonaraenterprise.com', 'www.sonaraenterprise.com']);
@@ -18,7 +18,7 @@ async function proxyWeb(request) {
   const headers = new Headers(request.headers);
   headers.delete('host');
   headers.delete('content-length');
-  headers.set('x-sonara-edge-proxy', 'house-genre-lock-v10');
+  headers.set('x-sonara-edge-proxy', 'house-techno-genre-lock-v11');
 
   const init = {
     method: request.method,
@@ -29,7 +29,7 @@ async function proxyWeb(request) {
 
   const response = await fetch(upstream.toString(), init);
   const responseHeaders = new Headers(response.headers);
-  responseHeaders.set('x-sonara-edge-proxy', 'house-genre-lock-v10');
+  responseHeaders.set('x-sonara-edge-proxy', 'house-techno-genre-lock-v11');
   responseHeaders.delete('x-sonara-taxonomy-hotfix');
 
   if (request.method === 'GET' && (response.headers.get('content-type') || '').includes('text/html')) {
