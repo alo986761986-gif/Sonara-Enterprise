@@ -1,2 +1,2 @@
-trigger: 2026-08-26T10:06:00+02:00
-reason: remove obsolete global MutationObserver DOM hotfix causing Discovery UI freeze
+trigger: 2026-08-26T10:52:00+02:00
+reason: activate compact House subgenre caption lock and 8-second intro cap in production engine
