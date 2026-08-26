@@ -8,6 +8,7 @@ import IntelligentLyricsControl from './components/generator/IntelligentLyricsCo
 import VocalCharacterControl from './components/generator/VocalCharacterControl';
 import DualTrackGenerationControl from './components/generator/DualTrackGenerationControl';
 import StudioSectionControl from './components/studio/StudioSectionControl';
+import DJSectionControl from './components/dj/DJSectionControl';
 import './index.css';
 
 const legalPath = window.location.pathname.replace(/\/+$/, '').toLowerCase();
@@ -25,6 +26,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <VocalCharacterControl />
         <DualTrackGenerationControl />
         <StudioSectionControl />
+        <DJSectionControl />
       </>
     )}
   </React.StrictMode>
