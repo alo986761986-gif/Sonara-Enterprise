@@ -1,0 +1,2 @@
+Production redeploy trigger for SONARA DJ Bridge browser-only fix.
+No application code is changed by this file.
