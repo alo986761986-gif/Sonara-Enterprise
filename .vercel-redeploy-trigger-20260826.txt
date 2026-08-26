@@ -1,2 +1,3 @@
-Production redeploy trigger for SONARA DJ Bridge browser-only fix.
-No application code is changed by this file.
+Production prebuilt redeploy trigger for SONARA DJ Pro X1 MK2 + Z1 MK2 fix.
+Application source is unchanged by this trigger file.
+Use GitHub Actions local build + Vercel --prebuilt production deploy to bypass remote build-rate limits.
