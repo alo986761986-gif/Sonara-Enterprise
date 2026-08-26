@@ -4,10 +4,19 @@ const path = require('node:path');
 const appPath = path.resolve(process.cwd(), 'src/App.tsx');
 let source = fs.readFileSync(appPath, 'utf8');
 
-const lazyMarker = `const ProfessionalAudioEqualizer = React.lazy(() =>\n  import('./components/eq/ProfessionalAudioEqualizer').then(module => ({ default: module.ProfessionalAudioEqualizer }))\n);\n\ntype JobStatus`;
-const lazyReplacement = `const ProfessionalAudioEqualizer = React.lazy(() =>\n  import('./components/eq/ProfessionalAudioEqualizer').then(module => ({ default: module.ProfessionalAudioEqualizer }))\n);\nconst ProductionCenter = React.lazy(() =>\n  import('./components/production/ProductionCenter').then(module => ({ default: module.ProductionCenter }))\n);\nconst SonaraStore = React.lazy(() => import('./components/marketplace/SonaraStore'));\nconst SocialDiscoveryCenter = React.lazy(() => import('./components/discovery/SocialDiscoveryCenter'));\n\ntype JobStatus`;
+const firebaseImport = `import { getFirebaseIdToken, watchFirebaseUser } from './lib/firebaseClient';`;
+const socialImport = `import SocialDiscoveryCenter from './components/discovery/SocialDiscoveryCenter';`;
+if (!source.includes(socialImport)) {
+  if (!source.includes(firebaseImport)) {
+    throw new Error('SONARA social discovery activation failed: App import marker not found.');
+  }
+  source = source.replace(firebaseImport, `${firebaseImport}\n${socialImport}`);
+}
 
-if (!source.includes("./components/production/ProductionCenter") || !source.includes("./components/marketplace/SonaraStore") || !source.includes("./components/discovery/SocialDiscoveryCenter")) {
+const lazyMarker = `const ProfessionalAudioEqualizer = React.lazy(() =>\n  import('./components/eq/ProfessionalAudioEqualizer').then(module => ({ default: module.ProfessionalAudioEqualizer }))\n);\n\ntype JobStatus`;
+const lazyReplacement = `const ProfessionalAudioEqualizer = React.lazy(() =>\n  import('./components/eq/ProfessionalAudioEqualizer').then(module => ({ default: module.ProfessionalAudioEqualizer }))\n);\nconst ProductionCenter = React.lazy(() =>\n  import('./components/production/ProductionCenter').then(module => ({ default: module.ProductionCenter }))\n);\nconst SonaraStore = React.lazy(() => import('./components/marketplace/SonaraStore'));\n\ntype JobStatus`;
+
+if (!source.includes("./components/production/ProductionCenter") || !source.includes("./components/marketplace/SonaraStore")) {
   if (!source.includes(lazyMarker)) {
     throw new Error('SONARA activation failed: lazy import marker not found.');
   }
@@ -34,15 +43,15 @@ if (!source.includes('<SonaraStore')) {
 
 const discoveryStart = `  const discoveryView = (`;
 const discoveryEnd = `\n\n  const analyticsView = (`;
-if (!source.includes('<SocialDiscoveryCenter')) {
+if (!source.includes('const discoveryView = (\n    <SocialDiscoveryCenter />')) {
   const start = source.indexOf(discoveryStart);
   const end = source.indexOf(discoveryEnd, start);
   if (start < 0 || end < 0) throw new Error('SONARA social discovery activation failed: discovery view marker not found.');
-  const replacement = `  const discoveryView = (\n    <React.Suspense fallback={<Card className=\"flex min-h-[520px] items-center justify-center p-6 text-xs text-slate-500\"><RefreshCw className=\"mr-2 h-4 w-4 animate-spin text-purple-400\" />Caricamento SONARA Social Discovery...</Card>}>\n      <SocialDiscoveryCenter />\n    </React.Suspense>\n  );`;
+  const replacement = `  const discoveryView = (\n    <SocialDiscoveryCenter />\n  );`;
   source = source.slice(0, start) + replacement + source.slice(end);
 }
 
 fs.writeFileSync(appPath, source, 'utf8');
 console.log('[SONARA] Production Suite activated: Mixing Console, Mastering, Stem Manager, Export Center.');
 console.log('[SONARA] Marketplace activated: SONARA Store with verified catalog and Stripe one-time checkout.');
-console.log('[SONARA] Social Discovery activated: real profiles, chat, follows, collaborations, matching, live rooms and real trends.');
+console.log('[SONARA] Social Discovery activated in main bundle: no lazy-loading deadlock.');
