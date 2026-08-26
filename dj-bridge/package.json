@@ -1,0 +1,20 @@
+{
+  "name": "sonara-dj-bridge",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "diagnose": "node server.mjs --diagnose"
+  },
+  "dependencies": {
+    "@julusian/midi": "^3.8.1",
+    "@ktamas77/abletonlink": "^1.2.3",
+    "audify": "^1.10.1",
+    "node-hid": "^3.4.0",
+    "ws": "^8.18.3"
+  }
+}
