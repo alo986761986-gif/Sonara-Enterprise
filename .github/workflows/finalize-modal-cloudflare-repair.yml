@@ -21,7 +21,7 @@ jobs:
       RAW_MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
-      MODAL_ENDPOINT_URL: https://alo986761986-gif--sonara-acestep-serve-acestep.modal.run
+      MODAL_ENDPOINT_URL: https://gptalo986--sonara-acestep-serve-acestep.modal.run
 
     steps:
       - name: Checkout SONARA
@@ -149,22 +149,24 @@ jobs:
           NODE
           rm -f /tmp/modal-models.json
 
-      - name: Synchronize fresh Modal proxy auth to Cloudflare
+      - name: Synchronize new Modal endpoint and proxy auth to Cloudflare
         shell: bash
         run: |
+          printf '%s' "${MODAL_ENDPOINT_URL}" | npx --yes wrangler@latest secret put ACESTEP_API_URL --config wrangler.jsonc >/dev/null
           printf '%s' "${FRESH_MODAL_PROXY_ID}" | npx --yes wrangler@latest secret put MODAL_PROXY_KEY --config wrangler.jsonc >/dev/null
           printf '%s' "${FRESH_MODAL_PROXY_SECRET}" | npx --yes wrangler@latest secret put MODAL_PROXY_SECRET --config wrangler.jsonc >/dev/null
-          echo "Cloudflare Modal proxy credentials updated."
+          echo "Cloudflare Modal endpoint and proxy credentials updated."
 
-      - name: Validate Sonara v9 source
+      - name: Validate current Sonara production source
         shell: bash
         run: |
-          grep -q 'cloudflare/sonara-engine-v9-dual-fast.mjs' wrangler.jsonc
+          grep -q 'cloudflare/sonara-web-dj-proxy.mjs' wrangler.jsonc
           grep -q 'READINESS_TIMEOUT_MS = 180_000' cloudflare/sonara-engine-v9-dual-fast.mjs
           grep -q '/api/engine/ready' cloudflare/sonara-engine-v9-dual-fast.mjs
-          echo "Hardened Sonara v9 source verified."
+          grep -q 'ACESTEP_API_URL' cloudflare/sonara-engine-v9-dual-fast.mjs
+          echo "Current Sonara production source verified."
 
-      - name: Deploy hardened Sonara v9 to Cloudflare
+      - name: Deploy Sonara production Worker to Cloudflare
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
 
       - name: Verify Cloudflare to Modal production readiness
