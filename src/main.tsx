@@ -5,7 +5,6 @@ import BootAuth from './components/auth/BootAuth';
 import LegalDocumentPage from './components/legal/LegalDocumentPage';
 import IntelligentPromptControl from './components/generator/IntelligentPromptControl';
 import IntelligentLyricsControl from './components/generator/IntelligentLyricsControl';
-import DefaultMusicSelectionControl from './components/generator/DefaultMusicSelectionControl';
 import DualTrackGenerationControl from './components/generator/DualTrackGenerationControl';
 import './index.css';
 
@@ -21,7 +20,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         </BootAuth>
         <IntelligentPromptControl />
         <IntelligentLyricsControl />
-        <DefaultMusicSelectionControl />
         <DualTrackGenerationControl />
       </>
     )}
