@@ -1,2 +1,2 @@
-trigger: 2026-08-26T13:57:00+02:00
-reason: deploy visible CARATTERE VOCE button with CALDA SENSUALE ROMANTICA STUDIO on sonaraenterprise.com after removing invalid non-Cloudflare route; preserve SONARA engine v14
+trigger: 2026-08-26T16:02:00+02:00
+reason: expose SONARA DJ PRO immediately on sonaraenterprise.com via isolated Cloudflare fallback while Vercel production is build-rate-limited; preserve all API and audio engine routes
