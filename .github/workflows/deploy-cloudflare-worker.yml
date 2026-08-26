@@ -1,4 +1,4 @@
-name: Deploy Cloudflare Sonara Engine v9
+name: Deploy Cloudflare Sonara Engine v10
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy Sonara Engine v9 to Cloudflare
+    name: Deploy Sonara Engine v10 to Cloudflare
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -40,50 +40,33 @@ jobs:
             echo "Missing GitHub Actions secret CLOUDFLARE_API_TOKEN (or CF_API_TOKEN)." >&2
             exit 1
           fi
-
           account_id="${CLOUDFLARE_ACCOUNT_ID}"
-
           if [[ -z "${account_id}" ]]; then
-            zone_response="$(curl -fsS \
-              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-              -H "Content-Type: application/json" \
-              "https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50" || true)"
-
+            zone_response="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json" "https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50" || true)"
             account_id="$(CF_RESPONSE="${zone_response}" node - <<'NODE'
           try {
             const payload = JSON.parse(process.env.CF_RESPONSE || '{}');
             const zone = Array.isArray(payload.result) ? payload.result.find((item) => item?.name === 'sonaraenterprise.com') : null;
             process.stdout.write(String(zone?.account?.id || ''));
-          } catch {
-            process.stdout.write('');
-          }
+          } catch { process.stdout.write(''); }
           NODE
             )"
           fi
-
           if [[ -z "${account_id}" ]]; then
-            accounts_response="$(curl -fsS \
-              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-              -H "Content-Type: application/json" \
-              "https://api.cloudflare.com/client/v4/accounts?per_page=50" || true)"
-
+            accounts_response="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json" "https://api.cloudflare.com/client/v4/accounts?per_page=50" || true)"
             account_id="$(CF_RESPONSE="${accounts_response}" node - <<'NODE'
           try {
             const payload = JSON.parse(process.env.CF_RESPONSE || '{}');
             const accounts = Array.isArray(payload.result) ? payload.result : [];
             process.stdout.write(accounts.length === 1 ? String(accounts[0]?.id || '') : '');
-          } catch {
-            process.stdout.write('');
-          }
+          } catch { process.stdout.write(''); }
           NODE
             )"
           fi
-
           if [[ -z "${account_id}" ]]; then
             echo "Unable to resolve Cloudflare account ID from the configured API token." >&2
             exit 1
           fi
-
           echo "::add-mask::${account_id}"
           echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
           echo "Cloudflare deployment credentials resolved."
@@ -96,9 +79,7 @@ jobs:
           echo "SONARA_WEB_APEX_AAAA=$(dig +short AAAA sonaraenterprise.com | paste -sd, -)"
           echo "SONARA_WEB_WWW_CNAME=$(dig +short CNAME www.sonaraenterprise.com | paste -sd, -)"
           echo "SONARA_WEB_WWW_A=$(dig +short A www.sonaraenterprise.com | paste -sd, -)"
-          echo "SONARA_WEB_HEADERS_START"
           curl -k -sS -I --max-time 15 https://sonaraenterprise.com/ || true
-          echo "SONARA_WEB_HEADERS_END"
 
       - name: Validate Modal runtime bindings
         shell: bash
@@ -110,7 +91,6 @@ jobs:
           const names = new Set((Array.isArray(records) ? records : []).map((item) => String(item?.name || '')));
           const required = ['MODAL_PROXY_KEY', 'MODAL_PROXY_SECRET'];
           const missing = required.filter((name) => !names.has(name));
-          console.log(`Configured Worker secret names: ${[...names].sort().join(', ') || '(none)'}`);
           if (missing.length) {
             console.error(`Missing required Modal Worker secrets: ${missing.join(', ')}`);
             process.exit(1);
@@ -118,13 +98,15 @@ jobs:
           console.log('Modal Worker credential bindings are configured.');
           NODE
 
-      - name: Validate Sonara Worker v9 source
+      - name: Validate Sonara Worker v10 source
         shell: bash
         run: |
+          test -f cloudflare/sonara-engine-v10-house-lock.mjs
           test -f cloudflare/sonara-engine-v9-dual-fast.mjs
-          grep -Eq 'cloudflare/sonara-engine-v9-(dual-fast|diagnostic-wrapper)\.mjs' wrangler.jsonc
+          grep -q "sonara-engine-v10-house-lock.mjs" cloudflare/sonara-web-taxonomy-hotfix.mjs
+          grep -q 'house-v10-caption500-intro8' cloudflare/sonara-engine-v10-house-lock.mjs
           grep -q 'api.sonaraenterprise.com' wrangler.jsonc
-          echo "Sonara Worker v9 configuration verified."
+          echo "Sonara Worker v10 House lock configuration verified."
 
       - name: Deploy Worker to Cloudflare production
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
@@ -135,7 +117,7 @@ jobs:
           for attempt in {1..12}; do
             if response="$(curl -fsS --max-time 15 https://api.sonaraenterprise.com/api/health 2>/dev/null)"; then
               printf '%s' "$response" > /tmp/sonara-health.json
-              node - <<'NODE'
+              if node - <<'NODE'
           const fs = require('fs');
           const health = JSON.parse(fs.readFileSync('/tmp/sonara-health.json', 'utf8'));
           const expected = {
@@ -145,6 +127,10 @@ jobs:
             dualFastInferenceSteps: 6,
             dualFastCandidateCount: 2,
             dualFastAutoRegeneration: false,
+            houseGenreLock: 'v10-caption500',
+            houseIntroMaxSeconds: 8,
+            houseStyleInfluenceFloor: 90,
+            houseWeirdnessCeiling: 65
           };
           for (const [key, value] of Object.entries(expected)) {
             if (health[key] !== value) {
@@ -152,12 +138,14 @@ jobs:
               process.exit(1);
             }
           }
-          console.log('SONARA Cloudflare v9 health verified.');
+          console.log('SONARA Cloudflare v10 House lock health verified.');
           NODE
-              exit 0
+              then
+                exit 0
+              fi
             fi
             echo "Health endpoint not ready yet (attempt ${attempt}/12)."
             sleep 5
           done
-          echo "api.sonaraenterprise.com did not become healthy after deployment." >&2
+          echo "api.sonaraenterprise.com did not become healthy after v10 deployment." >&2
           exit 1
