@@ -1,4 +1,4 @@
-Production redeploy trigger for SONARA DJ Pro NI minimal console.
-Source: PR #30 merge 08b51a825233ee5d40e58b501ad538c342c5eb37.
-Required production content: NIMinimalConsole mounted from DJSectionControl.
-Manual forced retry requested after user reported old DJ Pro UI still live.
+Production redeploy trigger for SONARA DJ Pro Z1 MK2 audio routing fix.
+Source: PR #31 merge d5c34885f3dcb4c425039adf2958858a2d33cc8b.
+Required production content: minimal AUDIO Z1 MK2 routing with scan, master output selection and test.
+Manual forced retry requested after user reported no audio from DJ Pro.
