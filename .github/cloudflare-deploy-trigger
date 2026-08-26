@@ -1,2 +1,2 @@
-trigger: 2026-08-25T19:20:00+02:00
-reason: deploy specific frontend bundle route for Neapolitan urban taxonomy
+trigger: 2026-08-26T10:06:00+02:00
+reason: remove obsolete global MutationObserver DOM hotfix causing Discovery UI freeze
