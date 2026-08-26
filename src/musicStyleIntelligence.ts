@@ -4,6 +4,7 @@ import {
   hasCuratedGenreIdentity as hasBaseGenreIdentity,
   type MusicStyleProfile
 } from './musicStyleIntelligenceLegacy';
+import { getHouseStylePatch } from './houseStyleIntelligence';
 
 export type { MusicStyleProfile } from './musicStyleIntelligenceLegacy';
 
@@ -166,6 +167,8 @@ function sentences(values: Array<string | undefined>): string {
 }
 
 function exactFor(family: string, genre: string, subgenre: string): Patch | undefined {
+  const housePatch = getHouseStylePatch(family, genre, subgenre);
+  if (housePatch) return housePatch;
   const path = PATH_EXACT[key(family, genre, subgenre)];
   if (path) return path;
   const wanted = normalize(subgenre);
@@ -197,7 +200,7 @@ function hash(value: string): string {
 }
 
 export function hasCuratedGenreIdentity(genre: string): boolean {
-  return hasBaseGenreIdentity(genre);
+  return Boolean(getHouseStylePatch('Electronic / Dance', 'House', genre)) || hasBaseGenreIdentity(genre);
 }
 
 export function getAtmospheresForSelection(family: string, genre: string, subgenre: string): string[] {
