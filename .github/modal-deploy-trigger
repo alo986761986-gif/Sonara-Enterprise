@@ -1,2 +1,2 @@
-trigger: 2026-08-26T21:18:00+02:00
-reason: deploy cost optimization with 120-second GPU scaledown while preserving dual-track generation
+trigger: 2026-08-26T23:37:00+02:00
+reason: keep one ACE-Step GPU container warm to prevent free-plan cold-start 524 timeouts
