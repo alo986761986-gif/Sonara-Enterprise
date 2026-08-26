@@ -1,7 +1,8 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "sonara-enterprise",
-  // The web wrapper delegates all SONARA engine traffic to cloudflare/sonara-engine-v9-dual-fast.mjs.
+  // The web wrapper delegates SONARA engine traffic to the House genre-lock v10 layer,
+  // which then calls the stable dual-fast v9 engine.
   "main": "cloudflare/sonara-web-taxonomy-hotfix.mjs",
   "compatibility_date": "2026-08-23",
   "workers_dev": true,
