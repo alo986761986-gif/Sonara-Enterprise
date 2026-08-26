@@ -1,6 +1,9 @@
 import sonaraWeb from './sonara-web-taxonomy-hotfix.mjs';
 
 const VOCAL_SCRIPT_PATH = '/sonara-vocal-character-visible.js';
+const DJ_FALLBACK_SCRIPT_PATH = '/sonara-dj-pro-fallback.js';
+const DJ_FALLBACK_ROUTE = '/dj-pro';
+const DJ_FALLBACK_URL = 'https://sonara-enterprise-eejyho4nr-sonaramusicai86-2765s-projects.vercel.app/?_vercel_share=DBC4lMe93fqaflFgK5xJblb17i9TBiQm';
 const MISSPELLED_HOSTS = new Map([
   ['sonaraenterprice.com', 'sonaraenterprise.com'],
   ['www.sonaraenterprice.com', 'www.sonaraenterprise.com']
@@ -88,8 +91,32 @@ const VOCAL_BUTTON_SCRIPT = String.raw`(() => {
   window.addEventListener('pagehide', () => window.clearInterval(timer), { once: true });
 })();`;
 
+const DJ_FALLBACK_SCRIPT = String.raw`(() => {
+  if (window.__sonaraDjFallbackV1) return;
+  window.__sonaraDjFallbackV1 = true;
+  const mount = () => {
+    if (document.querySelector('[data-sonara-dj-floating-access="true"]')) return;
+    if (document.getElementById('sonara-dj-pro-edge-access')) return;
+    const button = document.createElement('button');
+    button.id = 'sonara-dj-pro-edge-access';
+    button.type = 'button';
+    button.setAttribute('aria-label', 'Apri SONARA DJ PRO');
+    button.innerHTML = '<span style="display:flex;width:40px;height:40px;align-items:center;justify-content:center;border-radius:12px;background:linear-gradient(135deg,#c026d3,#0891b2);font-size:20px">◉</span><span style="min-width:0"><span style="display:flex;align-items:center;gap:7px;color:white;font-size:11px;font-weight:900">DJ PRO <span style="border-radius:999px;background:rgba(16,185,129,.15);padding:2px 6px;color:#6ee7b7;font-size:7px;letter-spacing:.08em">LIVE</span></span><span style="display:block;margin-top:2px;color:#64748b;font-size:8px;font-weight:800">Mixer · Hardware · Bridge</span></span><span style="color:#67e8f9;font-size:16px">⚡</span>';
+    Object.assign(button.style, { position: 'fixed', right: '22px', bottom: '22px', zIndex: '2147481700', display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 15px', borderRadius: '16px', border: '1px solid rgba(34,211,238,.38)', background: 'rgba(8,11,19,.96)', boxShadow: '0 20px 50px rgba(0,0,0,.55)', backdropFilter: 'blur(14px)', cursor: 'pointer' });
+    button.addEventListener('click', () => { window.location.assign('${DJ_FALLBACK_ROUTE}'); });
+    document.body.appendChild(button);
+  };
+  mount();
+  const timer = window.setInterval(mount, 900);
+  window.addEventListener('pagehide', () => window.clearInterval(timer), { once: true });
+})();`;
+
 function vocalScriptResponse() {
   return new Response(VOCAL_BUTTON_SCRIPT, { status: 200, headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'no-store, max-age=0', 'x-sonara-edge-feature': 'visible-vocal-character-button-v2' } });
+}
+
+function djFallbackScriptResponse() {
+  return new Response(DJ_FALLBACK_SCRIPT, { status: 200, headers: { 'content-type': 'application/javascript; charset=utf-8', 'cache-control': 'no-store, max-age=0', 'x-sonara-edge-feature': 'dj-pro-immediate-fallback-v1' } });
 }
 
 function canonicalRequest(request, canonicalHost) {
@@ -98,7 +125,7 @@ function canonicalRequest(request, canonicalHost) {
   return new Request(url.toString(), request);
 }
 
-async function injectVisibleButton(response) {
+async function injectVisibleControls(response) {
   const type = response.headers.get('content-type') || '';
   if (!type.includes('text/html')) return response;
   const headers = new Headers(response.headers);
@@ -107,7 +134,7 @@ async function injectVisibleButton(response) {
   const cloned = new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   return new HTMLRewriter().on('body', {
     element(element) {
-      element.append(`<script src="${VOCAL_SCRIPT_PATH}?v=2" defer></script>`, { html: true });
+      element.append(`<script src="${VOCAL_SCRIPT_PATH}?v=2" defer></script><script src="${DJ_FALLBACK_SCRIPT_PATH}?v=1" defer></script>`, { html: true });
     }
   }).transform(cloned);
 }
@@ -116,9 +143,13 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === VOCAL_SCRIPT_PATH) return vocalScriptResponse();
+    if (url.pathname === DJ_FALLBACK_SCRIPT_PATH) return djFallbackScriptResponse();
+    if (url.pathname === DJ_FALLBACK_ROUTE || url.pathname === `${DJ_FALLBACK_ROUTE}/`) {
+      return Response.redirect(DJ_FALLBACK_URL, 302);
+    }
     const canonicalHost = MISSPELLED_HOSTS.get(url.hostname);
     const delegatedRequest = canonicalHost ? canonicalRequest(request, canonicalHost) : request;
     const response = await sonaraWeb.fetch(delegatedRequest, env, ctx);
-    return injectVisibleButton(response);
+    return injectVisibleControls(response);
   }
 };
