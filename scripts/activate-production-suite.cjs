@@ -5,9 +5,9 @@ const appPath = path.resolve(process.cwd(), 'src/App.tsx');
 let source = fs.readFileSync(appPath, 'utf8');
 
 const lazyMarker = `const ProfessionalAudioEqualizer = React.lazy(() =>\n  import('./components/eq/ProfessionalAudioEqualizer').then(module => ({ default: module.ProfessionalAudioEqualizer }))\n);\n\ntype JobStatus`;
-const lazyReplacement = `const ProfessionalAudioEqualizer = React.lazy(() =>\n  import('./components/eq/ProfessionalAudioEqualizer').then(module => ({ default: module.ProfessionalAudioEqualizer }))\n);\nconst ProductionCenter = React.lazy(() =>\n  import('./components/production/ProductionCenter').then(module => ({ default: module.ProductionCenter }))\n);\n\ntype JobStatus`;
+const lazyReplacement = `const ProfessionalAudioEqualizer = React.lazy(() =>\n  import('./components/eq/ProfessionalAudioEqualizer').then(module => ({ default: module.ProfessionalAudioEqualizer }))\n);\nconst ProductionCenter = React.lazy(() =>\n  import('./components/production/ProductionCenter').then(module => ({ default: module.ProductionCenter }))\n);\nconst SonaraStore = React.lazy(() => import('./components/marketplace/SonaraStore'));\n\ntype JobStatus`;
 
-if (!source.includes("./components/production/ProductionCenter")) {
+if (!source.includes("./components/production/ProductionCenter") || !source.includes("./components/marketplace/SonaraStore")) {
   if (!source.includes(lazyMarker)) {
     throw new Error('SONARA production activation failed: lazy import marker not found.');
   }
@@ -25,5 +25,17 @@ if (!source.includes('<ProductionCenter')) {
   source = source.replace(oldProductionView, newProductionView);
 }
 
+const oldMarketplaceView = `  const marketplaceView = (\n    <Card className=\"p-6\"><SectionTitle icon={Store} title={t('marketplaceTitle')} subtitle={t('marketplaceSubtitle')} /><div className=\"grid gap-4 md:grid-cols-3\"><MiniCard icon={Music} title=\"Samples & Loops\" text=\"Creator-ready musical assets.\" /><MiniCard icon={SlidersHorizontal} title=\"Presets & Templates\" text=\"Production presets and session templates.\" /><MiniCard icon={Sparkles} title=\"AI Assets\" text=\"Creative models and intelligent tools.\" /></div></Card>\n  );`;
+
+const newMarketplaceView = `  const marketplaceView = (\n    <React.Suspense fallback={<Card className=\"flex min-h-[420px] items-center justify-center p-6 text-xs text-slate-500\"><RefreshCw className=\"mr-2 h-4 w-4 animate-spin text-purple-400\" />Caricamento SONARA Store...</Card>}>\n      <SonaraStore />\n    </React.Suspense>\n  );`;
+
+if (!source.includes('<SonaraStore')) {
+  if (!source.includes(oldMarketplaceView)) {
+    throw new Error('SONARA marketplace activation failed: marketplace view marker not found.');
+  }
+  source = source.replace(oldMarketplaceView, newMarketplaceView);
+}
+
 fs.writeFileSync(appPath, source, 'utf8');
 console.log('[SONARA] Production Suite activated: Mixing Console, Mastering, Stem Manager, Export Center.');
+console.log('[SONARA] Marketplace activated: SONARA Store with verified catalog and Stripe one-time checkout.');
