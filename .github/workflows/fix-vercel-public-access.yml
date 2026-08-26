@@ -1,0 +1,98 @@
+name: Fix SONARA Public Access
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-access:
+    name: Disable Vercel protection and verify public domains
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERCEL_ORG_ID: team_d9jPexmsm0saAlZPAznj0TTy
+      VERCEL_PROJECT_ID: prj_mbAUXtVS9ecRbl0yAZfeR3WA66TZ
+
+    steps:
+      - name: Validate Vercel credential
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${VERCEL_TOKEN}" ]]; then
+            echo "Missing GitHub Actions secret VERCEL_TOKEN." >&2
+            exit 1
+          fi
+
+      - name: Disable Vercel deployment protection for public access
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS -X PATCH \
+            "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}?teamId=${VERCEL_ORG_ID}" \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data '{"ssoProtection":null,"passwordProtection":null,"trustedIps":null}' \
+            > /tmp/vercel-project-update.json
+
+          node - <<'NODE'
+          const fs = require('fs');
+          const data = JSON.parse(fs.readFileSync('/tmp/vercel-project-update.json', 'utf8'));
+          const stillProtected = Boolean(data.ssoProtection || data.passwordProtection || data.trustedIps);
+          if (stillProtected) {
+            console.error('Deployment protection is still enabled:', {
+              ssoProtection: data.ssoProtection,
+              passwordProtection: data.passwordProtection,
+              trustedIps: data.trustedIps,
+            });
+            process.exit(1);
+          }
+          console.log('Vercel deployment protection disabled for SONARA.');
+          NODE
+
+      - name: Verify project protection is disabled
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS \
+            "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_ID}?teamId=${VERCEL_ORG_ID}" \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            > /tmp/vercel-project.json
+
+          node - <<'NODE'
+          const fs = require('fs');
+          const data = JSON.parse(fs.readFileSync('/tmp/vercel-project.json', 'utf8'));
+          for (const key of ['ssoProtection', 'passwordProtection', 'trustedIps']) {
+            if (data[key]) throw new Error(`${key} is still enabled`);
+          }
+          console.log('Project protection settings verified as public.');
+          NODE
+
+      - name: Verify anonymous public access to SONARA domains
+        shell: bash
+        run: |
+          set -euo pipefail
+          for domain in sonaraenterprise.com sonaraenterprice.com; do
+            echo "Checking https://${domain}/"
+            html="$(curl -fsSL --max-time 30 -H 'Cache-Control: no-cache' "https://${domain}/?public-access-check=${GITHUB_SHA}")"
+            if ! printf '%s' "${html}" | grep -q '<title>Sonara AI</title>'; then
+              echo "${domain} does not expose the SONARA application anonymously." >&2
+              printf '%s\n' "${html}" | head -c 1000 >&2
+              exit 1
+            fi
+            if printf '%s' "${html}" | grep -qiE 'Vercel Authentication|Log in to Vercel|Sign in to Vercel'; then
+              echo "${domain} still exposes a Vercel access page." >&2
+              exit 1
+            fi
+            echo "${domain}: public SONARA access OK"
+          done
