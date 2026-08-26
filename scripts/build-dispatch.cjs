@@ -56,6 +56,9 @@ runCommand(node, ['scripts/activate-universal-genres.cjs']);
 console.log('[SONARA] Validating professional music taxonomy.');
 run(['tsx', 'src/musicStyleIntelligence.professional.test.ts']);
 
+console.log('[SONARA] Validating Professional Lyrics v2 quality and genre synchronization.');
+run(['tsx', 'src/professionalLyrics.test.ts']);
+
 run(['vite', 'build']);
 run([
   'esbuild',
