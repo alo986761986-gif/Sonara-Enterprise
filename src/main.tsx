@@ -7,6 +7,7 @@ import IntelligentPromptControl from './components/generator/IntelligentPromptCo
 import IntelligentLyricsControl from './components/generator/IntelligentLyricsControl';
 import VocalCharacterControl from './components/generator/VocalCharacterControl';
 import DualTrackGenerationControl from './components/generator/DualTrackGenerationControl';
+import StudioSectionControl from './components/studio/StudioSectionControl';
 import './index.css';
 
 const legalPath = window.location.pathname.replace(/\/+$/, '').toLowerCase();
@@ -23,6 +24,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <IntelligentLyricsControl />
         <VocalCharacterControl />
         <DualTrackGenerationControl />
+        <StudioSectionControl />
       </>
     )}
   </React.StrictMode>
