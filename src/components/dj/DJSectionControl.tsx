@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Disc3, Headphones, Radio, SlidersHorizontal, Usb, X, Zap } from 'lucide-react';
 import DJConnectHub from './DJConnectHub';
+import DJDeckSkinManager from './DJDeckSkinManager';
 
 const NAV_HOST_ID = 'sonara-dj-nav-host';
 
@@ -63,7 +64,7 @@ export default function DJSectionControl() {
           <span className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1.5 text-[8px] font-black text-amber-200"><Radio className="h-3 w-3" />ABLETON LINK</span>
         </div>
       </div>
-      <div className="mx-auto max-w-[1700px] p-3 sm:p-5"><DJConnectHub /></div>
+      <div className="mx-auto max-w-[1700px] p-3 sm:p-5"><div className="space-y-5"><DJDeckSkinManager profileId="all-controllers" profileName="Console collegata / Browser" /><DJConnectHub /></div></div>
     </div>
   ), [open]);
 
