@@ -1,0 +1,44 @@
+name: Verify SONARA DJ Pro Live
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/verify-dj-pro-live.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify DJ Pro same-origin page
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --max-time 30 https://sonaraenterprise.com/dj-pro -o /tmp/dj-pro.html
+          grep -q "sonara.dj.bridge-url" /tmp/dj-pro.html
+          grep -q "ws://127.0.0.1:49686" /tmp/dj-pro.html
+          grep -q "/dj-pro-runtime/assets/" /tmp/dj-pro.html
+          echo "SONARA DJ Pro live proxy verified."
+
+      - name: Verify DJ Pro runtime asset
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset="$(grep -oE '/dj-pro-runtime/assets/[^\"'\'' ]+\.js' /tmp/dj-pro.html | head -n 1)"
+          test -n "${asset}"
+          curl -fsSL --max-time 30 "https://sonaraenterprise.com${asset}" -o /tmp/dj-runtime.js
+          test -s /tmp/dj-runtime.js
+          echo "SONARA DJ Pro runtime asset verified: ${asset}"
+
+      - name: Verify SONARA API remains healthy
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL --max-time 20 https://api.sonaraenterprise.com/api/health -o /tmp/health.json
+          node -e "const h=require('/tmp/health.json'); if(!h || h.universalGenreLock!=='v14-taxonomy720-atmosphere') process.exit(1); console.log('SONARA API v14 healthy')"
