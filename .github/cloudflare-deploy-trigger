@@ -1,2 +1,2 @@
-trigger: 2026-08-26T19:31:00+02:00
-reason: retry immediate SONARA DJ Pro Z1 MK2 audio routing hotfix deployment to Cloudflare edge after missed workflow trigger
+trigger: 2026-08-26T23:15:00+02:00
+reason: deploy generator stability hotfix to stop duplicate edge MutationObserver controls from freezing the UI
