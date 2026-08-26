@@ -21,6 +21,7 @@ APP_NAME = "sonara-acestep"
 FUNCTION_NAME = "serve_acestep"
 API_PORT = 8001
 MINUTES = 60
+SCALEDOWN_WINDOW_SECONDS = 2 * MINUTES
 EPHEMERAL_DISK_MIB = 512 * 1024
 
 FAST_DIT_MODEL = "acestep-v15-xl-turbo"
@@ -241,7 +242,7 @@ def prepare_models() -> dict[str, object]:
     ephemeral_disk=EPHEMERAL_DISK_MIB,
     timeout=24 * 60 * MINUTES,
     startup_timeout=30 * MINUTES,
-    scaledown_window=10 * MINUTES,
+    scaledown_window=SCALEDOWN_WINDOW_SECONDS,
     min_containers=0,
     # ACE-Step keeps its task queue/result store in memory. A single
     # authoritative container guarantees release_task, query_result and both
@@ -321,7 +322,9 @@ def verify_configuration() -> dict[str, object]:
         "ditModel": QUALITY_DIT_MODEL,
         "lmModel": LM_MODEL,
         "proxyAuthentication": True,
+        "minGpuContainers": 0,
         "maxConcurrentGpuContainers": 1,
+        "scaledownWindowSeconds": SCALEDOWN_WINDOW_SECONDS,
         "apiTemporaryDirectory": API_TMP_DIR,
         "maxInputsPerContainer": 1,
         "status": status,
