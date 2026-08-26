@@ -1,2 +1,2 @@
-trigger: 2026-08-26T16:24:00+02:00
-reason: deploy DJ Pro same-origin Cloudflare proxy and switch local DJ Bridge transport to ws://127.0.0.1:49686; preserve SONARA API and audio engine
+trigger: 2026-08-26T19:24:00+02:00
+reason: deploy immediate SONARA DJ Pro Z1 MK2 audio routing hotfix at Cloudflare edge while Vercel production build is rate-limited
