@@ -1,2 +1,2 @@
-trigger: 2026-08-27T16:10:00+02:00
-reason: deploy Kaggle T4 stability profile with 12 steps and guidance 3.5
+trigger: 2026-08-27T16:30:00+02:00
+reason: deploy Kaggle T4 max-speed profile with 8 steps, guidance 1.0, thinking off, ODE, shift 3
