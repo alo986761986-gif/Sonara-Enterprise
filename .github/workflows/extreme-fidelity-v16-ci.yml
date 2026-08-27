@@ -1,0 +1,43 @@
+name: SONARA Extreme Fidelity V16 CI
+
+on:
+  push:
+    branches:
+      - fix/extreme-fidelity-v16-20260828
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Extreme Fidelity v16
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Validate authoritative full prompt
+        run: node cloudflare/sonara-engine-v15-authoritative-prompt.test.mjs
+
+      - name: Activate Extreme Fidelity v16
+        run: node scripts/activate-extreme-fidelity-v16.cjs
+
+      - name: Validate Extreme Fidelity render profile
+        run: node cloudflare/extreme-fidelity-v16.test.mjs
+
+      - name: Validate Worker module syntax
+        run: node --check cloudflare/sonara-engine-v9-dual-fast.mjs
+
+      - name: Verify production routing remains v15 authoritative + v16 renderer
+        run: |
+          grep -q 'cloudflare/sonara-web-v15-router.mjs' wrangler.jsonc
+          grep -q 'sonara-engine-v15-authoritative-prompt.mjs' cloudflare/sonara-web-v15-router.mjs
+          grep -q 'kaggle-t4x2-extreme-fidelity-v16' cloudflare/sonara-engine-v9-dual-fast.mjs
+          echo 'SONARA Extreme Fidelity v16: PASS'
