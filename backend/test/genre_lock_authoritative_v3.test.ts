@@ -17,11 +17,20 @@ async function main() {
   assert.equal(samba.genreLock.subgenre, 'Samba', 'Samba must remain Samba');
   assert.doesNotMatch(samba.optimizedPrompt, /MELODIC HOUSE|four-on-the-floor 4\/4 kick/i);
 
+  const amapianoPrompt = 'Create a professional Amapiano production. Amapiano combines a spacious South African house pulse, log-drum bass movement, jazzy keys and patient groove evolution. Lock the result to exactly 112 BPM, F# Minor.';
+  const amapiano = await AceStepPromptEngine.generatePrompt(amapianoPrompt, 'Amapiano');
+  assert.equal(amapiano.genreLock.subgenre, 'Amapiano', 'selected Amapiano must override the generic word house in its description');
+  assert.doesNotMatch(amapiano.optimizedPrompt, /GENRE_LOCK: \[HOUSE -> HOUSE\]|classic 4\/4 four-on-the-floor kick/i);
+
+  const detroitPrompt = 'Create authentic Detroit Techno with machine precision, futurist soul and evolving techno momentum. Lock the result to exactly 130 BPM, D Minor.';
+  const detroit = await AceStepPromptEngine.generatePrompt(detroitPrompt, 'Detroit Techno');
+  assert.equal(detroit.genreLock.subgenre, 'Detroit Techno', 'selected Detroit Techno must not collapse into generic Techno');
+
   const techHouse = await AceStepPromptEngine.generatePrompt('Create a professional Tech House production.', 'Tech House');
   assert.equal(techHouse.genreLock.subgenre, 'Tech House');
   assert.match(techHouse.optimizedPrompt, /bouncy percussive bassline/i);
 
-  console.log('authoritative genre lock v3 passed: Bossa Nova, Fado, Samba and Tech House preserve distinct identities');
+  console.log('authoritative genre lock v3 passed: selected styles remain authoritative even when parent-genre words appear in the prompt');
 }
 
 main();
