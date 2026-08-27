@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Disc3, X, Zap } from 'lucide-react';
-import NIMinimalConsole from './NIMinimalConsole';
+import DJConnectHub from './DJConnectHub';
 import SonaraProLiveSkin from './SonaraProLiveSkin';
 import SonaraZ1MixerSkin from './SonaraZ1MixerSkin';
 
@@ -52,14 +52,14 @@ export default function DJSectionControl() {
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-cyan-400/20 bg-cyan-500/10"><Disc3 className="h-4 w-4 text-cyan-300" /></div>
             <div className="min-w-0">
               <div className="flex items-center gap-2"><span className="truncate text-sm font-black text-white">SONARA DJ PRO</span><span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[7px] font-black tracking-wider text-emerald-300">PRO LIVE</span></div>
-              <div className="text-[8px] font-bold uppercase tracking-[0.2em] text-slate-600">Native 2 Deck · X1 MK2 + Z1 MK2 · Real Web Audio</div>
+              <div className="text-[8px] font-bold uppercase tracking-[0.2em] text-slate-600">Universal Hardware Setup · MIDI · HID · DJ Bridge · Real Web Audio</div>
             </div>
           </div>
           <button type="button" onClick={() => setOpen(false)} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-800 bg-slate-950 text-slate-400 hover:text-white" aria-label="Chiudi SONARA DJ PRO"><X className="h-4 w-4" /></button>
         </div>
       </div>
       <div className="mx-auto max-w-[1800px] space-y-4 p-3 sm:p-5">
-        <NIMinimalConsole />
+        <DJConnectHub />
         <SonaraProLiveSkin />
         <SonaraZ1MixerSkin />
       </div>
