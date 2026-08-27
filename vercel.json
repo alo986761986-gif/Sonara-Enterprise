@@ -6,6 +6,9 @@
     },
     "api/billing/job.ts": {
       "maxDuration": 180
+    },
+    "api/video/[...path].ts": {
+      "maxDuration": 300
     }
   },
   "rewrites": [
