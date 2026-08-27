@@ -12,7 +12,7 @@ type CoreAction =
   | 'deckB.volume' | 'deckB.eqLow' | 'deckB.eqMid' | 'deckB.eqHigh' | 'deckB.filter'
   | 'mixer.crossfader' | 'mixer.master';
 
-type MIDIFamily = 'X1 MK2' | 'Z1 MK2' | 'MIDI';
+type MIDIFamily = 'X1' | 'Z1' | 'MIDI';
 type LearnRule = {
   sourceId?: string;
   sourceName?: string;
@@ -29,30 +29,30 @@ const STORAGE_KEY = 'sonara.dj.ni-x1mk2-z1mk2.mapping.v1';
 const NI_DRIVER_URL = 'https://support.native-instruments.com/hc/en-us/articles/209570629-Drivers-Other-Files';
 const NI_MIDI_MODE_URL = 'https://support.native-instruments.com/support/solutions/articles/69000880031-native-instruments-switching-your-controller-to-midi-mode';
 
-const ACTIONS: Array<{ id: CoreAction; label: string; preferred: 'X1 MK2' | 'Z1 MK2'; kind: 'button' | 'absolute' | 'bipolar' }> = [
-  { id: 'deckA.play', label: 'Deck A · Play', preferred: 'X1 MK2', kind: 'button' },
-  { id: 'deckA.cue', label: 'Deck A · Cue', preferred: 'X1 MK2', kind: 'button' },
-  { id: 'deckA.sync', label: 'Deck A · Sync', preferred: 'X1 MK2', kind: 'button' },
-  { id: 'deckA.loop', label: 'Deck A · Loop', preferred: 'X1 MK2', kind: 'button' },
-  { id: 'deckB.play', label: 'Deck B · Play', preferred: 'X1 MK2', kind: 'button' },
-  { id: 'deckB.cue', label: 'Deck B · Cue', preferred: 'X1 MK2', kind: 'button' },
-  { id: 'deckB.sync', label: 'Deck B · Sync', preferred: 'X1 MK2', kind: 'button' },
-  { id: 'deckB.loop', label: 'Deck B · Loop', preferred: 'X1 MK2', kind: 'button' },
-  { id: 'deckA.volume', label: 'Canale A · Volume', preferred: 'Z1 MK2', kind: 'absolute' },
-  { id: 'deckA.eqLow', label: 'Canale A · Low', preferred: 'Z1 MK2', kind: 'bipolar' },
-  { id: 'deckA.eqMid', label: 'Canale A · Mid', preferred: 'Z1 MK2', kind: 'bipolar' },
-  { id: 'deckA.eqHigh', label: 'Canale A · High', preferred: 'Z1 MK2', kind: 'bipolar' },
-  { id: 'deckA.filter', label: 'Canale A · Filter', preferred: 'Z1 MK2', kind: 'bipolar' },
-  { id: 'deckB.volume', label: 'Canale B · Volume', preferred: 'Z1 MK2', kind: 'absolute' },
-  { id: 'deckB.eqLow', label: 'Canale B · Low', preferred: 'Z1 MK2', kind: 'bipolar' },
-  { id: 'deckB.eqMid', label: 'Canale B · Mid', preferred: 'Z1 MK2', kind: 'bipolar' },
-  { id: 'deckB.eqHigh', label: 'Canale B · High', preferred: 'Z1 MK2', kind: 'bipolar' },
-  { id: 'deckB.filter', label: 'Canale B · Filter', preferred: 'Z1 MK2', kind: 'bipolar' },
-  { id: 'mixer.crossfader', label: 'Mixer · Crossfader', preferred: 'Z1 MK2', kind: 'bipolar' },
-  { id: 'mixer.master', label: 'Mixer · Master', preferred: 'Z1 MK2', kind: 'absolute' }
+const ACTIONS: Array<{ id: CoreAction; label: string; preferred: 'X1' | 'Z1'; kind: 'button' | 'absolute' | 'bipolar' }> = [
+  { id: 'deckA.play', label: 'Deck A · Play', preferred: 'X1', kind: 'button' },
+  { id: 'deckA.cue', label: 'Deck A · Cue', preferred: 'X1', kind: 'button' },
+  { id: 'deckA.sync', label: 'Deck A · Sync', preferred: 'X1', kind: 'button' },
+  { id: 'deckA.loop', label: 'Deck A · Loop', preferred: 'X1', kind: 'button' },
+  { id: 'deckB.play', label: 'Deck B · Play', preferred: 'X1', kind: 'button' },
+  { id: 'deckB.cue', label: 'Deck B · Cue', preferred: 'X1', kind: 'button' },
+  { id: 'deckB.sync', label: 'Deck B · Sync', preferred: 'X1', kind: 'button' },
+  { id: 'deckB.loop', label: 'Deck B · Loop', preferred: 'X1', kind: 'button' },
+  { id: 'deckA.volume', label: 'Canale A · Volume', preferred: 'Z1', kind: 'absolute' },
+  { id: 'deckA.eqLow', label: 'Canale A · Low', preferred: 'Z1', kind: 'bipolar' },
+  { id: 'deckA.eqMid', label: 'Canale A · Mid', preferred: 'Z1', kind: 'bipolar' },
+  { id: 'deckA.eqHigh', label: 'Canale A · High', preferred: 'Z1', kind: 'bipolar' },
+  { id: 'deckA.filter', label: 'Canale A · Filter', preferred: 'Z1', kind: 'bipolar' },
+  { id: 'deckB.volume', label: 'Canale B · Volume', preferred: 'Z1', kind: 'absolute' },
+  { id: 'deckB.eqLow', label: 'Canale B · Low', preferred: 'Z1', kind: 'bipolar' },
+  { id: 'deckB.eqMid', label: 'Canale B · Mid', preferred: 'Z1', kind: 'bipolar' },
+  { id: 'deckB.eqHigh', label: 'Canale B · High', preferred: 'Z1', kind: 'bipolar' },
+  { id: 'deckB.filter', label: 'Canale B · Filter', preferred: 'Z1', kind: 'bipolar' },
+  { id: 'mixer.crossfader', label: 'Mixer · Crossfader', preferred: 'Z1', kind: 'bipolar' },
+  { id: 'mixer.master', label: 'Mixer · Master', preferred: 'Z1', kind: 'absolute' }
 ];
 
-const Z1_ACTIONS = ACTIONS.filter(action => action.preferred === 'Z1 MK2');
+const Z1_ACTIONS = ACTIONS.filter(action => action.preferred === 'Z1');
 
 const readMapping = (): Mapping => {
   if (typeof window === 'undefined') return {};
@@ -67,8 +67,8 @@ const normalizeName = (value = '') => value.trim().toLowerCase().replace(/\s+/g,
 
 const identify = (name = ''): MIDIFamily => {
   const value = normalizeName(name);
-  if (value.includes('x1') && (value.includes('traktor') || value.includes('kontrol') || value.includes('mk2'))) return 'X1 MK2';
-  if (value.includes('z1') && (value.includes('traktor') || value.includes('kontrol') || value.includes('mk2'))) return 'Z1 MK2';
+  if (value.includes('x1') && (value.includes('traktor') || value.includes('kontrol'))) return 'X1';
+  if (value.includes('z1') && (value.includes('traktor') || value.includes('kontrol'))) return 'Z1';
   return 'MIDI';
 };
 
@@ -79,7 +79,7 @@ const normalizeCommand = (status: number) => {
 
 export default function NIMinimalConsole() {
   const [devices, setDevices] = useState<MIDIDeviceView[]>([]);
-  const [status, setStatus] = useState('Collega X1 MK2 e Z1 MK2 via USB, poi premi CONNETTI.');
+  const [status, setStatus] = useState('Collega la tua X1 MK1 e/o Z1 originale via USB, poi premi RILEVA X1 / Z1.');
   const [mapping, setMapping] = useState<Mapping>(readMapping);
   const [learning, setLearning] = useState<CoreAction | ''>('');
   const [z1Wizard, setZ1Wizard] = useState(false);
@@ -102,10 +102,10 @@ export default function NIMinimalConsole() {
     setLastEngineAt(Date.now());
   }), []);
 
-  const hasX1 = devices.some(device => device.family === 'X1 MK2');
-  const hasZ1 = devices.some(device => device.family === 'Z1 MK2');
-  const x1Signal = devices.some(device => device.family === 'X1 MK2' && (signalByDevice[device.id] || 0) > 0);
-  const z1Signal = devices.some(device => device.family === 'Z1 MK2' && (signalByDevice[device.id] || 0) > 0);
+  const hasX1 = devices.some(device => device.family === 'X1');
+  const hasZ1 = devices.some(device => device.family === 'Z1');
+  const x1Signal = devices.some(device => device.family === 'X1' && (signalByDevice[device.id] || 0) > 0);
+  const z1Signal = devices.some(device => device.family === 'Z1' && (signalByDevice[device.id] || 0) > 0);
   const anySignal = Object.values(signalByDevice).some(count => count > 0);
   const mappedCount = useMemo(() => Object.keys(mapping).length, [mapping]);
   const z1MappedCount = useMemo(() => Z1_ACTIONS.filter(action => Boolean(mapping[action.id])).length, [mapping]);
@@ -172,8 +172,8 @@ export default function NIMinimalConsole() {
     const currentLearning = learningRef.current;
     if (currentLearning) {
       const actionMeta = ACTIONS.find(item => item.id === currentLearning);
-      if (actionMeta?.preferred === 'Z1 MK2' && source.family !== 'Z1 MK2') {
-        setStatus(`Sto imparando ${actionMeta.label}: muovi il controllo sulla Z1 MK2, non sulla X1.`);
+      if (actionMeta?.preferred === 'Z1' && source.family !== 'Z1') {
+        setStatus(`Sto imparando ${actionMeta.label}: muovi il controllo sulla Z1, non sulla X1.`);
         return;
       }
       if (actionMeta?.kind === 'button' && isNoteRelease) return;
@@ -254,9 +254,9 @@ export default function NIMinimalConsole() {
       next.push(device);
     }
     setDevices(next);
-    const x1 = next.some(item => item.family === 'X1 MK2');
-    const z1 = next.some(item => item.family === 'Z1 MK2');
-    setStatus(x1 && z1 ? 'X1 MK2 + Z1 MK2 rilevati. Il mapping viene ora riconosciuto anche se Windows cambia l’ID MIDI delle porte.' : x1 ? 'X1 MK2 rilevato. Collega anche Z1 MK2.' : z1 ? 'Z1 MK2 rilevato. Collega anche X1 MK2.' : next.length ? 'MIDI rilevato. Muovi un controllo per identificarlo e configurarlo.' : 'Nessun controller MIDI rilevato.');
+    const x1 = next.some(item => item.family === 'X1');
+    const z1 = next.some(item => item.family === 'Z1');
+    setStatus(x1 && z1 ? 'X1 + Z1 rilevate. Puoi mapparle insieme.' : x1 ? 'X1 rilevata: funziona anche senza Z1.' : z1 ? 'Z1 rilevata: funziona anche senza X1.' : next.length ? 'MIDI rilevato. Muovi un controllo per identificarlo e configurarlo.' : 'Nessun controller MIDI rilevato.');
   };
 
   const connect = async () => {
@@ -311,26 +311,27 @@ export default function NIMinimalConsole() {
     <section className="rounded-2xl border border-slate-800 bg-[#080b11] p-4 shadow-xl sm:p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="flex items-center gap-2"><Disc3 className="h-4 w-4 text-cyan-300"/><h1 className="text-sm font-black text-white">SONARA DJ PRO · X1 MK2 + Z1 MK2</h1></div>
-          <p className="mt-1 text-[10px] text-slate-500">X1 controlla i deck. Z1 controlla mixer e fornisce la scheda audio: selezionala nel blocco AUDIO Z1 MK2.</p>
+          <div className="flex items-center gap-2"><Disc3 className="h-4 w-4 text-cyan-300"/><h1 className="text-sm font-black text-white">SONARA DJ PRO · TRAKTOR X1 + Z1</h1></div>
+          <p className="mt-1 text-[10px] text-slate-500">Compatibile con X1 MK1 e Z1 originale. Puoi collegare e usare anche una sola console alla volta.</p>
         </div>
         <div className="flex w-full flex-col gap-2 lg:max-w-xs">
-          <button type="button" onClick={() => void connect()} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-500 px-4 py-2.5 text-[9px] font-black text-black"><Usb className="h-4 w-4"/>CONNETTI X1 + Z1</button>
+          <button type="button" onClick={() => void connect()} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-cyan-500 px-4 py-2.5 text-[9px] font-black text-black"><Usb className="h-4 w-4"/>RILEVA X1 / Z1</button>
           <button type="button" onClick={() => window.open(NI_DRIVER_URL, '_blank', 'noopener,noreferrer')} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-[9px] font-black text-slate-200"><Download className="h-4 w-4"/>DRIVER NI<ExternalLink className="h-3 w-3"/></button>
           <button type="button" onClick={() => window.open(NI_MIDI_MODE_URL, '_blank', 'noopener,noreferrer')} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-[9px] font-black text-slate-400">MIDI MODE<ExternalLink className="h-3 w-3"/></button>
         </div>
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-2">
-        <div className={`flex items-center justify-between rounded-xl border px-3 py-3 ${hasX1 ? 'border-emerald-500/25 bg-emerald-500/5' : 'border-slate-800 bg-slate-950'}`}><div><div className="text-[9px] font-black text-white">TRAKTOR X1 MK2</div><div className={`mt-1 text-[8px] font-bold ${x1Signal ? 'text-emerald-300' : 'text-slate-600'}`}>{hasX1 ? (x1Signal ? 'SEGNALE MIDI FISICO ATTIVO' : 'RILEVATO · PREMI UN TASTO X1') : 'NON RILEVATO'}</div></div>{hasX1 ? <CheckCircle2 className="h-4 w-4 text-emerald-300"/> : <XCircle className="h-4 w-4 text-slate-700"/>}</div>
-        <div className={`flex items-center justify-between rounded-xl border px-3 py-3 ${hasZ1 ? 'border-emerald-500/25 bg-emerald-500/5' : 'border-slate-800 bg-slate-950'}`}><div><div className="text-[9px] font-black text-white">TRAKTOR Z1 MK2</div><div className={`mt-1 text-[8px] font-bold ${z1Signal ? 'text-emerald-300' : 'text-slate-600'}`}>{hasZ1 ? (z1Signal ? 'SEGNALE MIDI FISICO ATTIVO' : 'RILEVATO · MUOVI UNA MANOPOLA Z1') : 'NON RILEVATO'}</div></div>{hasZ1 ? <CheckCircle2 className="h-4 w-4 text-emerald-300"/> : <XCircle className="h-4 w-4 text-slate-700"/>}</div>
+        <div className={`flex items-center justify-between rounded-xl border px-3 py-3 ${hasX1 ? 'border-emerald-500/25 bg-emerald-500/5' : 'border-slate-800 bg-slate-950'}`}><div><div className="text-[9px] font-black text-white">TRAKTOR X1 · MK1 SUPPORTATA</div><div className={`mt-1 text-[8px] font-bold ${x1Signal ? 'text-emerald-300' : 'text-slate-600'}`}>{hasX1 ? (x1Signal ? 'SEGNALE MIDI FISICO ATTIVO' : 'RILEVATO · PREMI UN TASTO X1') : 'NON RILEVATO'}</div></div>{hasX1 ? <CheckCircle2 className="h-4 w-4 text-emerald-300"/> : <XCircle className="h-4 w-4 text-slate-700"/>}</div>
+        <div className={`flex items-center justify-between rounded-xl border px-3 py-3 ${hasZ1 ? 'border-emerald-500/25 bg-emerald-500/5' : 'border-slate-800 bg-slate-950'}`}><div><div className="text-[9px] font-black text-white">TRAKTOR Z1 · ORIGINALE SUPPORTATA</div><div className={`mt-1 text-[8px] font-bold ${z1Signal ? 'text-emerald-300' : 'text-slate-600'}`}>{hasZ1 ? (z1Signal ? 'SEGNALE MIDI FISICO ATTIVO' : 'RILEVATO · MUOVI UNA MANOPOLA Z1') : 'NON RILEVATO'}</div></div>{hasZ1 ? <CheckCircle2 className="h-4 w-4 text-emerald-300"/> : <XCircle className="h-4 w-4 text-slate-700"/>}</div>
         <div className={`rounded-xl border px-3 py-3 ${engineConfirmed ? 'border-emerald-400/35 bg-emerald-400/10' : lastMappedAction ? 'border-cyan-400/30 bg-cyan-400/10' : 'border-slate-800 bg-slate-950'}`}>
           <div className="flex items-start gap-2"><Cable className={`mt-0.5 h-4 w-4 shrink-0 ${engineConfirmed ? 'text-emerald-300' : 'text-cyan-300'}`}/><div><div className="text-[8px] font-black uppercase tracking-[0.16em] text-slate-500">DJ PRO LINK TEST</div><div className={`mt-1 text-[9px] font-black ${engineConfirmed ? 'text-emerald-200' : lastMappedAction ? 'text-cyan-100' : 'text-slate-400'}`}>{linkStatus}</div>{lastEngineReply ? <div className="mt-1 text-[8px] font-bold text-slate-600">Ultima risposta engine: {lastEngineReply}</div> : null}{lastMidi ? <div className="mt-1 text-[8px] font-bold text-slate-700">Ultimo MIDI: {lastMidi}</div> : null}</div></div>
         </div>
       </div>
 
       <div className="mt-3 flex flex-col items-stretch gap-3 border-t border-slate-900 pt-3">
-        <div className="text-[8px] font-bold text-slate-600">TEST REALE: premi PLAY/CUE su X1 oppure muovi crossfader/volume su Z1. Se il segnale arriva ma non è ancora associato, Sonara apre automaticamente la mappatura rapida.</div>
+        <div className="rounded-lg border border-cyan-400/15 bg-cyan-400/5 px-3 py-2 text-[8px] font-bold text-cyan-100/80">MIDI MODE VECCHI MODELLI · Z1: MODE + CUE A + CUE B · X1 MK1: SHIFT + HOTCUE. Chiudi Traktor prima del collegamento.</div>
+        <div className="text-[8px] font-bold text-slate-600">TEST REALE: premi PLAY/CUE su X1 oppure muovi crossfader/volume su Z1. Le due console possono essere rilevate e configurate separatamente.</div>
         <div className="text-[8px] font-bold text-slate-600">La mappatura viene legata al modello/nome del controller, non più soltanto all’ID temporaneo assegnato dal browser.</div>
         <button type="button" onClick={() => setAdvanced(value => !value)} className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-2 text-[8px] font-black text-slate-400"><Settings2 className="h-3 w-3"/>{advanced ? 'CHIUDI CONFIG' : `CONFIGURA CONTROLLI · ${mappedCount}/20`}</button>
         <button type="button" disabled={!hasZ1} onClick={startZ1Wizard} className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-2.5 py-2 text-[8px] font-black text-cyan-200 disabled:cursor-not-allowed disabled:opacity-35"><SlidersHorizontal className="h-3 w-3"/>MAPPATURA GUIDATA Z1 · {z1MappedCount}/{Z1_ACTIONS.length}</button>
@@ -346,13 +347,13 @@ export default function NIMinimalConsole() {
       <div className="mt-3 grid grid-cols-1 gap-2">{ACTIONS.map(action => { const rule = mapping[action.id]; const active = learning === action.id; return <button key={action.id} onClick={() => { const next = active ? '' : action.id; setZ1Wizard(false); setLearning(next); learningRef.current = next; }} className={`w-full rounded-xl border p-3 text-left ${active ? 'border-amber-400/40 bg-amber-400/10' : rule ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-slate-800 bg-slate-950'}`}><div className="text-[8px] font-black text-white">{action.label}</div><div className="mt-1 text-[7px] font-bold text-slate-600">{active ? `MUOVI ORA · ${action.preferred}` : rule ? `OK STABILE · CH ${rule.channel + 1} · ${normalizeCommand(rule.status) === 0xb0 ? 'CC' : 'NOTE'} ${rule.data1}` : action.preferred}</div></button>; })}</div>
     </section> : null}
 
-    <DJDeckSkinManager profileId="ni-x1mk2-z1mk2" profileName="X1 MK2 + Z1 MK2" />
+    <DJDeckSkinManager profileId="ni-x1mk1-z1" profileName="X1 MK1 + Z1 originale" />
     <div className="ni-decks"><DJLiveMixer/></div>
     <style>{`
       [data-ni-console] .ni-audio > section { border-radius:18px!important; background:#080b11!important; border-color:rgba(34,211,238,.18)!important; }
       [data-ni-console] .ni-audio > section > div:first-child { flex-direction:column!important; align-items:stretch!important; }
       [data-ni-console] .ni-audio > section > div:first-child p { display:none; }
-      [data-ni-console] .ni-audio > section > div:first-child h2::after { content:' · Z1 MK2'; color:#67e8f9; }
+      [data-ni-console] .ni-audio > section > div:first-child h2::after { content:' · Z1 ORIGINALE'; color:#67e8f9; }
       [data-ni-console] .ni-audio > section > div:nth-child(2) { grid-template-columns:1fr!important; }
       [data-ni-console] .ni-audio > section > div:nth-child(2) > label:nth-child(2),
       [data-ni-console] .ni-audio > section > div:nth-child(2) > label:nth-child(3),
