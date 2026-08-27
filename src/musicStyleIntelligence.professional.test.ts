@@ -18,6 +18,41 @@ const REQUIRED_FIELDS = [
   'avoid'
 ] as const;
 
+const LEGACY_CONTAINER_GENRES = new Set([
+  'Regional Rap',
+  'Global Rap',
+  'Asian Pop',
+  'European Pop',
+  'Latin Pop',
+  'Brazilian',
+  'Caribbean Latin',
+  'Mexican / Regional',
+  'South American',
+  'West African',
+  'Southern African',
+  'Central / East African',
+  'North African',
+  'Horn of Africa',
+  'Francophone African',
+  'Caribbean',
+  'Arabic Music',
+  'Indian Popular',
+  'South Asian Folk',
+  'Pakistan / Bangladesh / Sri Lanka',
+  'Japanese',
+  'Korean',
+  'Chinese',
+  'Mongolian',
+  'Southeast Asian Popular',
+  'Traditional Southeast Asia'
+]);
+
+const NON_ATMOSPHERE_LABELS = new Set([
+  'authentic', 'professional', 'human', 'focused', 'dynamic', 'cultural', 'historic',
+  'traditional', 'modern', 'acoustic', 'electric', 'digital', 'structured', 'rhythmic',
+  'melodic', 'breakbeat', 'west-coast', 'slow', 'fast'
+]);
+
 let familyCount = 0;
 let genreCount = 0;
 let subgenreCount = 0;
@@ -30,6 +65,7 @@ for (const family of WORLD_MUSIC_GENRES) {
 
   for (const genre of family.genres) {
     genreCount += 1;
+    assert.ok(!LEGACY_CONTAINER_GENRES.has(genre.name), `legacy container leaked into genre menu: ${family.family} / ${genre.name}`);
     assert.ok(hasCuratedGenreIdentity(genre.name), `missing professional genre blueprint: ${family.family} / ${genre.name}`);
     assert.ok(genre.subgenres.length > 0, `genre without subgenres: ${family.family} / ${genre.name}`);
 
@@ -56,6 +92,12 @@ for (const family of WORLD_MUSIC_GENRES) {
         atmospheres.length,
         `duplicate atmospheres: ${family.family} / ${genre.name} / ${subgenre}`
       );
+      for (const atmosphere of atmospheres) {
+        assert.ok(
+          !NON_ATMOSPHERE_LABELS.has(atmosphere.toLocaleLowerCase('en-US')),
+          `technical/non-atmosphere label leaked into UI: ${family.family} / ${genre.name} / ${subgenre} -> ${atmosphere}`
+        );
+      }
       assert.ok(audit.specificityScore >= 55, `low taxonomy specificity: ${audit.taxonomyPath} (${audit.specificityScore})`);
       assert.ok(!siblingFingerprints.has(audit.fingerprint), `identical sibling fingerprint: ${audit.taxonomyPath}`);
       siblingFingerprints.add(audit.fingerprint);
@@ -65,8 +107,8 @@ for (const family of WORLD_MUSIC_GENRES) {
 }
 
 assert.equal(familyCount, 25, 'all 25 music families must remain available');
-assert.equal(genreCount, 86, 'all 86 genre categories must remain available');
-assert.equal(subgenreCount, 720, 'all 720 subgenres must remain available');
+assert.ok(genreCount > 86, `professional normalization must expose more real genres than the 86 legacy buckets (found ${genreCount})`);
+assert.equal(subgenreCount, 720, 'all 720 selectable musical styles must remain available');
 assert.equal(allFingerprints.size, subgenreCount, 'every taxonomy path must produce a distinct professional fingerprint');
 
 const neapolitanFamily = WORLD_MUSIC_GENRES.find(group => group.family === 'Neomelodica Napoletana');
@@ -80,6 +122,10 @@ for (const requiredSubgenre of ['Rap Napoletano', 'Hip-Hop Napoletano', 'Trap Na
   );
 }
 
+const hipHopFamily = WORLD_MUSIC_GENRES.find(group => group.family === 'Hip-Hop / Rap');
+assert.ok(hipHopFamily?.genres.some(item => item.name === 'West Coast Rap'), 'West Coast Rap must be a real selectable genre');
+assert.ok(!hipHopFamily?.genres.some(item => item.name === 'Regional Rap'), 'Regional Rap must not remain as a fake genre bucket');
+
 function assertAtmospherePrefix(family: string, genre: string, subgenre: string, expected: string[]) {
   assert.deepEqual(
     getAtmospheresForSelection(family, genre, subgenre).slice(0, expected.length),
@@ -90,19 +136,19 @@ function assertAtmospherePrefix(family: string, genre: string, subgenre: string,
 
 assertAtmospherePrefix('Electronic / Dance', 'House', 'Deep House', ['Deep', 'Warm', 'Hypnotic', 'Soulful']);
 assertAtmospherePrefix('Electronic / Dance', 'House', 'Tech House', ['Groovy', 'Driving', 'Hypnotic', 'Underground']);
-assertAtmospherePrefix('Latin America', 'Brazilian', 'Bossa Nova', ['Intimate', 'Relaxed', 'Elegant', 'Romantic']);
-assertAtmospherePrefix('Latin America', 'Brazilian', 'Samba', ['Festive', 'Joyful', 'Communal', 'Energetic']);
+assertAtmospherePrefix('Latin America', 'Bossa Nova', 'Bossa Nova', ['Intimate', 'Relaxed', 'Elegant', 'Romantic']);
+assertAtmospherePrefix('Latin America', 'Samba', 'Samba', ['Festive', 'Joyful', 'Communal', 'Energetic']);
 assertAtmospherePrefix('South Asia', 'Indian Classical', 'Hindustani Classical', ['Meditative', 'Expansive', 'Devotional', 'Intense']);
 assertAtmospherePrefix('South Asia', 'Indian Classical', 'Carnatic Classical', ['Devotional', 'Intricate', 'Ecstatic', 'Energetic']);
 assertAtmospherePrefix('Folk / Traditional Europe', 'European Folk', 'Fado', ['Saudade', 'Melancholic', 'Intimate', 'Nostalgic']);
 assertAtmospherePrefix('Folk / Traditional Europe', 'European Folk', 'Flamenco', ['Passionate', 'Fiery', 'Raw', 'Dramatic']);
 assertAtmospherePrefix('Cinematic / Media', 'Soundtrack', 'Film Score', ['Cinematic', 'Emotional', 'Narrative', 'Atmospheric']);
 assertAtmospherePrefix('Cinematic / Media', 'Soundtrack', 'Trailer Music', ['Epic', 'Massive', 'Heroic', 'Tense']);
-assertAtmospherePrefix('Africa', 'North African', 'Gnawa', ['Ritual', 'Spiritual', 'Hypnotic', 'Earthy']);
-assertAtmospherePrefix('Africa', 'West African', 'Highlife', ['Joyful', 'Elegant', 'Groovy', 'Sunny']);
+assertAtmospherePrefix('Africa', 'Gnawa', 'Gnawa', ['Ritual', 'Spiritual', 'Hypnotic', 'Earthy']);
+assertAtmospherePrefix('Africa', 'Highlife', 'Highlife', ['Joyful', 'Elegant', 'Groovy', 'Sunny']);
 
 const globalAfroHouse = getMusicStyleProfile('Electronic / Dance', 'House', 'Afro House');
-const southernAfricanAfroHouse = getMusicStyleProfile('Africa', 'Southern African', 'Afro House');
+const southernAfricanAfroHouse = getMusicStyleProfile('Africa', 'Afro House', 'Afro House');
 assert.notEqual(globalAfroHouse.identity, southernAfricanAfroHouse.identity, 'duplicate names must be resolved by full taxonomy path');
 
 const trapPrimary = getMusicStyleProfile('Hip-Hop / Rap', 'Trap', 'Trap Soul');
@@ -119,4 +165,4 @@ const neapolitan = getMusicStyleProfile('Folk / Traditional Europe', 'European F
 assert.match(neapolitan.identity, /cantabile/);
 assert.match(neapolitan.instrumentation, /mandolin/);
 
-console.log(`professional taxonomy passed: ${familyCount} families, ${genreCount} genres, ${subgenreCount} subgenres, ${allFingerprints.size} distinct fingerprints`);
+console.log(`professional taxonomy passed: ${familyCount} families, ${genreCount} real genres, ${subgenreCount} selectable styles, ${allFingerprints.size} distinct fingerprints`);
