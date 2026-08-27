@@ -1,0 +1,2 @@
+Redeploy SONARA UI fix: BPM always visible and synchronized; Workspace Brano A/B raised.
+Triggered 2026-08-27 Europe/Rome.
