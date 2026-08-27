@@ -1,2 +1,2 @@
-trigger: 2026-08-25T08:52:00Z
-reason: rotate stale Modal proxy credentials with 240s cold-start allowance
+trigger: 2026-08-27T17:45:00Z
+reason: rotate Modal proxy credentials and sync Cloudflare for Kaggle-offline fallback
