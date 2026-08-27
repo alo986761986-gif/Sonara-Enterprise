@@ -228,18 +228,18 @@ export default function DJLiveMixer() {
     const apply = (deck: DJDeckId, patch: Partial<DeckModel>) => deck === 'A' ? setDeckA(current => ({ ...current, ...patch })) : setDeckB(current => ({ ...current, ...patch }));
     const audio = action.type.startsWith('deck.') && 'deck' in action ? (action.deck === 'A' ? audioA.current : audioB.current) : null;
     if (action.type === 'deck.play' && audio) { void ensureGraph().then(() => { if (audio.paused) void audio.play(); else audio.pause(); apply(action.deck, { playing: !audio.paused }); emitDJFeedback({ control: 'play', deck: action.deck, value: !audio.paused }); }); }
-    if (action.type === 'deck.cue' && audio && action.pressed) { audio.pause(); audio.currentTime = 0; apply(action.deck, { playing: false }); }
-    if (action.type === 'deck.pitch') apply(action.deck, { rate: clamp(1 + action.value / 100, 0.5, 2) });
-    if (action.type === 'deck.volume') apply(action.deck, { volume: clamp(action.value, 0, 1) });
-    if (action.type === 'deck.filter') apply(action.deck, { filter: clamp(action.value, -1, 1) });
-    if (action.type === 'deck.eqLow') apply(action.deck, { low: clamp(action.value, -18, 9) });
-    if (action.type === 'deck.eqMid') apply(action.deck, { mid: clamp(action.value, -18, 9) });
-    if (action.type === 'deck.eqHigh') apply(action.deck, { high: clamp(action.value, -18, 9) });
+    if (action.type === 'deck.cue' && audio && action.pressed) { audio.pause(); audio.currentTime = 0; apply(action.deck, { playing: false }); emitDJFeedback({ control: 'cue', deck: action.deck, value: true }); }
+    if (action.type === 'deck.pitch') { const value = clamp(action.value, -50, 100); apply(action.deck, { rate: clamp(1 + value / 100, 0.5, 2) }); emitDJFeedback({ control: 'pitch', deck: action.deck, value }); }
+    if (action.type === 'deck.volume') { const value = clamp(action.value, 0, 1); apply(action.deck, { volume: value }); emitDJFeedback({ control: 'volume', deck: action.deck, value }); }
+    if (action.type === 'deck.filter') { const value = clamp(action.value, -1, 1); apply(action.deck, { filter: value }); emitDJFeedback({ control: 'filter', deck: action.deck, value }); }
+    if (action.type === 'deck.eqLow') { const value = clamp(action.value, -18, 9); apply(action.deck, { low: value }); emitDJFeedback({ control: 'eqLow', deck: action.deck, value }); }
+    if (action.type === 'deck.eqMid') { const value = clamp(action.value, -18, 9); apply(action.deck, { mid: value }); emitDJFeedback({ control: 'eqMid', deck: action.deck, value }); }
+    if (action.type === 'deck.eqHigh') { const value = clamp(action.value, -18, 9); apply(action.deck, { high: value }); emitDJFeedback({ control: 'eqHigh', deck: action.deck, value }); }
     if (action.type === 'deck.hotcue' && audio && action.pressed !== false) { const model = action.deck === 'A' ? deckA : deckB; const cue = model.hotCues[action.index]; if (cue == null) { const next = [...model.hotCues]; next[action.index] = audio.currentTime; apply(action.deck, { hotCues: next }); } else audio.currentTime = cue; }
     if (action.type === 'deck.loop' && audio && action.pressed !== false) { const model = action.deck === 'A' ? deckA : deckB; apply(action.deck, { loopActive: !model.loopActive, loopStart: audio.currentTime, loopBeats: action.beats || model.loopBeats }); }
     if (action.type === 'deck.sync' && action.pressed !== false) { const own = action.deck === 'A' ? deckA : deckB; const other = action.deck === 'A' ? deckB : deckA; if (own.bpm > 0 && other.bpm > 0) apply(action.deck, { rate: clamp(other.bpm / own.bpm, 0.5, 2) }); }
     if (action.type === 'mixer.crossfader') setCrossfader(clamp(action.value, -1, 1));
-    if (action.type === 'mixer.master') setMaster(clamp(action.value, 0, 1));
+    if (action.type === 'mixer.master') { const value = clamp(action.value, 0, 1); setMaster(value); emitDJFeedback({ control: 'master', value }); }
   }), [deckA, deckB]);
 
   const loadFile = async (deck: DJDeckId, file: File) => {
