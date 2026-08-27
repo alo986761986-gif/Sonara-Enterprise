@@ -1,2 +1,2 @@
-trigger: 2026-08-27T18:35:00+02:00
-reason: deploy Kaggle T4 ultra-fast profile with 4 steps, no LM planning, ODE and direct short-track decode
+trigger: 2026-08-27T20:54:00+02:00
+reason: deploy live creator hotfix for visible/synchronized BPM and raised Brano A/B workspace cards
