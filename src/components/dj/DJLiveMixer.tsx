@@ -11,6 +11,7 @@ type DeckModel = {
   waveform: number[];
   playing: boolean;
   volume: number;
+  gain: number;
   filter: number;
   low: number;
   mid: number;
@@ -38,7 +39,7 @@ type DeckAudioGraph = {
 };
 
 const makeDeck = (): DeckModel => ({
-  title: 'Nessuna traccia', url: '', duration: 0, bpm: 124, bpmAnalyzed: false, waveform: [], playing: false, volume: 0.9,
+  title: 'Nessuna traccia', url: '', duration: 0, bpm: 124, bpmAnalyzed: false, waveform: [], playing: false, volume: 0.9, gain: 0,
   filter: 0, low: 0, mid: 0, high: 0, echo: 0, hotCues: [null, null, null, null, null, null, null, null],
   loopActive: false, loopStart: 0, loopBeats: 4, rate: 1
 });
@@ -188,7 +189,7 @@ export default function DJLiveMixer() {
 
   const updateGraph = (model: DeckModel, graph: DeckAudioGraph | null) => {
     if (!graph) return;
-    graph.deckGain.gain.value = model.volume;
+    graph.deckGain.gain.value = model.volume * Math.pow(10, model.gain / 20);
     graph.low.gain.value = model.low; graph.mid.gain.value = model.mid; graph.high.gain.value = model.high;
     graph.delay.delayTime.value = clamp((60 / Math.max(40, model.bpm)) * 0.5, 0.05, 1);
     graph.echoWet.gain.value = model.echo * 0.55;
@@ -198,8 +199,8 @@ export default function DJLiveMixer() {
     else { graph.filter.type = 'lowpass'; graph.filter.frequency.value = 20000; }
   };
 
-  useEffect(() => { updateGraph(deckA, graphA.current); if (audioA.current) audioA.current.playbackRate = deckA.rate; }, [deckA.volume, deckA.low, deckA.mid, deckA.high, deckA.filter, deckA.echo, deckA.bpm, deckA.rate]);
-  useEffect(() => { updateGraph(deckB, graphB.current); if (audioB.current) audioB.current.playbackRate = deckB.rate; }, [deckB.volume, deckB.low, deckB.mid, deckB.high, deckB.filter, deckB.echo, deckB.bpm, deckB.rate]);
+  useEffect(() => { updateGraph(deckA, graphA.current); if (audioA.current) audioA.current.playbackRate = deckA.rate; }, [deckA.volume, deckA.gain, deckA.low, deckA.mid, deckA.high, deckA.filter, deckA.echo, deckA.bpm, deckA.rate]);
+  useEffect(() => { updateGraph(deckB, graphB.current); if (audioB.current) audioB.current.playbackRate = deckB.rate; }, [deckB.volume, deckB.gain, deckB.low, deckB.mid, deckB.high, deckB.filter, deckB.echo, deckB.bpm, deckB.rate]);
   useEffect(() => { if (masterGain.current) masterGain.current.gain.value = master; }, [master]);
   useEffect(() => { const x = clamp((crossfader + 1) / 2, 0, 1); if (graphA.current) graphA.current.crossGain.gain.value = Math.cos(x * Math.PI / 2); if (graphB.current) graphB.current.crossGain.gain.value = Math.sin(x * Math.PI / 2); emitDJFeedback({ control: 'crossfader', value: (crossfader + 1) / 2 }); }, [crossfader]);
 
@@ -231,6 +232,7 @@ export default function DJLiveMixer() {
     if (action.type === 'deck.cue' && audio && action.pressed) { audio.pause(); audio.currentTime = 0; apply(action.deck, { playing: false }); emitDJFeedback({ control: 'cue', deck: action.deck, value: true }); }
     if (action.type === 'deck.pitch') { const value = clamp(action.value, -50, 100); apply(action.deck, { rate: clamp(1 + value / 100, 0.5, 2) }); emitDJFeedback({ control: 'pitch', deck: action.deck, value }); }
     if (action.type === 'deck.volume') { const value = clamp(action.value, 0, 1); apply(action.deck, { volume: value }); emitDJFeedback({ control: 'volume', deck: action.deck, value }); }
+    if (action.type === 'deck.gain') { const value = clamp(action.value, -12, 12); apply(action.deck, { gain: value }); emitDJFeedback({ control: 'gain', deck: action.deck, value }); }
     if (action.type === 'deck.filter') { const value = clamp(action.value, -1, 1); apply(action.deck, { filter: value }); emitDJFeedback({ control: 'filter', deck: action.deck, value }); }
     if (action.type === 'deck.eqLow') { const value = clamp(action.value, -18, 9); apply(action.deck, { low: value }); emitDJFeedback({ control: 'eqLow', deck: action.deck, value }); }
     if (action.type === 'deck.eqMid') { const value = clamp(action.value, -18, 9); apply(action.deck, { mid: value }); emitDJFeedback({ control: 'eqMid', deck: action.deck, value }); }
