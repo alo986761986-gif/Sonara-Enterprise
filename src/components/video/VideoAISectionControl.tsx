@@ -34,6 +34,23 @@ function errorMessage(payload: JobPayload, fallback: string) {
   return fallback;
 }
 
+async function readApiJson<T>(response: Response, fallback: string): Promise<T> {
+  const text = await response.text();
+  const trimmed = text.trim();
+  if (!trimmed) {
+    if (!response.ok) throw new Error(`${fallback} (HTTP ${response.status}).`);
+    return {} as T;
+  }
+  if (/^<!doctype\s+html/i.test(trimmed) || /^<html/i.test(trimmed)) {
+    throw new Error(`${fallback} Il server Video AI ha restituito una pagina HTML invece di JSON (HTTP ${response.status}).`);
+  }
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    throw new Error(`${fallback} Risposta non valida dal server Video AI (HTTP ${response.status}).`);
+  }
+}
+
 export default function VideoAISectionControl() {
   const [navHost, setNavHost] = useState<HTMLElement | null>(null);
   const [open, setOpen] = useState(false);
@@ -83,11 +100,12 @@ export default function VideoAISectionControl() {
     try {
       const token = await getFirebaseIdToken(true);
       const response = await fetch('/api/video/status', { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error?.message || 'Impossibile leggere il piano Video AI.');
-      setStatus(payload);
+      const payload = await readApiJson<any>(response, 'Impossibile leggere il piano Video AI.');
+      if (!response.ok) throw new Error(payload?.error?.message || payload?.error || `Impossibile leggere il piano Video AI (HTTP ${response.status}).`);
+      setStatus(payload as VideoStatus);
       if (!payload.videoResolutions?.includes(resolution)) setResolution(payload.videoResolutions?.[0] || '720p');
     } catch (cause) {
+      setStatus(null);
       setError(cause instanceof Error ? cause.message : String(cause));
     }
   };
@@ -108,7 +126,7 @@ export default function VideoAISectionControl() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ prompt: prompt.trim(), aspectRatio, resolution })
       });
-      const started = await response.json() as JobPayload;
+      const started = await readApiJson<JobPayload>(response, 'Video non avviato.');
       if (!response.ok || !started.jobId) throw new Error(errorMessage(started, `Video non avviato (HTTP ${response.status}).`));
 
       for (let attempt = 0; attempt < 90; attempt += 1) {
@@ -116,7 +134,7 @@ export default function VideoAISectionControl() {
         const poll = await fetch(`/api/video/job/${encodeURIComponent(started.jobId)}`, {
           headers: { Authorization: `Bearer ${token}` }, cache: 'no-store'
         });
-        const current = await poll.json() as JobPayload;
+        const current = await readApiJson<JobPayload>(poll, 'Controllo Video AI non disponibile.');
         if (!poll.ok) throw new Error(errorMessage(current, `Controllo video fallito (HTTP ${poll.status}).`));
         setProgress(Number(current.progress || Math.min(95, 12 + attempt)));
         setStage(current.stage || 'SONARA Video AI: rendering');
