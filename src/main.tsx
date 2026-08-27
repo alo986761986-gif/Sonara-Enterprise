@@ -9,6 +9,7 @@ import VocalCharacterControl from './components/generator/VocalCharacterControl'
 import DualTrackGenerationControl from './components/generator/DualTrackGenerationControl';
 import SonaraCreatorSkin from './components/generator/SonaraCreatorSkin';
 import StudioSectionControl from './components/studio/StudioSectionControl';
+import VideoAISectionControl from './components/video/VideoAISectionControl';
 import DJSectionControl from './components/dj/DJSectionControl';
 import './index.css';
 
@@ -28,6 +29,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <DualTrackGenerationControl />
         <SonaraCreatorSkin />
         <StudioSectionControl />
+        <VideoAISectionControl />
         <DJSectionControl />
       </>
     )}
