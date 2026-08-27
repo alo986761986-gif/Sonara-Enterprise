@@ -23,16 +23,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: 'npm'
-        continue-on-error: true
 
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Run SONARA professional taxonomy v3 test
-        run: npx tsx src/musicStyleIntelligence.professional.test.ts
-
-      - name: Run complete SONARA build
+      - name: Run complete SONARA build and taxonomy v3 validation
         env:
           CI: '1'
         run: npm run build
