@@ -53,6 +53,9 @@ runCommand(node, ['scripts/activate-electronic-genres.cjs']);
 console.log('[SONARA] Activating universal taxonomy generation.');
 runCommand(node, ['scripts/activate-universal-genres.cjs']);
 
+console.log('[SONARA] Activating professional family > genre > subgenre > atmosphere hierarchy.');
+runCommand(node, ['scripts/activate-professional-music-taxonomy.cjs']);
+
 console.log('[SONARA] Validating professional music taxonomy.');
 run(['tsx', 'src/musicStyleIntelligence.professional.test.ts']);
 
