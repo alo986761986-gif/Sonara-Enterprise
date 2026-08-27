@@ -1,6 +1,5 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { applicationDefault, cert, getApps, initializeApp, type App } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore, Timestamp } from 'firebase-admin/firestore';
 
 const TOKEN_SHA256 = '0e79cc2a394c975f8223bbcde62c2daa37756c3edc23f488706fb3a985f14abf';
@@ -8,15 +7,24 @@ const GIFT_DAYS = 30;
 const GIFT_GRANT_ID = 'studio-30d-2026-08-27';
 let adminApp: App | null = null;
 
+function projectId(): string {
+  return String(
+    process.env.SONARA_FIREBASE_PROJECT_ID ||
+    process.env.FIREBASE_PROJECT_ID ||
+    process.env.GCLOUD_PROJECT ||
+    ''
+  ).trim();
+}
+
 function getAdminApp(): App {
   if (adminApp) return adminApp;
   const existing = getApps()[0];
   if (existing) return (adminApp = existing);
   const serviceAccountJson = String(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '').trim();
-  const projectId = String(process.env.SONARA_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || '').trim();
+  const id = projectId();
   adminApp = initializeApp({
     credential: serviceAccountJson ? cert(JSON.parse(serviceAccountJson)) : applicationDefault(),
-    ...(projectId ? { projectId } : {})
+    ...(id ? { projectId: id } : {})
   });
   return adminApp;
 }
@@ -35,6 +43,35 @@ function timestampMillis(value: any): number {
   return 0;
 }
 
+async function resolveUidByEmail(email: string): Promise<string> {
+  const app = getAdminApp();
+  const id = projectId() || String(app.options.projectId || '').trim();
+  if (!id) throw new Error('FIREBASE_PROJECT_ID_MISSING');
+  const credential = app.options.credential as any;
+  const access = await credential?.getAccessToken?.();
+  const accessToken = String(access?.access_token || '').trim();
+  if (!accessToken) throw new Error('FIREBASE_ADMIN_ACCESS_TOKEN_MISSING');
+
+  const response = await fetch(
+    `https://identitytoolkit.googleapis.com/v1/projects/${encodeURIComponent(id)}/accounts:lookup`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ email: [email] })
+    }
+  );
+  const payload = await response.json().catch(() => ({})) as any;
+  if (!response.ok) {
+    throw new Error(String(payload?.error?.message || `IDENTITY_TOOLKIT_HTTP_${response.status}`));
+  }
+  const uid = String(payload?.users?.[0]?.localId || '').trim();
+  if (!uid) throw new Error('USER_NOT_FOUND');
+  return uid;
+}
+
 export default async function handler(req: any, res: any) {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -46,9 +83,9 @@ export default async function handler(req: any, res: any) {
 
   try {
     const app = getAdminApp();
-    const authUser = await getAuth(app).getUserByEmail(email);
+    const uid = await resolveUidByEmail(email);
     const firestore = getFirestore(app);
-    const ref = firestore.collection('sonaraBilling').doc(authUser.uid);
+    const ref = firestore.collection('sonaraBilling').doc(uid);
     const snapshot = await ref.get();
     const previous = snapshot.exists ? snapshot.data() || {} : {};
 
@@ -102,11 +139,11 @@ export default async function handler(req: any, res: any) {
       maxTrackMinutes: 8
     });
   } catch (error: any) {
-    const code = String(error?.code || '');
-    if (code === 'auth/user-not-found') {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message === 'USER_NOT_FOUND') {
       return res.status(404).json({ error: 'USER_NOT_FOUND', message: 'Nessun account SONARA registrato con questa email.' });
     }
-    console.error('[SONARA GIFT]', error instanceof Error ? error.message : String(error));
-    return res.status(500).json({ error: 'GIFT_ACTIVATION_FAILED' });
+    console.error('[SONARA GIFT]', message);
+    return res.status(500).json({ error: 'GIFT_ACTIVATION_FAILED', message });
   }
 }
