@@ -19,8 +19,9 @@ const MAX_QUERY_FAILURES = 4;
 const SAFE_FALLBACK_PROFILE = 'dual-safe-independent-v1';
 const KAGGLE_PROFILE = 'kaggle-t4x2-independent-v1';
 const KAGGLE_MODEL = 'acestep-v15-turbo';
-const KAGGLE_STEPS = 12;
-const KAGGLE_GUIDANCE_SCALE = 3.5;
+const KAGGLE_STEPS = 8;
+const KAGGLE_GUIDANCE_SCALE = 1.0;
+const KAGGLE_SHIFT = 3.0;
 const RETRYABLE_HTTP_STATUSES = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
 
 // Immediate session defaults. ACESTEP_WORKER_URLS / ACE_STEP_API_URLS can
@@ -325,10 +326,15 @@ function payloadForWorker(payload, worker, variationIndex) {
     model: isKaggle ? KAGGLE_MODEL : payload.model,
     inference_steps: isKaggle ? KAGGLE_STEPS : payload.inference_steps,
     guidance_scale: isKaggle ? KAGGLE_GUIDANCE_SCALE : payload.guidance_scale,
+    shift: isKaggle ? KAGGLE_SHIFT : payload.shift,
     batch_size: 1,
-    // The Kaggle T4 workers were started with the 1.7B 5Hz LM. Enable it so the
-    // selected 8-minute-capable configuration is actually used during rendering.
-    thinking: isKaggle ? true : payload.thinking,
+    // Max-speed T4 path: Turbo already works directly from text conditions.
+    // Skipping the 5Hz LM removes an entire planning pass from each candidate.
+    thinking: isKaggle ? false : payload.thinking,
+    use_format: false,
+    use_cot_caption: false,
+    use_cot_language: false,
+    infer_method: isKaggle ? 'ode' : payload.infer_method,
     use_random_seed: false,
     seed: seedBase + variationIndex * 7919
   };
@@ -469,8 +475,11 @@ async function startDualGeneration(request, env, body) {
         workerAssignments: tasks.map(task => ({ candidate: task.candidate, workerId: task.workerId, model: task.model })),
         inferenceSteps: selected.every(worker => worker.kind === 'kaggle') ? KAGGLE_STEPS : FAST_STEPS,
         guidanceScale: selected.every(worker => worker.kind === 'kaggle') ? KAGGLE_GUIDANCE_SCALE : null,
+        shift: selected.every(worker => worker.kind === 'kaggle') ? KAGGLE_SHIFT : null,
+        thinking: selected.every(worker => worker.kind === 'kaggle') ? false : null,
+        inferMethod: selected.every(worker => worker.kind === 'kaggle') ? 'ode' : null,
         currentStage: selected.length === 2 && selected[0].id !== selected[1].id
-          ? 'SONARA: A su T4 #0 + B su T4 #1'
+          ? 'SONARA MAX SPEED: A su T4 #0 + B su T4 #1'
           : 'SONARA: due render indipendenti in coda'
       }
     }, longForm ? 200 : 202);
@@ -561,7 +570,7 @@ async function pollDualJob(request, env, jobId) {
           renderModel: context.renderModel || KAGGLE_MODEL,
           candidateCount: 2,
           workerAssignments: tasks.map(task => ({ candidate: task.candidate, workerId: task.workerId, model: task.model })),
-          currentStage: 'SONARA: T4 #0 + T4 #1 stanno renderizzando'
+          currentStage: 'SONARA MAX SPEED: T4 #0 + T4 #1 stanno renderizzando'
         }
       });
     }
@@ -738,6 +747,9 @@ export default {
           kaggleModel: KAGGLE_MODEL,
           kaggleInferenceSteps: KAGGLE_STEPS,
           kaggleGuidanceScale: KAGGLE_GUIDANCE_SCALE,
+          kaggleShift: KAGGLE_SHIFT,
+          kaggleThinking: false,
+          kaggleInferMethod: 'ode',
           aceStepWorkerCount: ready.length,
           aceStepWorkers: ready.slice(0, 3).map(worker => ({ id: worker.id, kind: worker.kind }))
         });
@@ -763,7 +775,10 @@ export default {
           kaggleProfile: KAGGLE_PROFILE,
           kaggleModel: KAGGLE_MODEL,
           kaggleInferenceSteps: KAGGLE_STEPS,
-          kaggleGuidanceScale: KAGGLE_GUIDANCE_SCALE
+          kaggleGuidanceScale: KAGGLE_GUIDANCE_SCALE,
+          kaggleShift: KAGGLE_SHIFT,
+          kaggleThinking: false,
+          kaggleInferMethod: 'ode'
         }, response.status);
       } catch {}
     }
