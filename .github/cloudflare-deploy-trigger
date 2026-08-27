@@ -1,2 +1,2 @@
-trigger: 2026-08-27T16:30:00+02:00
-reason: deploy Kaggle T4 max-speed profile with 8 steps, guidance 1.0, thinking off, ODE, shift 3
+trigger: 2026-08-27T18:35:00+02:00
+reason: deploy Kaggle T4 ultra-fast profile with 4 steps, no LM planning, ODE and direct short-track decode
