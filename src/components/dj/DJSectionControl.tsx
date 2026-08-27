@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Disc3, X, Zap } from 'lucide-react';
 import NIMinimalConsole from './NIMinimalConsole';
 import SonaraProLiveSkin from './SonaraProLiveSkin';
+import SonaraZ1MixerSkin from './SonaraZ1MixerSkin';
 
 const NAV_HOST_ID = 'sonara-dj-nav-host';
 
@@ -60,6 +61,7 @@ export default function DJSectionControl() {
       <div className="mx-auto max-w-[1800px] space-y-4 p-3 sm:p-5">
         <NIMinimalConsole />
         <SonaraProLiveSkin />
+        <SonaraZ1MixerSkin />
       </div>
     </div>
   ), [open]);
