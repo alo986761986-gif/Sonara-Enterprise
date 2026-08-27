@@ -19,7 +19,8 @@ const MAX_QUERY_FAILURES = 4;
 const SAFE_FALLBACK_PROFILE = 'dual-safe-independent-v1';
 const KAGGLE_PROFILE = 'kaggle-t4x2-independent-v1';
 const KAGGLE_MODEL = 'acestep-v15-turbo';
-const KAGGLE_STEPS = 8;
+const KAGGLE_STEPS = 12;
+const KAGGLE_GUIDANCE_SCALE = 3.5;
 const RETRYABLE_HTTP_STATUSES = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
 
 // Immediate session defaults. ACESTEP_WORKER_URLS / ACE_STEP_API_URLS can
@@ -323,6 +324,7 @@ function payloadForWorker(payload, worker, variationIndex) {
     ...payload,
     model: isKaggle ? KAGGLE_MODEL : payload.model,
     inference_steps: isKaggle ? KAGGLE_STEPS : payload.inference_steps,
+    guidance_scale: isKaggle ? KAGGLE_GUIDANCE_SCALE : payload.guidance_scale,
     batch_size: 1,
     // The Kaggle T4 workers were started with the 1.7B 5Hz LM. Enable it so the
     // selected 8-minute-capable configuration is actually used during rendering.
@@ -466,6 +468,7 @@ async function startDualGeneration(request, env, body) {
         creativeControls: context.creativeControls,
         workerAssignments: tasks.map(task => ({ candidate: task.candidate, workerId: task.workerId, model: task.model })),
         inferenceSteps: selected.every(worker => worker.kind === 'kaggle') ? KAGGLE_STEPS : FAST_STEPS,
+        guidanceScale: selected.every(worker => worker.kind === 'kaggle') ? KAGGLE_GUIDANCE_SCALE : null,
         currentStage: selected.length === 2 && selected[0].id !== selected[1].id
           ? 'SONARA: A su T4 #0 + B su T4 #1'
           : 'SONARA: due render indipendenti in coda'
@@ -734,6 +737,7 @@ export default {
           kaggleProfile: KAGGLE_PROFILE,
           kaggleModel: KAGGLE_MODEL,
           kaggleInferenceSteps: KAGGLE_STEPS,
+          kaggleGuidanceScale: KAGGLE_GUIDANCE_SCALE,
           aceStepWorkerCount: ready.length,
           aceStepWorkers: ready.slice(0, 3).map(worker => ({ id: worker.id, kind: worker.kind }))
         });
@@ -758,7 +762,8 @@ export default {
           kaggleT4x2: false,
           kaggleProfile: KAGGLE_PROFILE,
           kaggleModel: KAGGLE_MODEL,
-          kaggleInferenceSteps: KAGGLE_STEPS
+          kaggleInferenceSteps: KAGGLE_STEPS,
+          kaggleGuidanceScale: KAGGLE_GUIDANCE_SCALE
         }, response.status);
       } catch {}
     }
