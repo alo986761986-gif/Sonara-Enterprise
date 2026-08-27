@@ -1,13 +1,33 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { Disc3, Mic2, Music2, Sparkles } from 'lucide-react';
+import { Disc3, GripVertical, Mic2, Music2, Sparkles } from 'lucide-react';
 
 type CreatorMode = 'simple' | 'advanced' | 'sounds';
+
+const WORKSPACE_WIDTH_KEY = 'sonara.creator.workspaceWidth';
+const DEFAULT_WORKSPACE_WIDTH = 420;
+const MIN_WORKSPACE_WIDTH = 320;
+const MAX_WORKSPACE_WIDTH = 760;
+const MIN_CREATOR_WIDTH = 500;
 
 function directChild(node: Element | null, section: HTMLElement): HTMLElement | null {
   let current = node instanceof HTMLElement ? node : null;
   while (current && current.parentElement && current.parentElement !== section) current = current.parentElement;
   return current?.parentElement === section ? current : null;
+}
+
+function readWorkspaceWidth(): number {
+  try {
+    const saved = Number(window.localStorage.getItem(WORKSPACE_WIDTH_KEY));
+    if (Number.isFinite(saved) && saved >= MIN_WORKSPACE_WIDTH && saved <= MAX_WORKSPACE_WIDTH) return saved;
+  } catch {
+    // Local storage is optional. The default width remains fully usable.
+  }
+  return DEFAULT_WORKSPACE_WIDTH;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
 }
 
 export default function SonaraCreatorSkin() {
@@ -16,6 +36,24 @@ export default function SonaraCreatorSkin() {
   const [section, setSection] = useState<HTMLElement | null>(null);
   const [mode, setMode] = useState<CreatorMode>('simple');
   const [hasResults, setHasResults] = useState(false);
+  const [workspaceWidth, setWorkspaceWidth] = useState(readWorkspaceWidth);
+  const workspaceWidthRef = useRef(workspaceWidth);
+  const resizePointerRef = useRef<number | null>(null);
+
+  const applyWorkspaceWidth = (value: number) => {
+    const next = Math.round(value);
+    workspaceWidthRef.current = next;
+    setWorkspaceWidth(next);
+  };
+
+  const widthBounds = () => {
+    if (!section) return { min: MIN_WORKSPACE_WIDTH, max: MAX_WORKSPACE_WIDTH };
+    const available = section.getBoundingClientRect().width - MIN_CREATOR_WIDTH;
+    return {
+      min: Math.min(MIN_WORKSPACE_WIDTH, Math.max(220, available)),
+      max: Math.max(MIN_WORKSPACE_WIDTH, Math.min(MAX_WORKSPACE_WIDTH, available))
+    };
+  };
 
   useEffect(() => {
     const refresh = () => {
@@ -72,6 +110,8 @@ export default function SonaraCreatorSkin() {
       if (lyrics) {
         lyrics.dataset.sonaraCreatorBlock = 'lyrics';
         lyrics.open = true;
+        const intelligentLyricsHost = lyrics.querySelector('[data-sonara-intelligent-lyrics-host]') as HTMLElement | null;
+        if (intelligentLyricsHost?.parentElement) intelligentLyricsHost.parentElement.dataset.sonaraLyricsTools = 'true';
       }
 
       const dualHost = card.querySelector('[data-sonara-dual-generator-host]') as HTMLElement | null;
@@ -104,8 +144,14 @@ export default function SonaraCreatorSkin() {
   }, [mode]);
 
   useEffect(() => {
-    if (section) section.dataset.sonaraCreatorMode = mode;
-  }, [mode, section]);
+    if (!section) return;
+    section.dataset.sonaraCreatorMode = mode;
+    section.style.setProperty('--sonara-workspace-width', `${workspaceWidth}px`);
+  }, [mode, section, workspaceWidth]);
+
+  useEffect(() => () => {
+    delete document.body.dataset.sonaraCreatorResizing;
+  }, []);
 
   const voice = () => {
     if (!section) return;
@@ -129,6 +175,59 @@ export default function SonaraCreatorSkin() {
     randomButton?.click();
   };
 
+  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!section || window.innerWidth < 1280) return;
+    event.preventDefault();
+    resizePointerRef.current = event.pointerId;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    document.body.dataset.sonaraCreatorResizing = 'true';
+  };
+
+  const moveResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!section || resizePointerRef.current !== event.pointerId) return;
+    const rect = section.getBoundingClientRect();
+    const bounds = widthBounds();
+    applyWorkspaceWidth(clamp(rect.right - event.clientX, bounds.min, bounds.max));
+  };
+
+  const stopResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (resizePointerRef.current !== event.pointerId) return;
+    resizePointerRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    delete document.body.dataset.sonaraCreatorResizing;
+    try {
+      window.localStorage.setItem(WORKSPACE_WIDTH_KEY, String(workspaceWidthRef.current));
+    } catch {
+      // Persistence is optional.
+    }
+  };
+
+  const resizeWithKeyboard = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home') return;
+    event.preventDefault();
+    const bounds = widthBounds();
+    const next = event.key === 'Home'
+      ? clamp(DEFAULT_WORKSPACE_WIDTH, bounds.min, bounds.max)
+      : clamp(workspaceWidthRef.current + (event.key === 'ArrowLeft' ? 24 : -24), bounds.min, bounds.max);
+    applyWorkspaceWidth(next);
+    try {
+      window.localStorage.setItem(WORKSPACE_WIDTH_KEY, String(next));
+    } catch {
+      // Persistence is optional.
+    }
+  };
+
+  const resetWorkspaceWidth = () => {
+    const bounds = widthBounds();
+    const next = clamp(DEFAULT_WORKSPACE_WIDTH, bounds.min, bounds.max);
+    applyWorkspaceWidth(next);
+    try {
+      window.localStorage.setItem(WORKSPACE_WIDTH_KEY, String(next));
+    } catch {
+      // Persistence is optional.
+    }
+  };
+
   const toolbar = toolbarHost ? createPortal(
     <div className="sonara-creator-toolbar">
       <div className="sonara-creator-brand">
@@ -146,9 +245,9 @@ export default function SonaraCreatorSkin() {
         ))}
       </div>
       <div className="sonara-creator-actions">
-        <button type="button" onClick={() => setMode('sounds')}><Music2 />Audio</button>
-        <button type="button" onClick={voice}><Mic2 />Voice</button>
-        <button type="button" onClick={inspire}><Sparkles />Inspo</button>
+        <button type="button" onClick={() => setMode('sounds')}><Music2 /><span>Audio</span></button>
+        <button type="button" onClick={voice}><Mic2 /><span>Voice</span></button>
+        <button type="button" onClick={inspire}><Sparkles /><span>Inspo</span></button>
       </div>
     </div>, toolbarHost
   ) : null;
@@ -170,34 +269,66 @@ export default function SonaraCreatorSkin() {
     </div>, workspaceHost
   ) : null;
 
+  const resizer = section ? createPortal(
+    <div
+      className="sonara-creator-resizer"
+      data-sonara-creator-resizer="true"
+      role="separator"
+      aria-label="Ridimensiona Creator e Workspace"
+      aria-orientation="vertical"
+      aria-valuemin={MIN_WORKSPACE_WIDTH}
+      aria-valuemax={MAX_WORKSPACE_WIDTH}
+      aria-valuenow={workspaceWidth}
+      tabIndex={0}
+      title="Trascina per allargare o restringere le finestre. Doppio clic per ripristinare."
+      onPointerDown={startResize}
+      onPointerMove={moveResize}
+      onPointerUp={stopResize}
+      onPointerCancel={stopResize}
+      onDoubleClick={resetWorkspaceWidth}
+      onKeyDown={resizeWithKeyboard}
+    >
+      <span><GripVertical /></span>
+    </div>,
+    section
+  ) : null;
+
   return (
     <>
       <style>{`
-        section[data-sonara-creator-skin="true"]{display:grid!important;grid-template-columns:minmax(0,1fr) 420px!important;grid-auto-flow:row!important;align-items:start!important;column-gap:0!important;padding:0!important;overflow:hidden!important;border-color:rgba(255,255,255,.06)!important;border-radius:24px!important;background:#09090b!important;box-shadow:0 26px 80px rgba(0,0,0,.38)!important}
+        body[data-sonara-creator-resizing="true"]{cursor:col-resize!important;user-select:none!important}
+        section[data-sonara-creator-skin="true"]{--sonara-workspace-width:420px;position:relative!important;display:grid!important;grid-template-columns:minmax(0,1fr) var(--sonara-workspace-width)!important;grid-auto-flow:row!important;align-items:start!important;column-gap:0!important;padding:0!important;overflow:hidden!important;border-color:rgba(255,255,255,.06)!important;border-radius:24px!important;background:#09090b!important;box-shadow:0 26px 80px rgba(0,0,0,.38)!important}
         section[data-sonara-creator-skin="true"]>*{min-width:0;grid-column:1}section[data-sonara-creator-skin="true"]>[data-sonara-creator-legacy-title="true"]{display:none!important}
+        section[data-sonara-creator-skin="true"] button{min-width:0;max-width:100%;overflow:hidden}section[data-sonara-creator-skin="true"] button>*{min-width:0;max-width:100%}section[data-sonara-creator-skin="true"] .grid>*{min-width:0}
         section[data-sonara-creator-skin="true"]>[data-sonara-creator-toolbar-host]{grid-column:1!important;grid-row:1!important;border-bottom:1px solid rgba(255,255,255,.055);background:#0b0b0e}
-        section[data-sonara-creator-skin="true"]>[data-sonara-creator-workspace-host]{grid-column:2!important;grid-row:1/span 40!important;min-height:100%;border-left:1px solid rgba(255,255,255,.055);background:#0c0c0f}
-        section[data-sonara-creator-skin="true"]>[data-sonara-creator-block],section[data-sonara-creator-skin="true"]>div:not([data-sonara-creator-toolbar-host]):not([data-sonara-creator-workspace-host]):not([data-sonara-dual-generator-host]):not([data-sonara-creator-single-result]),section[data-sonara-creator-skin="true"]>details,section[data-sonara-creator-skin="true"]>button{margin-left:24px!important;margin-right:24px!important}
+        section[data-sonara-creator-skin="true"]>[data-sonara-creator-workspace-host]{grid-column:2!important;grid-row:1/span 40!important;min-height:100%;min-width:0;overflow:hidden;border-left:1px solid rgba(255,255,255,.055);background:#0c0c0f}
+        section[data-sonara-creator-skin="true"]>[data-sonara-creator-block],section[data-sonara-creator-skin="true"]>div:not([data-sonara-creator-toolbar-host]):not([data-sonara-creator-workspace-host]):not([data-sonara-dual-generator-host]):not([data-sonara-creator-single-result]):not([data-sonara-creator-resizer]),section[data-sonara-creator-skin="true"]>details,section[data-sonara-creator-skin="true"]>button{margin-left:24px!important;margin-right:24px!important}
         section[data-sonara-creator-skin="true"]>[data-sonara-creator-block="prompt"]{margin-top:20px!important}section[data-sonara-creator-skin="true"]>[data-sonara-creator-block="lyrics"]{margin-bottom:18px!important}
         section[data-sonara-creator-skin="true"] [data-sonara-creator-block="prompt"] textarea#sonara-prompt{border-color:rgba(255,255,255,.07)!important;background:#111114!important;border-radius:18px!important;min-height:170px;padding:18px!important;color:#f4f4f5!important;line-height:1.65!important}
-        section[data-sonara-creator-skin="true"] select,section[data-sonara-creator-skin="true"] input[type="text"],section[data-sonara-creator-skin="true"] input[type="number"],section[data-sonara-creator-skin="true"] textarea#sonara-lyrics{border-color:rgba(255,255,255,.075)!important;background:#0a0a0c!important;color:#f4f4f5!important}
-        section[data-sonara-creator-skin="true"] details[data-sonara-creator-block="lyrics"]{border-color:rgba(255,255,255,.065)!important;background:#111114!important;border-radius:18px!important}section[data-sonara-creator-skin="true"] details[data-sonara-creator-block="lyrics"] summary{padding:4px 2px;font-weight:900;color:white}section[data-sonara-creator-skin="true"] textarea#sonara-lyrics{min-height:210px;border-radius:14px!important}
+        section[data-sonara-creator-skin="true"] select,section[data-sonara-creator-skin="true"] input[type="text"],section[data-sonara-creator-skin="true"] input[type="number"],section[data-sonara-creator-skin="true"] textarea#sonara-lyrics{max-width:100%!important;min-width:0!important;border-color:rgba(255,255,255,.075)!important;background:#0a0a0c!important;color:#f4f4f5!important}
+        section[data-sonara-creator-skin="true"] details[data-sonara-creator-block="lyrics"]{min-width:0;overflow:hidden;border-color:rgba(255,255,255,.065)!important;background:#111114!important;border-radius:18px!important}section[data-sonara-creator-skin="true"] details[data-sonara-creator-block="lyrics"] summary{padding:4px 2px;font-weight:900;color:white}section[data-sonara-creator-skin="true"] textarea#sonara-lyrics{min-height:210px;border-radius:14px!important}
+        section[data-sonara-creator-skin="true"] [data-sonara-lyrics-tools="true"]{min-width:0!important;max-width:100%!important;display:flex!important;flex:1 1 280px!important;flex-wrap:wrap!important;align-items:center!important;justify-content:flex-end!important;gap:6px!important}
+        section[data-sonara-creator-skin="true"] [data-sonara-intelligent-lyrics-host]{min-width:0!important;max-width:100%!important;flex:1 1 260px!important}
+        section[data-sonara-creator-skin="true"] [data-sonara-lyrics-length-control="true"]{min-width:0!important;max-width:100%!important;display:flex!important;flex-wrap:wrap!important;align-items:center!important;justify-content:flex-end!important;gap:6px!important}
+        section[data-sonara-creator-skin="true"] [data-sonara-lyrics-length-control="true"]>span{min-width:0!important;max-width:100%!important;flex-wrap:wrap!important}section[data-sonara-creator-skin="true"] [data-sonara-lyrics-length-control="true"] button{white-space:nowrap!important;text-overflow:ellipsis}
         section[data-sonara-creator-mode="simple"]>[data-sonara-creator-block="taxonomy"],section[data-sonara-creator-mode="simple"]>[data-sonara-creator-block="musical"],section[data-sonara-creator-mode="simple"]>[data-sonara-creator-block="bpm"],section[data-sonara-creator-mode="simple"] [data-sonara-creative-controls="true"]{display:none!important}
         section[data-sonara-creator-skin="true"]>[data-sonara-dual-generator-host],section[data-sonara-creator-skin="true"]>[data-sonara-dual-generator-host]>div{display:contents!important}
         section[data-sonara-creator-skin="true"]>[data-sonara-dual-generator-host]>div>button:first-child{grid-column:1!important;margin:4px 24px 26px!important;border:0!important;border-radius:999px!important;min-height:58px;background:linear-gradient(90deg,#e4e4e7,#fff,#d4d4d8)!important;color:#09090b!important;box-shadow:0 12px 38px rgba(0,0,0,.35)!important;font-size:0!important}
         section[data-sonara-creator-skin="true"]>[data-sonara-dual-generator-host]>div>button:first-child::after{content:'Create';font-size:14px;font-weight:950;letter-spacing:.01em}section[data-sonara-creator-skin="true"]>[data-sonara-dual-generator-host]>div>button:first-child svg{width:17px;height:17px}section[data-sonara-creator-skin="true"]>[data-sonara-dual-generator-host]>div>button:first-child+div{display:none!important}
-        section[data-sonara-creator-skin="true"] [data-sonara-creator-results="true"]{grid-column:2!important;grid-row:2/span 38!important;align-self:start!important;position:sticky!important;top:88px;z-index:2;margin:82px 18px 20px!important;display:grid!important;grid-template-columns:1fr!important;gap:12px!important;max-height:calc(100vh - 120px);overflow:auto;padding-right:2px}section[data-sonara-creator-skin="true"] [data-sonara-creator-results="true"] article{border-color:rgba(255,255,255,.07)!important;background:#131316!important;border-radius:18px!important}
-        section[data-sonara-creator-skin="true"]>[data-sonara-creator-single-result="true"]{grid-column:2!important;grid-row:2/span 38!important;position:sticky;top:88px;margin:82px 18px 20px!important;border-color:rgba(255,255,255,.07)!important;background:#131316!important}
-        .sonara-creator-toolbar{padding:18px 24px 16px}.sonara-creator-brand{display:flex;align-items:center;gap:11px}.sonara-creator-brand-icon{width:38px;height:38px;display:flex;align-items:center;justify-content:center;border-radius:12px;background:#fff;color:#09090b}.sonara-creator-brand-icon svg{width:17px;height:17px}.sonara-creator-title{color:#fff;font-size:14px;font-weight:950;letter-spacing:-.02em}.sonara-creator-kicker{color:#52525b;margin-top:2px;font-size:8px;font-weight:850;letter-spacing:.22em}
-        .sonara-creator-tabs{margin-top:16px;display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:4px;border-radius:13px;background:#111114}.sonara-creator-tabs button{min-height:36px;border-radius:10px;color:#71717a;font-size:10px;font-weight:900;transition:.18s ease}.sonara-creator-tabs button[aria-selected="true"]{background:#29292f;color:#fff;box-shadow:0 4px 18px rgba(0,0,0,.22)}
-        .sonara-creator-actions{margin-top:10px;display:grid;grid-template-columns:repeat(3,1fr);gap:7px}.sonara-creator-actions button{min-height:42px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px solid rgba(255,255,255,.065);border-radius:12px;background:#141417;color:#d4d4d8;font-size:10px;font-weight:850;transition:.18s ease}.sonara-creator-actions button:hover{background:#1b1b20;border-color:rgba(255,255,255,.12);color:#fff}.sonara-creator-actions svg{width:14px;height:14px}
-        .sonara-creator-workspace-head{min-height:100%;padding:20px 18px;position:relative}.sonara-creator-workspace-title{color:#fff;font-size:13px;font-weight:950}.sonara-creator-workspace-kicker{margin-top:3px;color:#52525b;font-size:8px;font-weight:850;letter-spacing:.18em}.sonara-creator-workspace-head>span{position:absolute;right:18px;top:20px;padding:5px 8px;border:1px solid rgba(255,255,255,.065);border-radius:999px;background:rgba(255,255,255,.035);color:#71717a;font-size:7px;font-weight:900}
-        .sonara-creator-empty{margin-top:58px;min-height:320px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:1px dashed rgba(255,255,255,.07);border-radius:18px;background:#101013;text-align:center;padding:28px}.sonara-creator-empty-icon{width:54px;height:54px;display:flex;align-items:center;justify-content:center;border-radius:17px;background:rgba(255,255,255,.035);color:#3f3f46}.sonara-creator-empty-icon svg{width:21px;height:21px}.sonara-creator-empty strong{margin-top:15px;color:#a1a1aa;font-size:11px}.sonara-creator-empty p{max-width:230px;margin-top:8px;color:#52525b;font-size:9px;line-height:1.7}
-        @media(max-width:1279px){section[data-sonara-creator-skin="true"]{grid-template-columns:minmax(0,1fr)!important}section[data-sonara-creator-skin="true"]>[data-sonara-creator-workspace-host]{grid-column:1!important;grid-row:auto!important;border-left:0;border-top:1px solid rgba(255,255,255,.055);min-height:380px}section[data-sonara-creator-skin="true"] [data-sonara-creator-results="true"],section[data-sonara-creator-skin="true"]>[data-sonara-creator-single-result="true"]{grid-column:1!important;grid-row:auto!important;position:static!important;margin:18px 24px 26px!important;max-height:none}.sonara-creator-empty{min-height:260px}}
-        @media(max-width:640px){.sonara-creator-toolbar{padding:16px}section[data-sonara-creator-skin="true"]>[data-sonara-creator-block],section[data-sonara-creator-skin="true"]>div:not([data-sonara-creator-toolbar-host]):not([data-sonara-creator-workspace-host]):not([data-sonara-dual-generator-host]):not([data-sonara-creator-single-result]),section[data-sonara-creator-skin="true"]>details,section[data-sonara-creator-skin="true"]>button{margin-left:16px!important;margin-right:16px!important}section[data-sonara-creator-skin="true"]>[data-sonara-dual-generator-host]>div>button:first-child{margin-left:16px!important;margin-right:16px!important}.sonara-creator-actions button{font-size:9px}}
+        section[data-sonara-creator-skin="true"] [data-sonara-creator-results="true"]{grid-column:2!important;grid-row:2/span 38!important;align-self:start!important;position:sticky!important;top:88px;z-index:2;margin:82px 18px 20px!important;display:grid!important;grid-template-columns:1fr!important;gap:12px!important;max-height:calc(100vh - 120px);overflow:auto;padding-right:2px}section[data-sonara-creator-skin="true"] [data-sonara-creator-results="true"] article{min-width:0;overflow:hidden;border-color:rgba(255,255,255,.07)!important;background:#131316!important;border-radius:18px!important}
+        section[data-sonara-creator-skin="true"]>[data-sonara-creator-single-result="true"]{grid-column:2!important;grid-row:2/span 38!important;position:sticky;top:88px;min-width:0;overflow:hidden;margin:82px 18px 20px!important;border-color:rgba(255,255,255,.07)!important;background:#131316!important}
+        .sonara-creator-toolbar{padding:18px 24px 16px}.sonara-creator-brand{display:flex;min-width:0;align-items:center;gap:11px}.sonara-creator-brand>div:last-child{min-width:0}.sonara-creator-brand-icon{width:38px;height:38px;display:flex;flex:0 0 auto;align-items:center;justify-content:center;border-radius:12px;background:#fff;color:#09090b}.sonara-creator-brand-icon svg{width:17px;height:17px}.sonara-creator-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#fff;font-size:14px;font-weight:950;letter-spacing:-.02em}.sonara-creator-kicker{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#52525b;margin-top:2px;font-size:8px;font-weight:850;letter-spacing:.22em}
+        .sonara-creator-tabs{margin-top:16px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;padding:4px;border-radius:13px;background:#111114}.sonara-creator-tabs button{min-width:0;min-height:36px;padding:0 8px;border-radius:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#71717a;font-size:10px;font-weight:900;transition:.18s ease}.sonara-creator-tabs button[aria-selected="true"]{background:#29292f;color:#fff;box-shadow:0 4px 18px rgba(0,0,0,.22)}
+        .sonara-creator-actions{margin-top:10px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.sonara-creator-actions button{min-width:0;min-height:42px;padding:0 8px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px solid rgba(255,255,255,.065);border-radius:12px;background:#141417;color:#d4d4d8;font-size:10px;font-weight:850;transition:.18s ease}.sonara-creator-actions button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sonara-creator-actions button:hover{background:#1b1b20;border-color:rgba(255,255,255,.12);color:#fff}.sonara-creator-actions svg{width:14px;height:14px;flex:0 0 auto}
+        .sonara-creator-workspace-head{min-width:0;min-height:100%;padding:20px 18px;position:relative;overflow:hidden}.sonara-creator-workspace-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#fff;font-size:13px;font-weight:950}.sonara-creator-workspace-kicker{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px;color:#52525b;font-size:8px;font-weight:850;letter-spacing:.18em}.sonara-creator-workspace-head>span{position:absolute;right:18px;top:20px;padding:5px 8px;border:1px solid rgba(255,255,255,.065);border-radius:999px;background:rgba(255,255,255,.035);color:#71717a;font-size:7px;font-weight:900}
+        .sonara-creator-empty{margin-top:58px;min-height:320px;display:flex;min-width:0;flex-direction:column;align-items:center;justify-content:center;border:1px dashed rgba(255,255,255,.07);border-radius:18px;background:#101013;text-align:center;padding:28px}.sonara-creator-empty-icon{width:54px;height:54px;display:flex;align-items:center;justify-content:center;border-radius:17px;background:rgba(255,255,255,.035);color:#3f3f46}.sonara-creator-empty-icon svg{width:21px;height:21px}.sonara-creator-empty strong{margin-top:15px;color:#a1a1aa;font-size:11px}.sonara-creator-empty p{max-width:230px;margin-top:8px;overflow-wrap:anywhere;color:#52525b;font-size:9px;line-height:1.7}
+        .sonara-creator-resizer{position:absolute!important;grid-column:auto!important;z-index:40;top:0;bottom:0;left:calc(100% - var(--sonara-workspace-width) - 6px);width:12px;margin:0!important;padding:0;display:flex;align-items:center;justify-content:center;cursor:col-resize;touch-action:none;outline:none;background:transparent}.sonara-creator-resizer::before{content:'';position:absolute;top:0;bottom:0;left:5px;width:2px;background:rgba(255,255,255,.055);transition:background .16s ease,box-shadow .16s ease}.sonara-creator-resizer>span{position:sticky;top:45%;width:22px;height:46px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:#111114;color:#52525b;box-shadow:0 5px 20px rgba(0,0,0,.35);opacity:.72;transition:.16s ease}.sonara-creator-resizer svg{width:13px;height:13px}.sonara-creator-resizer:hover::before,.sonara-creator-resizer:focus-visible::before,body[data-sonara-creator-resizing="true"] .sonara-creator-resizer::before{background:rgba(255,255,255,.35);box-shadow:0 0 16px rgba(255,255,255,.12)}.sonara-creator-resizer:hover>span,.sonara-creator-resizer:focus-visible>span,body[data-sonara-creator-resizing="true"] .sonara-creator-resizer>span{color:#e4e4e7;border-color:rgba(255,255,255,.22);opacity:1}
+        @media(max-width:1279px){section[data-sonara-creator-skin="true"]{grid-template-columns:minmax(0,1fr)!important}section[data-sonara-creator-skin="true"]>[data-sonara-creator-workspace-host]{grid-column:1!important;grid-row:auto!important;border-left:0;border-top:1px solid rgba(255,255,255,.055);min-height:380px}section[data-sonara-creator-skin="true"] [data-sonara-creator-results="true"],section[data-sonara-creator-skin="true"]>[data-sonara-creator-single-result="true"]{grid-column:1!important;grid-row:auto!important;position:static!important;margin:18px 24px 26px!important;max-height:none}.sonara-creator-resizer{display:none!important}.sonara-creator-empty{min-height:260px}}
+        @media(max-width:640px){.sonara-creator-toolbar{padding:16px}section[data-sonara-creator-skin="true"]>[data-sonara-creator-block],section[data-sonara-creator-skin="true"]>div:not([data-sonara-creator-toolbar-host]):not([data-sonara-creator-workspace-host]):not([data-sonara-dual-generator-host]):not([data-sonara-creator-single-result]):not([data-sonara-creator-resizer]),section[data-sonara-creator-skin="true"]>details,section[data-sonara-creator-skin="true"]>button{margin-left:16px!important;margin-right:16px!important}section[data-sonara-creator-skin="true"]>[data-sonara-dual-generator-host]>div>button:first-child{margin-left:16px!important;margin-right:16px!important}.sonara-creator-actions button{font-size:9px}.sonara-creator-actions button span{max-width:56px}section[data-sonara-creator-skin="true"] [data-sonara-lyrics-tools="true"]{justify-content:flex-start!important;flex:1 1 100%!important}section[data-sonara-creator-skin="true"] [data-sonara-intelligent-lyrics-host]{flex:1 1 100%!important}}
       `}</style>
       {toolbar}
       {workspace}
+      {resizer}
     </>
   );
 }
