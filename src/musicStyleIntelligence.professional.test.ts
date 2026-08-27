@@ -154,4 +154,5 @@ const neapolitan = getMusicStyleProfile('Folk / Traditional Europe', 'Neapolitan
 assert.match(neapolitan.identity, /cantabile/);
 assert.match(neapolitan.instrumentation, /mandolin/);
 
+// SONARA taxonomy v3 final preview retry marker.
 console.log(`professional taxonomy v3 passed: ${familyCount} families, ${genreCount} real genres, ${subgenreCount} selectable styles, ${allFingerprints.size} distinct fingerprints`);
