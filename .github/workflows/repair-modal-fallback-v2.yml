@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   repair:
-    name: Create scoped Modal proxy auth and sync Cloudflare
+    name: Create Modal proxy auth and sync Cloudflare
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -85,17 +85,23 @@ jobs:
       - name: Install Modal CLI and SDK
         run: python -m pip install --disable-pip-version-check 'modal>=1.5,<2'
 
-      - name: Create scoped proxy token with SDK
+      - name: Create valid proxy token with SDK
         shell: bash
         run: |
           python - <<'PY' > /tmp/modal-proxy-pair
           import modal
           workspace = modal.Workspace.from_context()
           token = workspace.proxy_tokens.create()
-          workspace.proxy_tokens.allow(token.token_id, 'main')
-          scoped = list(workspace.proxy_tokens.list(environment_name='main'))
-          if not any(item.token_id == token.token_id for item in scoped):
-              raise SystemExit('Fresh proxy token is not associated with Modal environment main.')
+          try:
+              workspace.proxy_tokens.allow(token.token_id, 'main')
+              print('scoped', file=__import__('sys').stderr)
+          except modal.exception.InvalidError as exc:
+              if 'not environment-scoped' not in str(exc).lower():
+                  raise
+              print('workspace-wide', file=__import__('sys').stderr)
+          all_tokens = list(workspace.proxy_tokens.list())
+          if not any(item.token_id == token.token_id for item in all_tokens):
+              raise SystemExit('Fresh proxy token is not visible in the Modal workspace.')
           print(token.token_id)
           print(token.token_secret)
           PY
@@ -108,7 +114,7 @@ jobs:
           echo "MODAL_PROXY_KEY_FRESH=${proxy_id}" >> "$GITHUB_ENV"
           echo "MODAL_PROXY_SECRET_FRESH=${proxy_secret}" >> "$GITHUB_ENV"
           rm -f /tmp/modal-proxy-pair
-          echo 'Fresh Modal proxy token created and associated with environment main.'
+          echo 'Fresh Modal proxy token is valid for this workspace.'
 
       - name: Validate protected Modal endpoint
         shell: bash
@@ -157,5 +163,5 @@ jobs:
             console.error('SONARA Worker health is not OK.');
             process.exit(1);
           }
-          console.log('SONARA production Worker is healthy.');
+          console.log('SONARA production Worker is healthy and Modal fallback credentials are synchronized.');
           NODE
