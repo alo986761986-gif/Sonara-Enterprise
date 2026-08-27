@@ -6,6 +6,7 @@ export type DJControlAction =
   | { type: 'deck.sync'; deck: DJDeckId; pressed?: boolean }
   | { type: 'deck.pitch'; deck: DJDeckId; value: number }
   | { type: 'deck.volume'; deck: DJDeckId; value: number }
+  | { type: 'deck.gain'; deck: DJDeckId; value: number }
   | { type: 'deck.filter'; deck: DJDeckId; value: number }
   | { type: 'deck.eqLow'; deck: DJDeckId; value: number }
   | { type: 'deck.eqMid'; deck: DJDeckId; value: number }
