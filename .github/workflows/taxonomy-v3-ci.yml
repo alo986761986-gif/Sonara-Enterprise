@@ -1,0 +1,44 @@
+name: SONARA Taxonomy V3 CI
+
+on:
+  push:
+    branches:
+      - fix/professional-music-taxonomy-v3-20260827
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  taxonomy-build:
+    name: Validate taxonomy v3 and full build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+        continue-on-error: true
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Run SONARA professional taxonomy v3 test
+        run: npx tsx src/musicStyleIntelligence.professional.test.ts
+
+      - name: Run complete SONARA build
+        env:
+          CI: '1'
+        run: npm run build
+
+      - name: Verify build artifacts
+        run: |
+          test -f dist/index.html
+          test -f dist/server.cjs
+          echo "SONARA taxonomy v3 + full build: PASS"
