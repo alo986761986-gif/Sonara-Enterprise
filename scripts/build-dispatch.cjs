@@ -59,6 +59,9 @@ runCommand(node, ['scripts/activate-professional-music-taxonomy.cjs']);
 console.log('[SONARA] Activating authoritative selected-style engine v3.');
 runCommand(node, ['scripts/activate-authoritative-genre-engine-v3.cjs']);
 
+console.log('[SONARA] Enforcing absolute selected-style precedence.');
+runCommand(node, ['scripts/activate-authoritative-style-precedence-v3.cjs']);
+
 console.log('[SONARA] Validating professional music taxonomy.');
 run(['tsx', 'src/musicStyleIntelligence.professional.test.ts']);
 
