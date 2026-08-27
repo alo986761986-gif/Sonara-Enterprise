@@ -56,8 +56,14 @@ runCommand(node, ['scripts/activate-universal-genres.cjs']);
 console.log('[SONARA] Activating professional family > genre > subgenre > atmosphere hierarchy.');
 runCommand(node, ['scripts/activate-professional-music-taxonomy.cjs']);
 
+console.log('[SONARA] Activating authoritative selected-style engine v3.');
+runCommand(node, ['scripts/activate-authoritative-genre-engine-v3.cjs']);
+
 console.log('[SONARA] Validating professional music taxonomy.');
 run(['tsx', 'src/musicStyleIntelligence.professional.test.ts']);
+
+console.log('[SONARA] Validating authoritative backend genre lock.');
+run(['tsx', 'backend/test/genre_lock_authoritative_v3.test.ts']);
 
 console.log('[SONARA] Validating Professional Lyrics v2 quality and genre synchronization.');
 run(['tsx', 'src/professionalLyrics.test.ts']);
