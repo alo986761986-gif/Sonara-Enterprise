@@ -26,6 +26,16 @@ replaceRequired(
   'increase controlled guidance'
 );
 replaceRequired(
+  '    lm_repetition_penalty: 1.03,',
+  '    lm_repetition_penalty: 1.05,',
+  'reduce repetitive looping'
+);
+replaceRequired(
+  "  const shortTrack = Number(payload.audio_duration || 0) <= 90;\n  return {\n    ...payload,",
+  "  const shortTrack = Number(payload.audio_duration || 0) <= 90;\n  const candidateDirection = variationIndex === 1\n    ? 'CANDIDATE A — canonical fidelity: prioritize the exact selected subgenre groove, canonical instrumentation, authentic rhythmic grammar, clean structure and unmistakable identity from the opening bars.'\n    : 'CANDIDATE B — refined interpretation: preserve the exact selected subgenre while increasing harmonic nuance, timbral detail, performance realism, arrangement development and musical storytelling. Do not hybridize into neighboring genres.';\n  return {\n    ...payload,\n    prompt: `${payload.prompt}\\n\\n${candidateDirection}`.slice(0, 12000),",
+  'differentiate A/B candidates musically'
+);
+replaceRequired(
   "    thinking: isKaggle ? false : payload.thinking,\n    use_format: false,\n    use_cot_caption: false,\n    use_cot_language: false,\n    constrained_decoding: false,",
   "    thinking: isKaggle ? true : payload.thinking,\n    use_format: false,\n    use_cot_caption: isKaggle ? true : payload.use_cot_caption,\n    use_cot_language: isKaggle ? true : payload.use_cot_language,\n    constrained_decoding: isKaggle ? true : payload.constrained_decoding,",
   'enable reasoning and constrained decoding'
@@ -67,4 +77,4 @@ replaceRequired(
 );
 
 fs.writeFileSync(file, source, 'utf8');
-console.log('[SONARA] Extreme Fidelity v16 activated: 12-step T4 render, reasoning, constrained decoding, adaptive ODE/SDE.');
+console.log('[SONARA] Extreme Fidelity v16 activated: 12-step T4 render, reasoning, constrained decoding, adaptive ODE/SDE and distinct A/B musical directions.');
