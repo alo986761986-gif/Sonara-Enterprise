@@ -1,4 +1,4 @@
-name: Deploy Cloudflare Sonara Engine v15
+name: Deploy Cloudflare Sonara Engine v16
 
 on:
   workflow_dispatch:
@@ -12,12 +12,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: cloudflare-sonara-engine-v15-production
+  group: cloudflare-sonara-engine-v16-production
   cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Validate and deploy Sonara Engine v15
+    name: Validate and deploy Sonara Engine v16 Extreme Fidelity
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -58,6 +58,12 @@ jobs:
       - name: Validate v15 authoritative prompt engine
         run: node cloudflare/sonara-engine-v15-authoritative-prompt.test.mjs
 
+      - name: Activate Extreme Fidelity v16
+        run: node scripts/activate-extreme-fidelity-v16.cjs
+
+      - name: Validate Extreme Fidelity v16 render profile
+        run: node cloudflare/extreme-fidelity-v16.test.mjs
+
       - name: Validate production entrypoint
         shell: bash
         run: |
@@ -66,24 +72,26 @@ jobs:
           grep -q "sonara-engine-v15-authoritative-prompt.mjs" cloudflare/sonara-web-v15-router.mjs
           grep -q "sonara-engine-v9-dual-fast.mjs" cloudflare/sonara-engine-v15-authoritative-prompt.mjs
           grep -q "v15-authoritative-full-prompt" cloudflare/sonara-engine-v15-authoritative-prompt.mjs
+          grep -q "kaggle-t4x2-extreme-fidelity-v16" cloudflare/sonara-engine-v9-dual-fast.mjs
+          grep -q "const KAGGLE_STEPS = 12" cloudflare/sonara-engine-v9-dual-fast.mjs
           if grep -q "sonara-engine-v14-universal-taxonomy-lock.mjs" cloudflare/sonara-web-v15-router.mjs; then
-            echo "v15 router must not delegate production API to v14." >&2
+            echo "v16 router must not delegate production API to v14." >&2
             exit 1
           fi
 
-      - name: Deploy v15 Worker to Cloudflare production
+      - name: Deploy v16 Worker to Cloudflare production
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
 
-      - name: Verify public v15 health
+      - name: Verify public v16 health
         shell: bash
         run: |
           set -euo pipefail
           for attempt in {1..15}; do
             if response="$(curl -fsS --max-time 15 https://api.sonaraenterprise.com/api/health 2>/dev/null)"; then
-              printf '%s' "$response" > /tmp/sonara-v15-health.json
+              printf '%s' "$response" > /tmp/sonara-v16-health.json
               if node - <<'NODE'
           const fs = require('fs');
-          const health = JSON.parse(fs.readFileSync('/tmp/sonara-v15-health.json', 'utf8'));
+          const health = JSON.parse(fs.readFileSync('/tmp/sonara-v16-health.json', 'utf8'));
           const expected = {
             universalGenreLock: 'v15-authoritative-full-prompt',
             authoritativePromptLock: 'v15-authoritative-full-prompt',
@@ -91,9 +99,11 @@ jobs:
             creativeControlsPreserved: true,
             selectedSubgenreAuthoritative: true,
             legacyCaption500Bypassed: true,
-            houseGenreLock: 'v15-authoritative-full-prompt',
-            technoGenreLock: 'v15-authoritative-full-prompt',
-            electronicGenreLock: 'v15-authoritative-full-prompt'
+            kaggleProfile: 'kaggle-t4x2-extreme-fidelity-v16',
+            kaggleInferenceSteps: 12,
+            kaggleGuidanceScale: 1.15,
+            kaggleThinking: true,
+            kaggleInferMethod: 'adaptive-ode-sde'
           };
           for (const [key, value] of Object.entries(expected)) {
             if (health[key] !== value) {
@@ -101,14 +111,14 @@ jobs:
               process.exit(1);
             }
           }
-          console.log('SONARA v15 production health verified.');
+          console.log('SONARA v16 Extreme Fidelity production health verified.');
           NODE
               then
                 exit 0
               fi
             fi
-            echo "v15 health not ready (${attempt}/15)"
+            echo "v16 health not ready (${attempt}/15)"
             sleep 4
           done
-          echo "SONARA v15 public health did not become ready." >&2
+          echo "SONARA v16 public health did not become ready." >&2
           exit 1
