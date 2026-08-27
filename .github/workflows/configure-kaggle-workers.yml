@@ -23,8 +23,6 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
-      KAGGLE_GPU0_URL: https://sought-hunting-train-cabinet.trycloudflare.com
-      KAGGLE_GPU1_URL: https://academic-annex-mail-constitutional.trycloudflare.com
 
     steps:
       - name: Checkout SONARA
@@ -34,6 +32,31 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "24"
+
+      - name: Load current Kaggle worker URLs
+        shell: bash
+        run: |
+          set -euo pipefail
+          trigger=".github/kaggle-workers-trigger"
+          if [[ ! -f "${trigger}" ]]; then
+            echo "Missing ${trigger}." >&2
+            exit 1
+          fi
+          gpu0="$(sed -n 's/^GPU0=//p' "${trigger}" | tail -n 1 | tr -d '\r')"
+          gpu1="$(sed -n 's/^GPU1=//p' "${trigger}" | tail -n 1 | tr -d '\r')"
+          for pair in "GPU0|${gpu0}" "GPU1|${gpu1}"; do
+            name="${pair%%|*}"
+            url="${pair#*|}"
+            if [[ ! "${url}" =~ ^https://[A-Za-z0-9.-]+\.trycloudflare\.com/?$ ]]; then
+              echo "Invalid ${name} URL in ${trigger}: ${url}" >&2
+              exit 1
+            fi
+          done
+          gpu0="${gpu0%/}"
+          gpu1="${gpu1%/}"
+          echo "KAGGLE_GPU0_URL=${gpu0}" >> "${GITHUB_ENV}"
+          echo "KAGGLE_GPU1_URL=${gpu1}" >> "${GITHUB_ENV}"
+          echo "Loaded current Kaggle worker endpoints from ${trigger}."
 
       - name: Resolve Cloudflare account
         shell: bash
