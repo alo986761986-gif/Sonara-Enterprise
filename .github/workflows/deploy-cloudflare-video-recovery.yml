@@ -6,6 +6,9 @@ on:
       - main
     paths:
       - ".github/workflows/deploy-cloudflare-video-recovery.yml"
+      - "cloudflare/sonara-video-api-recovery.mjs"
+      - "cloudflare/sonara-video-api-recovery.test.mjs"
+      - "cloudflare/sonara-web-v15-router.mjs"
   workflow_dispatch:
 
 permissions:
