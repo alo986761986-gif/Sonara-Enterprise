@@ -45,17 +45,24 @@ function copyResponse(response) {
   });
 }
 
-function upstreamRequest(request) {
+function upstreamTarget(request) {
   const incoming = new URL(request.url);
-  const target = new URL(incoming.pathname + incoming.search, VERCEL_WEB_ORIGIN);
+  return new URL(incoming.pathname + incoming.search, VERCEL_WEB_ORIGIN);
+}
+
+function upstreamHeaders(request) {
   const headers = new Headers(request.headers);
   headers.delete('host');
   headers.delete('content-length');
   headers.set('x-sonara-video-edge', 'recovery-v1');
-  return new Request(target.toString(), {
+  return headers;
+}
+
+function makeUpstreamRequest(request, bodyBytes) {
+  return new Request(upstreamTarget(request).toString(), {
     method: request.method,
-    headers,
-    body: request.method === 'GET' || request.method === 'HEAD' ? undefined : request.clone().body,
+    headers: upstreamHeaders(request),
+    body: request.method === 'GET' || request.method === 'HEAD' ? undefined : bodyBytes,
     redirect: 'manual'
   });
 }
@@ -80,12 +87,15 @@ export function isVideoApiRequest(request) {
 export async function recoverVideoApi(request, options = {}) {
   const fetcher = options.fetcher || fetch;
   const waiter = options.waiter || sleep;
+  const bodyBytes = request.method === 'GET' || request.method === 'HEAD'
+    ? undefined
+    : await request.clone().arrayBuffer();
   let lastResponse = null;
   let lastError = null;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     try {
-      const response = await fetcher(upstreamRequest(request));
+      const response = await fetcher(makeUpstreamRequest(request, bodyBytes));
       lastResponse = response;
       const html = await responseLooksHtml(response);
       const retryable = RETRYABLE_STATUSES.has(response.status) || (response.status >= 500 && html);
