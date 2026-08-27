@@ -1,2 +1,2 @@
-trigger: 2026-08-25T09:38:00Z
-reason: inspect Modal startup after persistent dual-batch audio fix
+trigger: 2026-08-27T17:42:00Z
+reason: inspect Modal ACE-Step runtime while Kaggle workers are offline
