@@ -98,9 +98,12 @@ jobs:
           console.log('Modal Worker credential bindings are configured.');
           NODE
 
-      - name: Validate full music taxonomy
+      - name: Validate full music taxonomy and production prompt preservation
         shell: bash
-        run: npx --yes tsx src/musicStyleIntelligence.professional.test.ts
+        run: |
+          node scripts/activate-professional-music-taxonomy.cjs
+          npx --yes tsx src/musicStyleIntelligence.professional.test.ts
+          node --test cloudflare/sonara-engine-v14-universal-taxonomy-lock.test.mjs
 
       - name: Validate Sonara Worker v14 source
         shell: bash
@@ -112,14 +115,16 @@ jobs:
           test -f cloudflare/sonara-engine-v10-house-lock.mjs
           test -f cloudflare/sonara-engine-v9-dual-fast.mjs
           grep -q "sonara-engine-v14-universal-taxonomy-lock.mjs" cloudflare/sonara-web-taxonomy-hotfix.mjs
-          grep -q 'universal-v14-taxonomy720-atmosphere' cloudflare/sonara-engine-v14-universal-taxonomy-lock.mjs
+          grep -q 'universal-v14-taxonomy720-authoritative-prompt' cloudflare/sonara-engine-v14-universal-taxonomy-lock.mjs
+          grep -q 'universalProfessionalPromptPreserved: true' cloudflare/sonara-engine-v14-universal-taxonomy-lock.mjs
+          grep -q 'universalCreativeControlsPreserved: true' cloudflare/sonara-engine-v14-universal-taxonomy-lock.mjs
           grep -q 'existingElectronicLocksPreserved: true' cloudflare/sonara-engine-v14-universal-taxonomy-lock.mjs
           grep -q 'electronic-v13-taxonomy89-futuregarage2' cloudflare/sonara-engine-v13-electronic-taxonomy-lock.mjs
           grep -q 'electronic-v12-caption500-intro8' cloudflare/sonara-engine-v12-electronic-lock.mjs
           grep -q 'techno-v11-caption500-intro8' cloudflare/sonara-engine-v11-house-techno-lock.mjs
           grep -q 'house-v10-caption500-intro8' cloudflare/sonara-engine-v10-house-lock.mjs
           grep -q 'api.sonaraenterprise.com' wrangler.jsonc
-          echo "Sonara Worker v14 full taxonomy lock configuration verified."
+          echo "Sonara Worker v14 authoritative 720-style configuration verified."
 
       - name: Deploy Worker to Cloudflare production
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
@@ -149,14 +154,16 @@ jobs:
             electronicTaxonomyLock: 'v13-taxonomy89',
             electronicTaxonomySelections: 89,
             futureGarageVariants: 2,
-            universalGenreLock: 'v14-taxonomy720-atmosphere',
+            universalGenreLock: 'v14-taxonomy720-authoritative-prompt',
             universalTaxonomyFamilies: 25,
             universalTaxonomyGenres: 86,
             universalTaxonomySubgenres: 720,
             universalAtmosphereAware: true,
             universalIntroIdentitySeconds: 8,
-            universalStyleInfluenceFloor: 90,
-            universalWeirdnessCeiling: 65,
+            universalProfessionalPromptPreserved: true,
+            universalCreativeControlsPreserved: true,
+            universalStyleInfluenceFloor: 0,
+            universalWeirdnessCeiling: 100,
             existingElectronicLocksPreserved: true
           };
           for (const [key, value] of Object.entries(expected)) {
@@ -165,7 +172,7 @@ jobs:
               process.exit(1);
             }
           }
-          console.log('SONARA Cloudflare v14 full 720-subgenre taxonomy health verified.');
+          console.log('SONARA Cloudflare v14 authoritative 720-style health verified.');
           NODE
               then
                 exit 0
