@@ -12,9 +12,18 @@ type CoreAction =
   | 'deckB.volume' | 'deckB.eqLow' | 'deckB.eqMid' | 'deckB.eqHigh' | 'deckB.filter'
   | 'mixer.crossfader' | 'mixer.master';
 
-type LearnRule = { sourceId: string; status: number; data1: number; channel: number };
+type MIDIFamily = 'X1 MK2' | 'Z1 MK2' | 'MIDI';
+type LearnRule = {
+  sourceId?: string;
+  sourceName?: string;
+  manufacturer?: string;
+  family?: MIDIFamily;
+  status: number;
+  data1: number;
+  channel: number;
+};
 type Mapping = Partial<Record<CoreAction, LearnRule>>;
-type MIDIDeviceView = { id: string; name: string; manufacturer: string; family: 'X1 MK2' | 'Z1 MK2' | 'MIDI' };
+type MIDIDeviceView = { id: string; name: string; manufacturer: string; family: MIDIFamily };
 
 const STORAGE_KEY = 'sonara.dj.ni-x1mk2-z1mk2.mapping.v1';
 const NI_DRIVER_URL = 'https://support.native-instruments.com/hc/en-us/articles/209570629-Drivers-Other-Files';
@@ -44,14 +53,26 @@ const ACTIONS: Array<{ id: CoreAction; label: string; preferred: 'X1 MK2' | 'Z1 
 ];
 
 const readMapping = (): Mapping => {
+  if (typeof window === 'undefined') return {};
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as Mapping; } catch { return {}; }
 };
 
-const identify = (name = ''): MIDIDeviceView['family'] => {
-  const value = name.toLowerCase();
-  if (value.includes('x1') && value.includes('mk2')) return 'X1 MK2';
-  if (value.includes('z1') && value.includes('mk2')) return 'Z1 MK2';
+const saveMapping = (mapping: Mapping) => {
+  if (typeof window !== 'undefined') localStorage.setItem(STORAGE_KEY, JSON.stringify(mapping));
+};
+
+const normalizeName = (value = '') => value.trim().toLowerCase().replace(/\s+/g, ' ');
+
+const identify = (name = ''): MIDIFamily => {
+  const value = normalizeName(name);
+  if (value.includes('x1') && (value.includes('traktor') || value.includes('kontrol') || value.includes('mk2'))) return 'X1 MK2';
+  if (value.includes('z1') && (value.includes('traktor') || value.includes('kontrol') || value.includes('mk2'))) return 'Z1 MK2';
   return 'MIDI';
+};
+
+const normalizeCommand = (status: number) => {
+  const command = status & 0xf0;
+  return command === 0x80 ? 0x90 : command;
 };
 
 export default function NIMinimalConsole() {
@@ -65,6 +86,7 @@ export default function NIMinimalConsole() {
   const [lastMappedAt, setLastMappedAt] = useState(0);
   const [lastEngineReply, setLastEngineReply] = useState('');
   const [lastEngineAt, setLastEngineAt] = useState(0);
+  const [lastMidi, setLastMidi] = useState('');
   const midiAccessRef = useRef<any>(null);
   const mappingRef = useRef(mapping);
   const learningRef = useRef<CoreAction | ''>(learning);
@@ -89,9 +111,9 @@ export default function NIMinimalConsole() {
   const linkStatus = !devices.length
     ? 'NON COLLEGATO · premi CONNETTI X1 + Z1'
     : !anySignal
-      ? 'USB/MIDI RILEVATO · premi un tasto X1 o muovi una manopola Z1'
+      ? 'USB/MIDI RILEVATO · metti X1/Z1 in MIDI MODE e muovi un controllo'
       : mappedCount === 0
-        ? 'SEGNALE MIDI REALE OK · configura almeno un controllo'
+        ? 'SEGNALE MIDI REALE OK · completa la mappatura rapida qui sotto'
         : !lastMappedAction
           ? 'SEGNALE MIDI OK · muovi un controllo già configurato'
           : engineConfirmed
@@ -117,46 +139,98 @@ export default function NIMinimalConsole() {
     if (action === 'mixer.master') emitDJControl({ type: 'mixer.master', value: absolute });
   };
 
-  const onMessage = (sourceId: string, event: any) => {
+  const repairRule = (action: CoreAction, source: MIDIDeviceView, rule: LearnRule) => {
+    if (rule.sourceId === source.id && rule.sourceName === source.name && rule.family === source.family && rule.manufacturer === source.manufacturer) return;
+    const next: Mapping = {
+      ...mappingRef.current,
+      [action]: { ...rule, sourceId: source.id, sourceName: source.name, manufacturer: source.manufacturer, family: source.family }
+    };
+    mappingRef.current = next;
+    setMapping(next);
+    saveMapping(next);
+  };
+
+  const onMessage = (source: MIDIDeviceView, event: any) => {
     const data = Array.from(event.data || []) as number[];
     if (data.length < 2) return;
-    setSignalByDevice(current => ({ ...current, [sourceId]: (current[sourceId] || 0) + 1 }));
     const [statusByte = 0, data1 = 0, data2 = 0] = data;
+    const rawCommand = statusByte & 0xf0;
+    if (rawCommand >= 0xf0) return;
+    const command = normalizeCommand(statusByte);
     const channel = statusByte & 0x0f;
-    const command = statusByte & 0xf0;
-    if (command === 0x80) return;
+    const isNoteRelease = rawCommand === 0x80 || (rawCommand === 0x90 && data2 === 0);
+    const value = isNoteRelease ? 0 : data2;
+
+    setSignalByDevice(current => ({ ...current, [source.id]: (current[source.id] || 0) + 1 }));
+    setLastMidi(`${source.family} · CH ${channel + 1} · ${command === 0x90 ? 'NOTE' : command === 0xb0 ? 'CC' : `0x${command.toString(16)}`} ${data1} · ${value}`);
+
     const currentLearning = learningRef.current;
     if (currentLearning) {
-      const next = { ...mappingRef.current, [currentLearning]: { sourceId, status: statusByte, data1, channel } };
+      const actionMeta = ACTIONS.find(item => item.id === currentLearning);
+      if (actionMeta?.kind === 'button' && isNoteRelease) return;
+      const normalizedStatus = command | channel;
+      const next: Mapping = {
+        ...mappingRef.current,
+        [currentLearning]: {
+          sourceId: source.id,
+          sourceName: source.name,
+          manufacturer: source.manufacturer,
+          family: source.family,
+          status: normalizedStatus,
+          data1,
+          channel
+        }
+      };
       mappingRef.current = next;
       setMapping(next);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      saveMapping(next);
       setLearning('');
       learningRef.current = '';
-      setStatus(`${ACTIONS.find(item => item.id === currentLearning)?.label || currentLearning} configurato con un messaggio MIDI reale.`);
+      setStatus(`${ACTIONS.find(item => item.id === currentLearning)?.label || currentLearning} configurato. La mappatura ora resta valida anche dopo scollegamento e riavvio.`);
       return;
     }
-    const match = (Object.entries(mappingRef.current) as Array<[CoreAction, LearnRule]>).find(([, rule]) =>
-      rule.sourceId === sourceId && rule.data1 === data1 && rule.channel === channel && (rule.status & 0xf0) === command
+
+    const candidates = (Object.entries(mappingRef.current) as Array<[CoreAction, LearnRule]>).filter(([, rule]) =>
+      rule && rule.data1 === data1 && rule.channel === channel && normalizeCommand(rule.status) === command
     );
+
+    const exact = candidates.find(([, rule]) => rule.sourceId === source.id);
+    const stableName = candidates.find(([, rule]) => Boolean(rule.sourceName) && normalizeName(rule.sourceName) === normalizeName(source.name));
+    const stableFamily = candidates.find(([, rule]) => source.family !== 'MIDI' && rule.family === source.family);
+    const legacyUnique = candidates.length === 1 ? candidates[0] : undefined;
+    const match = exact || stableName || stableFamily || legacyUnique;
+
     if (match) {
+      repairRule(match[0], source, match[1]);
       setLastMappedAction(match[0]);
       setLastMappedAt(Date.now());
-      emit(match[0], data2);
+      emit(match[0], value);
+      return;
+    }
+
+    if (Object.keys(mappingRef.current).length === 0) {
+      setAdvanced(true);
+      setStatus('Il controller sta inviando MIDI correttamente. Associa una volta i controlli nella mappatura rapida: da quel momento resteranno memorizzati e resistenti ai reconnect.');
     }
   };
 
   const syncInputs = (access: any) => {
     const next: MIDIDeviceView[] = [];
     for (const input of Array.from(access.inputs?.values?.() || []) as any[]) {
+      const device: MIDIDeviceView = {
+        id: input.id,
+        name: input.name || 'MIDI Controller',
+        manufacturer: input.manufacturer || 'Unknown',
+        family: identify(input.name || '')
+      };
       if (typeof input.open === 'function' && input.connection !== 'open') void input.open().catch(() => undefined);
-      input.onmidimessage = (event: any) => onMessage(input.id, event);
-      next.push({ id: input.id, name: input.name || 'MIDI Controller', manufacturer: input.manufacturer || 'Unknown', family: identify(input.name || '') });
+      input.onmidimessage = (event: any) => onMessage(device, event);
+      next.push(device);
     }
     setDevices(next);
     const x1 = next.some(item => item.family === 'X1 MK2');
     const z1 = next.some(item => item.family === 'Z1 MK2');
-    setStatus(x1 && z1 ? 'X1 MK2 + Z1 MK2 rilevati via Web MIDI. Ora muovi un controllo fisico per verificare il collegamento reale.' : x1 ? 'X1 MK2 rilevato. Collega anche Z1 MK2.' : z1 ? 'Z1 MK2 rilevato. Collega anche X1 MK2.' : next.length ? 'MIDI rilevato, ma non identificato come X1/Z1 MK2.' : 'Nessun controller MIDI rilevato.');
+    setStatus(x1 && z1 ? 'X1 MK2 + Z1 MK2 rilevati. Il mapping viene ora riconosciuto anche se Windows cambia l’ID MIDI delle porte.' : x1 ? 'X1 MK2 rilevato. Collega anche Z1 MK2.' : z1 ? 'Z1 MK2 rilevato. Collega anche X1 MK2.' : next.length ? 'MIDI rilevato. Muovi un controllo per identificarlo e configurarlo.' : 'Nessun controller MIDI rilevato.');
   };
 
   const connect = async () => {
@@ -167,6 +241,8 @@ export default function NIMinimalConsole() {
       setLastMappedAt(0);
       setLastEngineReply('');
       setLastEngineAt(0);
+      setLastMidi('');
+      window.dispatchEvent(new CustomEvent('sonara:dj-arm-audio'));
       const access = await (navigator as any).requestMIDIAccess({ sysex: false });
       midiAccessRef.current = access;
       syncInputs(access);
@@ -191,7 +267,8 @@ export default function NIMinimalConsole() {
     learningRef.current = '';
     setLastMappedAction('');
     setLastMappedAt(0);
-    setStatus('Configurazione X1/Z1 azzerata.');
+    setAdvanced(true);
+    setStatus('Configurazione X1/Z1 azzerata. Associa nuovamente i controlli una sola volta.');
   };
 
   return <div className="space-y-4" data-ni-console="true">
@@ -212,13 +289,13 @@ export default function NIMinimalConsole() {
         <div className={`flex items-center justify-between rounded-xl border px-3 py-3 ${hasX1 ? 'border-emerald-500/25 bg-emerald-500/5' : 'border-slate-800 bg-slate-950'}`}><div><div className="text-[9px] font-black text-white">TRAKTOR X1 MK2</div><div className={`mt-1 text-[8px] font-bold ${x1Signal ? 'text-emerald-300' : 'text-slate-600'}`}>{hasX1 ? (x1Signal ? 'SEGNALE MIDI FISICO ATTIVO' : 'RILEVATO · PREMI UN TASTO X1') : 'NON RILEVATO'}</div></div>{hasX1 ? <CheckCircle2 className="h-4 w-4 text-emerald-300"/> : <XCircle className="h-4 w-4 text-slate-700"/>}</div>
         <div className={`flex items-center justify-between rounded-xl border px-3 py-3 ${hasZ1 ? 'border-emerald-500/25 bg-emerald-500/5' : 'border-slate-800 bg-slate-950'}`}><div><div className="text-[9px] font-black text-white">TRAKTOR Z1 MK2</div><div className={`mt-1 text-[8px] font-bold ${z1Signal ? 'text-emerald-300' : 'text-slate-600'}`}>{hasZ1 ? (z1Signal ? 'SEGNALE MIDI FISICO ATTIVO' : 'RILEVATO · MUOVI UNA MANOPOLA Z1') : 'NON RILEVATO'}</div></div>{hasZ1 ? <CheckCircle2 className="h-4 w-4 text-emerald-300"/> : <XCircle className="h-4 w-4 text-slate-700"/>}</div>
         <div className={`rounded-xl border px-3 py-3 ${engineConfirmed ? 'border-emerald-400/35 bg-emerald-400/10' : lastMappedAction ? 'border-cyan-400/30 bg-cyan-400/10' : 'border-slate-800 bg-slate-950'}`}>
-          <div className="flex items-start gap-2"><Cable className={`mt-0.5 h-4 w-4 shrink-0 ${engineConfirmed ? 'text-emerald-300' : 'text-cyan-300'}`}/><div><div className="text-[8px] font-black uppercase tracking-[0.16em] text-slate-500">DJ PRO LINK TEST</div><div className={`mt-1 text-[9px] font-black ${engineConfirmed ? 'text-emerald-200' : lastMappedAction ? 'text-cyan-100' : 'text-slate-400'}`}>{linkStatus}</div>{lastEngineReply ? <div className="mt-1 text-[8px] font-bold text-slate-600">Ultima risposta engine: {lastEngineReply}</div> : null}</div></div>
+          <div className="flex items-start gap-2"><Cable className={`mt-0.5 h-4 w-4 shrink-0 ${engineConfirmed ? 'text-emerald-300' : 'text-cyan-300'}`}/><div><div className="text-[8px] font-black uppercase tracking-[0.16em] text-slate-500">DJ PRO LINK TEST</div><div className={`mt-1 text-[9px] font-black ${engineConfirmed ? 'text-emerald-200' : lastMappedAction ? 'text-cyan-100' : 'text-slate-400'}`}>{linkStatus}</div>{lastEngineReply ? <div className="mt-1 text-[8px] font-bold text-slate-600">Ultima risposta engine: {lastEngineReply}</div> : null}{lastMidi ? <div className="mt-1 text-[8px] font-bold text-slate-700">Ultimo MIDI: {lastMidi}</div> : null}</div></div>
         </div>
       </div>
 
       <div className="mt-3 flex flex-col items-stretch gap-3 border-t border-slate-900 pt-3">
-        <div className="text-[8px] font-bold text-slate-600">TEST REALE: premi PLAY/CUE su X1 oppure muovi crossfader/volume su Z1. “Segnale MIDI fisico attivo” prova che il controller sta parlando con Sonara; “Comando DJ Pro ricevuto” prova che il mapping sta comandando DJ Pro.</div>
-        <div className="text-[8px] font-bold text-slate-600">X1 non è una scheda audio. Il Master deve uscire dallo Z1 MK2 oppure dall'uscita Windows scelta.</div>
+        <div className="text-[8px] font-bold text-slate-600">TEST REALE: premi PLAY/CUE su X1 oppure muovi crossfader/volume su Z1. Se il segnale arriva ma non è ancora associato, Sonara apre automaticamente la mappatura rapida.</div>
+        <div className="text-[8px] font-bold text-slate-600">La mappatura viene legata al modello/nome del controller, non più soltanto all’ID temporaneo assegnato dal browser.</div>
         <button type="button" onClick={() => setAdvanced(value => !value)} className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-2 text-[8px] font-black text-slate-400"><Settings2 className="h-3 w-3"/>{advanced ? 'CHIUDI CONFIG' : `CONFIGURA CONTROLLI · ${mappedCount}/20`}</button>
       </div>
       <div className="mt-3 rounded-xl border border-slate-800 bg-black/20 px-3 py-2 text-[9px] text-slate-500">{status}</div>
@@ -227,8 +304,8 @@ export default function NIMinimalConsole() {
     <div className="ni-audio"><DJAudioRouting/></div>
 
     {advanced ? <section className="rounded-2xl border border-slate-800 bg-[#080b11] p-4">
-      <div className="flex flex-col items-stretch gap-3"><div><div className="flex items-center gap-2"><SlidersHorizontal className="h-4 w-4 text-fuchsia-300"/><h2 className="text-xs font-black text-white">Configurazione una tantum X1 / Z1</h2></div><p className="mt-1 text-[9px] text-slate-600">Premi una funzione e muovi il controllo fisico corrispondente. Il messaggio MIDI reale viene salvato con il dispositivo sorgente.</p></div><button onClick={reset} className="w-full rounded-lg border border-slate-800 px-2 py-2 text-[8px] font-black text-slate-500">RESET</button></div>
-      <div className="mt-3 grid grid-cols-1 gap-2">{ACTIONS.map(action => { const rule = mapping[action.id]; const active = learning === action.id; return <button key={action.id} onClick={() => { const next = active ? '' : action.id; setLearning(next); learningRef.current = next; }} className={`w-full rounded-xl border p-3 text-left ${active ? 'border-amber-400/40 bg-amber-400/10' : rule ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-slate-800 bg-slate-950'}`}><div className="text-[8px] font-black text-white">{action.label}</div><div className="mt-1 text-[7px] font-bold text-slate-600">{active ? `MUOVI ORA · ${action.preferred}` : rule ? `OK · ${action.preferred}` : action.preferred}</div></button>; })}</div>
+      <div className="flex flex-col items-stretch gap-3"><div><div className="flex items-center gap-2"><SlidersHorizontal className="h-4 w-4 text-fuchsia-300"/><h2 className="text-xs font-black text-white">Mappatura rapida X1 / Z1</h2></div><p className="mt-1 text-[9px] text-slate-600">Premi una funzione e poi usa il controllo fisico corrispondente. Serve una sola volta: il collegamento viene salvato in modo stabile anche dopo reconnect e riavvio.</p></div><button onClick={reset} className="w-full rounded-lg border border-slate-800 px-2 py-2 text-[8px] font-black text-slate-500">RESET</button></div>
+      <div className="mt-3 grid grid-cols-1 gap-2">{ACTIONS.map(action => { const rule = mapping[action.id]; const active = learning === action.id; return <button key={action.id} onClick={() => { const next = active ? '' : action.id; setLearning(next); learningRef.current = next; }} className={`w-full rounded-xl border p-3 text-left ${active ? 'border-amber-400/40 bg-amber-400/10' : rule ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-slate-800 bg-slate-950'}`}><div className="text-[8px] font-black text-white">{action.label}</div><div className="mt-1 text-[7px] font-bold text-slate-600">{active ? `MUOVI ORA · ${action.preferred}` : rule ? `OK STABILE · ${action.preferred}` : action.preferred}</div></button>; })}</div>
     </section> : null}
 
     <DJDeckSkinManager profileId="ni-x1mk2-z1mk2" profileName="X1 MK2 + Z1 MK2" />
