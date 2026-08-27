@@ -8,8 +8,8 @@ import { bipolarMidiValue, emitDJControl, normalizedMidiValue, onDJFeedback } fr
 type CoreAction =
   | 'deckA.play' | 'deckA.cue' | 'deckA.sync' | 'deckA.loop'
   | 'deckB.play' | 'deckB.cue' | 'deckB.sync' | 'deckB.loop'
-  | 'deckA.volume' | 'deckA.eqLow' | 'deckA.eqMid' | 'deckA.eqHigh' | 'deckA.filter'
-  | 'deckB.volume' | 'deckB.eqLow' | 'deckB.eqMid' | 'deckB.eqHigh' | 'deckB.filter'
+  | 'deckA.volume' | 'deckA.gain' | 'deckA.eqLow' | 'deckA.eqMid' | 'deckA.eqHigh' | 'deckA.filter'
+  | 'deckB.volume' | 'deckB.gain' | 'deckB.eqLow' | 'deckB.eqMid' | 'deckB.eqHigh' | 'deckB.filter'
   | 'mixer.crossfader' | 'mixer.master';
 
 type MIDIFamily = 'X1' | 'Z1' | 'MIDI';
@@ -39,11 +39,13 @@ const ACTIONS: Array<{ id: CoreAction; label: string; preferred: 'X1' | 'Z1'; ki
   { id: 'deckB.sync', label: 'Deck B · Sync', preferred: 'X1', kind: 'button' },
   { id: 'deckB.loop', label: 'Deck B · Loop', preferred: 'X1', kind: 'button' },
   { id: 'deckA.volume', label: 'Canale A · Volume', preferred: 'Z1', kind: 'absolute' },
+  { id: 'deckA.gain', label: 'Canale A · Gain', preferred: 'Z1', kind: 'bipolar' },
   { id: 'deckA.eqLow', label: 'Canale A · Low', preferred: 'Z1', kind: 'bipolar' },
   { id: 'deckA.eqMid', label: 'Canale A · Mid', preferred: 'Z1', kind: 'bipolar' },
   { id: 'deckA.eqHigh', label: 'Canale A · High', preferred: 'Z1', kind: 'bipolar' },
   { id: 'deckA.filter', label: 'Canale A · Filter', preferred: 'Z1', kind: 'bipolar' },
   { id: 'deckB.volume', label: 'Canale B · Volume', preferred: 'Z1', kind: 'absolute' },
+  { id: 'deckB.gain', label: 'Canale B · Gain', preferred: 'Z1', kind: 'bipolar' },
   { id: 'deckB.eqLow', label: 'Canale B · Low', preferred: 'Z1', kind: 'bipolar' },
   { id: 'deckB.eqMid', label: 'Canale B · Mid', preferred: 'Z1', kind: 'bipolar' },
   { id: 'deckB.eqHigh', label: 'Canale B · High', preferred: 'Z1', kind: 'bipolar' },
@@ -136,6 +138,7 @@ export default function NIMinimalConsole() {
     if (deck && command === 'sync' && pressed) emitDJControl({ type: 'deck.sync', deck, pressed: true });
     if (deck && command === 'loop' && pressed) emitDJControl({ type: 'deck.loop', deck, beats: 4, pressed: true });
     if (deck && command === 'volume') emitDJControl({ type: 'deck.volume', deck, value: absolute });
+    if (deck && command === 'gain') emitDJControl({ type: 'deck.gain', deck, value: bipolar * 12 });
     if (deck && command === 'filter') emitDJControl({ type: 'deck.filter', deck, value: bipolar });
     if (deck && command === 'eqLow') emitDJControl({ type: 'deck.eqLow', deck, value: bipolar < 0 ? bipolar * 18 : bipolar * 9 });
     if (deck && command === 'eqMid') emitDJControl({ type: 'deck.eqMid', deck, value: bipolar < 0 ? bipolar * 18 : bipolar * 9 });
