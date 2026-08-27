@@ -1,7 +1,5 @@
-import { randomUUID } from 'node:crypto';
 import { applicationDefault, cert, getApps, initializeApp, type App } from 'firebase-admin/app';
 import { FieldValue, getFirestore, Timestamp } from 'firebase-admin/firestore';
-import { getStorage } from 'firebase-admin/storage';
 import {
   SONARA_PLANS,
   SONARA_VIDEO_CREDIT_COST,
@@ -9,10 +7,17 @@ import {
   type SonaraPlanId,
   type SonaraVideoResolution
 } from '../../src/billing/plans';
+import {
+  persistProviderVideo,
+  pollVideoProvider,
+  startVideoProvider,
+  videoProviderMode,
+  videoProviderReady,
+  type SonaraVideoProvider
+} from './provider';
 
 export const config = { api: { bodyParser: { sizeLimit: '1mb' } } };
 
-const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const JOB_COLLECTION = 'sonaraVideoJobs';
 
 interface AuthenticatedUser { uid: string; email?: string }
@@ -32,6 +37,7 @@ interface VideoJobRecord {
   credits: number;
   planId: SonaraPlanId;
   model: string;
+  provider: SonaraVideoProvider;
   status: 'PROCESSING' | 'COMPLETED' | 'FAILED';
   videoUrl?: string;
   providerVideoUri?: string;
@@ -122,20 +128,6 @@ function currentPeriodKey(now = new Date()) {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
-function providerApiKey() {
-  return String(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '').trim();
-}
-
-function providerReady() {
-  return Boolean(providerApiKey() && serviceAccountConfigured() && storageBucketName());
-}
-
-function modelForPlan(planId: SonaraPlanId) {
-  const override = String(process.env.SONARA_VIDEO_MODEL || '').trim();
-  if (override) return override;
-  return SONARA_PLANS[planId].videoModelTier === 'lite' ? 'veo-3.1-lite-generate-preview' : 'veo-3.1-fast-generate-preview';
-}
-
 async function billingRecord(uid: string): Promise<BillingRecord | undefined> {
   const snapshot = await getFirestore(getAdminApp()).collection('sonaraBilling').doc(uid).get();
   return snapshot.exists ? snapshot.data() as BillingRecord : undefined;
@@ -146,6 +138,8 @@ function publicStatus(record: BillingRecord | undefined) {
   const plan = SONARA_PLANS[planId];
   const periodKey = currentPeriodKey();
   const used = record?.videoCreditsPeriodKey === periodKey ? Math.max(0, Number(record.videoCreditsUsed || 0)) : 0;
+  const app = getAdminApp();
+  const bucket = storageBucketName();
   return {
     planId,
     planName: plan.name,
@@ -154,7 +148,8 @@ function publicStatus(record: BillingRecord | undefined) {
     videoCreditsRemaining: Math.max(0, plan.videoCreditsPerMonth - used),
     videoClipSeconds: plan.videoClipSeconds,
     videoResolutions: plan.videoResolutions,
-    providerConfigured: providerReady()
+    providerConfigured: videoProviderReady(app, bucket),
+    provider: videoProviderMode(app, bucket)
   };
 }
 
@@ -192,7 +187,9 @@ async function releaseVideoCredits(uid: string, credits: number, jobId?: string)
 }
 
 async function startVideo(user: AuthenticatedUser, req: any, res: any) {
-  if (!providerReady()) return fail(res, 503, 'VIDEO_PROVIDER_NOT_CONFIGURED', 'Il motore SONARA Video AI non è ancora configurato sul server.');
+  const app = getAdminApp();
+  const bucketName = storageBucketName();
+  if (!videoProviderReady(app, bucketName)) return fail(res, 503, 'VIDEO_PROVIDER_NOT_CONFIGURED', 'Il motore SONARA Video AI non è ancora configurato sul server.');
   const body = req.body && typeof req.body === 'object' ? req.body : {};
   const prompt = String(body.prompt || '').trim();
   const aspectRatio = body.aspectRatio === '9:16' ? '9:16' : '16:9';
@@ -210,49 +207,49 @@ async function startVideo(user: AuthenticatedUser, req: any, res: any) {
     return fail(res, 503, 'VIDEO_BILLING_ERROR', 'Il controllo dei crediti video non è disponibile.');
   }
 
-  const model = modelForPlan(reservation.planId);
   try {
-    const response = await fetch(`${GEMINI_BASE_URL}/models/${encodeURIComponent(model)}:predictLongRunning`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': providerApiKey() },
-      body: JSON.stringify({
-        instances: [{ prompt }],
-        parameters: { numberOfVideos: 1, aspectRatio, resolution, durationSeconds: '8', personGeneration: 'allow_adult' }
-      })
+    const providerJob = await startVideoProvider({
+      app,
+      bucketName,
+      planId: reservation.planId,
+      prompt,
+      aspectRatio,
+      resolution,
+      userId: user.uid
     });
-    const payload = await response.json() as any;
-    if (!response.ok || !payload?.name) throw new Error(String(payload?.error?.message || `Video provider HTTP ${response.status}`));
-    const jobRef = getFirestore(getAdminApp()).collection(JOB_COLLECTION).doc();
+    const jobRef = getFirestore(app).collection(JOB_COLLECTION).doc();
     await jobRef.set({
-      uid: user.uid, operationName: String(payload.name), prompt, aspectRatio, resolution,
-      credits: reservation.credits, planId: reservation.planId, model, status: 'PROCESSING', refunded: false,
-      createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp()
+      uid: user.uid,
+      operationName: providerJob.operationName,
+      prompt,
+      aspectRatio,
+      resolution,
+      credits: reservation.credits,
+      planId: reservation.planId,
+      model: providerJob.model,
+      provider: providerJob.provider,
+      status: 'PROCESSING',
+      refunded: false,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp()
     });
-    return json(res, 202, { jobId: jobRef.id, status: 'PROCESSING', progress: 5, stage: 'SONARA Video AI: rendering avviato', billing: reservation.status });
+    return json(res, 202, {
+      jobId: jobRef.id,
+      status: 'PROCESSING',
+      progress: 5,
+      stage: 'SONARA Video AI: rendering avviato',
+      provider: providerJob.provider,
+      billing: reservation.status
+    });
   } catch (cause) {
     await releaseVideoCredits(user.uid, reservation.credits).catch(() => undefined);
     return fail(res, 502, 'VIDEO_PROVIDER_START_FAILED', cause instanceof Error ? cause.message : 'Avvio generazione video fallito.');
   }
 }
 
-async function persistGeneratedVideo(jobId: string, record: VideoJobRecord, uri: string) {
-  const response = await fetch(uri, { headers: { 'x-goog-api-key': providerApiKey() }, redirect: 'follow' });
-  if (!response.ok) throw new Error(`Download video provider HTTP ${response.status}`);
-  const bytes = Buffer.from(await response.arrayBuffer());
-  const token = randomUUID();
-  const bucketName = storageBucketName();
-  const bucket = getStorage(getAdminApp()).bucket(bucketName);
-  const objectPath = `generated-videos/${record.uid}/${jobId}.mp4`;
-  await bucket.file(objectPath).save(bytes, {
-    resumable: false,
-    contentType: 'video/mp4',
-    metadata: { cacheControl: 'private,max-age=3600', metadata: { firebaseStorageDownloadTokens: token } }
-  });
-  return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucketName)}/o/${encodeURIComponent(objectPath)}?alt=media&token=${encodeURIComponent(token)}`;
-}
-
 async function pollJob(user: AuthenticatedUser, jobId: string, res: any) {
-  const ref = getFirestore(getAdminApp()).collection(JOB_COLLECTION).doc(jobId);
+  const app = getAdminApp();
+  const ref = getFirestore(app).collection(JOB_COLLECTION).doc(jobId);
   const snapshot = await ref.get();
   if (!snapshot.exists) return fail(res, 404, 'VIDEO_JOB_NOT_FOUND', 'Job video non trovato.');
   const record = snapshot.data() as VideoJobRecord;
@@ -261,19 +258,20 @@ async function pollJob(user: AuthenticatedUser, jobId: string, res: any) {
   if (record.status === 'FAILED') return json(res, 200, { jobId, status: 'FAILED', progress: 0, stage: 'Errore', error: record.error || 'Generazione video fallita.' });
 
   try {
-    const response = await fetch(`${GEMINI_BASE_URL}/${record.operationName}`, { headers: { 'x-goog-api-key': providerApiKey() }, cache: 'no-store' });
-    const operation = await response.json() as any;
-    if (!response.ok) throw new Error(String(operation?.error?.message || `Video operation HTTP ${response.status}`));
+    const operation = await pollVideoProvider({
+      app,
+      provider: record.provider || 'gemini',
+      model: record.model,
+      operationName: record.operationName
+    });
     if (!operation.done) return json(res, 200, { jobId, status: 'PROCESSING', progress: 55, stage: 'SONARA Video AI: rendering cinematografico' });
     if (operation.error) {
-      const message = String(operation.error?.message || 'Il provider ha bloccato o interrotto il video.');
       if (!record.refunded) await releaseVideoCredits(user.uid, record.credits, jobId).catch(() => undefined);
-      await ref.set({ status: 'FAILED', error: message, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-      return json(res, 200, { jobId, status: 'FAILED', progress: 0, stage: 'Errore', error: message });
+      await ref.set({ status: 'FAILED', error: operation.error, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      return json(res, 200, { jobId, status: 'FAILED', progress: 0, stage: 'Errore', error: operation.error });
     }
-    const uri = String(operation?.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri || operation?.response?.generatedVideos?.[0]?.video?.uri || '');
-    if (!uri) throw new Error('Il provider ha completato il job senza restituire il file video.');
-    const videoUrl = await persistGeneratedVideo(jobId, record, uri);
+    const uri = String(operation.uri || '');
+    const videoUrl = await persistProviderVideo(app, storageBucketName(), record.uid, jobId, uri);
     await ref.set({ status: 'COMPLETED', providerVideoUri: uri, videoUrl, completedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     return json(res, 200, { jobId, status: 'COMPLETED', progress: 100, stage: 'Video pronto', videoUrl });
   } catch (cause) {
