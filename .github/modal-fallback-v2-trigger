@@ -1,2 +1,2 @@
-trigger: 2026-08-27T17:48:00Z
-reason: authorize Modal fallback for permanent SONARA generation when Kaggle is offline
+trigger: 2026-08-27T17:51:00Z
+reason: validate workspace-wide Modal proxy auth and sync Cloudflare fallback
