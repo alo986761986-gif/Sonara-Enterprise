@@ -1,0 +1,161 @@
+name: Repair Modal Fallback v2
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/modal-fallback-v2-trigger"
+
+permissions:
+  contents: read
+
+jobs:
+  repair:
+    name: Create scoped Modal proxy auth and sync Cloudflare
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RAW_MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      RAW_MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+      MODAL_ENDPOINT_URL: https://alo986761986-gif--sonara-acestep-serve-acestep.modal.run
+
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Normalize Modal API credentials
+        shell: bash
+        run: |
+          python - <<'PY' > /tmp/modal-api-pair
+          import os, re
+          values = [os.environ.get('RAW_MODAL_TOKEN_ID',''), os.environ.get('RAW_MODAL_TOKEN_SECRET','')]
+          def extract(prefix):
+              pattern = re.compile(re.escape(prefix) + r'[A-Za-z0-9_-]+')
+              for value in values:
+                  match = pattern.search((value or '').strip())
+                  if match:
+                      return match.group(0)
+              return ''
+          token_id = extract('ak-')
+          token_secret = extract('as-')
+          if not token_id or not token_secret:
+              raise SystemExit('Modal API token pair not found.')
+          print(token_id)
+          print(token_secret)
+          PY
+          mapfile -t pair < /tmp/modal-api-pair
+          echo "::add-mask::${pair[0]}"
+          echo "::add-mask::${pair[1]}"
+          echo "MODAL_TOKEN_ID=${pair[0]}" >> "$GITHUB_ENV"
+          echo "MODAL_TOKEN_SECRET=${pair[1]}" >> "$GITHUB_ENV"
+          rm -f /tmp/modal-api-pair
+
+      - name: Resolve Cloudflare account ID
+        shell: bash
+        run: |
+          test -n "${CLOUDFLARE_API_TOKEN}" || { echo 'Missing CLOUDFLARE_API_TOKEN' >&2; exit 1; }
+          account_id="${CLOUDFLARE_ACCOUNT_ID}"
+          if [[ -z "${account_id}" ]]; then
+            response="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' 'https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50')"
+            account_id="$(CF_RESPONSE="$response" node - <<'NODE'
+          const payload = JSON.parse(process.env.CF_RESPONSE || '{}');
+          const zone = Array.isArray(payload.result) ? payload.result.find(item => item?.name === 'sonaraenterprise.com') : null;
+          process.stdout.write(String(zone?.account?.id || ''));
+          NODE
+            )"
+          fi
+          test -n "${account_id}" || { echo 'Unable to resolve Cloudflare account ID' >&2; exit 1; }
+          echo "::add-mask::${account_id}"
+          echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "$GITHUB_ENV"
+
+      - name: Install Modal CLI and SDK
+        run: python -m pip install --disable-pip-version-check 'modal>=1.5,<2'
+
+      - name: Create scoped proxy token with SDK
+        shell: bash
+        run: |
+          python - <<'PY' > /tmp/modal-proxy-pair
+          import modal
+          workspace = modal.Workspace.from_context()
+          token = workspace.proxy_tokens.create()
+          workspace.proxy_tokens.allow(token.token_id, 'main')
+          scoped = list(workspace.proxy_tokens.list(environment_name='main'))
+          if not any(item.token_id == token.token_id for item in scoped):
+              raise SystemExit('Fresh proxy token is not associated with Modal environment main.')
+          print(token.token_id)
+          print(token.token_secret)
+          PY
+          mapfile -t proxy < /tmp/modal-proxy-pair
+          proxy_id="${proxy[0]}"
+          proxy_secret="${proxy[1]}"
+          [[ "${proxy_id}" == wk-* && "${proxy_secret}" == ws-* ]] || { echo 'Invalid proxy pair returned by Modal SDK' >&2; exit 1; }
+          echo "::add-mask::${proxy_id}"
+          echo "::add-mask::${proxy_secret}"
+          echo "MODAL_PROXY_KEY_FRESH=${proxy_id}" >> "$GITHUB_ENV"
+          echo "MODAL_PROXY_SECRET_FRESH=${proxy_secret}" >> "$GITHUB_ENV"
+          rm -f /tmp/modal-proxy-pair
+          echo 'Fresh Modal proxy token created and associated with environment main.'
+
+      - name: Validate protected Modal endpoint
+        shell: bash
+        run: |
+          auth="${MODAL_PROXY_KEY_FRESH}.${MODAL_PROXY_SECRET_FRESH}"
+          status=000
+          for attempt in 1 2 3 4 5; do
+            status="$(curl -sS --max-time 240 -w '%{http_code}' \
+              -H "Authorization: Bearer ${auth}" \
+              -o /tmp/modal-models.json \
+              "${MODAL_ENDPOINT_URL}/v1/models" || true)"
+            if [[ "${status}" == "200" ]]; then break; fi
+            echo "Modal endpoint attempt ${attempt}: HTTP ${status}"
+            sleep 3
+          done
+          if [[ "${status}" != "200" ]]; then
+            echo "Modal protected endpoint authentication failed with HTTP ${status}." >&2
+            cat /tmp/modal-models.json >&2 || true
+            exit 1
+          fi
+          node - <<'NODE'
+          const fs = require('fs');
+          const payload = JSON.parse(fs.readFileSync('/tmp/modal-models.json','utf8'));
+          const models = Array.isArray(payload?.data?.models) ? payload.data.models.map(x => String(x?.name || '')).filter(Boolean) : [];
+          if (!models.includes('acestep-v15-xl-turbo')) {
+            console.error(`XL-Turbo missing. Models: ${models.join(', ')}`);
+            process.exit(1);
+          }
+          console.log(`Modal protected endpoint ready; XL-Turbo found among ${models.length} model(s).`);
+          NODE
+
+      - name: Sync fresh proxy auth to Cloudflare Worker
+        shell: bash
+        run: |
+          printf '%s' "${MODAL_PROXY_KEY_FRESH}" | npx --yes wrangler@latest secret put MODAL_PROXY_KEY --config wrangler.jsonc >/dev/null
+          printf '%s' "${MODAL_PROXY_SECRET_FRESH}" | npx --yes wrangler@latest secret put MODAL_PROXY_SECRET --config wrangler.jsonc >/dev/null
+          echo 'Fresh Modal proxy credentials synchronized to Cloudflare.'
+
+      - name: Verify production Worker health
+        shell: bash
+        run: |
+          response="$(curl -fsS --max-time 30 https://api.sonaraenterprise.com/api/health)"
+          HEALTH="$response" node - <<'NODE'
+          const health = JSON.parse(process.env.HEALTH || '{}');
+          if (!health.ok) {
+            console.error('SONARA Worker health is not OK.');
+            process.exit(1);
+          }
+          console.log('SONARA production Worker is healthy.');
+          NODE
