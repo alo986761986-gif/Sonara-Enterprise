@@ -17,16 +17,13 @@ const AUDIO_TIMEOUT_MS = 120_000;
 const HEALTH_TIMEOUT_MS = 15_000;
 const MAX_QUERY_FAILURES = 4;
 const SAFE_FALLBACK_PROFILE = 'dual-safe-independent-v1';
-const KAGGLE_PROFILE = 'kaggle-t4x2-independent-v1';
+const KAGGLE_PROFILE = 'kaggle-t4x2-ultra-fast-v2';
 const KAGGLE_MODEL = 'acestep-v15-turbo';
-const KAGGLE_STEPS = 8;
+const KAGGLE_STEPS = 4;
 const KAGGLE_GUIDANCE_SCALE = 1.0;
 const KAGGLE_SHIFT = 3.0;
 const RETRYABLE_HTTP_STATUSES = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
 
-// Immediate session defaults. ACESTEP_WORKER_URLS / ACE_STEP_API_URLS can
-// replace these without another code change when a future Kaggle session gets
-// new Quick Tunnel URLs.
 const DEFAULT_KAGGLE_WORKERS = [
   'https://issued-referring-warming-equally.trycloudflare.com',
   'https://appointments-affiliated-unlikely-remember.trycloudflare.com'
@@ -94,8 +91,6 @@ function configuredWorkers(env = {}) {
     kind: 'kaggle'
   }));
 
-  // Keep the existing Modal engine as automatic fallback. It is only added when
-  // its credentials are actually present, so Kaggle does not require secrets.
   const modalKey = String(env.MODAL_PROXY_KEY || '').trim();
   const modalSecret = String(env.MODAL_PROXY_SECRET || '').trim();
   const modalBaseUrl = normalizeBaseUrl(
@@ -183,7 +178,6 @@ async function checkWorker(worker, env) {
     if (health?.code === 200 || ['ok', 'ready', 'healthy', 'online', 'success'].includes(status)) return true;
   } catch {}
 
-  // Compatibility fallback for older Modal ACE-Step services.
   try {
     await workerJson(worker, env, '/v1/models', {
       method: 'GET',
@@ -273,7 +267,6 @@ function audioRefFromItem(item, worker) {
       const audioPath = parsed.searchParams.get('path');
       if (audioPath) return { workerId: worker.id, path: audioPath };
     } catch {}
-    // Some ACE-Step builds return the server-local path directly in `file`.
     if (source.startsWith('/') && !source.startsWith('/v1/audio')) {
       return { workerId: worker.id, path: source };
     }
@@ -304,14 +297,14 @@ export function buildPayload(body, env) {
     use_format: false,
     use_cot_caption: false,
     use_cot_language: false,
-    constrained_decoding: true,
-    allow_lm_batch: true,
+    constrained_decoding: false,
+    allow_lm_batch: false,
     lm_temperature: creativeControls.lmTemperature,
     lm_cfg_scale: creativeControls.lmCfgScale,
     lm_top_p: creativeControls.lmTopP,
     lm_repetition_penalty: 1.03,
     batch_size: BATCH_SIZE,
-    infer_method: creativeControls.inferMethod,
+    infer_method: 'ode',
     audio_format: 'wav',
     mp3_bitrate: '320k',
     mp3_sample_rate: 48000
@@ -321,6 +314,7 @@ export function buildPayload(body, env) {
 function payloadForWorker(payload, worker, variationIndex) {
   const seedBase = Math.max(1, Math.floor(Date.now() % 2_000_000_000));
   const isKaggle = worker.kind === 'kaggle';
+  const shortTrack = Number(payload.audio_duration || 0) <= 90;
   return {
     ...payload,
     model: isKaggle ? KAGGLE_MODEL : payload.model,
@@ -328,13 +322,14 @@ function payloadForWorker(payload, worker, variationIndex) {
     guidance_scale: isKaggle ? KAGGLE_GUIDANCE_SCALE : payload.guidance_scale,
     shift: isKaggle ? KAGGLE_SHIFT : payload.shift,
     batch_size: 1,
-    // Max-speed T4 path: Turbo already works directly from text conditions.
-    // Skipping the 5Hz LM removes an entire planning pass from each candidate.
     thinking: isKaggle ? false : payload.thinking,
     use_format: false,
     use_cot_caption: false,
     use_cot_language: false,
+    constrained_decoding: false,
+    allow_lm_batch: false,
     infer_method: isKaggle ? 'ode' : payload.infer_method,
+    use_tiled_decode: isKaggle ? !shortTrack : true,
     use_random_seed: false,
     seed: seedBase + variationIndex * 7919
   };
@@ -425,8 +420,6 @@ async function startDualGeneration(request, env, body) {
     }, 503);
   }
 
-  // Prefer two distinct workers (T4 #0 + T4 #1). If only one survives, both
-  // independent tasks are queued on it rather than dropping one candidate.
   const selected = ready.length >= 2 ? ready.slice(0, 2) : [ready[0], ready[0]];
   const jobId = `d9pair_${crypto.randomUUID()}`;
   const creativeControls = resolveCreativeControls(body);
@@ -479,7 +472,7 @@ async function startDualGeneration(request, env, body) {
         thinking: selected.every(worker => worker.kind === 'kaggle') ? false : null,
         inferMethod: selected.every(worker => worker.kind === 'kaggle') ? 'ode' : null,
         currentStage: selected.length === 2 && selected[0].id !== selected[1].id
-          ? 'SONARA MAX SPEED: A su T4 #0 + B su T4 #1'
+          ? 'SONARA ULTRA FAST: A su T4 #0 + B su T4 #1'
           : 'SONARA: due render indipendenti in coda'
       }
     }, longForm ? 200 : 202);
@@ -570,7 +563,7 @@ async function pollDualJob(request, env, jobId) {
           renderModel: context.renderModel || KAGGLE_MODEL,
           candidateCount: 2,
           workerAssignments: tasks.map(task => ({ candidate: task.candidate, workerId: task.workerId, model: task.model })),
-          currentStage: 'SONARA MAX SPEED: T4 #0 + T4 #1 stanno renderizzando'
+          currentStage: 'SONARA ULTRA FAST: T4 #0 + T4 #1 stanno renderizzando'
         }
       });
     }
@@ -750,6 +743,7 @@ export default {
           kaggleShift: KAGGLE_SHIFT,
           kaggleThinking: false,
           kaggleInferMethod: 'ode',
+          kaggleShortTrackDirectDecode: true,
           aceStepWorkerCount: ready.length,
           aceStepWorkers: ready.slice(0, 3).map(worker => ({ id: worker.id, kind: worker.kind }))
         });
@@ -778,7 +772,8 @@ export default {
           kaggleGuidanceScale: KAGGLE_GUIDANCE_SCALE,
           kaggleShift: KAGGLE_SHIFT,
           kaggleThinking: false,
-          kaggleInferMethod: 'ode'
+          kaggleInferMethod: 'ode',
+          kaggleShortTrackDirectDecode: true
         }, response.status);
       } catch {}
     }
