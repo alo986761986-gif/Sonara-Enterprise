@@ -3,8 +3,9 @@ import { applicationDefault, cert, getApps, initializeApp, type App } from 'fire
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore, Timestamp } from 'firebase-admin/firestore';
 
-const TOKEN_SHA256 = '32ed06711b0f89c54b0b46e26263be568bbda9287a0f877126edb1dcf419695e';
+const TOKEN_SHA256 = '0e79cc2a394c975f8223bbcde62c2daa37756c3edc23f488706fb3a985f14abf';
 const GIFT_DAYS = 30;
+const GIFT_GRANT_ID = 'studio-30d-2026-08-27';
 let adminApp: App | null = null;
 
 function getAdminApp(): App {
@@ -64,12 +65,12 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    if (previous.giftGrantId === 'studio-30d-2026-08-27' && previousPeriodEnd > Date.now()) {
+    if (previous.giftGrantId === GIFT_GRANT_ID) {
       return res.status(200).json({
         ok: true,
         alreadyApplied: true,
-        planId: 'studio',
-        periodEnd: new Date(previousPeriodEnd).toISOString(),
+        planId: previous.planId || 'studio',
+        periodEnd: previousPeriodEnd ? new Date(previousPeriodEnd).toISOString() : null,
         autoRenew: false
       });
     }
@@ -84,7 +85,7 @@ export default async function handler(req: any, res: any) {
       usagePeriodStart: Timestamp.fromMillis(start),
       usagePeriodEnd: Timestamp.fromMillis(end),
       cancelAtPeriodEnd: true,
-      giftGrantId: 'studio-30d-2026-08-27',
+      giftGrantId: GIFT_GRANT_ID,
       giftType: 'studio-30-days-no-renewal',
       giftAutoRenew: false,
       giftGrantedAt: FieldValue.serverTimestamp(),
