@@ -1,0 +1,114 @@
+name: Deploy Cloudflare Sonara Engine v15
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/cloudflare-v15-deploy-trigger"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-sonara-engine-v15-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Validate and deploy Sonara Engine v15
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Resolve Cloudflare credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${CLOUDFLARE_API_TOKEN}" ]]; then
+            echo "Missing Cloudflare API token." >&2
+            exit 1
+          fi
+          account_id="${CLOUDFLARE_ACCOUNT_ID}"
+          if [[ -z "${account_id}" ]]; then
+            response="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json" "https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50")"
+            account_id="$(CF_RESPONSE="${response}" node - <<'NODE'
+          const payload = JSON.parse(process.env.CF_RESPONSE || '{}');
+          const zone = Array.isArray(payload.result) ? payload.result.find(item => item?.name === 'sonaraenterprise.com') : null;
+          process.stdout.write(String(zone?.account?.id || ''));
+          NODE
+            )"
+          fi
+          test -n "${account_id}"
+          echo "::add-mask::${account_id}"
+          echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
+
+      - name: Validate v15 authoritative prompt engine
+        run: node cloudflare/sonara-engine-v15-authoritative-prompt.test.mjs
+
+      - name: Validate production entrypoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'cloudflare/sonara-web-v15-router.mjs' wrangler.jsonc
+          grep -q "sonara-engine-v15-authoritative-prompt.mjs" cloudflare/sonara-web-v15-router.mjs
+          grep -q "sonara-engine-v9-dual-fast.mjs" cloudflare/sonara-engine-v15-authoritative-prompt.mjs
+          grep -q "v15-authoritative-full-prompt" cloudflare/sonara-engine-v15-authoritative-prompt.mjs
+          if grep -q "sonara-engine-v14-universal-taxonomy-lock.mjs" cloudflare/sonara-web-v15-router.mjs; then
+            echo "v15 router must not delegate production API to v14." >&2
+            exit 1
+          fi
+
+      - name: Deploy v15 Worker to Cloudflare production
+        run: npx --yes wrangler@latest deploy --config wrangler.jsonc
+
+      - name: Verify public v15 health
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..15}; do
+            if response="$(curl -fsS --max-time 15 https://api.sonaraenterprise.com/api/health 2>/dev/null)"; then
+              printf '%s' "$response" > /tmp/sonara-v15-health.json
+              if node - <<'NODE'
+          const fs = require('fs');
+          const health = JSON.parse(fs.readFileSync('/tmp/sonara-v15-health.json', 'utf8'));
+          const expected = {
+            universalGenreLock: 'v15-authoritative-full-prompt',
+            authoritativePromptLock: 'v15-authoritative-full-prompt',
+            professionalPromptPreserved: true,
+            creativeControlsPreserved: true,
+            selectedSubgenreAuthoritative: true,
+            legacyCaption500Bypassed: true,
+            houseGenreLock: 'v15-authoritative-full-prompt',
+            technoGenreLock: 'v15-authoritative-full-prompt',
+            electronicGenreLock: 'v15-authoritative-full-prompt'
+          };
+          for (const [key, value] of Object.entries(expected)) {
+            if (health[key] !== value) {
+              console.error(`Health mismatch ${key}: ${JSON.stringify(health[key])} expected ${JSON.stringify(value)}`);
+              process.exit(1);
+            }
+          }
+          console.log('SONARA v15 production health verified.');
+          NODE
+              then
+                exit 0
+              fi
+            fi
+            echo "v15 health not ready (${attempt}/15)"
+            sleep 4
+          done
+          echo "SONARA v15 public health did not become ready." >&2
+          exit 1
