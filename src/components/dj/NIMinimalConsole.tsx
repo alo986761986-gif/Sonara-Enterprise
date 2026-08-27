@@ -52,6 +52,8 @@ const ACTIONS: Array<{ id: CoreAction; label: string; preferred: 'X1 MK2' | 'Z1 
   { id: 'mixer.master', label: 'Mixer · Master', preferred: 'Z1 MK2', kind: 'absolute' }
 ];
 
+const Z1_ACTIONS = ACTIONS.filter(action => action.preferred === 'Z1 MK2');
+
 const readMapping = (): Mapping => {
   if (typeof window === 'undefined') return {};
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as Mapping; } catch { return {}; }
@@ -80,6 +82,7 @@ export default function NIMinimalConsole() {
   const [status, setStatus] = useState('Collega X1 MK2 e Z1 MK2 via USB, poi premi CONNETTI.');
   const [mapping, setMapping] = useState<Mapping>(readMapping);
   const [learning, setLearning] = useState<CoreAction | ''>('');
+  const [z1Wizard, setZ1Wizard] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [signalByDevice, setSignalByDevice] = useState<Record<string, number>>({});
   const [lastMappedAction, setLastMappedAction] = useState<CoreAction | ''>('');
@@ -105,6 +108,8 @@ export default function NIMinimalConsole() {
   const z1Signal = devices.some(device => device.family === 'Z1 MK2' && (signalByDevice[device.id] || 0) > 0);
   const anySignal = Object.values(signalByDevice).some(count => count > 0);
   const mappedCount = useMemo(() => Object.keys(mapping).length, [mapping]);
+  const z1MappedCount = useMemo(() => Z1_ACTIONS.filter(action => Boolean(mapping[action.id])).length, [mapping]);
+  const z1WizardIndex = learning ? Z1_ACTIONS.findIndex(action => action.id === learning) : -1;
   const lastMappedLabel = ACTIONS.find(item => item.id === lastMappedAction)?.label || lastMappedAction;
   const engineConfirmed = lastMappedAt > 0 && lastEngineAt >= lastMappedAt && lastEngineAt - lastMappedAt < 5000;
 
@@ -167,8 +172,20 @@ export default function NIMinimalConsole() {
     const currentLearning = learningRef.current;
     if (currentLearning) {
       const actionMeta = ACTIONS.find(item => item.id === currentLearning);
+      if (actionMeta?.preferred === 'Z1 MK2' && source.family !== 'Z1 MK2') {
+        setStatus(`Sto imparando ${actionMeta.label}: muovi il controllo sulla Z1 MK2, non sulla X1.`);
+        return;
+      }
       if (actionMeta?.kind === 'button' && isNoteRelease) return;
       const normalizedStatus = command | channel;
+      const duplicate = (Object.entries(mappingRef.current) as Array<[CoreAction, LearnRule]>).find(([action, rule]) =>
+        action !== currentLearning && rule?.data1 === data1 && rule?.channel === channel && normalizeCommand(rule.status) === command &&
+        (rule.sourceId === source.id || rule.family === source.family)
+      );
+      if (duplicate) {
+        setStatus(`Questo controllo e gia assegnato a ${ACTIONS.find(item => item.id === duplicate[0])?.label || duplicate[0]}. Muovi il controllo fisico corretto.`);
+        return;
+      }
       const next: Mapping = {
         ...mappingRef.current,
         [currentLearning]: {
@@ -184,9 +201,18 @@ export default function NIMinimalConsole() {
       mappingRef.current = next;
       setMapping(next);
       saveMapping(next);
-      setLearning('');
-      learningRef.current = '';
-      setStatus(`${ACTIONS.find(item => item.id === currentLearning)?.label || currentLearning} configurato. La mappatura ora resta valida anche dopo scollegamento e riavvio.`);
+      const currentZ1Index = Z1_ACTIONS.findIndex(item => item.id === currentLearning);
+      const following = z1Wizard && currentZ1Index >= 0 ? Z1_ACTIONS[currentZ1Index + 1] : undefined;
+      if (following) {
+        setLearning(following.id);
+        learningRef.current = following.id;
+        setStatus(`${actionMeta?.label || currentLearning} OK. Ora muovi: ${following.label}.`);
+      } else {
+        setLearning('');
+        learningRef.current = '';
+        if (z1Wizard) setZ1Wizard(false);
+        setStatus(`${actionMeta?.label || currentLearning} configurato. Profilo hardware Z1 salvato e collegato al motore DJ Pro.`);
+      }
       return;
     }
 
@@ -268,7 +294,17 @@ export default function NIMinimalConsole() {
     setLastMappedAction('');
     setLastMappedAt(0);
     setAdvanced(true);
+    setZ1Wizard(false);
     setStatus('Configurazione X1/Z1 azzerata. Associa nuovamente i controlli una sola volta.');
+  };
+
+  const startZ1Wizard = () => {
+    const firstMissing = Z1_ACTIONS.find(action => !mappingRef.current[action.id]) || Z1_ACTIONS[0];
+    setAdvanced(true);
+    setZ1Wizard(true);
+    setLearning(firstMissing.id);
+    learningRef.current = firstMissing.id;
+    setStatus(`Mappatura guidata Z1 avviata. Muovi lentamente: ${firstMissing.label}.`);
   };
 
   return <div className="space-y-4" data-ni-console="true">
@@ -297,6 +333,7 @@ export default function NIMinimalConsole() {
         <div className="text-[8px] font-bold text-slate-600">TEST REALE: premi PLAY/CUE su X1 oppure muovi crossfader/volume su Z1. Se il segnale arriva ma non è ancora associato, Sonara apre automaticamente la mappatura rapida.</div>
         <div className="text-[8px] font-bold text-slate-600">La mappatura viene legata al modello/nome del controller, non più soltanto all’ID temporaneo assegnato dal browser.</div>
         <button type="button" onClick={() => setAdvanced(value => !value)} className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-2 text-[8px] font-black text-slate-400"><Settings2 className="h-3 w-3"/>{advanced ? 'CHIUDI CONFIG' : `CONFIGURA CONTROLLI · ${mappedCount}/20`}</button>
+        <button type="button" disabled={!hasZ1} onClick={startZ1Wizard} className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-2.5 py-2 text-[8px] font-black text-cyan-200 disabled:cursor-not-allowed disabled:opacity-35"><SlidersHorizontal className="h-3 w-3"/>MAPPATURA GUIDATA Z1 · {z1MappedCount}/{Z1_ACTIONS.length}</button>
       </div>
       <div className="mt-3 rounded-xl border border-slate-800 bg-black/20 px-3 py-2 text-[9px] text-slate-500">{status}</div>
     </section>
@@ -305,7 +342,8 @@ export default function NIMinimalConsole() {
 
     {advanced ? <section className="rounded-2xl border border-slate-800 bg-[#080b11] p-4">
       <div className="flex flex-col items-stretch gap-3"><div><div className="flex items-center gap-2"><SlidersHorizontal className="h-4 w-4 text-fuchsia-300"/><h2 className="text-xs font-black text-white">Mappatura rapida X1 / Z1</h2></div><p className="mt-1 text-[9px] text-slate-600">Premi una funzione e poi usa il controllo fisico corrispondente. Serve una sola volta: il collegamento viene salvato in modo stabile anche dopo reconnect e riavvio.</p></div><button onClick={reset} className="w-full rounded-lg border border-slate-800 px-2 py-2 text-[8px] font-black text-slate-500">RESET</button></div>
-      <div className="mt-3 grid grid-cols-1 gap-2">{ACTIONS.map(action => { const rule = mapping[action.id]; const active = learning === action.id; return <button key={action.id} onClick={() => { const next = active ? '' : action.id; setLearning(next); learningRef.current = next; }} className={`w-full rounded-xl border p-3 text-left ${active ? 'border-amber-400/40 bg-amber-400/10' : rule ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-slate-800 bg-slate-950'}`}><div className="text-[8px] font-black text-white">{action.label}</div><div className="mt-1 text-[7px] font-bold text-slate-600">{active ? `MUOVI ORA · ${action.preferred}` : rule ? `OK STABILE · ${action.preferred}` : action.preferred}</div></button>; })}</div>
+      {z1Wizard ? <div className="mt-3 rounded-xl border border-cyan-400/25 bg-cyan-400/10 px-3 py-2 text-[8px] font-black text-cyan-100">PROCEDURA Z1 ATTIVA · PASSO {Math.max(1, z1WizardIndex + 1)}/{Z1_ACTIONS.length} · muovi soltanto il controllo indicato</div> : null}
+      <div className="mt-3 grid grid-cols-1 gap-2">{ACTIONS.map(action => { const rule = mapping[action.id]; const active = learning === action.id; return <button key={action.id} onClick={() => { const next = active ? '' : action.id; setZ1Wizard(false); setLearning(next); learningRef.current = next; }} className={`w-full rounded-xl border p-3 text-left ${active ? 'border-amber-400/40 bg-amber-400/10' : rule ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-slate-800 bg-slate-950'}`}><div className="text-[8px] font-black text-white">{action.label}</div><div className="mt-1 text-[7px] font-bold text-slate-600">{active ? `MUOVI ORA · ${action.preferred}` : rule ? `OK STABILE · CH ${rule.channel + 1} · ${normalizeCommand(rule.status) === 0xb0 ? 'CC' : 'NOTE'} ${rule.data1}` : action.preferred}</div></button>; })}</div>
     </section> : null}
 
     <DJDeckSkinManager profileId="ni-x1mk2-z1mk2" profileName="X1 MK2 + Z1 MK2" />
