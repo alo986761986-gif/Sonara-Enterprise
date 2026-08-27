@@ -1,2 +1,2 @@
-trigger: 2026-08-25T08:43:00Z
-reason: capture exact Modal connectivity error through production Worker
+trigger: 2026-08-27T17:36:00Z
+reason: verify Cloudflare to Modal ACE-Step fallback while Kaggle is offline
