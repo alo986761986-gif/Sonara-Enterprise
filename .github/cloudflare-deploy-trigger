@@ -1,2 +1,2 @@
-trigger: 2026-08-27T17:45:00+02:00
-reason: refresh production worker after ACE-Step routing update
+trigger: 2026-08-27T16:10:00+02:00
+reason: deploy Kaggle T4 stability profile with 12 steps and guidance 3.5
