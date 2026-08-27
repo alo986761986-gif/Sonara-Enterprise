@@ -1,0 +1,57 @@
+name: SONARA Video AI 502 Resilience CI
+
+on:
+  push:
+    branches:
+      - fix/video-ai-502-resilience-20260828
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  video-ai:
+    name: Validate Video AI resilient API
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Verify generate route is provider-decoupled
+        run: |
+          grep -q "job accepted" api/video/generate.ts
+          if grep -q "startVideoProvider" api/video/generate.ts; then
+            echo "generate route must not start provider synchronously"
+            exit 1
+          fi
+
+      - name: Verify resilient provider retries
+        run: |
+          grep -q "riconnessione motore" 'api/video/job/[id].ts'
+          grep -q "pollErrors < 6" 'api/video/job/[id].ts'
+          grep -q "20_000" 'api/video/job/[id].ts'
+          grep -q "15_000" 'api/video/job/[id].ts'
+
+      - name: Bundle Video AI generate route
+        run: npx esbuild api/video/generate.ts --bundle --platform=node --format=esm --outfile=/tmp/video-generate.mjs --external:firebase-admin/app --external:firebase-admin/firestore --external:firebase-admin/storage
+
+      - name: Bundle Video AI job route
+        run: npx esbuild 'api/video/job/[id].ts' --bundle --platform=node --format=esm --outfile=/tmp/video-job.mjs --external:firebase-admin/app --external:firebase-admin/firestore --external:firebase-admin/storage
+
+      - name: Confirm music generator untouched by this branch
+        run: |
+          git diff --name-only origin/main...HEAD | tee /tmp/changed.txt
+          if grep -E '^(cloudflare/|backend/src/services/AceStep|src/musicStyleIntelligence|scripts/activate-extreme-fidelity)' /tmp/changed.txt; then
+            echo "Music generator file changed unexpectedly"
+            exit 1
+          fi
+          echo "Video-only patch: PASS"
