@@ -292,6 +292,18 @@ section:has(#sonara-prompt) > button:hover:not(:disabled) {
   box-shadow: 0 15px 38px rgba(124, 58, 237, 0.28);
 }
 
+/* Sonara Creator Skin adds 24px left/right margins to direct children. The
+   CREATE button also carries Tailwind w-full, so 100% + 48px overflowed its
+   creator column. Keep the button inside the column on every viewport. */
+section[data-sonara-creator-skin="true"] > button {
+  width: calc(100% - 48px) !important;
+  max-width: calc(100% - 48px) !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+  justify-self: start !important;
+  overflow: hidden !important;
+}
+
 /* Progress/result treatment: quiet and readable. */
 section:has(#sonara-prompt) > div:has(> div > div[style*="width"]) {
   padding: 10px 2px 0;
@@ -318,5 +330,10 @@ section:has(#sonara-prompt) audio {
   section:has(#sonara-prompt) > div.mt-5.grid,
   section:has(#sonara-prompt) > div.mt-4.grid {
     padding: 12px;
+  }
+
+  section[data-sonara-creator-skin="true"] > button {
+    width: calc(100% - 48px) !important;
+    max-width: calc(100% - 48px) !important;
   }
 }
