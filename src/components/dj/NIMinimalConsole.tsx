@@ -25,7 +25,7 @@ type LearnRule = {
 type Mapping = Partial<Record<CoreAction, LearnRule>>;
 type MIDIDeviceView = { id: string; name: string; manufacturer: string; family: MIDIFamily };
 
-const STORAGE_KEY = 'sonara.dj.ni-x1mk2-z1mk2.mapping.v1';
+const STORAGE_KEY = 'sonara.dj.traktor-x1mk1-z1-original.mapping.v2';
 const NI_DRIVER_URL = 'https://support.native-instruments.com/hc/en-us/articles/209570629-Drivers-Other-Files';
 const NI_MIDI_MODE_URL = 'https://support.native-instruments.com/support/solutions/articles/69000880031-native-instruments-switching-your-controller-to-midi-mode';
 
@@ -85,6 +85,7 @@ export default function NIMinimalConsole() {
   const [mapping, setMapping] = useState<Mapping>(readMapping);
   const [learning, setLearning] = useState<CoreAction | ''>('');
   const [z1Wizard, setZ1Wizard] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [signalByDevice, setSignalByDevice] = useState<Record<string, number>>({});
   const [lastMappedAction, setLastMappedAction] = useState<CoreAction | ''>('');
@@ -243,7 +244,7 @@ export default function NIMinimalConsole() {
     }
   };
 
-  const syncInputs = (access: any) => {
+  const syncInputs = (access: any, autoSetup = false) => {
     const next: MIDIDeviceView[] = [];
     for (const input of Array.from(access.inputs?.values?.() || []) as any[]) {
       const device: MIDIDeviceView = {
@@ -260,9 +261,10 @@ export default function NIMinimalConsole() {
     const x1 = next.some(item => item.family === 'X1');
     const z1 = next.some(item => item.family === 'Z1');
     setStatus(x1 && z1 ? 'X1 + Z1 rilevate. Puoi mapparle insieme.' : x1 ? 'X1 rilevata: funziona anche senza Z1.' : z1 ? 'Z1 rilevata: funziona anche senza X1.' : next.length ? 'MIDI rilevato. Muovi un controllo per identificarlo e configurarlo.' : 'Nessun controller MIDI rilevato.');
+    if (autoSetup && z1) window.setTimeout(() => startZ1Wizard(), 0);
   };
 
-  const connect = async () => {
+  const connect = async (autoSetup = false) => {
     if (typeof (navigator as any).requestMIDIAccess !== 'function') { setStatus('Usa Chrome o Edge desktop: Web MIDI non è disponibile in questo browser.'); return; }
     try {
       setSignalByDevice({});
@@ -274,8 +276,8 @@ export default function NIMinimalConsole() {
       window.dispatchEvent(new CustomEvent('sonara:dj-arm-audio'));
       const access = await (navigator as any).requestMIDIAccess({ sysex: false });
       midiAccessRef.current = access;
-      syncInputs(access);
-      access.onstatechange = () => syncInputs(access);
+      syncInputs(access, autoSetup);
+      access.onstatechange = () => syncInputs(access, false);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Permesso MIDI non concesso.');
     }
@@ -310,6 +312,12 @@ export default function NIMinimalConsole() {
     setStatus(`Mappatura guidata Z1 avviata. Muovi lentamente: ${firstMissing.label}.`);
   };
 
+  const startAutomaticSetup = async () => {
+    setSetupOpen(true);
+    setStatus('SETUP Z1: richiesta autorizzazione MIDI al browser...');
+    await connect(true);
+  };
+
   return <div className="space-y-4" data-ni-console="true">
     <section className="rounded-2xl border border-slate-800 bg-[#080b11] p-4 shadow-xl sm:p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -333,6 +341,7 @@ export default function NIMinimalConsole() {
       </div>
 
       <div className="mt-3 flex flex-col items-stretch gap-3 border-t border-slate-900 pt-3">
+        <button type="button" onClick={() => void startAutomaticSetup()} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-500 to-cyan-400 px-4 py-3 text-[9px] font-black text-black"><Usb className="h-4 w-4"/>AVVIA SETUP AUTOMATICO Z1 ORIGINALE</button>
         <div className="rounded-lg border border-cyan-400/15 bg-cyan-400/5 px-3 py-2 text-[8px] font-bold text-cyan-100/80">MIDI MODE VECCHI MODELLI · Z1: MODE + CUE A + CUE B · X1 MK1: SHIFT + HOTCUE. Chiudi Traktor prima del collegamento.</div>
         <div className="text-[8px] font-bold text-slate-600">TEST REALE: premi PLAY/CUE su X1 oppure muovi crossfader/volume su Z1. Le due console possono essere rilevate e configurate separatamente.</div>
         <div className="text-[8px] font-bold text-slate-600">La mappatura viene legata al modello/nome del controller, non più soltanto all’ID temporaneo assegnato dal browser.</div>
@@ -341,6 +350,23 @@ export default function NIMinimalConsole() {
       </div>
       <div className="mt-3 rounded-xl border border-slate-800 bg-black/20 px-3 py-2 text-[9px] text-slate-500">{status}</div>
     </section>
+
+    {setupOpen ? <section className="rounded-2xl border border-cyan-400/20 bg-[#060b10] p-4 shadow-xl sm:p-5">
+      <div className="flex items-start justify-between gap-3"><div><div className="text-xs font-black text-white">SETUP TRAKTOR KONTROL Z1 ORIGINALE</div><div className="mt-1 text-[9px] text-slate-500">Installazione assistita, rilevamento reale, calibrazione MIDI e verifica del movimento nella skin SONARA.</div></div><button onClick={() => setSetupOpen(false)} className="rounded-lg border border-slate-800 px-2 py-1 text-[8px] font-black text-slate-500">CHIUDI</button></div>
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+        {[
+          { label: '1 · BROWSER', ok: typeof (navigator as any).requestMIDIAccess === 'function', detail: 'Chrome/Edge + HTTPS' },
+          { label: '2 · USB / DRIVER', ok: hasZ1, detail: hasZ1 ? 'Z1 originale rilevata' : 'Installa driver NI e collega USB' },
+          { label: '3 · MIDI MODE', ok: z1Signal, detail: z1Signal ? 'Segnale fisico ricevuto' : 'MODE + CUE A + CUE B' },
+          { label: '4 · MAPPING', ok: z1MappedCount === Z1_ACTIONS.length, detail: `${z1MappedCount}/${Z1_ACTIONS.length} controlli` },
+          { label: '5 · LIVE MIRROR', ok: engineConfirmed, detail: engineConfirmed ? 'Hardware e software sincronizzati' : 'Muovi un controllo configurato' }
+        ].map(step => <div key={step.label} className={`rounded-xl border p-3 ${step.ok ? 'border-emerald-400/25 bg-emerald-400/10' : 'border-slate-800 bg-slate-950'}`}><div className={`text-[8px] font-black ${step.ok ? 'text-emerald-300' : 'text-slate-400'}`}>{step.ok ? '✓ ' : '○ '}{step.label}</div><div className="mt-1 text-[7px] font-bold leading-4 text-slate-600">{step.detail}</div></div>)}
+      </div>
+      {!hasZ1 ? <div className="mt-3 rounded-xl border border-amber-400/20 bg-amber-400/10 p-3 text-[8px] font-bold leading-5 text-amber-100/80">SONARA non può installare un driver Windows senza il consenso del sistema. Premi DRIVER NI, completa l’installer ufficiale, collega la Z1 via USB e poi premi nuovamente AVVIA SETUP.</div> : null}
+      {hasZ1 && !z1Signal ? <div className="mt-3 rounded-xl border border-blue-400/20 bg-blue-400/10 p-3 text-[8px] font-bold leading-5 text-blue-100">Chiudi Traktor e premi insieme sulla console: MODE + CUE A + CUE B. Poi muovi una manopola.</div> : null}
+      {z1Wizard ? <div className="mt-3 rounded-xl border border-cyan-400/30 bg-cyan-400/10 p-3 text-[9px] font-black text-cyan-100">CALIBRAZIONE AUTOMATICA ATTIVA · {Z1_ACTIONS.find(action => action.id === learning)?.label || 'completamento'} · muovi lentamente il controllo fisico indicato.</div> : null}
+      {z1MappedCount === Z1_ACTIONS.length ? <div className="mt-3 rounded-xl border border-emerald-400/25 bg-emerald-400/10 p-3 text-[9px] font-black text-emerald-200">PROFILO Z1 SALVATO · ora ogni movimento fisico viene inviato al DSP e riprodotto nella skin SONARA.</div> : null}
+    </section> : null}
 
     <div className="ni-audio"><DJAudioRouting/></div>
 
