@@ -30,6 +30,23 @@ async function vertexAccessToken(app: App) {
   return token.access_token;
 }
 
+async function providerJson(response: Response, providerLabel: string): Promise<any> {
+  const raw = await response.text();
+  const text = raw.trim();
+  if (!text) {
+    throw new Error(`${providerLabel} ha restituito una risposta vuota (HTTP ${response.status}).`);
+  }
+  if (/^<!doctype\s+html/i.test(text) || /^<html/i.test(text)) {
+    throw new Error(`${providerLabel} ha restituito HTML invece di JSON (HTTP ${response.status}).`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    const preview = text.replace(/\s+/g, ' ').slice(0, 180);
+    throw new Error(`${providerLabel} ha restituito una risposta non JSON (HTTP ${response.status})${preview ? `: ${preview}` : ''}.`);
+  }
+}
+
 function vertexModelOverride() {
   return String(process.env.SONARA_VERTEX_VIDEO_MODEL || '').trim();
 }
@@ -90,7 +107,7 @@ export async function startVideoProvider(input: StartVideoProviderInput): Promis
         }
       })
     });
-    const payload = await response.json() as any;
+    const payload = await providerJson(response, 'Gemini Video API');
     if (!response.ok || !payload?.name) {
       throw new Error(String(payload?.error?.message || `Gemini Video API HTTP ${response.status}`));
     }
@@ -116,7 +133,7 @@ export async function startVideoProvider(input: StartVideoProviderInput): Promis
       }
     })
   });
-  const payload = await response.json() as any;
+  const payload = await providerJson(response, 'Vertex AI Video');
   if (!response.ok || !payload?.name) {
     throw new Error(String(payload?.error?.message || `Vertex AI Video HTTP ${response.status}`));
   }
@@ -166,7 +183,7 @@ export async function pollVideoProvider(input: PollVideoProviderInput): Promise<
     });
   }
 
-  const operation = await response.json() as any;
+  const operation = await providerJson(response, input.provider === 'gemini' ? 'Gemini Video operation' : 'Vertex Video operation');
   if (!response.ok) throw new Error(String(operation?.error?.message || `Video operation HTTP ${response.status}`));
   if (!operation.done) return { done: false };
   if (operation.error) return { done: true, error: String(operation.error?.message || 'Generazione video interrotta dal provider.') };
