@@ -1,0 +1,126 @@
+name: Configure SONARA Kaggle T4 Workers
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/kaggle-workers-trigger"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonara-kaggle-worker-config
+  cancel-in-progress: true
+
+jobs:
+  configure:
+    name: Verify T4 tunnels and update Cloudflare runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+      KAGGLE_GPU0_URL: https://sought-hunting-train-cabinet.trycloudflare.com
+      KAGGLE_GPU1_URL: https://academic-annex-mail-constitutional.trycloudflare.com
+
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Resolve Cloudflare account
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${CLOUDFLARE_API_TOKEN}" ]]; then
+            echo "Missing Cloudflare API token." >&2
+            exit 1
+          fi
+          account_id="${CLOUDFLARE_ACCOUNT_ID}"
+          if [[ -z "${account_id}" ]]; then
+            zone_response="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json" "https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50")"
+            account_id="$(CF_RESPONSE="${zone_response}" node - <<'NODE'
+          const payload = JSON.parse(process.env.CF_RESPONSE || '{}');
+          const zone = Array.isArray(payload.result) ? payload.result.find((item) => item?.name === 'sonaraenterprise.com') : null;
+          process.stdout.write(String(zone?.account?.id || ''));
+          NODE
+            )"
+          fi
+          if [[ -z "${account_id}" ]]; then
+            echo "Unable to resolve Cloudflare account ID." >&2
+            exit 1
+          fi
+          echo "::add-mask::${account_id}"
+          echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
+
+      - name: Verify Kaggle GPU0 and GPU1 public health
+        shell: bash
+        run: |
+          set -euo pipefail
+          for pair in "GPU0|${KAGGLE_GPU0_URL}" "GPU1|${KAGGLE_GPU1_URL}"; do
+            name="${pair%%|*}"
+            url="${pair#*|}"
+            ready=0
+            for attempt in {1..24}; do
+              if response="$(curl -fsS --connect-timeout 10 --max-time 20 "${url}/health" 2>/dev/null)"; then
+                if printf '%s' "${response}" | grep -Eqi '"status"[[:space:]]*:[[:space:]]*"(ok|ready|healthy|online|success)"|"code"[[:space:]]*:[[:space:]]*200'; then
+                  echo "${name} healthy: ${url}"
+                  ready=1
+                  break
+                fi
+              fi
+              echo "${name} not reachable yet (${attempt}/24); retrying..."
+              sleep 5
+            done
+            if [[ "${ready}" != "1" ]]; then
+              echo "${name} tunnel did not become healthy: ${url}" >&2
+              exit 1
+            fi
+          done
+
+      - name: Update deployed Worker Kaggle endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          workers="${KAGGLE_GPU0_URL},${KAGGLE_GPU1_URL}"
+          printf '%s' "${workers}" | npx --yes wrangler@latest secret put ACESTEP_WORKER_URLS --config wrangler.jsonc
+          echo "SONARA Kaggle worker endpoints updated."
+
+      - name: Verify SONARA production sees both T4 workers
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..18}; do
+            if response="$(curl -fsS --max-time 30 https://api.sonaraenterprise.com/api/health 2>/dev/null)"; then
+              printf '%s' "${response}" > /tmp/sonara-health.json
+              if node - <<'NODE'
+          const fs = require('fs');
+          const health = JSON.parse(fs.readFileSync('/tmp/sonara-health.json', 'utf8'));
+          const workers = Array.isArray(health.aceStepWorkers) ? health.aceStepWorkers : [];
+          const kaggle = workers.filter((item) => item?.kind === 'kaggle');
+          console.log(JSON.stringify({
+            status: health.status,
+            kaggleT4x2: health.kaggleT4x2,
+            aceStepWorkerCount: health.aceStepWorkerCount,
+            aceStepWorkers: workers
+          }, null, 2));
+          if (health.kaggleT4x2 === true && kaggle.length >= 2) process.exit(0);
+          process.exit(1);
+          NODE
+              then
+                echo "SONARA production is using both Kaggle T4 workers."
+                exit 0
+              fi
+            fi
+            echo "Production health not updated yet (${attempt}/18)."
+            sleep 5
+          done
+          echo "SONARA production did not report both Kaggle T4 workers." >&2
+          exit 1
