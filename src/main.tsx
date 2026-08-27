@@ -11,6 +11,7 @@ import SonaraCreatorSkin from './components/generator/SonaraCreatorSkin';
 import StudioSectionControl from './components/studio/StudioSectionControl';
 import VideoAISectionControl from './components/video/VideoAISectionControl';
 import DJSectionControl from './components/dj/DJSectionControl';
+import SidebarIconPolish from './components/navigation/SidebarIconPolish';
 import './index.css';
 
 const legalPath = window.location.pathname.replace(/\/+$/, '').toLowerCase();
@@ -31,6 +32,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <StudioSectionControl />
         <VideoAISectionControl />
         <DJSectionControl />
+        <SidebarIconPolish />
       </>
     )}
   </React.StrictMode>
