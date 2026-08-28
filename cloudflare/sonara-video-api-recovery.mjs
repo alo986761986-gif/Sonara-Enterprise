@@ -136,6 +136,7 @@ async function wanHealth(env, fetcher = fetch) {
     return {
       configured: false,
       valid: false,
+      ready: false,
       provider: 'kaggle-wan21',
       model: 'Wan2.1-T2V-1.3B'
     };
@@ -146,25 +147,33 @@ async function wanHealth(env, fetcher = fetch) {
       signal: AbortSignal.timeout(10_000)
     });
     const payload = await providerJson(response, 'WAN health');
+    const loaded = Boolean(payload?.loaded);
+    const ready = Boolean(payload?.ready);
+    const warmed = Boolean(payload?.warmed);
     const valid = response.ok &&
       String(payload?.status || '').toLowerCase() === 'ok' &&
-      String(payload?.provider || '').toLowerCase().includes('wan');
+      String(payload?.provider || '').toLowerCase().includes('wan') &&
+      loaded && ready && warmed;
     return {
       configured: true,
       valid,
+      ready,
+      warmed,
       provider: 'kaggle-wan21',
       model: String(payload?.model || 'Wan2.1-T2V-1.3B'),
       profile: String(payload?.profile || ''),
       worker: base,
       upstreamStatus: response.status,
-      loaded: Boolean(payload?.loaded),
+      loaded,
       loading: Boolean(payload?.loading),
+      cacheEnabled: Boolean(payload?.cacheEnabled),
       deviceMode: String(payload?.deviceMode || '')
     };
   } catch (cause) {
     return {
       configured: true,
       valid: false,
+      ready: false,
       provider: 'kaggle-wan21',
       model: 'Wan2.1-T2V-1.3B',
       worker: base,
@@ -243,7 +252,11 @@ async function pollWan(workerJobId, env, fetcher = fetch) {
       steps: payload?.steps,
       resolution: payload?.resolution,
       fps: payload?.fps,
-      clipSeconds: payload?.clipSeconds
+      clipSeconds: payload?.clipSeconds,
+      videoCodec: payload?.videoCodec,
+      audioCodec: payload?.audioCodec,
+      audioVerified: payload?.audioVerified,
+      videoVerified: payload?.videoVerified
     }
   };
 }
@@ -275,10 +288,13 @@ async function startDirectT4Job(request, bodyBytes, env, fetcher) {
 
   const health = await wanHealth(env, fetcher);
   if (!health.valid) {
+    const loading = Boolean(health.loading || (health.loaded && !health.ready));
     return jsonResponse(503, {
       error: {
-        code: 'ZERO_COST_VIDEO_WORKER_UNAVAILABLE',
-        message: 'Il worker gratuito SONARA WAN su Kaggle T4 non è disponibile. Nessuna richiesta è stata inviata a Google.'
+        code: loading ? 'ZERO_COST_VIDEO_WORKER_LOADING' : 'ZERO_COST_VIDEO_WORKER_UNAVAILABLE',
+        message: loading
+          ? 'SONARA WAN sta completando il caricamento sulla Kaggle T4. Riprova quando il motore risulta pronto.'
+          : 'Il worker gratuito SONARA WAN su Kaggle T4 non è disponibile. Nessuna richiesta è stata inviata a Google.'
       },
       retryable: true,
       zeroCost: true,
@@ -287,6 +303,10 @@ async function startDirectT4Job(request, bodyBytes, env, fetcher) {
       googleBillingRequired: false,
       geminiEnabled: false,
       worker: health.worker,
+      ready: Boolean(health.ready),
+      loaded: Boolean(health.loaded),
+      loading: Boolean(health.loading),
+      profile: health.profile || '',
       detail: health.error || null
     });
   }
