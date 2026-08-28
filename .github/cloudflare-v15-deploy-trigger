@@ -1,3 +1,3 @@
-trigger: hardened-json-safe-generation-health-20260828-1044
-reason: deploy HTTP 500 recovery, guarded dual T4 generation and stable v16 Kaggle health metadata
-source-commits: 5f262928379e9027a7f08e0246407e181c0768dc, cc9183eac093c255b9eafa2645c4df0a8e42f35c
+trigger: audio-progress-stall-recovery-20260828-1107
+reason: prevent audio generation jobs from sticking at 20 percent with recursive ACE-Step result decoding and live progress heartbeat
+source-commits: 92cf277a497641c51c9113cb947f76e83a764c65
