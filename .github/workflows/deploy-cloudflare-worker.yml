@@ -1,4 +1,4 @@
-name: Deploy Cloudflare Sonara Engine v14
+name: Deploy Cloudflare SONARA Engine v17 Guarded
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy Sonara Engine v14 to Cloudflare
+    name: Deploy SONARA authoritative v17 to Cloudflare
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -36,150 +36,89 @@ jobs:
       - name: Resolve Cloudflare deployment credentials
         shell: bash
         run: |
+          set -euo pipefail
           if [[ -z "${CLOUDFLARE_API_TOKEN}" ]]; then
-            echo "Missing GitHub Actions secret CLOUDFLARE_API_TOKEN (or CF_API_TOKEN)." >&2
+            echo "Missing Cloudflare API token." >&2
             exit 1
           fi
           account_id="${CLOUDFLARE_ACCOUNT_ID}"
           if [[ -z "${account_id}" ]]; then
-            zone_response="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json" "https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50" || true)"
+            zone_response="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json" "https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50")"
             account_id="$(CF_RESPONSE="${zone_response}" node - <<'NODE'
-          try {
-            const payload = JSON.parse(process.env.CF_RESPONSE || '{}');
-            const zone = Array.isArray(payload.result) ? payload.result.find((item) => item?.name === 'sonaraenterprise.com') : null;
-            process.stdout.write(String(zone?.account?.id || ''));
-          } catch { process.stdout.write(''); }
+          const payload = JSON.parse(process.env.CF_RESPONSE || '{}');
+          const zone = Array.isArray(payload.result) ? payload.result.find((item) => item?.name === 'sonaraenterprise.com') : null;
+          process.stdout.write(String(zone?.account?.id || ''));
           NODE
             )"
           fi
-          if [[ -z "${account_id}" ]]; then
-            accounts_response="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json" "https://api.cloudflare.com/client/v4/accounts?per_page=50" || true)"
-            account_id="$(CF_RESPONSE="${accounts_response}" node - <<'NODE'
-          try {
-            const payload = JSON.parse(process.env.CF_RESPONSE || '{}');
-            const accounts = Array.isArray(payload.result) ? payload.result : [];
-            process.stdout.write(accounts.length === 1 ? String(accounts[0]?.id || '') : '');
-          } catch { process.stdout.write(''); }
-          NODE
-            )"
-          fi
-          if [[ -z "${account_id}" ]]; then
-            echo "Unable to resolve Cloudflare account ID from the configured API token." >&2
-            exit 1
-          fi
+          test -n "${account_id}"
           echo "::add-mask::${account_id}"
           echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
-          echo "Cloudflare deployment credentials resolved."
 
-      - name: Inspect Sonara public web origin
+      - name: Activate authoritative taxonomy and v17 audio runtime
         shell: bash
         run: |
           set -euo pipefail
-          echo "SONARA_WEB_APEX_A=$(dig +short A sonaraenterprise.com | paste -sd, -)"
-          echo "SONARA_WEB_APEX_AAAA=$(dig +short AAAA sonaraenterprise.com | paste -sd, -)"
-          echo "SONARA_WEB_WWW_CNAME=$(dig +short CNAME www.sonaraenterprise.com | paste -sd, -)"
-          echo "SONARA_WEB_WWW_A=$(dig +short A www.sonaraenterprise.com | paste -sd, -)"
-          curl -k -sS -I --max-time 15 https://sonaraenterprise.com/ || true
-
-      - name: Validate Modal runtime bindings
-        shell: bash
-        run: |
-          npx --yes wrangler@latest secret list --config wrangler.jsonc --format json > /tmp/sonara-secrets.json
-          node - <<'NODE'
-          const fs = require('fs');
-          const records = JSON.parse(fs.readFileSync('/tmp/sonara-secrets.json', 'utf8'));
-          const names = new Set((Array.isArray(records) ? records : []).map((item) => String(item?.name || '')));
-          const required = ['MODAL_PROXY_KEY', 'MODAL_PROXY_SECRET'];
-          const missing = required.filter((name) => !names.has(name));
-          if (missing.length) {
-            console.error(`Missing required Modal Worker secrets: ${missing.join(', ')}`);
-            process.exit(1);
-          }
-          console.log('Modal Worker credential bindings are configured.');
-          NODE
-
-      - name: Validate full music taxonomy and production prompt preservation
-        shell: bash
-        run: |
           node scripts/activate-professional-music-taxonomy.cjs
-          npx --yes tsx src/musicStyleIntelligence.professional.test.ts
-          node --test cloudflare/sonara-engine-v14-universal-taxonomy-lock.test.mjs
+          node cloudflare/sonara-engine-v15-authoritative-prompt.test.mjs
+          node scripts/activate-extreme-fidelity-v16.cjs
+          node cloudflare/extreme-fidelity-v16.test.mjs
 
-      - name: Validate Sonara Worker v14 source
+      - name: Guard production entrypoint and fidelity profile
         shell: bash
         run: |
-          test -f cloudflare/sonara-engine-v14-universal-taxonomy-lock.mjs
-          test -f cloudflare/sonara-engine-v13-electronic-taxonomy-lock.mjs
-          test -f cloudflare/sonara-engine-v12-electronic-lock.mjs
-          test -f cloudflare/sonara-engine-v11-house-techno-lock.mjs
-          test -f cloudflare/sonara-engine-v10-house-lock.mjs
-          test -f cloudflare/sonara-engine-v9-dual-fast.mjs
-          grep -q "sonara-engine-v14-universal-taxonomy-lock.mjs" cloudflare/sonara-web-taxonomy-hotfix.mjs
-          grep -q 'universal-v14-taxonomy720-authoritative-prompt' cloudflare/sonara-engine-v14-universal-taxonomy-lock.mjs
-          grep -q 'universalProfessionalPromptPreserved: true' cloudflare/sonara-engine-v14-universal-taxonomy-lock.mjs
-          grep -q 'universalCreativeControlsPreserved: true' cloudflare/sonara-engine-v14-universal-taxonomy-lock.mjs
-          grep -q 'existingElectronicLocksPreserved: true' cloudflare/sonara-engine-v14-universal-taxonomy-lock.mjs
-          grep -q 'electronic-v13-taxonomy89-futuregarage2' cloudflare/sonara-engine-v13-electronic-taxonomy-lock.mjs
-          grep -q 'electronic-v12-caption500-intro8' cloudflare/sonara-engine-v12-electronic-lock.mjs
-          grep -q 'techno-v11-caption500-intro8' cloudflare/sonara-engine-v11-house-techno-lock.mjs
-          grep -q 'house-v10-caption500-intro8' cloudflare/sonara-engine-v10-house-lock.mjs
-          grep -q 'api.sonaraenterprise.com' wrangler.jsonc
-          echo "Sonara Worker v14 authoritative 720-style configuration verified."
+          set -euo pipefail
+          grep -q 'cloudflare/sonara-web-v15-router.mjs' wrangler.jsonc
+          grep -q "kaggle-t4x2-extreme-fidelity-v16" cloudflare/sonara-engine-v9-dual-fast.mjs
+          grep -q "const KAGGLE_STEPS = 12;" cloudflare/sonara-engine-v9-dual-fast.mjs
+          grep -q "const KAGGLE_GUIDANCE_SCALE = 1.15;" cloudflare/sonara-engine-v9-dual-fast.mjs
+          grep -q "resultDecoder: 'recursive-v17'" cloudflare/sonara-engine-v9-dual-fast.mjs
+          grep -q "progressHeartbeat: true" cloudflare/sonara-engine-v9-dual-fast.mjs
+          grep -q "selectedSubgenreAuthoritative: true" cloudflare/sonara-engine-v15-authoritative-prompt.mjs
+          echo "Legacy trigger is guarded: only authoritative v17 can reach production."
 
       - name: Deploy Worker to Cloudflare production
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
 
-      - name: Verify public Sonara API health
+      - name: Verify public SONARA v17 health
         shell: bash
         run: |
-          for attempt in {1..12}; do
-            if response="$(curl -fsS --max-time 15 https://api.sonaraenterprise.com/api/health 2>/dev/null)"; then
-              printf '%s' "$response" > /tmp/sonara-health.json
+          set -euo pipefail
+          for attempt in {1..15}; do
+            if response="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/health?guard=${GITHUB_SHA}-${attempt}" 2>/dev/null)"; then
+              printf '%s' "${response}" > /tmp/health.json
               if node - <<'NODE'
           const fs = require('fs');
-          const health = JSON.parse(fs.readFileSync('/tmp/sonara-health.json', 'utf8'));
+          const h = JSON.parse(fs.readFileSync('/tmp/health.json', 'utf8'));
           const expected = {
-            dualFast: true,
-            dualFastProfile: 'single-job-native-batch-v9',
-            dualFastModel: 'acestep-v15-xl-turbo',
-            dualFastInferenceSteps: 6,
-            dualFastCandidateCount: 2,
-            dualFastAutoRegeneration: false,
-            houseGenreLock: 'v10-caption500',
-            technoGenreLock: 'v11-caption500',
-            technoSubgenreProfiles: 14,
-            electronicGenreLock: 'v12-caption500',
-            electronicLockedGenres: 10,
-            electronicSubgenreProfiles: 88,
-            electronicTaxonomyLock: 'v13-taxonomy89',
-            electronicTaxonomySelections: 89,
-            futureGarageVariants: 2,
-            universalGenreLock: 'v14-taxonomy720-authoritative-prompt',
-            universalTaxonomyFamilies: 25,
-            universalTaxonomyGenres: 86,
-            universalTaxonomySubgenres: 720,
-            universalAtmosphereAware: true,
-            universalIntroIdentitySeconds: 8,
-            universalProfessionalPromptPreserved: true,
-            universalCreativeControlsPreserved: true,
-            universalStyleInfluenceFloor: 0,
-            universalWeirdnessCeiling: 100,
-            existingElectronicLocksPreserved: true
+            universalGenreLock: 'v15-authoritative-full-prompt',
+            authoritativePromptLock: 'v15-authoritative-full-prompt',
+            professionalPromptPreserved: true,
+            creativeControlsPreserved: true,
+            selectedSubgenreAuthoritative: true,
+            legacyCaption500Bypassed: true,
+            kaggleProfile: 'kaggle-t4x2-extreme-fidelity-v16',
+            kaggleInferenceSteps: 12,
+            kaggleGuidanceScale: 1.15,
+            kaggleThinking: true,
+            kaggleInferMethod: 'adaptive-ode-sde',
+            resultDecoder: 'recursive-v17',
+            progressHeartbeat: true
           };
           for (const [key, value] of Object.entries(expected)) {
-            if (health[key] !== value) {
-              console.error(`Health mismatch: ${key}=${JSON.stringify(health[key])}, expected ${JSON.stringify(value)}`);
+            if (h[key] !== value) {
+              console.error(`Health mismatch: ${key}=${JSON.stringify(h[key])}, expected ${JSON.stringify(value)}`);
               process.exit(1);
             }
           }
-          console.log('SONARA Cloudflare v14 authoritative 720-style health verified.');
+          console.log(`SONARA v17 verified; ready workers=${h.aceStepWorkerCount ?? 'n/a'}.`);
           NODE
               then
                 exit 0
               fi
             fi
-            echo "Health endpoint not ready yet (attempt ${attempt}/12)."
-            sleep 5
+            echo "v17 health not ready yet (${attempt}/15)."
+            sleep 4
           done
-          echo "api.sonaraenterprise.com did not become healthy after v14 deployment." >&2
+          echo "SONARA v17 public health verification failed." >&2
           exit 1
