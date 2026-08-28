@@ -1,3 +1,3 @@
 GPU0=https://c3b07621cd85cd932b.gradio.live
 GPU1=
-ACTION=reconnect-live-gradio-t4-fp32-final
+ACTION=diagnose-current-t4-worker-health-20260828
