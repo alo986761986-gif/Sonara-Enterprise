@@ -1,3 +1,4 @@
+// SONARA Video AI: uploaded photo/video/audio composition is production-enabled.
 import { randomUUID } from 'node:crypto';
 import type { App } from 'firebase-admin/app';
 import { getStorage } from 'firebase-admin/storage';
