@@ -1,0 +1,66 @@
+name: Fix SONARA Vercel Function Limit
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/fix-vercel-function-limit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sonara-vercel-function-limit-fix
+  cancel-in-progress: false
+
+jobs:
+  fix:
+    name: Move Video AI helper outside api routes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Move Transcoder helper outside Vercel api directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p src/server/video
+          test -f api/video/transcoder.ts
+          git mv api/video/transcoder.ts src/server/video/transcoder.ts
+          sed -i "s#../../src/billing/plans#../../billing/plans#g" src/server/video/transcoder.ts
+          sed -i "s#from '../transcoder'#from '../../../src/server/video/transcoder'#g" 'api/video/job/[id].ts'
+          grep -q "from '../../../src/server/video/transcoder'" 'api/video/job/[id].ts'
+          grep -q "from '../../billing/plans'" src/server/video/transcoder.ts
+
+      - name: Verify Vercel function count
+        shell: bash
+        run: |
+          set -euo pipefail
+          count="$(find api -type f \( -name '*.ts' -o -name '*.js' -o -name '*.mjs' -o -name '*.cjs' \) | wc -l | tr -d ' ')"
+          echo "SONARA_VERCEL_FUNCTION_COUNT=${count}"
+          if [ "${count}" -gt 12 ]; then
+            echo "Vercel Hobby function limit still exceeded: ${count} > 12" >&2
+            exit 1
+          fi
+          test ! -e api/video/transcoder.ts
+          test -f src/server/video/transcoder.ts
+
+      - name: Commit production fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "Function-limit fix already applied."
+            exit 0
+          fi
+          git config user.name "SONARA Release Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add api/video/job/'[id].ts' src/server/video/transcoder.ts api/video/transcoder.ts
+          git commit -m "fix(vercel): keep Video AI under Hobby function limit"
+          git push origin HEAD:main
