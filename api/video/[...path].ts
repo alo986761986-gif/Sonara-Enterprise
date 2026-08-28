@@ -1,5 +1,6 @@
 import { applicationDefault, cert, getApps, initializeApp, type App } from 'firebase-admin/app';
 import { FieldValue, getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
 import {
   SONARA_PLANS,
   SONARA_VIDEO_CREDIT_COST,
@@ -20,6 +21,7 @@ export const config = { api: { bodyParser: { sizeLimit: '1mb' } } };
 
 const JOB_COLLECTION = 'sonaraVideoJobs';
 
+type MediaKind = 'image' | 'video' | 'audio';
 interface AuthenticatedUser { uid: string; email?: string }
 interface BillingRecord {
   planId?: SonaraPlanId;
@@ -105,6 +107,86 @@ function actionFromRequest(req: any) {
   if (queryPath) return queryPath.replace(/^\/+|\/+$/g, '').toLowerCase();
   const pathname = String(req.url || '').split(/[?#]/, 1)[0];
   return String(pathname.match(/\/api\/video(?:\/(.*))?\/?$/i)?.[1] || '').replace(/^\/+|\/+$/g, '').toLowerCase();
+}
+
+function safeFileName(value: string) {
+  const clean = String(value || 'media')
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return clean.slice(0, 100) || 'media';
+}
+
+function mediaKind(value: unknown): MediaKind | null {
+  return value === 'image' || value === 'video' || value === 'audio' ? value : null;
+}
+
+function validContentType(kind: MediaKind, contentType: string) {
+  const normalized = String(contentType || '').toLowerCase();
+  if (kind === 'image') return normalized.startsWith('image/');
+  if (kind === 'video') return normalized.startsWith('video/');
+  return normalized.startsWith('audio/') || normalized === 'application/ogg';
+}
+
+function maxBytes(kind: MediaKind) {
+  if (kind === 'image') return 25 * 1024 * 1024;
+  if (kind === 'video') return 300 * 1024 * 1024;
+  return 250 * 1024 * 1024;
+}
+
+async function prepareMediaUpload(user: AuthenticatedUser, req: any, res: any) {
+  const bucketName = storageBucketName();
+  if (!bucketName) {
+    return fail(res, 503, 'VIDEO_UPLOAD_NOT_CONFIGURED', 'Firebase Admin Storage non è configurato sul server SONARA.');
+  }
+
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const kind = mediaKind(body.kind);
+  const contentType = String(body.contentType || '').trim().toLowerCase();
+  const size = Math.max(0, Number(body.size || 0));
+  const fileName = safeFileName(String(body.fileName || 'media'));
+
+  if (!kind) return fail(res, 400, 'INVALID_MEDIA_KIND', 'Tipo di media non valido.');
+  if (!validContentType(kind, contentType)) return fail(res, 400, 'INVALID_MEDIA_TYPE', 'Formato del file non valido per SONARA Video AI.');
+  if (!Number.isFinite(size) || size <= 0 || size > maxBytes(kind)) {
+    return fail(res, 413, 'MEDIA_TOO_LARGE', 'Il file supera il limite consentito per SONARA Video AI.');
+  }
+
+  try {
+    const randomPart = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const storagePath = `video-ai-inputs/${user.uid}/${Date.now()}-${randomPart}-${fileName}`;
+    const bucket = getStorage(getAdminApp()).bucket(bucketName);
+    const file = bucket.file(storagePath);
+    const expiresWrite = Date.now() + 15 * 60 * 1000;
+    const expiresRead = Date.now() + 7 * 24 * 60 * 60 * 1000;
+
+    const [uploadUrl] = await file.getSignedUrl({
+      version: 'v4',
+      action: 'write',
+      expires: expiresWrite,
+      contentType
+    });
+    const [downloadUrl] = await file.getSignedUrl({
+      version: 'v4',
+      action: 'read',
+      expires: expiresRead
+    });
+
+    return json(res, 200, {
+      storagePath,
+      uploadUrl,
+      downloadUrl,
+      contentType,
+      size,
+      kind,
+      expiresAt: expiresWrite
+    });
+  } catch (cause) {
+    console.error('[SONARA VIDEO UPLOAD] signed upload creation failed', cause);
+    return fail(res, 502, 'VIDEO_UPLOAD_PREPARE_FAILED', cause instanceof Error ? cause.message : 'Preparazione upload fallita.');
+  }
 }
 
 function timestampToMillis(value: unknown): number {
@@ -294,6 +376,7 @@ export default async function handler(req: any, res: any) {
   if (!serviceAccountConfigured()) return fail(res, 503, 'VIDEO_SERVER_NOT_CONFIGURED', 'Firebase Admin non è configurato per Video AI.');
   const action = actionFromRequest(req);
   try {
+    if (req.method === 'POST' && action === 'upload') return await prepareMediaUpload(user, req, res);
     if (req.method === 'GET' && action === 'status') return json(res, 200, publicStatus(await billingRecord(user.uid)));
     if (req.method === 'POST' && action === 'generate') return await startVideo(user, req, res);
     if (req.method === 'GET' && action.startsWith('job/')) return await pollJob(user, action.slice(4), res);
