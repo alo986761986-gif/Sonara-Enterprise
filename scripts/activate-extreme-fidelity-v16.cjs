@@ -51,6 +51,69 @@ replaceAny(
   'preserve weirdness inference method'
 );
 
+// ACE-Step/Kaggle can return completed audio inside nested JSON strings, data/output
+// containers, arrays, or alternate status labels. Decode all of those forms so a
+// completed render can never remain stuck at 20% just because its envelope changed.
+replaceAny(
+  "\n\nexport function buildPayload(body, env) {",
+  `\n\nfunction deepAudioRef(value, worker, depth = 0, seen = new Set()) {
+  if (value == null || depth > 10) return null;
+
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text) return null;
+    if ((text.startsWith('{') && text.endsWith('}')) || (text.startsWith('[') && text.endsWith(']'))) {
+      try {
+        const parsedRef = deepAudioRef(JSON.parse(text), worker, depth + 1, seen);
+        if (parsedRef) return parsedRef;
+      } catch {}
+    }
+    if (text.startsWith('/') || /\\.(wav|mp3|flac|m4a|ogg|aac)(?:[?#].*)?$/i.test(text)) {
+      return audioRefFromItem({ file: text }, worker);
+    }
+    return null;
+  }
+
+  if (typeof value !== 'object' || seen.has(value)) return null;
+  seen.add(value);
+
+  const direct = audioRefFromItem(value, worker);
+  if (direct) return direct;
+
+  const preferredKeys = [
+    'result', 'results', 'data', 'output', 'outputs', 'response',
+    'file', 'files', 'path', 'audio', 'audios', 'audio_url', 'audioUrl'
+  ];
+  for (const key of preferredKeys) {
+    if (!(key in value)) continue;
+    const ref = deepAudioRef(value[key], worker, depth + 1, seen);
+    if (ref) return ref;
+  }
+  for (const [key, nested] of Object.entries(value)) {
+    if (preferredKeys.includes(key)) continue;
+    const ref = deepAudioRef(nested, worker, depth + 1, seen);
+    if (ref) return ref;
+  }
+  return null;
+}
+
+function taskOutcome(item) {
+  const raw = item?.status ?? item?.state ?? item?.task_status ?? item?.taskStatus ?? item?.phase ?? '';
+  const numeric = Number(raw);
+  if (Number.isFinite(numeric)) {
+    if (numeric === 1) return 'completed';
+    if (numeric === 2 || numeric === 3 || numeric < 0) return 'failed';
+  }
+  const text = String(raw || '').trim().toLowerCase();
+  if (/fail|error|cancel|abort|reject/.test(text)) return 'failed';
+  if (/complete|success|succeed|done|finish/.test(text)) return 'completed';
+  return 'processing';
+}
+
+export function buildPayload(body, env) {`,
+  'install recursive ACE-Step result decoder'
+);
+
 // Never let one T4 submission crash the entire Cloudflare request with a non-JSON HTTP 500.
 // Keep every worker that accepted the task and degrade 2 -> 1 cleanly when necessary.
 replaceAny(
@@ -65,7 +128,6 @@ replaceAny(
 );
 
 // Normalize every failure in the dual-generation branch as a JSON response.
-// This covers request parsing, worker discovery and job storage in addition to T4 submission.
 replaceAny(
   "async function maybeSubmitPair(request, env) {\n  if (request.method !== 'POST') return null;\n  const url = new URL(request.url);\n  if (url.pathname !== '/api/engine/generate') return null;\n  if (!internalGenerationAuthorized(request, env)) return json(request, { error: 'Unauthorized SONARA generation request.' }, 401);\n\n  const body = await request.clone().json();",
   "async function maybeSubmitPair(request, env) {\n  if (request.method !== 'POST') return null;\n  const url = new URL(request.url);\n  if (url.pathname !== '/api/engine/generate') return null;\n  if (!internalGenerationAuthorized(request, env)) return json(request, { error: 'Unauthorized SONARA generation request.' }, 401);\n\n  try {\n    const body = await request.clone().json();",
@@ -77,23 +139,33 @@ replaceAny(
   'catch guarded dual generation pipeline failures'
 );
 
-// ACE-Step /query_result wraps the generated files inside item.result as a JSON string.
-// Decode that nested payload so completed T4 jobs advance from 0/2 to 1/2 and 2/2.
+// Replace the rigid status===1 + one-level result parser with a recursive decoder.
 replaceAny(
-  "      const ref = audioRefFromItem(item, worker);\n      if (ref) {\n        refs.push(ref);\n        completed += 1;\n      }",
-  "      let ref = audioRefFromItem(item, worker);\n      if (!ref && status === 1) {\n        const resultItems = parseItems(item?.result);\n        for (const resultItem of resultItems) {\n          ref = audioRefFromItem(resultItem, worker);\n          if (ref) break;\n        }\n        if (!ref) {\n          throw new SonaraEngineError(`SONARA worker ${worker.id} completed without returning an audio file.`, 502, false);\n        }\n      }\n      if (ref) {\n        refs.push(ref);\n        completed += 1;\n      }",
-  'decode nested ACE-Step query_result audio files'
+  "      const status = Number(item?.status ?? item?.state ?? 0);\n      if (status === 2 || status === 3 || item?.error) {\n        throw new SonaraEngineError(String(item?.error || item?.message || `SONARA worker ${worker.id} generation failed.`), 502, false);\n      }\n      const ref = audioRefFromItem(item, worker);\n      if (ref) {\n        refs.push(ref);\n        completed += 1;\n      }",
+  "      const outcome = taskOutcome(item);\n      if (outcome === 'failed' || item?.error) {\n        throw new SonaraEngineError(String(item?.error || item?.message || `SONARA worker ${worker.id} generation failed.`), 502, false);\n      }\n      const ref = deepAudioRef(item, worker);\n      if (ref) {\n        refs.push(ref);\n        completed += 1;\n      } else if (outcome === 'completed') {\n        throw new SonaraEngineError(`SONARA worker ${worker.id} completed without a readable audio reference.`, 502, false);\n      }",
+  'decode all completed ACE-Step result envelopes'
+);
+
+// Keep visible progress moving while the T4 is actively rendering, without pretending
+// completion. Real completion still requires a decoded audio reference.
+replaceAny(
+  "    const progress = 20 + Math.round((completed / Math.max(1, (context.tasks || []).length)) * 70);",
+  "    const taskCount = Math.max(1, (context.tasks || []).length);\n    const elapsedMs = Math.max(0, Date.now() - Number(context.createdAt || Date.now()));\n    const heartbeatProgress = Math.min(52, 20 + Math.floor(elapsedMs / 15000));\n    const completionProgress = 20 + Math.round((completed / taskCount) * 70);\n    const progress = Math.max(heartbeatProgress, completionProgress);",
+  'active render heartbeat progress'
+);
+replaceAny(
+  "      metadata: { ...(context.metadata || {}), currentStage: `SONARA: rendering tempo-locked ${completed}/${(context.tasks || []).length}` }",
+  "      metadata: { ...(context.metadata || {}), currentStage: `SONARA: rendering tempo-locked ${completed}/${taskCount} • motore attivo` }",
+  'active render stage'
 );
 
 // Make /api/health report the runtime worker pool actually visible to this Worker.
-// v16 metadata is always emitted even if a worker readiness probe fails.
 replaceAny(
   "export default {\n  async fetch(request, env, ctx) {\n    const pair = await maybeSubmitPair(request, env);",
-  "export default {\n  async fetch(request, env, ctx) {\n    const requestUrl = new URL(request.url);\n    if (request.method === 'GET' && requestUrl.pathname === '/api/health') {\n      const baseResponse = await baseEngine.fetch(request, env, ctx);\n      let payload = {};\n      try {\n        payload = await baseResponse.clone().json();\n      } catch {}\n      const configured = configuredWorkers(env);\n      let ready = [];\n      let workerHealthError = '';\n      try {\n        ready = await healthyWorkers(env);\n      } catch (error) {\n        workerHealthError = error instanceof Error ? error.message : String(error || 'worker health failed');\n        console.error('[SONARA WORKER HEALTH]', workerHealthError);\n      }\n      return json(request, {\n        ...payload,\n        aceStepConfiguredWorkerCount: configured.length,\n        aceStepWorkerCount: ready.length,\n        aceStepWorkers: ready.map(worker => ({ id: worker.id, kind: worker.kind, baseUrl: worker.baseUrl })),\n        kaggleProfile: KAGGLE_PROFILE,\n        kaggleInferenceSteps: KAGGLE_STEPS,\n        kaggleGuidanceScale: KAGGLE_GUIDANCE_SCALE,\n        kaggleThinking: true,\n        kaggleInferMethod: 'adaptive-ode-sde',\n        ...(workerHealthError ? { aceStepWorkerHealthError: workerHealthError } : {})\n      }, baseResponse.status);\n    }\n    const pair = await maybeSubmitPair(request, env);",
+  "export default {\n  async fetch(request, env, ctx) {\n    const requestUrl = new URL(request.url);\n    if (request.method === 'GET' && requestUrl.pathname === '/api/health') {\n      const baseResponse = await baseEngine.fetch(request, env, ctx);\n      let payload = {};\n      try {\n        payload = await baseResponse.clone().json();\n      } catch {}\n      const configured = configuredWorkers(env);\n      let ready = [];\n      let workerHealthError = '';\n      try {\n        ready = await healthyWorkers(env);\n      } catch (error) {\n        workerHealthError = error instanceof Error ? error.message : String(error || 'worker health failed');\n        console.error('[SONARA WORKER HEALTH]', workerHealthError);\n      }\n      return json(request, {\n        ...payload,\n        aceStepConfiguredWorkerCount: configured.length,\n        aceStepWorkerCount: ready.length,\n        aceStepWorkers: ready.map(worker => ({ id: worker.id, kind: worker.kind, baseUrl: worker.baseUrl })),\n        kaggleProfile: KAGGLE_PROFILE,\n        kaggleInferenceSteps: KAGGLE_STEPS,\n        kaggleGuidanceScale: KAGGLE_GUIDANCE_SCALE,\n        kaggleThinking: true,\n        kaggleInferMethod: 'adaptive-ode-sde',\n        resultDecoder: 'recursive-v17',\n        progressHeartbeat: true,\n        ...(workerHealthError ? { aceStepWorkerHealthError: workerHealthError } : {})\n      }, baseResponse.status);\n    }\n    const pair = await maybeSubmitPair(request, env);",
   'runtime worker health exposure'
 );
 
-// Legacy health/metadata patches only apply when those exact blocks are present.
 const optionalPatches = [
   ["          kaggleThinking: false,", "          kaggleThinking: true,"],
   ["          kaggleInferMethod: 'ode',", "          kaggleInferMethod: 'adaptive-ode-sde',"],
@@ -115,8 +187,11 @@ if (!source.includes('Math.round(clamp(body.bpm, 124, 30, 300))')) {
 if (!source.includes('never half-time')) {
   throw new Error('[SONARA v16] anti-half-time tempo lock missing before deploy');
 }
-if (!source.includes('const resultItems = parseItems(item?.result)')) {
-  throw new Error('[SONARA v16] ACE-Step nested query_result parser missing before deploy');
+if (!source.includes('function deepAudioRef') || !source.includes('function taskOutcome')) {
+  throw new Error('[SONARA v16] recursive ACE-Step result decoder missing before deploy');
+}
+if (!source.includes('heartbeatProgress')) {
+  throw new Error('[SONARA v16] active render progress heartbeat missing before deploy');
 }
 if (!source.includes('Promise.allSettled(selected.map')) {
   throw new Error('[SONARA v16] fault tolerant T4 submission missing before deploy');
@@ -132,4 +207,4 @@ if (!source.includes('kaggleThinking: true') || !source.includes("kaggleInferMet
 }
 
 fs.writeFileSync(file, source, 'utf8');
-console.log('[SONARA] Extreme Fidelity v16 activated with resilient dual T4 submit, JSON-safe generation errors, stable worker health, BPM lock and ACE-Step result decoding.');
+console.log('[SONARA] Extreme Fidelity v16 activated with recursive result decoding, live progress heartbeat, resilient dual T4 submit, JSON-safe errors and stable worker health.');
