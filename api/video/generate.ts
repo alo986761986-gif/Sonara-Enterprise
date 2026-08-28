@@ -17,6 +17,14 @@ type BillingRecord = {
   videoCreditsPerMonthOverride?: number;
 };
 
+type VideoReference = {
+  storagePath: string;
+  contentType: string;
+  sourceKind: 'image' | 'video';
+  sourceName?: string;
+  originalStoragePath?: string;
+};
+
 function storageBucketName() {
   return String(process.env.FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET || '').trim();
 }
@@ -118,6 +126,22 @@ function publicStatus(record: BillingRecord | undefined, app: App) {
   };
 }
 
+function mediaReferences(body: any, uid: string): VideoReference[] {
+  const prefix = `video-ai-inputs/${uid}/`;
+  return (Array.isArray(body?.mediaReferences) ? body.mediaReferences : [])
+    .flatMap((raw: any) => {
+      const storagePath = String(raw?.storagePath || '').trim();
+      const contentType = String(raw?.contentType || 'image/jpeg').trim().toLowerCase();
+      const sourceKind = raw?.sourceKind === 'video' ? 'video' : 'image';
+      const sourceName = String(raw?.sourceName || '').trim().slice(0, 160);
+      const originalStoragePath = String(raw?.originalStoragePath || '').trim();
+      if (!storagePath.startsWith(prefix) || !contentType.startsWith('image/')) return [];
+      if (originalStoragePath && !originalStoragePath.startsWith(prefix)) return [];
+      return [{ storagePath, contentType, sourceKind, ...(sourceName ? { sourceName } : {}), ...(originalStoragePath ? { originalStoragePath } : {}) } as VideoReference];
+    })
+    .slice(0, 3);
+}
+
 async function reserveVideoCredits(uid: string, resolution: SonaraVideoResolution, durationSeconds: number, app: App) {
   const firestore = getFirestore(app);
   const ref = firestore.collection('sonaraBilling').doc(uid);
@@ -158,6 +182,7 @@ export default async function handler(req: any, res: any) {
     const resolution = body.resolution;
     const requestedDuration = Number(body.durationSeconds || 8);
     const durationSeconds = Number.isFinite(requestedDuration) ? Math.max(8, Math.min(120, Math.round(requestedDuration))) : 8;
+    const references = mediaReferences(body, user.uid);
     if (prompt.length < 8) return fail(res, 400, 'VIDEO_PROMPT_REQUIRED', 'Descrivi il video con un prompt più completo.');
     if (prompt.length > 5000) return fail(res, 400, 'VIDEO_PROMPT_TOO_LONG', 'Il prompt video è troppo lungo.');
     if (!isSonaraVideoResolution(resolution)) return fail(res, 400, 'INVALID_VIDEO_RESOLUTION', 'Risoluzione video non valida.');
@@ -185,6 +210,7 @@ export default async function handler(req: any, res: any) {
       durationSeconds,
       clipCount: Math.ceil(durationSeconds / 8),
       operations: [],
+      mediaReferences: references,
       credits: reservation.credits,
       planId: reservation.planId,
       model,
@@ -197,12 +223,12 @@ export default async function handler(req: any, res: any) {
       updatedAt: FieldValue.serverTimestamp()
     });
 
-    console.info('[SONARA VIDEO] job accepted', { jobId: jobRef.id, provider, model, resolution, aspectRatio, durationSeconds });
+    console.info('[SONARA VIDEO] job accepted', { jobId: jobRef.id, provider, model, resolution, aspectRatio, durationSeconds, mediaReferences: references.length });
     return json(res, 202, {
       jobId: jobRef.id,
       status: 'PROCESSING',
       progress: 3,
-      stage: 'SONARA Video AI: job accettato',
+      stage: references.length ? `SONARA Video AI: job accettato con ${references.length} riferimenti` : 'SONARA Video AI: job accettato',
       provider,
       billing: reservation.status
     });
