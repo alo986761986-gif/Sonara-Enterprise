@@ -1,4 +1,4 @@
-name: Finalize Modal Cloudflare Repair
+name: Finalize Modal Cloudflare Repair - v17 Safe
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   repair:
-    name: Refresh Modal proxy auth and deploy Sonara v9
+    name: Refresh Modal auth without replacing SONARA v17
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -63,37 +63,24 @@ jobs:
           echo "MODAL_TOKEN_ID=${pair[0]}" >> "${GITHUB_ENV}"
           echo "MODAL_TOKEN_SECRET=${pair[1]}" >> "${GITHUB_ENV}"
           rm -f /tmp/modal-api-pair
-          echo "Modal API credentials ready."
 
       - name: Resolve Cloudflare account ID
         shell: bash
         run: |
-          if [[ -z "${CLOUDFLARE_API_TOKEN}" ]]; then
-            echo "Missing CLOUDFLARE_API_TOKEN." >&2
-            exit 1
-          fi
+          if [[ -z "${CLOUDFLARE_API_TOKEN}" ]]; then exit 1; fi
           account_id="${CLOUDFLARE_ACCOUNT_ID}"
           if [[ -z "${account_id}" ]]; then
-            response="$(curl -fsS \
-              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-              -H "Content-Type: application/json" \
-              "https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50")"
+            response="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json" "https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50")"
             account_id="$(CF_RESPONSE="${response}" node - <<'NODE'
-          try {
-            const body = JSON.parse(process.env.CF_RESPONSE || '{}');
-            const zone = Array.isArray(body.result) ? body.result.find(x => x?.name === 'sonaraenterprise.com') : null;
-            process.stdout.write(String(zone?.account?.id || ''));
-          } catch { process.stdout.write(''); }
+          const body = JSON.parse(process.env.CF_RESPONSE || '{}');
+          const zone = Array.isArray(body.result) ? body.result.find(x => x?.name === 'sonaraenterprise.com') : null;
+          process.stdout.write(String(zone?.account?.id || ''));
           NODE
             )"
           fi
-          if [[ -z "${account_id}" ]]; then
-            echo "Unable to resolve Cloudflare account ID." >&2
-            exit 1
-          fi
+          test -n "${account_id}"
           echo "::add-mask::${account_id}"
           echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
-          echo "Cloudflare account ready."
 
       - name: Install Modal CLI
         run: python -m pip install --disable-pip-version-check 'modal>=1.4,<2'
@@ -125,78 +112,58 @@ jobs:
           echo "FRESH_MODAL_PROXY_SECRET=${proxy[1]}" >> "${GITHUB_ENV}"
           modal workspace proxy-tokens allow "${proxy[0]}" main >/dev/null 2>&1 || true
           rm -f /tmp/modal-proxy.json /tmp/modal-proxy-pair
-          echo "Fresh Modal proxy token created."
 
       - name: Validate fresh proxy token directly against Modal
         shell: bash
         run: |
-          status="$(curl -sS --location --max-time 900 -w '%{http_code}' \
-            -H "Modal-Key: ${FRESH_MODAL_PROXY_ID}" \
-            -H "Modal-Secret: ${FRESH_MODAL_PROXY_SECRET}" \
-            -H "Accept: application/json" \
-            -o /tmp/modal-models.json \
-            "${MODAL_ENDPOINT_URL}/v1/models" || true)"
-          echo "Direct Modal readiness HTTP: ${status}"
-          if [[ "${status}" != "200" ]]; then
-            echo "Fresh Modal proxy authentication/readiness failed." >&2
-            exit 1
-          fi
+          status="$(curl -sS --location --max-time 900 -w '%{http_code}' -H "Modal-Key: ${FRESH_MODAL_PROXY_ID}" -H "Modal-Secret: ${FRESH_MODAL_PROXY_SECRET}" -H "Accept: application/json" -o /tmp/modal-models.json "${MODAL_ENDPOINT_URL}/v1/models" || true)"
+          test "${status}" = "200"
           node - <<'NODE'
           const fs = require('fs');
-          const raw = fs.readFileSync('/tmp/modal-models.json', 'utf8');
-          JSON.parse(raw);
-          console.log(`Modal readiness returned valid JSON (${raw.length} bytes).`);
+          JSON.parse(fs.readFileSync('/tmp/modal-models.json', 'utf8'));
           NODE
           rm -f /tmp/modal-models.json
 
-      - name: Synchronize new Modal endpoint and proxy auth to Cloudflare
+      - name: Synchronize Modal endpoint and proxy auth to Cloudflare
         shell: bash
         run: |
           printf '%s' "${MODAL_ENDPOINT_URL}" | npx --yes wrangler@latest secret put ACESTEP_API_URL --config wrangler.jsonc >/dev/null
           printf '%s' "${FRESH_MODAL_PROXY_ID}" | npx --yes wrangler@latest secret put MODAL_PROXY_KEY --config wrangler.jsonc >/dev/null
           printf '%s' "${FRESH_MODAL_PROXY_SECRET}" | npx --yes wrangler@latest secret put MODAL_PROXY_SECRET --config wrangler.jsonc >/dev/null
-          echo "Cloudflare Modal endpoint and proxy credentials updated."
 
-      - name: Validate current Sonara production source
+      - name: Guard against legacy worker deployment
         shell: bash
         run: |
-          grep -q 'cloudflare/sonara-web-dj-proxy.mjs' wrangler.jsonc
-          grep -q 'READINESS_TIMEOUT_MS = 180_000' cloudflare/sonara-engine-v9-dual-fast.mjs
-          grep -q '/api/engine/ready' cloudflare/sonara-engine-v9-dual-fast.mjs
-          grep -q 'ACESTEP_API_URL' cloudflare/sonara-engine-v9-dual-fast.mjs
-          echo "Current Sonara production source verified."
+          if grep -q "wrangler@latest deploy" .github/workflows/finalize-modal-cloudflare-repair.yml; then
+            echo "Legacy Worker deployment is forbidden in Modal auth repair." >&2
+            exit 1
+          fi
+          grep -q 'cloudflare/sonara-web-v15-router.mjs' wrangler.jsonc
+          echo "Modal repair is credential-only; production audio code stays on authoritative v17."
 
-      - name: Deploy Sonara production Worker to Cloudflare
-        run: npx --yes wrangler@latest deploy --config wrangler.jsonc
-
-      - name: Verify Cloudflare to Modal production readiness
+      - name: Verify authoritative v17 health remains active
         shell: bash
         run: |
-          status="$(curl -sS --max-time 210 -w '%{http_code}' \
-            -o /tmp/sonara-engine-ready.json \
-            https://api.sonaraenterprise.com/api/engine/ready || true)"
-          echo "SONARA engine readiness HTTP: ${status}"
-          cat /tmp/sonara-engine-ready.json || true
-          echo
-          STATUS="${status}" node - <<'NODE'
-          const fs = require('fs');
-          const status = Number(process.env.STATUS || 0);
-          const body = JSON.parse(fs.readFileSync('/tmp/sonara-engine-ready.json', 'utf8'));
-          if (status !== 200 || body.ready !== true || body.model !== 'acestep-v15-xl-turbo') {
-            console.error(`Production readiness failed: HTTP ${status}, ${body.error || 'not ready'}`);
-            process.exit(1);
+          response="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/health?finalize-guard=${GITHUB_SHA}")"
+          HEALTH="${response}" node - <<'NODE'
+          const h = JSON.parse(process.env.HEALTH || '{}');
+          const expected = {
+            universalGenreLock: 'v15-authoritative-full-prompt',
+            authoritativePromptLock: 'v15-authoritative-full-prompt',
+            selectedSubgenreAuthoritative: true,
+            kaggleProfile: 'kaggle-t4x2-extreme-fidelity-v16',
+            kaggleInferenceSteps: 12,
+            kaggleGuidanceScale: 1.15,
+            kaggleThinking: true,
+            kaggleInferMethod: 'adaptive-ode-sde',
+            resultDecoder: 'recursive-v17',
+            progressHeartbeat: true
+          };
+          for (const [key, value] of Object.entries(expected)) {
+            if (h[key] !== value) {
+              console.error(`v17 guard failed: ${key}=${JSON.stringify(h[key])}`);
+              process.exit(1);
+            }
           }
-          console.log('Cloudflare -> Modal -> ACE-Step production readiness verified.');
-          NODE
-
-      - name: Verify final v9 health profile
-        shell: bash
-        run: |
-          curl -fsS --max-time 30 https://api.sonaraenterprise.com/api/health -o /tmp/health.json
-          node - <<'NODE'
-          const fs = require('fs');
-          const h = JSON.parse(fs.readFileSync('/tmp/health.json', 'utf8'));
-          if (h.dualFast !== true || h.dualFastProfile !== 'single-job-native-batch-v9') process.exit(1);
-          if (h.dualFastReadinessTimeoutMs !== 180000 || h.dualFastSubmitTimeoutMs !== 120000) process.exit(1);
-          console.log('Final Sonara v9 profile verified.');
+          console.log('Authoritative SONARA v17 preserved.');
           NODE
