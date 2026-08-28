@@ -1,0 +1,93 @@
+name: Enable SONARA Music LM V17
+
+on:
+  push:
+    paths:
+      - '.github/music-v17-trigger'
+      - '.github/workflows/enable-music-lm-v17.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  enable-music-lm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+
+      - name: Load GPU0 music worker URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          trigger='.github/kaggle-workers-trigger'
+          test -f "$trigger"
+          gpu0="$(sed -n 's/^GPU0=//p' "$trigger" | tail -n 1 | tr -d '\r')"
+          test -n "$gpu0"
+          echo "GPU0_URL=${gpu0%/}" >> "$GITHUB_ENV"
+          echo 'GPU0 music endpoint loaded. GPU1 video will not be touched.'
+
+      - name: Verify GPU0 ACE-Step health
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --connect-timeout 10 --max-time 30 "$GPU0_URL/health" | tee /tmp/health.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const p = JSON.parse(fs.readFileSync('/tmp/health.json', 'utf8'));
+          const d = p.data || p;
+          const status = String(d.status || p.status || '').toLowerCase();
+          if (!['ok','ready','healthy','online','success'].includes(status)) process.exit(1);
+          NODE
+
+      - name: Enable 5Hz LM planner on GPU0
+        shell: bash
+        run: |
+          set -euo pipefail
+          current="$(curl -fsS --connect-timeout 10 --max-time 30 "$GPU0_URL/v1/models")"
+          printf '%s' "$current" > /tmp/models-before.json
+          if node - <<'NODE'
+          const fs = require('fs');
+          const p = JSON.parse(fs.readFileSync('/tmp/models-before.json','utf8'));
+          const d = p.data || p;
+          process.exit(d.llm_initialized === true && String(d.loaded_lm_model || '').includes('0.6B') ? 0 : 1);
+          NODE
+          then
+            echo 'SONARA 5Hz LM 0.6B already active.'
+          else
+            echo 'Initializing ACE-Step 5Hz LM 0.6B on GPU0 only...'
+            curl -fsS --connect-timeout 20 --max-time 900 \
+              -H 'Content-Type: application/json' \
+              -X POST "$GPU0_URL/v1/init" \
+              --data '{"model":"acestep-v15-turbo","slot":1,"init_llm":true,"lm_model_path":"acestep-5Hz-lm-0.6B"}' \
+              | tee /tmp/init-lm.json
+          fi
+
+      - name: Verify LM planner is active
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..30}; do
+            if curl -fsS --connect-timeout 10 --max-time 30 "$GPU0_URL/v1/models" > /tmp/models-after.json 2>/dev/null; then
+              if node - <<'NODE'
+              const fs = require('fs');
+              const p = JSON.parse(fs.readFileSync('/tmp/models-after.json','utf8'));
+              const d = p.data || p;
+              console.log(JSON.stringify({
+                llm_initialized: d.llm_initialized,
+                loaded_lm_model: d.loaded_lm_model,
+                default_model: d.default_model,
+                lm_models: d.lm_models
+              }));
+              process.exit(d.llm_initialized === true && String(d.loaded_lm_model || '').includes('0.6B') ? 0 : 1);
+              NODE
+              then
+                echo 'SONARA Music V17 planner ready: 5Hz LM 0.6B active on GPU0.'
+                exit 0
+              fi
+            fi
+            sleep 5
+          done
+          echo '5Hz LM did not become ready on GPU0.' >&2
+          exit 1
