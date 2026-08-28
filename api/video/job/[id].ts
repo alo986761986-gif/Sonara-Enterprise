@@ -21,6 +21,14 @@ type SceneOperation = {
   safetyCategory?: string;
 };
 
+type MediaReference = {
+  storagePath: string;
+  contentType?: string;
+  sourceKind?: 'image' | 'video';
+  sourceName?: string;
+  originalStoragePath?: string;
+};
+
 type VideoJobRecord = {
   uid: string;
   operationName?: string;
@@ -45,6 +53,7 @@ type VideoJobRecord = {
   operations?: SceneOperation[];
   transcoderJobName?: string;
   transcoderOutputPath?: string;
+  mediaReferences?: MediaReference[];
 };
 
 function storageBucketName() {
@@ -80,6 +89,13 @@ function firestoreSafeOperations(operations: SceneOperation[]): SceneOperation[]
   return operations.map(operation => Object.fromEntries(
     Object.entries(operation).filter(([, value]) => value !== undefined)
   ) as SceneOperation);
+}
+
+function referenceImages(record: VideoJobRecord) {
+  return (Array.isArray(record.mediaReferences) ? record.mediaReferences : [])
+    .filter(item => item && typeof item.storagePath === 'string' && item.storagePath.trim())
+    .slice(0, 3)
+    .map(item => ({ storagePath: item.storagePath.trim(), contentType: String(item.contentType || 'image/jpeg') }));
 }
 
 function bearerToken(req: any) {
@@ -135,9 +151,12 @@ async function failAndRefund(record: VideoJobRecord, jobId: string, ref: Firebas
 
 function scenePrompt(record: VideoJobRecord, scene: number, clipCount: number, retryCount = 0) {
   const retryInstruction = retryCount > 0
-    ? ` This is regeneration attempt ${retryCount}. Keep the scene safe, non-graphic, visually simple and unambiguous while preserving continuity. Use only original fictional adult identities and do not create a recognizable real-person or celebrity likeness.`
+    ? ` This is regeneration attempt ${retryCount}. Keep the scene safe, non-graphic, visually simple and unambiguous while preserving continuity. Use only original fictional identities and do not create a recognizable real-person or celebrity likeness.`
     : '';
-  return `${record.prompt}\n\nScene ${scene} of ${clipCount}. Maintain the same subjects, wardrobe, visual style, lighting and cinematic continuity. Create the next distinct shot in the sequence.${retryInstruction}`;
+  const mediaInstruction = referenceImages(record).length
+    ? ' Use the attached SONARA media references as the authoritative visual source for subject identity, wardrobe, environment, color language and composition continuity.'
+    : '';
+  return `${record.prompt}\n\nScene ${scene} of ${clipCount}. Maintain the same subjects, wardrobe, visual style, lighting and cinematic continuity. Create the next distinct shot in the sequence.${mediaInstruction}${retryInstruction}`;
 }
 
 async function restartScene(app: App, record: VideoJobRecord, sceneIndex: number, clipCount: number, previous: SceneOperation) {
@@ -156,7 +175,8 @@ async function restartScene(app: App, record: VideoJobRecord, sceneIndex: number
     ...(safetyFiltered ? { negativePrompt: veoNegativePrompt(previous.lastError) } : {}),
     aspectRatio: record.aspectRatio,
     resolution: record.resolution,
-    userId: record.uid
+    userId: record.uid,
+    referenceImages: referenceImages(record)
   }), 25_000, `Riavvio scena ${sceneIndex + 1}`);
   return {
     ...restarted,
@@ -177,7 +197,8 @@ async function restartSingleClipAfterSafetyFilter(app: App, record: VideoJobReco
     negativePrompt: veoNegativePrompt(error),
     aspectRatio: record.aspectRatio,
     resolution: record.resolution,
-    userId: record.uid
+    userId: record.uid,
+    referenceImages: referenceImages(record)
   }), 25_000, `Rigenerazione sicura clip (${retryCount}/${MAX_SINGLE_CLIP_SAFETY_RETRIES})`);
   return { ...restarted, retryCount };
 }
@@ -208,7 +229,16 @@ export default async function handler(req: any, res: any) {
         const batchSize = Math.min(4, clipCount - operations.length);
         for (let offset = 0; offset < batchSize; offset += 1) {
           const scene = operations.length + 1;
-          const result = await within(startVideoProvider({ app, bucketName: storageBucketName(), planId: record.planId, prompt: scenePrompt(record, scene, clipCount), aspectRatio: record.aspectRatio, resolution: record.resolution, userId: record.uid }), 25_000, `Avvio scena ${scene}`);
+          const result = await within(startVideoProvider({
+            app,
+            bucketName: storageBucketName(),
+            planId: record.planId,
+            prompt: scenePrompt(record, scene, clipCount),
+            aspectRatio: record.aspectRatio,
+            resolution: record.resolution,
+            userId: record.uid,
+            referenceImages: referenceImages(record)
+          }), 25_000, `Avvio scena ${scene}`);
           operations.push({ ...result, retryCount: 0 });
           await ref.set({ operations: firestoreSafeOperations(operations), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
         }
@@ -266,9 +296,18 @@ export default async function handler(req: any, res: any) {
     if (!String(record.operationName || '').trim()) {
       const attempt = Math.max(0, Number(record.startAttempts || 0)) + 1;
       try {
-        const started = await within(startVideoProvider({ app, bucketName: storageBucketName(), planId: record.planId, prompt: record.prompt, aspectRatio: record.aspectRatio, resolution: record.resolution, userId: record.uid }), 20_000, 'Avvio provider Video AI');
+        const started = await within(startVideoProvider({
+          app,
+          bucketName: storageBucketName(),
+          planId: record.planId,
+          prompt: record.prompt,
+          aspectRatio: record.aspectRatio,
+          resolution: record.resolution,
+          userId: record.uid,
+          referenceImages: referenceImages(record)
+        }), 20_000, 'Avvio provider Video AI');
         await ref.set({ operationName: started.operationName, model: started.model, provider: started.provider, startAttempts: attempt, lastStartError: FieldValue.delete(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-        return json(res, 200, { jobId, status: 'PROCESSING', progress: 18, stage: 'SONARA Video AI: motore avviato' });
+        return json(res, 200, { jobId, status: 'PROCESSING', progress: 18, stage: referenceImages(record).length ? 'SONARA Video AI: riferimenti caricati, motore avviato' : 'SONARA Video AI: motore avviato' });
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : String(cause);
         await ref.set({ startAttempts: attempt, lastStartError: message, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
