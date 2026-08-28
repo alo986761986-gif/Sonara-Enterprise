@@ -1,0 +1,59 @@
+name: Deploy Firebase Storage Rules
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "storage.rules"
+      - "firebase.json"
+      - ".github/workflows/deploy-firebase-storage-rules.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Validate Firebase credentials
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          FIREBASE_PROJECT_ID: ${{ secrets.SONARA_FIREBASE_PROJECT_ID || secrets.FIREBASE_PROJECT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${FIREBASE_SERVICE_ACCOUNT_JSON}"
+          test -n "${FIREBASE_PROJECT_ID}"
+          printf '%s' "${FIREBASE_SERVICE_ACCOUNT_JSON}" > /tmp/firebase-service-account.json
+          echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/firebase-service-account.json" >> "${GITHUB_ENV}"
+          echo "FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID}" >> "${GITHUB_ENV}"
+
+      - name: Validate Storage rules locally
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "match /video-ai-inputs/{uid}/{allPaths=**}" storage.rules
+          grep -q "request.auth.uid == uid" storage.rules
+          grep -q "request.resource.contentType.matches('audio/.*')" storage.rules
+          grep -q '"rules": "storage.rules"' firebase.json
+
+      - name: Deploy Firebase Storage rules
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes firebase-tools@latest deploy --only storage --project "${FIREBASE_PROJECT_ID}" --non-interactive
+
+      - name: Cleanup credential file
+        if: always()
+        run: rm -f /tmp/firebase-service-account.json
