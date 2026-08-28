@@ -1,3 +1,3 @@
-GPU0=https://d1fb8ea9fbd12bd1fe.gradio.live
+GPU0=https://bcdae767c78f735286.gradio.live
 GPU1=
-ACTION=reconnect-live-gradio
+ACTION=reconnect-live-gradio-t4-fp32
