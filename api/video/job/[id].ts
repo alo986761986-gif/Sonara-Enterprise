@@ -2,7 +2,7 @@ import { applicationDefault, cert, getApps, initializeApp, type App } from 'fire
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { SONARA_PLANS, type SonaraPlanId, type SonaraVideoResolution } from '../../../src/billing/plans';
 import { persistProviderVideo, pollVideoProvider, startVideoProvider, type SonaraVideoProvider } from '../provider';
-import { buildVeoSafetyRetryPrompt, isVeoSafetyFilterError, veoNegativePrompt, veoSafetyCategory } from '../safety';
+import { buildVeoSafetyRetryPrompt, isVeoSafetyFilterError, veoNegativePrompt, veoSafetyCategory } from '../../../src/server/video/safety';
 import { pollConcatenation, publishTranscodedVideo, startConcatenation } from '../../../src/server/video/transcoder';
 
 const JOB_COLLECTION = 'sonaraVideoJobs';
