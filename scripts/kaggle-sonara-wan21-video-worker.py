@@ -15,6 +15,7 @@ MODEL = 'Wan-AI/Wan2.1-T2V-1.3B-Diffusers'
 
 APP_CODE = r'''
 import os
+import threading
 import uuid
 from pathlib import Path
 
@@ -31,6 +32,9 @@ OUT.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title='SONARA WAN Video Worker')
 pipe = None
+pipe_lock = threading.Lock()
+jobs = {}
+jobs_lock = threading.Lock()
 
 class GenerateRequest(BaseModel):
     prompt: str = Field(min_length=8, max_length=5000)
@@ -43,12 +47,60 @@ def load_pipe():
     global pipe
     if pipe is not None:
         return pipe
-    dtype = torch.float16
-    vae = AutoencoderKLWan.from_pretrained(MODEL, subfolder='vae', torch_dtype=torch.float32)
-    pipe = WanPipeline.from_pretrained(MODEL, vae=vae, torch_dtype=dtype)
-    pipe.enable_model_cpu_offload()
-    pipe.vae.enable_tiling()
+    with pipe_lock:
+        if pipe is not None:
+            return pipe
+        vae = AutoencoderKLWan.from_pretrained(MODEL, subfolder='vae', torch_dtype=torch.float32)
+        pipe = WanPipeline.from_pretrained(MODEL, vae=vae, torch_dtype=torch.float16)
+        pipe.enable_model_cpu_offload()
+        pipe.vae.enable_tiling()
     return pipe
+
+
+def set_job(job_id, **values):
+    with jobs_lock:
+        current = dict(jobs.get(job_id, {}))
+        current.update(values)
+        jobs[job_id] = current
+
+
+def render(job_id, req):
+    try:
+        set_job(job_id, status='PROCESSING', progress=5, stage='Caricamento WAN 2.1')
+        p = load_pipe()
+        portrait = req.aspectRatio == '9:16'
+        width, height = (480, 832) if portrait else (832, 480)
+        fps = 16
+        num_frames = 81
+        seed = req.seed if req.seed is not None else int.from_bytes(os.urandom(4), 'big')
+        generator = torch.Generator(device='cuda').manual_seed(seed)
+        set_job(job_id, progress=18, stage='Generazione fotogrammi WAN 2.1', seed=seed)
+        with pipe_lock:
+            result = p(
+                prompt=req.prompt,
+                negative_prompt='low quality, blurry, watermark, text, logo, deformed, duplicate, static frame',
+                height=height,
+                width=width,
+                num_frames=num_frames,
+                guidance_scale=5.0,
+                num_inference_steps=28,
+                generator=generator,
+            )
+        set_job(job_id, progress=90, stage='Codifica MP4')
+        path = OUT / f'{job_id}.mp4'
+        export_to_video(result.frames[0], str(path), fps=fps)
+        set_job(
+            job_id,
+            status='COMPLETED',
+            progress=100,
+            stage='Video pronto',
+            provider='kaggle-wan21',
+            model=MODEL,
+            videoPath=f'/v1/video/file/{path.name}',
+        )
+    except Exception as exc:
+        set_job(job_id, status='FAILED', progress=0, stage='Errore WAN 2.1', error=str(exc))
+
 
 @app.get('/health')
 def health():
@@ -58,38 +110,37 @@ def health():
         'model': MODEL,
         'gpu': os.environ.get('CUDA_VISIBLE_DEVICES', '1'),
         'loaded': pipe is not None,
+        'jobs': len(jobs),
     }
 
-@app.post('/v1/video/generate')
+
+@app.post('/v1/video/generate', status_code=202)
 def generate(req: GenerateRequest):
     if req.durationSeconds > 8:
         raise HTTPException(status_code=400, detail='WAN Kaggle worker supports clips up to 8 seconds per scene.')
-    p = load_pipe()
-    portrait = req.aspectRatio == '9:16'
-    width, height = (480, 832) if portrait else (832, 480)
-    fps = 16
-    num_frames = 81
-    seed = req.seed if req.seed is not None else int.from_bytes(os.urandom(4), 'big')
-    generator = torch.Generator(device='cuda').manual_seed(seed)
-    result = p(
-        prompt=req.prompt,
-        negative_prompt='low quality, blurry, watermark, text, logo, deformed, duplicate, static frame',
-        height=height,
-        width=width,
-        num_frames=num_frames,
-        guidance_scale=5.0,
-        num_inference_steps=28,
-        generator=generator,
+    job_id = 'wan_' + uuid.uuid4().hex
+    set_job(
+        job_id,
+        jobId=job_id,
+        status='PROCESSING',
+        progress=2,
+        stage='In coda su SONARA WAN',
+        provider='kaggle-wan21',
+        model=MODEL,
     )
-    path = OUT / f'{uuid.uuid4().hex}.mp4'
-    export_to_video(result.frames[0], str(path), fps=fps)
-    return {
-        'status': 'COMPLETED',
-        'provider': 'kaggle-wan21',
-        'model': MODEL,
-        'seed': seed,
-        'videoPath': f'/v1/video/file/{path.name}',
-    }
+    thread = threading.Thread(target=render, args=(job_id, req), daemon=True)
+    thread.start()
+    return jobs[job_id]
+
+
+@app.get('/v1/video/job/{job_id}')
+def job(job_id: str):
+    with jobs_lock:
+        payload = jobs.get(job_id)
+    if not payload:
+        raise HTTPException(status_code=404, detail='Job not found')
+    return payload
+
 
 @app.get('/v1/video/file/{name}')
 def video_file(name: str):
@@ -145,6 +196,7 @@ def install_runtime():
         'fastapi>=0.115.0',
         'uvicorn[standard]>=0.32.0',
         'imageio[ffmpeg]>=2.36.0',
+        'hf-transfer>=0.1.9',
     ]
     subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', '--upgrade', *packages], check=True)
 
