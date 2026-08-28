@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { App } from 'firebase-admin/app';
 import { getStorage } from 'firebase-admin/storage';
-import type { SonaraVideoResolution } from '../../src/billing/plans';
+import type { SonaraVideoResolution } from '../../billing/plans';
 
 const LOCATION = 'us-central1';
 
