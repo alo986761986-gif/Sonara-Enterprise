@@ -1,0 +1,35 @@
+name: Verify SONARA Video UI Edge
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/verify-video-ui-edge.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify public Video UI edge script
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..12}; do
+            code="$(curl -sS -o /tmp/video-ui.js -D /tmp/video-ui.headers -w '%{http_code}' --max-time 15 -H 'Cache-Control: no-cache' 'https://sonaraenterprise.com/sonara-video-ui-edge.js?v=2' || true)"
+            marker="$(awk 'BEGIN{IGNORECASE=1} /^x-sonara-video-ui-edge:/{print $2}' /tmp/video-ui.headers | tail -n1 | tr -d '\r')"
+            if [ "${code}" = "200" ] && [ "${marker}" = "controls-v2" ] && grep -q 'CANCELLA' /tmp/video-ui.js && grep -q 'RANDOM' /tmp/video-ui.js && grep -q 'INTELLIGENTE' /tmp/video-ui.js; then
+              echo "PUBLIC_VIDEO_UI_EDGE_OK=1"
+              echo "HTTP=${code} MARKER=${marker}"
+              exit 0
+            fi
+            echo "attempt=${attempt} HTTP=${code} MARKER=${marker}"
+            sleep 3
+          done
+          echo "Public Video UI edge v2 verification failed." >&2
+          exit 1
