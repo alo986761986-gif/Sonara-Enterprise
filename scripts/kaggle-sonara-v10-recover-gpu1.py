@@ -13,14 +13,18 @@ WORK = Path('/kaggle/working')
 CLOUDFLARED = WORK / 'cloudflared'
 CLOUDFLARED_URL = 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64'
 V10 = WORK / 'sonara-wan-v10.py'
+V9 = WORK / 'sonara-wan-v9.py'
 V10_URL = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/main/scripts/kaggle-sonara-wan21-video-worker-v10.py'
-TUNNEL_LOG = WORK / 'sonara_gpu1_v10_tunnel.log'
+V9_URL = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/main/scripts/kaggle-sonara-wan21-video-worker-v9.py'
+TUNNEL_LOG = WORK / 'sonara_gpu1_video_tunnel.log'
+WORKER_LOG = WORK / 'sonara_wan21_gpu1.log'
+GENERATED_APP = WORK / 'sonara-wan21-video' / 'app.py'
 URL_FILE = WORK / 'sonara-gpu1-url.txt'
 PORT = 7861
 
 
 def download(url: str, target: Path) -> None:
-    request = urllib.request.Request(url, headers={'User-Agent': 'SONARA-Kaggle-Recovery/1.0'})
+    request = urllib.request.Request(url, headers={'User-Agent': 'SONARA-Kaggle-Recovery/2.0'})
     with urllib.request.urlopen(request, timeout=120) as response:
         target.write_bytes(response.read())
 
@@ -33,25 +37,48 @@ def ensure_cloudflared() -> None:
     CLOUDFLARED.chmod(0o755)
 
 
-def start_v10() -> None:
-    print('SONARA: avvio/ripristino WAN V10 sulla GPU1...')
-    download(V10_URL, V10)
-    subprocess.run([sys.executable, str(V10)], check=True)
+def start_worker(url: str, target: Path, label: str) -> None:
+    print(f'SONARA: avvio/ripristino {label} sulla GPU1...')
+    download(url, target)
+    subprocess.run([sys.executable, str(target)], check=True)
 
 
-def wait_local_server() -> dict:
-    deadline = time.time() + 150
+def worker_log_tail(limit: int = 12000) -> str:
+    if not WORKER_LOG.exists():
+        return '(log worker non disponibile)'
+    text = WORKER_LOG.read_text(errors='ignore')
+    return text[-limit:] if text else '(log worker vuoto)'
+
+
+def compile_generated_app() -> tuple[bool, str]:
+    if not GENERATED_APP.exists():
+        return False, 'app.py generata non trovata'
+    proc = subprocess.run(
+        [sys.executable, '-m', 'py_compile', str(GENERATED_APP)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    return proc.returncode == 0, (proc.stdout or '').strip()
+
+
+def wait_local_server(label: str, timeout_seconds: int) -> dict:
+    deadline = time.time() + timeout_seconds
     last_error = ''
     while time.time() < deadline:
         try:
             with urllib.request.urlopen(f'http://127.0.0.1:{PORT}/health', timeout=4) as response:
                 payload = json.loads(response.read().decode('utf-8'))
-            if response.status == 200 and str(payload.get('status', '')).lower() == 'ok':
+            if (
+                response.status == 200
+                and str(payload.get('status', '')).lower() == 'ok'
+                and 'wan' in str(payload.get('provider', '')).lower()
+            ):
                 return payload
         except Exception as exc:
             last_error = str(exc)
         time.sleep(2)
-    raise RuntimeError('WAN V10 non ha aperto la porta 7861. ' + last_error)
+    raise RuntimeError(f'{label} non ha aperto la porta 7861: {last_error}')
 
 
 def stop_only_gpu1_tunnels() -> int:
@@ -129,7 +156,7 @@ def verify_public(url: str, proc: subprocess.Popen) -> dict:
         try:
             request = urllib.request.Request(
                 health_url,
-                headers={'User-Agent': 'SONARA-Kaggle-Recovery/1.0', 'Cache-Control': 'no-cache'},
+                headers={'User-Agent': 'SONARA-Kaggle-Recovery/2.0', 'Cache-Control': 'no-cache'},
             )
             with urllib.request.urlopen(request, timeout=12) as response:
                 payload = json.loads(response.read().decode('utf-8'))
@@ -145,24 +172,57 @@ def verify_public(url: str, proc: subprocess.Popen) -> dict:
     raise RuntimeError('Nuovo tunnel creato ma non raggiungibile pubblicamente. ' + last_error)
 
 
+def boot_with_fallback() -> tuple[dict, str]:
+    v10_error = ''
+    try:
+        start_worker(V10_URL, V10, 'WAN V10')
+        local = wait_local_server('WAN V10', 45)
+        return local, 'V10'
+    except Exception as exc:
+        v10_error = str(exc)
+        print('\n⚠️ WAN V10 non ha completato il bootstrap. Recovery automatica attiva.')
+        ok, compile_error = compile_generated_app()
+        print('Diagnostica app.py V10:', 'sintassi OK' if ok else 'ERRORE DI SINTASSI')
+        if compile_error:
+            print(compile_error[-3000:])
+        print('Ultime righe log V10:')
+        print(worker_log_tail(8000))
+
+    print('\nSONARA: ripristino immediato con WAN V9 stabile sulla GPU1...')
+    try:
+        start_worker(V9_URL, V9, 'WAN V9 STABLE')
+        local = wait_local_server('WAN V9', 120)
+        return local, 'V9-STABLE-FALLBACK'
+    except Exception as exc:
+        print('Ultime righe log fallback V9:')
+        print(worker_log_tail(12000))
+        raise RuntimeError(f'V10 bootstrap fallito ({v10_error}); fallback V9 fallito ({exc}).') from exc
+
+
 def main() -> None:
-    print('=' * 72)
-    print(' SONARA VIDEO AI - RECOVERY AUTOMATICO GPU1 / WAN V10 ')
-    print('=' * 72)
+    print('=' * 78)
+    print(' SONARA VIDEO AI - GPU1 AUTO RECOVERY / V10 + STABLE FALLBACK ')
+    print('=' * 78)
     ensure_cloudflared()
-    start_v10()
-    local = wait_local_server()
-    print('SONARA: WAN locale attiva, profilo:', local.get('profile', 'realtime-hq-exact-t4-v10'))
+    local, selected = boot_with_fallback()
+    print('\nSONARA: WAN locale attiva.')
+    print('Recovery mode:', selected)
+    print('Profilo:', local.get('profile', 'kaggle-wan21'))
+
     stopped = stop_only_gpu1_tunnels()
     if stopped:
         print(f'SONARA: rimossi {stopped} tunnel GPU1 obsoleti; GPU0 musica non toccata.')
+
     proc, url = start_fresh_tunnel()
     public = verify_public(url, proc)
-    URL_FILE.write_text(f'GPU1={url}\n', encoding='utf-8')
+    URL_FILE.write_text(f'GPU1={url}\nMODE={selected}\n', encoding='utf-8')
+
     print()
-    print('✅ GPU1 VIDEO TUNNEL RIPRISTINATO')
+    print('✅ GPU1 VIDEO TUNNEL RIPRISTINATO E VERIFICATO')
     print(f'GPU1={url}')
-    print('Profilo:', public.get('profile', 'WAN V10'))
+    print('MODE=' + selected)
+    print('Profilo:', public.get('profile', 'WAN'))
+    print('Google/Gemini non vengono usati da questa recovery.')
     print('Il tunnel resta attivo in background. Non chiudere la sessione Kaggle.')
 
 
