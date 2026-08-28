@@ -18,25 +18,26 @@ function generateRequest(body = {}) {
 assert.equal(isVideoApiRequest(generateRequest()), true);
 assert.equal(isVideoApiRequest(new Request('https://sonaraenterprise.com/api/billing/generate')), false);
 
+// Generic upstream retry behavior remains available when zero-cost preflight is disabled.
 {
   let upstreamCalls = 0;
   const response = await recoverVideoApi(generateRequest(), {
+    env: { SONARA_ZERO_COST_VIDEO: 'false' },
     waiter: async () => {},
     fetcher: async input => {
       const url = new URL(typeof input === 'string' ? input : input.url);
       upstreamCalls += 1;
-      if (upstreamCalls === 1) return new Response('<html>bad gateway</html>', { status: 502, headers: { 'content-type': 'text/html' } });
       assert.equal(url.hostname, 'sonara-enterprise-sonaramusicai86-2765s-projects.vercel.app');
+      if (upstreamCalls === 1) return new Response('<html>bad gateway</html>', { status: 502, headers: { 'content-type': 'text/html' } });
       return new Response(JSON.stringify({ jobId: 'video-job-1', status: 'PROCESSING' }), { status: 202, headers: { 'content-type': 'application/json' } });
     }
   });
   assert.equal(upstreamCalls, 2);
   assert.equal(response.status, 503);
   assert.equal(response.headers.get('x-sonara-video-recovery'), 'cloudflare-video-json-v3');
-  const payload = await response.json();
-  assert.equal(payload.error.code, 'ZERO_COST_VIDEO_WORKER_UNAVAILABLE');
 }
 
+// Healthy WAN: preflight succeeds, Vercel performs auth/credits, WAN starts, Google is never called.
 {
   const env = {
     SONARA_VIDEO_WORKER_URL: 'https://wan.example.test',
@@ -45,6 +46,8 @@ assert.equal(isVideoApiRequest(new Request('https://sonaraenterprise.com/api/bil
     GEMINI_API_KEY: 'must-never-be-called'
   };
   let geminiCalls = 0;
+  let vercelCalls = 0;
+  let healthCalls = 0;
   let wanStartCalls = 0;
   const started = await recoverVideoApi(generateRequest(), {
     env,
@@ -55,12 +58,14 @@ assert.equal(isVideoApiRequest(new Request('https://sonaraenterprise.com/api/bil
         throw new Error('Gemini must not be called in zero-cost mode');
       }
       if (url.hostname.includes('vercel.app')) {
+        vercelCalls += 1;
         return new Response(JSON.stringify({ jobId: 'real-job-123', status: 'PROCESSING', progress: 3 }), {
           status: 202,
           headers: { 'content-type': 'application/json' }
         });
       }
       if (url.pathname === '/health') {
+        healthCalls += 1;
         return new Response(JSON.stringify({ status: 'ok', provider: 'kaggle-wan21', model: 'Wan-AI/Wan2.1-T2V-1.3B-Diffusers' }), {
           status: 200,
           headers: { 'content-type': 'application/json' }
@@ -80,6 +85,8 @@ assert.equal(isVideoApiRequest(new Request('https://sonaraenterprise.com/api/bil
     }
   });
   assert.equal(geminiCalls, 0);
+  assert.equal(vercelCalls, 1);
+  assert.equal(healthCalls, 2);
   assert.equal(wanStartCalls, 1);
   assert.equal(started.status, 202);
   assert.equal(started.headers.get('x-sonara-video-provider'), 'kaggle-wan21');
@@ -136,6 +143,7 @@ assert.equal(isVideoApiRequest(new Request('https://sonaraenterprise.com/api/bil
   assert.equal(media.headers.get('x-sonara-video-provider'), 'kaggle-wan21');
 }
 
+// Offline WAN: stop before Vercel, reserve no SONARA credits, and never touch Google even if Gemini is configured.
 {
   const env = {
     SONARA_VIDEO_WORKER_URL: 'https://wan.example.test',
@@ -145,14 +153,13 @@ assert.equal(isVideoApiRequest(new Request('https://sonaraenterprise.com/api/bil
     SONARA_ENABLE_GEMINI_VIDEO: 'true'
   };
   let geminiCalls = 0;
+  let vercelCalls = 0;
   const response = await recoverVideoApi(generateRequest(), {
     env,
     fetcher: async input => {
       const url = new URL(typeof input === 'string' ? input : input.url);
       if (url.hostname.includes('generativelanguage.googleapis.com')) geminiCalls += 1;
-      if (url.hostname.includes('vercel.app')) {
-        return new Response(JSON.stringify({ jobId: 'guard-job', status: 'PROCESSING' }), { status: 202, headers: { 'content-type': 'application/json' } });
-      }
+      if (url.hostname.includes('vercel.app')) vercelCalls += 1;
       if (url.pathname === '/health') {
         return new Response(JSON.stringify({ status: 'offline', provider: 'kaggle-wan21' }), { status: 503, headers: { 'content-type': 'application/json' } });
       }
@@ -160,29 +167,33 @@ assert.equal(isVideoApiRequest(new Request('https://sonaraenterprise.com/api/bil
     }
   });
   assert.equal(geminiCalls, 0);
+  assert.equal(vercelCalls, 0);
   assert.equal(response.status, 503);
   const payload = await response.json();
   assert.equal(payload.error.code, 'ZERO_COST_VIDEO_WORKER_UNAVAILABLE');
   assert.equal(payload.zeroCost, true);
+  assert.equal(payload.creditsReserved, false);
 }
 
+// Unsupported long request: stop before Vercel and Google.
 {
   let googleCalls = 0;
+  let vercelCalls = 0;
   const response = await recoverVideoApi(generateRequest({ durationSeconds: 60 }), {
     env: { SONARA_ZERO_COST_VIDEO: 'true', GEMINI_API_KEY: 'must-never-be-called' },
     fetcher: async input => {
       const url = new URL(typeof input === 'string' ? input : input.url);
       if (url.hostname.includes('generativelanguage.googleapis.com')) googleCalls += 1;
-      return new Response(JSON.stringify({ jobId: 'long-job', status: 'PROCESSING' }), {
-        status: 202,
-        headers: { 'content-type': 'application/json' }
-      });
+      if (url.hostname.includes('vercel.app')) vercelCalls += 1;
+      throw new Error(`No network call expected, got ${url}`);
     }
   });
   assert.equal(googleCalls, 0);
+  assert.equal(vercelCalls, 0);
   assert.equal(response.status, 503);
   const payload = await response.json();
   assert.equal(payload.error.code, 'ZERO_COST_VIDEO_LIMIT');
+  assert.equal(payload.creditsReserved, false);
 }
 
 {
@@ -205,4 +216,4 @@ assert.equal(isVideoApiRequest(new Request('https://sonaraenterprise.com/api/bil
   assert.equal(payload.geminiEnabled, false);
 }
 
-console.log('SONARA Video AI recovery v3 test passed: Kaggle WAN is preferred, zero-cost guard blocks Gemini, and Google is never called when free mode is active.');
+console.log('SONARA Video AI recovery v3 test passed: WAN preflight prevents Vercel credit reservation when unavailable and Google is never called in zero-cost mode.');
