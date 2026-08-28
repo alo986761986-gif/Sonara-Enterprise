@@ -17,6 +17,10 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      VERCEL_ORG_ID: team_d9jPexmsm0saAlZPAznj0TTy
+      VERCEL_PROJECT_ID: prj_mbAUXtVS9ecRbl0yAZfeR3WA66TZ
+
     steps:
       - name: Checkout SONARA
         uses: actions/checkout@v6
@@ -26,27 +30,45 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Validate Firebase credentials
-        env:
-          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
-          FIREBASE_PROJECT_ID: ${{ secrets.SONARA_FIREBASE_PROJECT_ID || secrets.FIREBASE_PROJECT_ID }}
+      - name: Pull Firebase credentials from SONARA Vercel production
         shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          test -n "${FIREBASE_SERVICE_ACCOUNT_JSON}"
-          test -n "${FIREBASE_PROJECT_ID}"
-          printf '%s' "${FIREBASE_SERVICE_ACCOUNT_JSON}" > /tmp/firebase-service-account.json
+          test -n "${VERCEL_TOKEN}"
+          npm install -g vercel@latest >/dev/null
+          mkdir -p .vercel
+          printf '%s\n' '{"orgId":"team_d9jPexmsm0saAlZPAznj0TTy","projectId":"prj_mbAUXtVS9ecRbl0yAZfeR3WA66TZ"}' > .vercel/project.json
+          vercel env pull /tmp/sonara-production.env --environment=production --yes --token="${VERCEL_TOKEN}" >/dev/null
+          set -a
+          source /tmp/sonara-production.env
+          set +a
+          firebase_project_id="${SONARA_FIREBASE_PROJECT_ID:-${FIREBASE_PROJECT_ID:-${VITE_FIREBASE_PROJECT_ID:-}}}"
+          firebase_service_account="${FIREBASE_SERVICE_ACCOUNT_JSON:-}"
+          if [[ -z "${firebase_project_id}" ]]; then
+            echo "Firebase project ID missing from Vercel production environment." >&2
+            exit 1
+          fi
+          if [[ -z "${firebase_service_account}" ]]; then
+            echo "FIREBASE_SERVICE_ACCOUNT_JSON missing from Vercel production environment." >&2
+            exit 1
+          fi
+          printf '%s' "${firebase_service_account}" > /tmp/firebase-service-account.json
+          node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('/tmp/firebase-service-account.json','utf8')); if(!p.project_id||!p.client_email||!p.private_key) process.exit(1);"
+          echo "::add-mask::${firebase_project_id}"
           echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/firebase-service-account.json" >> "${GITHUB_ENV}"
-          echo "FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID}" >> "${GITHUB_ENV}"
+          echo "FIREBASE_PROJECT_ID=${firebase_project_id}" >> "${GITHUB_ENV}"
+          rm -f /tmp/sonara-production.env
 
       - name: Validate Storage rules locally
         shell: bash
         run: |
           set -euo pipefail
-          grep -q "match /video-ai-inputs/{uid}/{allPaths=**}" storage.rules
-          grep -q "request.auth.uid == uid" storage.rules
-          grep -q "request.resource.contentType.matches('audio/.*')" storage.rules
-          grep -q '"rules": "storage.rules"' firebase.json
+          grep -Fq "match /video-ai-inputs/{uid}/{allPaths=**}" storage.rules
+          grep -Fq "request.auth.uid == uid" storage.rules
+          grep -Fq "request.resource.contentType.matches('audio/.*')" storage.rules
+          grep -Fq '"rules": "storage.rules"' firebase.json
 
       - name: Deploy Firebase Storage rules
         shell: bash
@@ -54,6 +76,6 @@ jobs:
           set -euo pipefail
           npx --yes firebase-tools@latest deploy --only storage --project "${FIREBASE_PROJECT_ID}" --non-interactive
 
-      - name: Cleanup credential file
+      - name: Cleanup credential files
         if: always()
-        run: rm -f /tmp/firebase-service-account.json
+        run: rm -f /tmp/firebase-service-account.json /tmp/sonara-production.env
