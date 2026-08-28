@@ -1,2 +1,3 @@
-trigger: resilient-dual-t4-submit-and-health-20260828
-reason: deploy JSON-safe allSettled T4 submit fallback, runtime worker health exposure and ACE-Step nested result parsing
+trigger: hardened-json-safe-generation-health-20260828-1044
+reason: deploy HTTP 500 recovery, guarded dual T4 generation and stable v16 Kaggle health metadata
+source-commits: 5f262928379e9027a7f08e0246407e181c0768dc, cc9183eac093c255b9eafa2645c4df0a8e42f35c
