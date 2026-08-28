@@ -1,0 +1,3 @@
+trigger: video-ai-production
+source: f77383b
+features: prompt-controls,studio-120s,multiscene-transcoder
