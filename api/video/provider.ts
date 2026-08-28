@@ -7,6 +7,15 @@ export type SonaraVideoProvider = 'gemini' | 'vertex';
 
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const VERTEX_LOCATION = 'us-central1';
+const GEMINI_MEDIA_CACHE_TTL_MS = 60_000;
+const GEMINI_MEDIA_CACHE_MAX_ENTRIES = 48;
+
+type GeminiLoadedReference = { bytesBase64Encoded: string; mimeType: string };
+type GeminiMediaCacheEntry = { expiresAt: number; value: Promise<GeminiLoadedReference> };
+type VertexAccessTokenCache = { accessToken: string; expiresAt: number };
+
+const geminiMediaCache = new Map<string, GeminiMediaCacheEntry>();
+let vertexTokenCache: VertexAccessTokenCache | null = null;
 
 function geminiApiKey() {
   return String(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '').trim();
@@ -27,10 +36,14 @@ function hasVertexCredential(app: App) {
 }
 
 async function vertexAccessToken(app: App) {
+  const now = Date.now();
+  if (vertexTokenCache && vertexTokenCache.expiresAt > now + 60_000) return vertexTokenCache.accessToken;
   const credential = vertexCredential(app);
   if (!credential) throw new Error('Google service account credential non disponibile.');
   const token = await credential.getAccessToken();
   if (!token?.access_token) throw new Error('Impossibile ottenere un access token Google Cloud.');
+  const expiresInSeconds = Math.max(60, Number(token.expires_in || 3600));
+  vertexTokenCache = { accessToken: token.access_token, expiresAt: now + Math.max(30, expiresInSeconds - 60) * 1000 };
   return token.access_token;
 }
 
@@ -68,10 +81,7 @@ export function videoModelForPlan(planId: SonaraPlanId, provider: SonaraVideoPro
   return SONARA_PLANS[planId].videoModelTier === 'lite' ? 'veo-3.1-lite-generate-preview' : 'veo-3.1-fast-generate-preview';
 }
 
-export type SonaraVideoReferenceImage = {
-  storagePath: string;
-  contentType?: string;
-};
+export type SonaraVideoReferenceImage = { storagePath: string; contentType?: string };
 
 export interface StartVideoProviderInput {
   app: App;
@@ -85,11 +95,7 @@ export interface StartVideoProviderInput {
   referenceImages?: SonaraVideoReferenceImage[];
 }
 
-export interface StartedVideoProviderJob {
-  provider: SonaraVideoProvider;
-  model: string;
-  operationName: string;
-}
+export interface StartedVideoProviderJob { provider: SonaraVideoProvider; model: string; operationName: string }
 
 function safeReferenceImages(input: StartVideoProviderInput) {
   return (Array.isArray(input.referenceImages) ? input.referenceImages : [])
@@ -98,29 +104,44 @@ function safeReferenceImages(input: StartVideoProviderInput) {
     .map(item => ({ storagePath: item.storagePath.trim(), contentType: String(item.contentType || 'image/jpeg').trim() || 'image/jpeg' }));
 }
 
+function pruneGeminiMediaCache(now: number) {
+  if (geminiMediaCache.size < GEMINI_MEDIA_CACHE_MAX_ENTRIES) return;
+  for (const [key, entry] of geminiMediaCache) if (entry.expiresAt <= now) geminiMediaCache.delete(key);
+  if (geminiMediaCache.size < GEMINI_MEDIA_CACHE_MAX_ENTRIES) return;
+  const oldestKey = geminiMediaCache.keys().next().value;
+  if (typeof oldestKey === 'string') geminiMediaCache.delete(oldestKey);
+}
+
+async function loadGeminiReference(input: StartVideoProviderInput, item: { storagePath: string; contentType: string }): Promise<GeminiLoadedReference> {
+  const now = Date.now();
+  const key = `${input.bucketName}:${item.storagePath}:${item.contentType}`;
+  const cached = geminiMediaCache.get(key);
+  if (cached && cached.expiresAt > now) return cached.value;
+  if (cached) geminiMediaCache.delete(key);
+  pruneGeminiMediaCache(now);
+  const bucket = getStorage(input.app).bucket(input.bucketName);
+  const value = bucket.file(item.storagePath).download().then(([bytes]) => ({ bytesBase64Encoded: bytes.toString('base64'), mimeType: item.contentType }));
+  geminiMediaCache.set(key, { expiresAt: now + GEMINI_MEDIA_CACHE_TTL_MS, value });
+  try { return await value; }
+  catch (cause) {
+    const active = geminiMediaCache.get(key);
+    if (active?.value === value) geminiMediaCache.delete(key);
+    throw cause;
+  }
+}
+
 async function geminiMedia(input: StartVideoProviderInput) {
   const refs = safeReferenceImages(input);
   if (!refs.length) return {};
-  const bucket = getStorage(input.app).bucket(input.bucketName);
-  const loaded: Array<{ bytesBase64Encoded: string; mimeType: string }> = [];
-  for (const item of refs) {
-    const [bytes] = await bucket.file(item.storagePath).download();
-    loaded.push({ bytesBase64Encoded: bytes.toString('base64'), mimeType: item.contentType });
-  }
-  return {
-    image: loaded[0],
-    ...(loaded.length > 1 ? { referenceImages: loaded.slice(1).map(image => ({ image, referenceType: 'asset' })) } : {})
-  };
+  const loaded = await Promise.all(refs.map(item => loadGeminiReference(input, item)));
+  return { image: loaded[0], ...(loaded.length > 1 ? { referenceImages: loaded.slice(1).map(image => ({ image, referenceType: 'asset' })) } : {}) };
 }
 
 function vertexMedia(input: StartVideoProviderInput) {
   const refs = safeReferenceImages(input);
   if (!refs.length) return {};
   const loaded = refs.map(item => ({ gcsUri: `gs://${input.bucketName}/${item.storagePath}`, mimeType: item.contentType }));
-  return {
-    image: loaded[0],
-    ...(loaded.length > 1 ? { referenceImages: loaded.slice(1).map(image => ({ image, referenceType: 'asset' })) } : {})
-  };
+  return { image: loaded[0], ...(loaded.length > 1 ? { referenceImages: loaded.slice(1).map(image => ({ image, referenceType: 'asset' })) } : {}) };
 }
 
 export async function startVideoProvider(input: StartVideoProviderInput): Promise<StartedVideoProviderJob> {
@@ -132,18 +153,9 @@ export async function startVideoProvider(input: StartVideoProviderInput): Promis
   if (provider === 'gemini') {
     const media = await geminiMedia(input);
     const response = await fetch(`${GEMINI_BASE_URL}/models/${encodeURIComponent(model)}:predictLongRunning`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey() },
-      body: JSON.stringify({
-        instances: [{ prompt: input.prompt, ...media }],
-        parameters: {
-          numberOfVideos: 1,
-          aspectRatio: input.aspectRatio,
-          resolution: input.resolution,
-          durationSeconds: '8',
-          ...(negativePrompt ? { negativePrompt } : {})
-        }
-      })
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey() },
+      body: JSON.stringify({ instances: [{ prompt: input.prompt, ...media }], parameters: { numberOfVideos: 1, aspectRatio: input.aspectRatio, resolution: input.resolution, durationSeconds: '8', ...(negativePrompt ? { negativePrompt } : {}) } }),
+      cache: 'no-store', signal: AbortSignal.timeout(20_000)
     });
     const payload = await providerJson(response, 'Gemini Video API');
     if (!response.ok || !payload?.name) throw new Error(String(payload?.error?.message || `Gemini Video API HTTP ${response.status}`));
@@ -156,114 +168,56 @@ export async function startVideoProvider(input: StartVideoProviderInput): Promis
   const endpoint = `https://${VERTEX_LOCATION}-aiplatform.googleapis.com/v1/projects/${encodeURIComponent(id)}/locations/${VERTEX_LOCATION}/publishers/google/models/${encodeURIComponent(model)}:predictLongRunning`;
   const media = vertexMedia(input);
   const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({
-      instances: [{ prompt: input.prompt, ...media }],
-      parameters: {
-        aspectRatio: input.aspectRatio,
-        durationSeconds: 8,
-        resolution: input.resolution,
-        sampleCount: 1,
-        storageUri,
-        ...(negativePrompt ? { negativePrompt } : {})
-      }
-    })
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ instances: [{ prompt: input.prompt, ...media }], parameters: { aspectRatio: input.aspectRatio, durationSeconds: 8, resolution: input.resolution, sampleCount: 1, storageUri, ...(negativePrompt ? { negativePrompt } : {}) } }),
+    cache: 'no-store', signal: AbortSignal.timeout(20_000)
   });
   const payload = await providerJson(response, 'Vertex AI Video');
   if (!response.ok || !payload?.name) throw new Error(String(payload?.error?.message || `Vertex AI Video HTTP ${response.status}`));
   return { provider, model, operationName: String(payload.name) };
 }
 
-export interface PollVideoProviderInput {
-  app: App;
-  provider: SonaraVideoProvider;
-  model: string;
-  operationName: string;
-}
+export interface PollVideoProviderInput { app: App; provider: SonaraVideoProvider; model: string; operationName: string }
+export interface PolledVideoProviderJob { done: boolean; error?: string; uri?: string }
 
-export interface PolledVideoProviderJob {
-  done: boolean;
-  error?: string;
-  uri?: string;
-}
-
-function stringValue(value: unknown) {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function generatedSampleUri(value: any) {
-  if (typeof value === 'string') return value.trim();
-  return stringValue(value?.video?.uri || value?.video?.gcsUri || value?.uri || value?.gcsUri);
-}
+function stringValue(value: unknown) { return typeof value === 'string' ? value.trim() : '' }
+function generatedSampleUri(value: any) { return typeof value === 'string' ? value.trim() : stringValue(value?.video?.uri || value?.video?.gcsUri || value?.uri || value?.gcsUri) }
 
 function readVideoUri(operation: any) {
   const response = operation?.response || {};
   const nested = response?.generateVideoResponse || {};
-  const candidates = [
-    response?.videos?.[0]?.gcsUri,
-    response?.videos?.[0]?.uri,
-    response?.generatedVideos?.[0]?.video?.uri,
-    response?.generatedVideos?.[0]?.video?.gcsUri,
-    response?.result?.generatedVideos?.[0]?.video?.uri,
-    generatedSampleUri(response?.generatedSamples?.[0]),
-    generatedSampleUri(nested?.generatedSamples?.[0]),
-    nested?.videos?.[0]?.gcsUri,
-    nested?.videos?.[0]?.uri
-  ];
-  for (const candidate of candidates) {
-    const uri = stringValue(candidate);
-    if (uri) return uri;
-  }
+  const candidates = [response?.videos?.[0]?.gcsUri, response?.videos?.[0]?.uri, response?.generatedVideos?.[0]?.video?.uri, response?.generatedVideos?.[0]?.video?.gcsUri, response?.result?.generatedVideos?.[0]?.video?.uri, generatedSampleUri(response?.generatedSamples?.[0]), generatedSampleUri(nested?.generatedSamples?.[0]), nested?.videos?.[0]?.gcsUri, nested?.videos?.[0]?.uri];
+  for (const candidate of candidates) { const uri = stringValue(candidate); if (uri) return uri; }
   return '';
 }
 
 function completedWithoutVideoMessage(operation: any) {
   const response = operation?.response || {};
   const nested = response?.generateVideoResponse || {};
-  const reasons = [
-    ...(Array.isArray(response?.raiMediaFilteredReasons) ? response.raiMediaFilteredReasons : []),
-    ...(Array.isArray(nested?.raiMediaFilteredReasons) ? nested.raiMediaFilteredReasons : [])
-  ].map((item: unknown) => stringValue(item)).filter(Boolean);
+  const reasons = [...(Array.isArray(response?.raiMediaFilteredReasons) ? response.raiMediaFilteredReasons : []), ...(Array.isArray(nested?.raiMediaFilteredReasons) ? nested.raiMediaFilteredReasons : [])].map((item: unknown) => stringValue(item)).filter(Boolean);
   const filteredCount = Math.max(Number(response?.raiMediaFilteredCount || 0), Number(nested?.raiMediaFilteredCount || 0));
   const raiMessage = stringValue(response?.raiErrorMessage || nested?.raiErrorMessage || response?.raiTextFilteredReason?.reason || nested?.raiTextFilteredReason?.reason);
-  if (filteredCount > 0 || reasons.length || raiMessage) {
-    const detail = raiMessage || reasons.join('; ');
-    return `Veo ha filtrato il risultato della scena${detail ? `: ${detail}` : ' per i controlli di sicurezza'}.`;
-  }
+  if (filteredCount > 0 || reasons.length || raiMessage) { const detail = raiMessage || reasons.join('; '); return `Veo ha filtrato il risultato della scena${detail ? `: ${detail}` : ' per i controlli di sicurezza'}.`; }
   return 'Il provider ha completato il job senza restituire il file video.';
 }
 
 export async function pollVideoProvider(input: PollVideoProviderInput): Promise<PolledVideoProviderJob> {
   let response: Response;
   if (input.provider === 'gemini') {
-    response = await fetch(`${GEMINI_BASE_URL}/${input.operationName}`, { headers: { 'x-goog-api-key': geminiApiKey() }, cache: 'no-store' });
+    response = await fetch(`${GEMINI_BASE_URL}/${input.operationName}`, { headers: { 'x-goog-api-key': geminiApiKey() }, cache: 'no-store', signal: AbortSignal.timeout(12_000) });
   } else {
     const token = await vertexAccessToken(input.app);
     const id = projectId(input.app);
     const endpoint = `https://${VERTEX_LOCATION}-aiplatform.googleapis.com/v1/projects/${encodeURIComponent(id)}/locations/${VERTEX_LOCATION}/publishers/google/models/${encodeURIComponent(input.model)}:fetchPredictOperation`;
-    response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ operationName: input.operationName }),
-      cache: 'no-store'
-    });
+    response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ operationName: input.operationName }), cache: 'no-store', signal: AbortSignal.timeout(12_000) });
   }
-
   const operation = await providerJson(response, input.provider === 'gemini' ? 'Gemini Video operation' : 'Vertex Video operation');
   if (!response.ok) throw new Error(String(operation?.error?.message || `Video operation HTTP ${response.status}`));
   if (!operation.done) return { done: false };
   if (operation.error) return { done: true, error: String(operation.error?.message || 'Generazione video interrotta dal provider.') };
   const uri = readVideoUri(operation);
   if (!uri) {
-    console.warn('[SONARA VIDEO] completed provider operation missing video', {
-      provider: input.provider,
-      model: input.model,
-      operationName: input.operationName,
-      responseKeys: Object.keys(operation?.response || {}),
-      raiMediaFilteredCount: Number(operation?.response?.raiMediaFilteredCount || 0),
-      raiMediaFilteredReasons: operation?.response?.raiMediaFilteredReasons || []
-    });
+    console.warn('[SONARA VIDEO] completed provider operation missing video', { provider: input.provider, model: input.model, operationName: input.operationName, responseKeys: Object.keys(operation?.response || {}), raiMediaFilteredCount: Number(operation?.response?.raiMediaFilteredCount || 0), raiMediaFilteredReasons: operation?.response?.raiMediaFilteredReasons || [] });
     return { done: true, error: completedWithoutVideoMessage(operation) };
   }
   return { done: true, uri };
@@ -273,7 +227,6 @@ export async function persistProviderVideo(app: App, bucketName: string, userId:
   const token = randomUUID();
   const bucket = getStorage(app).bucket(bucketName);
   const finalPath = finalPathOverride || `generated-videos/${userId}/${jobId}.mp4`;
-
   if (uri.startsWith('gs://')) {
     const withoutScheme = uri.slice(5);
     const slash = withoutScheme.indexOf('/');
@@ -282,20 +235,15 @@ export async function persistProviderVideo(app: App, bucketName: string, userId:
     if (!sourcePath) throw new Error('URI Google Cloud Storage video non valido.');
     const sourceBucket = getStorage(app).bucket(sourceBucketName);
     const sourceFile = sourceBucket.file(sourcePath);
-    if (sourceBucketName === bucketName && sourcePath === finalPath) {
-      await sourceFile.setMetadata({ contentType: 'video/mp4', cacheControl: 'private,max-age=3600', metadata: { firebaseStorageDownloadTokens: token } });
-    } else {
-      await sourceFile.copy(bucket.file(finalPath));
-      await bucket.file(finalPath).setMetadata({ contentType: 'video/mp4', cacheControl: 'private,max-age=3600', metadata: { firebaseStorageDownloadTokens: token } });
-    }
+    if (sourceBucketName === bucketName && sourcePath === finalPath) await sourceFile.setMetadata({ contentType: 'video/mp4', cacheControl: 'private,max-age=3600', metadata: { firebaseStorageDownloadTokens: token } });
+    else { await sourceFile.copy(bucket.file(finalPath)); await bucket.file(finalPath).setMetadata({ contentType: 'video/mp4', cacheControl: 'private,max-age=3600', metadata: { firebaseStorageDownloadTokens: token } }); }
   } else {
     const headers: Record<string, string> = {};
     if (geminiApiKey()) headers['x-goog-api-key'] = geminiApiKey();
-    const response = await fetch(uri, { headers, redirect: 'follow' });
+    const response = await fetch(uri, { headers, redirect: 'follow', signal: AbortSignal.timeout(30_000) });
     if (!response.ok) throw new Error(`Download video provider HTTP ${response.status}`);
     const bytes = Buffer.from(await response.arrayBuffer());
     await bucket.file(finalPath).save(bytes, { resumable: false, contentType: 'video/mp4', metadata: { cacheControl: 'private,max-age=3600', metadata: { firebaseStorageDownloadTokens: token } } });
   }
-
   return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucketName)}/o/${encodeURIComponent(finalPath)}?alt=media&token=${encodeURIComponent(token)}`;
 }
