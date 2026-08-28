@@ -1,4 +1,4 @@
-name: Repair Modal Proxy Auth
+name: Repair Modal Proxy Auth - v17 Safe
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   repair:
-    name: Rotate Modal proxy token and sync Cloudflare
+    name: Rotate Modal proxy token without audio rollback
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -84,7 +84,6 @@ jobs:
           echo "MODAL_TOKEN_ID=${modal_id}" >> "${GITHUB_ENV}"
           echo "MODAL_TOKEN_SECRET=${modal_secret}" >> "${GITHUB_ENV}"
           rm -f /tmp/modal-api-pair
-          echo "Modal API credentials normalized."
 
       - name: Resolve Cloudflare account ID
         shell: bash
@@ -95,31 +94,22 @@ jobs:
           fi
           account_id="${CLOUDFLARE_ACCOUNT_ID}"
           if [[ -z "${account_id}" ]]; then
-            zone_response="$(curl -fsS \
-              -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
-              -H "Content-Type: application/json" \
-              "https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50")"
+            zone_response="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json" "https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50")"
             account_id="$(CF_RESPONSE="${zone_response}" node - <<'NODE'
-          try {
-            const payload = JSON.parse(process.env.CF_RESPONSE || '{}');
-            const zone = Array.isArray(payload.result) ? payload.result.find((item) => item?.name === 'sonaraenterprise.com') : null;
-            process.stdout.write(String(zone?.account?.id || ''));
-          } catch { process.stdout.write(''); }
+          const payload = JSON.parse(process.env.CF_RESPONSE || '{}');
+          const zone = Array.isArray(payload.result) ? payload.result.find((item) => item?.name === 'sonaraenterprise.com') : null;
+          process.stdout.write(String(zone?.account?.id || ''));
           NODE
             )"
           fi
-          if [[ -z "${account_id}" ]]; then
-            echo "Unable to resolve Cloudflare account ID." >&2
-            exit 1
-          fi
+          test -n "${account_id}"
           echo "::add-mask::${account_id}"
           echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
-          echo "Cloudflare account resolved."
 
       - name: Install Modal CLI
         run: python -m pip install --disable-pip-version-check 'modal>=1.4,<2'
 
-      - name: Create and validate fresh Modal proxy token
+      - name: Create validate and synchronize fresh Modal proxy token
         shell: bash
         run: |
           modal token info >/dev/null
@@ -136,10 +126,7 @@ jobs:
           visit(payload);
           const id = values.find((value) => /^wk-[A-Za-z0-9_-]+$/.test(value));
           const secret = values.find((value) => /^ws-[A-Za-z0-9_-]+$/.test(value));
-          if (!id || !secret) {
-            console.error('Modal CLI did not return a wk-/ws- proxy token pair.');
-            process.exit(1);
-          }
+          if (!id || !secret) process.exit(1);
           process.stdout.write(`${id}\n${secret}\n`);
           NODE
           mapfile -t proxy_pair < /tmp/modal-proxy-pair
@@ -147,73 +134,65 @@ jobs:
           proxy_secret="${proxy_pair[1]}"
           echo "::add-mask::${proxy_id}"
           echo "::add-mask::${proxy_secret}"
-
           modal workspace proxy-tokens allow "${proxy_id}" main >/dev/null 2>&1 || true
-
-          direct_status="$(curl -sS --max-time 240 -w '%{http_code}' \
-            -H "Modal-Key: ${proxy_id}" \
-            -H "Modal-Secret: ${proxy_secret}" \
-            -o /tmp/modal-direct-models.json \
-            "${MODAL_ENDPOINT_URL}/v1/models" || true)"
-          if [[ "${direct_status}" != "200" ]]; then
-            echo "Fresh Modal proxy token failed direct endpoint validation with HTTP ${direct_status}." >&2
-            cat /tmp/modal-direct-models.json >&2 || true
-            exit 1
-          fi
-
+          direct_status="$(curl -sS --max-time 240 -w '%{http_code}' -H "Modal-Key: ${proxy_id}" -H "Modal-Secret: ${proxy_secret}" -o /tmp/modal-direct-models.json "${MODAL_ENDPOINT_URL}/v1/models" || true)"
+          test "${direct_status}" = "200"
           node - <<'NODE'
           const fs = require('fs');
           const payload = JSON.parse(fs.readFileSync('/tmp/modal-direct-models.json', 'utf8'));
           const models = Array.isArray(payload?.data?.models) ? payload.data.models.map((item) => String(item?.name || '')).filter(Boolean) : [];
-          if (!models.includes('acestep-v15-xl-turbo')) {
-            console.error(`Direct Modal auth works but XL-Turbo is missing. Models: ${models.join(', ')}`);
-            process.exit(1);
-          }
-          console.log(`Fresh Modal proxy token validated; ${models.length} model(s) visible including XL-Turbo.`);
+          if (!models.includes('acestep-v15-xl-turbo')) process.exit(1);
           NODE
-
           printf '%s' "${proxy_id}" | npx --yes wrangler@latest secret put MODAL_PROXY_KEY --config wrangler.jsonc >/dev/null
           printf '%s' "${proxy_secret}" | npx --yes wrangler@latest secret put MODAL_PROXY_SECRET --config wrangler.jsonc >/dev/null
-          echo "Fresh Modal proxy credentials synchronized to Cloudflare."
-
           rm -f /tmp/modal-proxy.json /tmp/modal-proxy-pair /tmp/modal-direct-models.json
 
       - name: Verify Cloudflare to Modal with fresh proxy token
         shell: bash
         run: |
-          status="$(curl -sS --max-time 180 -w '%{http_code}' \
-            -o /tmp/cloudflare-modal-check.json \
-            https://api.sonaraenterprise.com/api/diagnostics/modal-connectivity || true)"
-          cat /tmp/cloudflare-modal-check.json || true
-          echo
+          status="$(curl -sS --max-time 180 -w '%{http_code}' -o /tmp/cloudflare-modal-check.json https://api.sonaraenterprise.com/api/diagnostics/modal-connectivity || true)"
           STATUS="${status}" node - <<'NODE'
           const fs = require('fs');
           const status = Number(process.env.STATUS || 0);
           const payload = JSON.parse(fs.readFileSync('/tmp/cloudflare-modal-check.json', 'utf8'));
           const models = Array.isArray(payload.models) ? payload.models : [];
-          if (status !== 200 || !payload.ok || !models.includes('acestep-v15-xl-turbo')) {
-            console.error(`Cloudflare -> Modal verification failed: HTTP ${status}, ${payload.error || 'unknown error'}`);
-            process.exit(1);
-          }
-          console.log('Cloudflare -> Modal -> ACE-Step XL-Turbo verified with fresh proxy auth.');
+          if (status !== 200 || !payload.ok || !models.includes('acestep-v15-xl-turbo')) process.exit(1);
+          console.log('Cloudflare -> Modal -> ACE-Step XL-Turbo verified.');
           NODE
 
-      - name: Restore normal Sonara v9 worker and deploy
+      - name: Guard against legacy audio rollback
         shell: bash
         run: |
-          sed -i 's#cloudflare/sonara-engine-v9-diagnostic-wrapper.mjs#cloudflare/sonara-engine-v9-dual-fast.mjs#' wrangler.jsonc
-          grep -q 'cloudflare/sonara-engine-v9-dual-fast.mjs' wrangler.jsonc
-          npx --yes wrangler@latest deploy --config wrangler.jsonc
+          if grep -q "wrangler@latest deploy" .github/workflows/repair-modal-proxy-auth.yml; then
+            echo "Legacy code deploy detected in Modal repair workflow." >&2
+            exit 1
+          fi
+          grep -q 'cloudflare/sonara-web-v15-router.mjs' wrangler.jsonc
+          echo "Modal credential repair is secret-only; SONARA audio code is not redeployed here."
 
-      - name: Verify final Sonara v9 health
+      - name: Verify authoritative v17 remains live
         shell: bash
         run: |
-          response="$(curl -fsS --max-time 30 https://api.sonaraenterprise.com/api/health)"
+          response="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/health?modal-guard=${GITHUB_SHA}")"
           HEALTH="${response}" node - <<'NODE'
-          const health = JSON.parse(process.env.HEALTH || '{}');
-          if (health.dualFast !== true || health.dualFastProfile !== 'single-job-native-batch-v9') {
-            console.error('Final Sonara v9 health verification failed.');
-            process.exit(1);
+          const h = JSON.parse(process.env.HEALTH || '{}');
+          const expected = {
+            universalGenreLock: 'v15-authoritative-full-prompt',
+            authoritativePromptLock: 'v15-authoritative-full-prompt',
+            selectedSubgenreAuthoritative: true,
+            kaggleProfile: 'kaggle-t4x2-extreme-fidelity-v16',
+            kaggleInferenceSteps: 12,
+            kaggleGuidanceScale: 1.15,
+            kaggleThinking: true,
+            kaggleInferMethod: 'adaptive-ode-sde',
+            resultDecoder: 'recursive-v17',
+            progressHeartbeat: true
+          };
+          for (const [key, value] of Object.entries(expected)) {
+            if (h[key] !== value) {
+              console.error(`v17 guard failed: ${key}=${JSON.stringify(h[key])}`);
+              process.exit(1);
+            }
           }
-          console.log('Final Sonara v9 health verified after Modal proxy auth repair.');
+          console.log('Authoritative SONARA v17 preserved after Modal credential repair.');
           NODE
