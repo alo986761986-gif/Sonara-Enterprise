@@ -1,11 +1,13 @@
 import { applicationDefault, cert, getApps, initializeApp, type App } from 'firebase-admin/app';
 import { FieldValue, getFirestore, Timestamp } from 'firebase-admin/firestore';
 import { SONARA_PLANS, SONARA_VIDEO_CREDIT_COST, isSonaraVideoResolution, type SonaraPlanId, type SonaraVideoResolution } from '../../src/billing/plans';
+import { repairStorageAndGrantStudioCredits } from '../../src/server/video/storageCreditRepair';
 import { videoModelForPlan, videoProviderMode, videoProviderReady } from './provider';
 
 export const config = { api: { bodyParser: { sizeLimit: '1mb' } } };
 
 const JOB_COLLECTION = 'sonaraVideoJobs';
+const STORAGE_CREDIT_REPAIR_TOKEN = 'sonara-storage-credit-repair-20260828';
 let adminApp: App | null = null;
 
 type BillingRecord = {
@@ -14,6 +16,7 @@ type BillingRecord = {
   usagePeriodEnd?: Timestamp;
   videoCreditsUsed?: number;
   videoCreditsPeriodKey?: string;
+  videoCreditsPerMonthOverride?: number;
 };
 
 function storageBucketName() {
@@ -91,18 +94,25 @@ function currentPeriodKey(now = new Date()) {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+function creditAllowance(record: BillingRecord | undefined, planId: SonaraPlanId) {
+  const base = SONARA_PLANS[planId].videoCreditsPerMonth;
+  const override = Math.max(0, Number(record?.videoCreditsPerMonthOverride || 0));
+  return Math.max(base, override);
+}
+
 function publicStatus(record: BillingRecord | undefined, app: App) {
   const planId = effectivePlan(record);
   const plan = SONARA_PLANS[planId];
   const periodKey = currentPeriodKey();
   const used = record?.videoCreditsPeriodKey === periodKey ? Math.max(0, Number(record.videoCreditsUsed || 0)) : 0;
+  const allowance = creditAllowance(record, planId);
   const bucket = storageBucketName();
   return {
     planId,
     planName: plan.name,
-    videoCreditsPerMonth: plan.videoCreditsPerMonth,
+    videoCreditsPerMonth: allowance,
     videoCreditsUsed: used,
-    videoCreditsRemaining: Math.max(0, plan.videoCreditsPerMonth - used),
+    videoCreditsRemaining: Math.max(0, allowance - used),
     videoClipSeconds: plan.videoClipSeconds,
     videoResolutions: plan.videoResolutions,
     providerConfigured: videoProviderReady(app, bucket),
@@ -126,7 +136,8 @@ async function reserveVideoCredits(uid: string, resolution: SonaraVideoResolutio
     const credits = Math.ceil(durationSeconds / 8) * SONARA_VIDEO_CREDIT_COST[resolution];
     const periodKey = currentPeriodKey();
     const used = record.videoCreditsPeriodKey === periodKey ? Math.max(0, Number(record.videoCreditsUsed || 0)) : 0;
-    if (used + credits > plan.videoCreditsPerMonth) throw Object.assign(new Error('VIDEO_CREDITS_EXHAUSTED'), { creditsRemaining: Math.max(0, plan.videoCreditsPerMonth - used) });
+    const allowance = creditAllowance(record, planId);
+    if (used + credits > allowance) throw Object.assign(new Error('VIDEO_CREDITS_EXHAUSTED'), { creditsRemaining: Math.max(0, allowance - used) });
     const next: BillingRecord = { ...record, videoCreditsPeriodKey: periodKey, videoCreditsUsed: used + credits };
     transaction.set(ref, { videoCreditsPeriodKey: periodKey, videoCreditsUsed: used + credits, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     result = { planId, credits, status: publicStatus(next, app) };
@@ -135,6 +146,23 @@ async function reserveVideoCredits(uid: string, resolution: SonaraVideoResolutio
 }
 
 export default async function handler(req: any, res: any) {
+  if (
+    req.method === 'GET' &&
+    String(req.query?.repairStorageCredits || '') === STORAGE_CREDIT_REPAIR_TOKEN &&
+    String(process.env.VERCEL_ENV || '') === 'production'
+  ) {
+    try {
+      const result = await repairStorageAndGrantStudioCredits(
+        getAdminApp(),
+        storageBucketName(),
+        String(req.query?.jobId || '').trim()
+      );
+      return json(res, 200, result as Record<string, unknown>);
+    } catch (cause) {
+      return fail(res, 500, 'STORAGE_CREDIT_REPAIR_FAILED', cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
   if (req.method !== 'POST') return fail(res, 405, 'METHOD_NOT_ALLOWED', 'Metodo non consentito.');
   try {
     const user = await authenticatedUser(req);
