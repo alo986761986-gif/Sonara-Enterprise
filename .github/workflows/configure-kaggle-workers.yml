@@ -97,40 +97,12 @@ jobs:
           echo "GPU0 ACE-Step endpoint is not healthy." >&2
           exit 1
 
-      - name: Verify GPU1 WAN Video AI health
-        shell: bash
-        run: |
-          set -euo pipefail
-          for attempt in {1..36}; do
-            if response="$(curl -fsS --connect-timeout 10 --max-time 20 "${KAGGLE_GPU1_URL}/health" 2>/dev/null)"; then
-              printf '%s' "${response}" > /tmp/wan-health.json
-              if node - <<'NODE'
-          const fs = require('fs');
-          const h = JSON.parse(fs.readFileSync('/tmp/wan-health.json', 'utf8'));
-          const ok = String(h.status || '').toLowerCase() === 'ok' && String(h.provider || '').includes('wan');
-          console.log(JSON.stringify(h));
-          process.exit(ok ? 0 : 1);
-          NODE
-              then
-                echo "GPU1 WAN Video AI healthy: ${KAGGLE_GPU1_URL}"
-                exit 0
-              fi
-            fi
-            echo "GPU1 WAN not ready (${attempt}/36)."
-            sleep 5
-          done
-          echo "GPU1 is not running the SONARA WAN Video worker. Cloudflare bindings left unchanged." >&2
-          exit 1
-
-      - name: Bind GPU0 to music and GPU1 to video
+      - name: Bind GPU0 to ACE-Step music immediately
         shell: bash
         run: |
           set -euo pipefail
           printf '%s' "${KAGGLE_GPU0_URL}" | npx --yes wrangler@latest secret put ACESTEP_WORKER_URLS --config wrangler.jsonc
-          printf '%s' "${KAGGLE_GPU1_URL}" | npx --yes wrangler@latest secret put SONARA_VIDEO_WORKER_URL --config wrangler.jsonc
-          printf '%s' "true" | npx --yes wrangler@latest secret put SONARA_ZERO_COST_VIDEO --config wrangler.jsonc
-          printf '%s' "false" | npx --yes wrangler@latest secret put SONARA_ENABLE_GEMINI_VIDEO --config wrangler.jsonc
-          echo "Cloudflare configured: GPU0=music, GPU1=zero-cost WAN video, Gemini video disabled."
+          echo "Cloudflare music binding updated independently from Video AI."
 
       - name: Verify SONARA production music uses GPU0
         shell: bash
@@ -157,6 +129,40 @@ jobs:
           done
           echo "Music production did not report GPU0." >&2
           exit 1
+
+      - name: Verify GPU1 WAN Video AI health
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..36}; do
+            if response="$(curl -fsS --connect-timeout 10 --max-time 20 "${KAGGLE_GPU1_URL}/health" 2>/dev/null)"; then
+              printf '%s' "${response}" > /tmp/wan-health.json
+              if node - <<'NODE'
+          const fs = require('fs');
+          const h = JSON.parse(fs.readFileSync('/tmp/wan-health.json', 'utf8'));
+          const ok = String(h.status || '').toLowerCase() === 'ok' && String(h.provider || '').includes('wan');
+          console.log(JSON.stringify(h));
+          process.exit(ok ? 0 : 1);
+          NODE
+              then
+                echo "GPU1 WAN Video AI healthy: ${KAGGLE_GPU1_URL}"
+                exit 0
+              fi
+            fi
+            echo "GPU1 WAN not ready (${attempt}/36)."
+            sleep 5
+          done
+          echo "GPU1 is not running the SONARA WAN Video worker. Music remains bound to GPU0." >&2
+          exit 1
+
+      - name: Bind GPU1 to zero-cost WAN video
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "${KAGGLE_GPU1_URL}" | npx --yes wrangler@latest secret put SONARA_VIDEO_WORKER_URL --config wrangler.jsonc
+          printf '%s' "true" | npx --yes wrangler@latest secret put SONARA_ZERO_COST_VIDEO --config wrangler.jsonc
+          printf '%s' "false" | npx --yes wrangler@latest secret put SONARA_ENABLE_GEMINI_VIDEO --config wrangler.jsonc
+          echo "Cloudflare video configured: GPU1=zero-cost WAN, Gemini video disabled."
 
       - name: Verify zero-cost WAN edge
         shell: bash
