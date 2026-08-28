@@ -1,0 +1,40 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function owns(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function validVideoAiMedia() {
+      return request.resource != null
+        && request.resource.size <= 300 * 1024 * 1024
+        && (
+          request.resource.contentType.matches('image/.*')
+          || request.resource.contentType.matches('video/.*')
+          || request.resource.contentType.matches('audio/.*')
+          || request.resource.metadata.sonaraKind == 'image'
+          || request.resource.metadata.sonaraKind == 'video'
+          || request.resource.metadata.sonaraKind == 'audio'
+        );
+    }
+
+    match /video-ai-inputs/{uid}/{allPaths=**} {
+      allow read: if owns(uid);
+      allow create, update: if owns(uid) && validVideoAiMedia();
+      allow delete: if owns(uid);
+    }
+
+    match /profile-avatars/{uid}/{allPaths=**} {
+      allow read: if owns(uid);
+      allow create, update: if owns(uid)
+        && request.resource != null
+        && request.resource.size <= 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if owns(uid);
+    }
+  }
+}
