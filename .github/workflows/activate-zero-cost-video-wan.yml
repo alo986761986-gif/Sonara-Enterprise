@@ -79,6 +79,12 @@ jobs:
           echo "::add-mask::${account_id}"
           echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "$GITHUB_ENV"
 
+      - name: Validate zero-cost router
+        run: node cloudflare/sonara-video-api-recovery.test.mjs
+
+      - name: Deploy latest v3 Worker first
+        run: npx --yes wrangler@latest deploy --config wrangler.jsonc
+
       - name: Configure zero-cost video bindings only
         shell: bash
         run: |
@@ -90,10 +96,7 @@ jobs:
           printf '%s' "${signing_secret}" | npx --yes wrangler@latest secret put SONARA_VIDEO_EDGE_SIGNING_SECRET --config wrangler.jsonc
           echo "Video bindings configured: GPU1 WAN video, zero-cost enabled, Gemini disabled. Music bindings unchanged."
 
-      - name: Validate zero-cost router
-        run: node cloudflare/sonara-video-api-recovery.test.mjs
-
-      - name: Deploy zero-cost Worker
+      - name: Deploy final zero-cost Worker
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
 
       - name: Verify live zero-cost Video AI
