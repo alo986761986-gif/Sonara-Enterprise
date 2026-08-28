@@ -2,13 +2,6 @@ name: Deploy Firebase Storage Rules
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - "storage.rules"
-      - "firebase.json"
-      - ".github/workflows/deploy-firebase-storage-rules.yml"
 
 permissions:
   contents: read
@@ -46,14 +39,8 @@ jobs:
           set +a
           firebase_project_id="${SONARA_FIREBASE_PROJECT_ID:-${FIREBASE_PROJECT_ID:-${VITE_FIREBASE_PROJECT_ID:-}}}"
           firebase_service_account="${FIREBASE_SERVICE_ACCOUNT_JSON:-}"
-          if [[ -z "${firebase_project_id}" ]]; then
-            echo "Firebase project ID missing from Vercel production environment." >&2
-            exit 1
-          fi
-          if [[ -z "${firebase_service_account}" ]]; then
-            echo "FIREBASE_SERVICE_ACCOUNT_JSON missing from Vercel production environment." >&2
-            exit 1
-          fi
+          test -n "${firebase_project_id}"
+          test -n "${firebase_service_account}"
           printf '%s' "${firebase_service_account}" > /tmp/firebase-service-account.json
           node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('/tmp/firebase-service-account.json','utf8')); if(!p.project_id||!p.client_email||!p.private_key) process.exit(1);"
           echo "::add-mask::${firebase_project_id}"
