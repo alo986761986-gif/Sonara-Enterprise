@@ -14,8 +14,16 @@ assert.match(source, /use_cot_caption: isKaggle \? true : payload\.use_cot_capti
 assert.match(source, /use_cot_language: isKaggle \? true : payload\.use_cot_language/);
 assert.match(source, /constrained_decoding: isKaggle \? true : payload\.constrained_decoding/);
 assert.match(source, /payload\.infer_method === 'sde' \? 'sde' : 'ode'/);
-assert.match(source, /SONARA EXTREME FIDELITY: A su T4 #0 \+ B su T4 #1/);
-assert.doesNotMatch(source, /const KAGGLE_STEPS = 4;/);
-assert.doesNotMatch(source, /SONARA ULTRA FAST: A su T4 #0 \+ B su T4 #1/);
 
-console.log('SONARA Extreme Fidelity v16 render profile and A/B separation: PASS');
+// BPM must be a real generation control, not decorative UI metadata.
+assert.match(source, /Math\.round\(clamp\(body\.bpm, 124, 30, 300\)\)/);
+assert.match(source, /global_caption: tempoLockText\(bpm\)/);
+assert.match(source, /Hard tempo lock: exactly/);
+assert.match(source, /never half-time/);
+assert.match(source, /tempoLock: tempoLockText\(payload\.bpm\)/);
+assert.match(source, /tempo-locked/);
+
+assert.doesNotMatch(source, /const KAGGLE_STEPS = 4;/);
+assert.doesNotMatch(source, /kaggle-t4x2-ultra-fast-v2/);
+
+console.log('SONARA Extreme Fidelity v16 + authoritative BPM 30-300 tempo lock: PASS');
