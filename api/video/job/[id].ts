@@ -76,6 +76,12 @@ function fail(res: any, status: number, code: string, message: string) {
   return json(res, status, { error: { code, message } });
 }
 
+function firestoreSafeOperations(operations: SceneOperation[]): SceneOperation[] {
+  return operations.map(operation => Object.fromEntries(
+    Object.entries(operation).filter(([, value]) => value !== undefined)
+  ) as SceneOperation);
+}
+
 function bearerToken(req: any) {
   return String(req.headers?.authorization || '').match(/^Bearer\s+(.+)$/i)?.[1]?.trim() || '';
 }
@@ -204,7 +210,7 @@ export default async function handler(req: any, res: any) {
           const scene = operations.length + 1;
           const result = await within(startVideoProvider({ app, bucketName: storageBucketName(), planId: record.planId, prompt: scenePrompt(record, scene, clipCount), aspectRatio: record.aspectRatio, resolution: record.resolution, userId: record.uid }), 25_000, `Avvio scena ${scene}`);
           operations.push({ ...result, retryCount: 0 });
-          await ref.set({ operations, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+          await ref.set({ operations: firestoreSafeOperations(operations), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
         }
         const progress = Math.max(6, Math.round((operations.length / clipCount) * 20));
         return json(res, 200, { jobId, status: 'PROCESSING', progress, stage: `SONARA Video AI: avvio scene ${operations.length}/${clipCount}` });
@@ -218,7 +224,7 @@ export default async function handler(req: any, res: any) {
           const previous = { ...operations[index], lastError: operation.error };
           try {
             operations[index] = await restartScene(app, record, index, clipCount, previous);
-            await ref.set({ operations, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+            await ref.set({ operations: firestoreSafeOperations(operations), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
             const filtered = isVeoSafetyFilterError(operation.error);
             console.warn('[SONARA VIDEO] scene regenerated', { jobId, scene: index + 1, retryCount: operations[index].retryCount, safetyCategory: filtered ? veoSafetyCategory(operation.error) : undefined, reason: operation.error });
             return json(res, 200, {
@@ -236,10 +242,11 @@ export default async function handler(req: any, res: any) {
         if (!operation.done || !operation.uri) continue;
         const clipPath = `generated-videos/staging/${record.uid}/${jobId}/clip-${String(index).padStart(3, '0')}.mp4`;
         const videoUrl = await within(persistProviderVideo(app, storageBucketName(), record.uid, jobId, operation.uri, clipPath), 45_000, `Salvataggio scena ${index + 1}`);
-        operations[index] = { ...operations[index], clipUri: `gs://${storageBucketName()}/${clipPath}`, videoUrl, lastError: undefined };
+        const { lastError: _lastError, ...completedOperation } = operations[index];
+        operations[index] = { ...completedOperation, clipUri: `gs://${storageBucketName()}/${clipPath}`, videoUrl };
         completed += 1;
       }
-      await ref.set({ operations, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      await ref.set({ operations: firestoreSafeOperations(operations), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       if (completed < clipCount) return json(res, 200, { jobId, status: 'PROCESSING', progress: 20 + Math.round((completed / clipCount) * 55), stage: `SONARA Video AI: rendering scene ${completed}/${clipCount}` });
 
       if (!record.transcoderJobName) {
