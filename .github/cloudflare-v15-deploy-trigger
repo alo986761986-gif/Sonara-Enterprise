@@ -1,2 +1,2 @@
-trigger: extreme-fidelity-v16
-reason: publish 12-step reasoning render, constrained decoding and distinct A/B musical directions
+trigger: extreme-fidelity-v16-bpm-lock
+reason: deploy authoritative BPM 30-300 tempo lock, anti-half-time pacing, and preserve 12-step Extreme Fidelity
