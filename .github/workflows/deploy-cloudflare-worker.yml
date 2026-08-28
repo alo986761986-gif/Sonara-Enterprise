@@ -1,4 +1,4 @@
-name: Deploy Cloudflare SONARA Engine v17 Guarded
+name: Deploy Cloudflare SONARA Stable Audio v16
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy SONARA authoritative v17 to Cloudflare
+    name: Restore and deploy SONARA stable v16 audio
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -55,7 +55,7 @@ jobs:
           echo "::add-mask::${account_id}"
           echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
 
-      - name: Activate authoritative taxonomy and v17 audio runtime
+      - name: Build authoritative renderer then restore saved stable v16 behavior
         shell: bash
         run: |
           set -euo pipefail
@@ -63,8 +63,10 @@ jobs:
           node cloudflare/sonara-engine-v15-authoritative-prompt.test.mjs
           node scripts/activate-extreme-fidelity-v16.cjs
           node cloudflare/extreme-fidelity-v16.test.mjs
+          node scripts/restore-audio-stable-v16.cjs
+          node --check cloudflare/sonara-engine-v9-dual-fast.mjs
 
-      - name: Guard production entrypoint and fidelity profile
+      - name: Guard stable production audio profile
         shell: bash
         run: |
           set -euo pipefail
@@ -72,20 +74,21 @@ jobs:
           grep -q "kaggle-t4x2-extreme-fidelity-v16" cloudflare/sonara-engine-v9-dual-fast.mjs
           grep -q "const KAGGLE_STEPS = 12;" cloudflare/sonara-engine-v9-dual-fast.mjs
           grep -q "const KAGGLE_GUIDANCE_SCALE = 1.15;" cloudflare/sonara-engine-v9-dual-fast.mjs
-          grep -q "resultDecoder: 'recursive-v17'" cloudflare/sonara-engine-v9-dual-fast.mjs
-          grep -q "progressHeartbeat: true" cloudflare/sonara-engine-v9-dual-fast.mjs
+          grep -q "const resultItems = parseItems(item?.result)" cloudflare/sonara-engine-v9-dual-fast.mjs
+          ! grep -q "resultDecoder: 'recursive-v17'" cloudflare/sonara-engine-v9-dual-fast.mjs
+          ! grep -q "progressHeartbeat: true" cloudflare/sonara-engine-v9-dual-fast.mjs
           grep -q "selectedSubgenreAuthoritative: true" cloudflare/sonara-engine-v15-authoritative-prompt.mjs
-          echo "Legacy trigger is guarded: only authoritative v17 can reach production."
+          echo "SONARA stable v16 audio rollback verified before deploy."
 
       - name: Deploy Worker to Cloudflare production
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
 
-      - name: Verify public SONARA v17 health
+      - name: Verify public SONARA stable v16 health
         shell: bash
         run: |
           set -euo pipefail
           for attempt in {1..15}; do
-            if response="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/health?guard=${GITHUB_SHA}-${attempt}" 2>/dev/null)"; then
+            if response="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/health?stable=${GITHUB_SHA}-${attempt}" 2>/dev/null)"; then
               printf '%s' "${response}" > /tmp/health.json
               if node - <<'NODE'
           const fs = require('fs');
@@ -101,9 +104,7 @@ jobs:
             kaggleInferenceSteps: 12,
             kaggleGuidanceScale: 1.15,
             kaggleThinking: true,
-            kaggleInferMethod: 'adaptive-ode-sde',
-            resultDecoder: 'recursive-v17',
-            progressHeartbeat: true
+            kaggleInferMethod: 'adaptive-ode-sde'
           };
           for (const [key, value] of Object.entries(expected)) {
             if (h[key] !== value) {
@@ -111,14 +112,18 @@ jobs:
               process.exit(1);
             }
           }
-          console.log(`SONARA v17 verified; ready workers=${h.aceStepWorkerCount ?? 'n/a'}.`);
+          if (h.resultDecoder === 'recursive-v17' || h.progressHeartbeat === true) {
+            console.error('v17 audio behavior is still active');
+            process.exit(1);
+          }
+          console.log(`SONARA stable v16 verified; ready workers=${h.aceStepWorkerCount ?? 'n/a'}.`);
           NODE
               then
                 exit 0
               fi
             fi
-            echo "v17 health not ready yet (${attempt}/15)."
+            echo "Stable v16 health not ready yet (${attempt}/15)."
             sleep 4
           done
-          echo "SONARA v17 public health verification failed." >&2
+          echo "SONARA stable v16 public health verification failed." >&2
           exit 1
