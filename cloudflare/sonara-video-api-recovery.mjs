@@ -3,14 +3,19 @@ const VIDEO_PREFIX = '/api/video/';
 const RETRYABLE_STATUSES = new Set([502, 503, 504, 524]);
 const RETRY_DELAY_MS = 900;
 const MAX_ATTEMPTS = 2;
-const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
-const GEMINI_EDGE_MODEL = 'veo-3.1-fast-generate-preview';
-const EDGE_COOKIE = 'sonara_video_edge';
 const EDGE_JOB_PREFIX = 'edge_';
-const EDGE_MEDIA_TTL_MS = 60 * 60 * 1000;
+const MARKER = 'cloudflare-video-json-v4-t4-only';
 
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function normalizeBaseUrl(value) {
+  return String(value || '').trim().replace(/\/$/, '');
+}
+
+function videoWorkerUrl(env) {
+  return normalizeBaseUrl(env?.SONARA_VIDEO_WORKER_URL || env?.WAN_VIDEO_WORKER_URL || '');
 }
 
 function isJsonResponse(response) {
@@ -24,21 +29,10 @@ function jsonResponse(status, body, extraHeaders = {}) {
       'content-type': 'application/json; charset=utf-8',
       'cache-control': 'no-store, max-age=0',
       'x-content-type-options': 'nosniff',
-      'x-sonara-video-recovery': 'cloudflare-video-json-v2',
+      'x-sonara-video-recovery': MARKER,
+      'x-sonara-video-provider': 'kaggle-wan21',
       ...extraHeaders
     }
-  });
-}
-
-function jsonFailure(upstreamStatus, message, attempts) {
-  return jsonResponse(503, {
-    error: {
-      code: 'VIDEO_UPSTREAM_RETRYABLE',
-      message
-    },
-    retryable: true,
-    upstreamStatus,
-    attempts
   });
 }
 
@@ -47,7 +41,7 @@ function copyResponse(response) {
   headers.delete('content-length');
   headers.delete('content-encoding');
   headers.set('cache-control', 'no-store, max-age=0');
-  headers.set('x-sonara-video-recovery', 'cloudflare-video-json-v2');
+  headers.set('x-sonara-video-recovery', MARKER);
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -55,21 +49,33 @@ function copyResponse(response) {
   });
 }
 
-function upstreamTarget(request, pathnameOverride = '') {
+function jsonFailure(upstreamStatus, message, attempts) {
+  return jsonResponse(503, {
+    error: { code: 'VIDEO_UPSTREAM_RETRYABLE', message },
+    retryable: true,
+    upstreamStatus,
+    attempts,
+    zeroCost: true,
+    googleBillingRequired: false,
+    geminiEnabled: false
+  });
+}
+
+function upstreamTarget(request) {
   const incoming = new URL(request.url);
-  return new URL((pathnameOverride || incoming.pathname) + incoming.search, VERCEL_WEB_ORIGIN);
+  return new URL(incoming.pathname + incoming.search, VERCEL_WEB_ORIGIN);
 }
 
 function upstreamHeaders(request) {
   const headers = new Headers(request.headers);
   headers.delete('host');
   headers.delete('content-length');
-  headers.set('x-sonara-video-edge', 'recovery-v2');
+  headers.set('x-sonara-video-edge', 't4-only-v4');
   return headers;
 }
 
-function makeUpstreamRequest(request, bodyBytes, pathnameOverride = '') {
-  return new Request(upstreamTarget(request, pathnameOverride).toString(), {
+function makeUpstreamRequest(request, bodyBytes) {
+  return new Request(upstreamTarget(request).toString(), {
     method: request.method,
     headers: upstreamHeaders(request),
     body: request.method === 'GET' || request.method === 'HEAD' ? undefined : bodyBytes,
@@ -98,78 +104,6 @@ function safeJsonBytes(bytes) {
   }
 }
 
-function base64UrlEncodeBytes(bytes) {
-  let binary = '';
-  for (const value of bytes) binary += String.fromCharCode(value);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
-function base64UrlDecodeBytes(value) {
-  const normalized = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
-  const padded = normalized + '='.repeat((4 - normalized.length % 4) % 4);
-  const binary = atob(padded);
-  return Uint8Array.from(binary, char => char.charCodeAt(0));
-}
-
-async function hmacKey(env) {
-  const secret = String(env?.GEMINI_API_KEY || '').trim();
-  if (!secret) return null;
-  return crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(`sonara-video-edge-v1:${secret}`),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign', 'verify']
-  );
-}
-
-async function signedToken(payload, env) {
-  const key = await hmacKey(env);
-  if (!key) throw new Error('Gemini edge key non configurata.');
-  const encoded = base64UrlEncodeBytes(new TextEncoder().encode(JSON.stringify(payload)));
-  const signature = new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(encoded)));
-  return `${encoded}.${base64UrlEncodeBytes(signature)}`;
-}
-
-async function verifiedToken(value, env) {
-  try {
-    const [encoded, signature] = String(value || '').split('.');
-    if (!encoded || !signature) return null;
-    const key = await hmacKey(env);
-    if (!key) return null;
-    const valid = await crypto.subtle.verify(
-      'HMAC',
-      key,
-      base64UrlDecodeBytes(signature),
-      new TextEncoder().encode(encoded)
-    );
-    if (!valid) return null;
-    return JSON.parse(new TextDecoder().decode(base64UrlDecodeBytes(encoded)));
-  } catch {
-    return null;
-  }
-}
-
-function cookieValue(request, name) {
-  const raw = String(request.headers.get('cookie') || '');
-  for (const part of raw.split(';')) {
-    const index = part.indexOf('=');
-    if (index < 0) continue;
-    if (part.slice(0, index).trim() === name) return part.slice(index + 1).trim();
-  }
-  return '';
-}
-
-function edgeCookie(value, maxAge = 3600) {
-  return `${EDGE_COOKIE}=${value}; Path=/api/video; Max-Age=${maxAge}; HttpOnly; Secure; SameSite=Lax`;
-}
-
-function eligibleForEmergencyEdge(body) {
-  const duration = Math.max(8, Number(body?.durationSeconds || 8));
-  const refs = Array.isArray(body?.mediaReferences) ? body.mediaReferences : [];
-  return duration <= 8 && refs.length === 0 && String(body?.prompt || '').trim().length >= 8;
-}
-
 async function providerJson(response, label) {
   const text = (await response.text()).trim();
   if (!text) throw new Error(`${label} risposta vuota (HTTP ${response.status}).`);
@@ -180,127 +114,240 @@ async function providerJson(response, label) {
   }
 }
 
-async function startGeminiEdge(body, env, fetcher = fetch) {
-  const key = String(env?.GEMINI_API_KEY || '').trim();
-  if (!key) throw new Error('GEMINI_API_KEY non configurata sul Worker.');
-  const aspectRatio = body?.aspectRatio === '9:16' ? '9:16' : '16:9';
-  const resolution = ['720p', '1080p', '4K'].includes(body?.resolution) ? body.resolution : '720p';
-  const response = await fetcher(`${GEMINI_BASE_URL}/models/${GEMINI_EDGE_MODEL}:predictLongRunning`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
-    body: JSON.stringify({
-      instances: [{ prompt: String(body.prompt || '').trim() }],
-      parameters: {
-        numberOfVideos: 1,
-        aspectRatio,
-        resolution,
-        durationSeconds: '8'
-      }
-    })
-  });
-  const payload = await providerJson(response, 'Gemini Video API');
-  if (!response.ok || !payload?.name) throw new Error(String(payload?.error?.message || `Gemini Video API HTTP ${response.status}`));
-  return String(payload.name);
+function validateGenerateBody(body) {
+  const prompt = String(body?.prompt || '').trim();
+  const durationSeconds = Math.max(1, Number(body?.durationSeconds || 8));
+  const mediaReferences = Array.isArray(body?.mediaReferences) ? body.mediaReferences : [];
+  if (prompt.length < 8) {
+    return 'Inserisci un prompt Video AI di almeno 8 caratteri.';
+  }
+  if (durationSeconds > 8) {
+    return 'Il motore gratuito Kaggle T4 genera attualmente clip WAN da massimo 8 secondi per scena.';
+  }
+  if (mediaReferences.length > 0) {
+    return 'Il motore gratuito Kaggle T4 attualmente accetta prompt testuali senza media caricati.';
+  }
+  return '';
 }
 
-function videoUriFromOperation(operation) {
-  const response = operation?.response || {};
-  const nested = response?.generateVideoResponse || {};
-  const candidates = [
-    nested?.generatedSamples?.[0]?.video?.uri,
-    response?.generatedVideos?.[0]?.video?.uri,
-    response?.videos?.[0]?.uri,
-    response?.generatedSamples?.[0]?.video?.uri
-  ];
-  return candidates.find(value => typeof value === 'string' && value.trim())?.trim() || '';
-}
-
-async function pollGeminiEdge(operationName, env, fetcher = fetch) {
-  const key = String(env?.GEMINI_API_KEY || '').trim();
-  const response = await fetcher(`${GEMINI_BASE_URL}/${operationName}`, {
-    headers: { 'x-goog-api-key': key, 'cache-control': 'no-store' }
-  });
-  const payload = await providerJson(response, 'Gemini Video operation');
-  if (!response.ok) throw new Error(String(payload?.error?.message || `Gemini Video operation HTTP ${response.status}`));
-  if (!payload?.done) return { done: false };
-  if (payload?.error) return { done: true, error: String(payload.error?.message || 'Generazione video interrotta da Gemini.') };
-  const uri = videoUriFromOperation(payload);
-  if (!uri) return { done: true, error: 'Gemini ha completato il job senza restituire il file video.' };
-  return { done: true, uri };
-}
-
-async function edgeHealth(env, fetcher = fetch) {
-  const key = String(env?.GEMINI_API_KEY || '').trim();
-  if (!key) return jsonResponse(503, { configured: false, valid: false, provider: 'gemini-edge', model: GEMINI_EDGE_MODEL });
+async function wanHealth(env, fetcher = fetch) {
+  const base = videoWorkerUrl(env);
+  if (!base) {
+    return {
+      configured: false,
+      valid: false,
+      provider: 'kaggle-wan21',
+      model: 'Wan2.1-T2V-1.3B'
+    };
+  }
   try {
-    const response = await fetcher(`${GEMINI_BASE_URL}/models/${GEMINI_EDGE_MODEL}`, {
-      headers: { 'x-goog-api-key': key, 'cache-control': 'no-store' }
+    const response = await fetcher(`${base}/health`, {
+      headers: { 'cache-control': 'no-store' },
+      signal: AbortSignal.timeout(10_000)
     });
-    return jsonResponse(response.ok ? 200 : 503, {
+    const payload = await providerJson(response, 'WAN health');
+    const valid = response.ok &&
+      String(payload?.status || '').toLowerCase() === 'ok' &&
+      String(payload?.provider || '').toLowerCase().includes('wan');
+    return {
       configured: true,
-      valid: response.ok,
-      provider: 'gemini-edge',
-      model: GEMINI_EDGE_MODEL,
-      upstreamStatus: response.status
+      valid,
+      provider: 'kaggle-wan21',
+      model: String(payload?.model || 'Wan2.1-T2V-1.3B'),
+      profile: String(payload?.profile || ''),
+      worker: base,
+      upstreamStatus: response.status,
+      loaded: Boolean(payload?.loaded),
+      loading: Boolean(payload?.loading),
+      deviceMode: String(payload?.deviceMode || '')
+    };
+  } catch (cause) {
+    return {
+      configured: true,
+      valid: false,
+      provider: 'kaggle-wan21',
+      model: 'Wan2.1-T2V-1.3B',
+      worker: base,
+      error: cause instanceof Error ? cause.message : String(cause)
+    };
+  }
+}
+
+async function startWan(body, env, fetcher = fetch) {
+  const base = videoWorkerUrl(env);
+  if (!base) throw new Error('SONARA_VIDEO_WORKER_URL non configurato.');
+  const response = await fetcher(`${base}/v1/video/generate`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'cache-control': 'no-store'
+    },
+    body: JSON.stringify({
+      prompt: String(body?.prompt || '').trim(),
+      aspectRatio: body?.aspectRatio === '9:16' ? '9:16' : '16:9',
+      durationSeconds: 8,
+      ...(Number.isFinite(Number(body?.seed)) ? { seed: Number(body.seed) } : {})
+    }),
+    signal: AbortSignal.timeout(20_000)
+  });
+  const payload = await providerJson(response, 'SONARA WAN Video');
+  if (!response.ok || !payload?.jobId) {
+    throw new Error(String(payload?.detail || payload?.error || payload?.message || `WAN worker HTTP ${response.status}`));
+  }
+  return {
+    jobId: String(payload.jobId),
+    progress: Math.max(2, Number(payload?.progress || 2)),
+    stage: String(payload?.stage || 'In coda su SONARA WAN')
+  };
+}
+
+async function pollWan(workerJobId, env, fetcher = fetch) {
+  const base = videoWorkerUrl(env);
+  if (!base) throw new Error('SONARA_VIDEO_WORKER_URL non configurato.');
+  const response = await fetcher(`${base}/v1/video/job/${encodeURIComponent(workerJobId)}`, {
+    headers: { 'cache-control': 'no-store' },
+    signal: AbortSignal.timeout(15_000)
+  });
+  const payload = await providerJson(response, 'SONARA WAN Video job');
+  if (!response.ok) {
+    throw new Error(String(payload?.detail || payload?.error || `WAN worker HTTP ${response.status}`));
+  }
+  const status = String(payload?.status || '').toUpperCase();
+  if (status === 'FAILED') {
+    return {
+      done: true,
+      error: String(payload?.error || 'Generazione WAN fallita.')
+    };
+  }
+  if (status !== 'COMPLETED') {
+    return {
+      done: false,
+      progress: Math.max(5, Math.min(95, Number(payload?.progress || 35))),
+      stage: String(payload?.stage || 'SONARA WAN sta generando il video')
+    };
+  }
+  const videoPath = String(payload?.videoPath || '').trim();
+  if (!videoPath || !videoPath.startsWith('/v1/video/file/')) {
+    return {
+      done: true,
+      error: 'WAN ha completato il job senza un file video valido.'
+    };
+  }
+  return {
+    done: true,
+    videoPath,
+    metadata: {
+      model: payload?.model,
+      profile: payload?.profile,
+      deviceMode: payload?.deviceMode,
+      steps: payload?.steps,
+      resolution: payload?.resolution,
+      fps: payload?.fps,
+      clipSeconds: payload?.clipSeconds
+    }
+  };
+}
+
+function workerJobIdFromEdge(edgeJobId) {
+  const value = String(edgeJobId || '');
+  if (!value.startsWith(EDGE_JOB_PREFIX)) return '';
+  const workerJobId = value.slice(EDGE_JOB_PREFIX.length);
+  return /^wan_[A-Za-z0-9_-]+$/.test(workerJobId) ? workerJobId : '';
+}
+
+async function startDirectT4Job(request, bodyBytes, env, fetcher) {
+  const body = safeJsonBytes(bodyBytes);
+  const validationError = validateGenerateBody(body);
+  if (validationError) {
+    return jsonResponse(503, {
+      error: {
+        code: 'ZERO_COST_VIDEO_LIMIT',
+        message: validationError
+      },
+      retryable: false,
+      zeroCost: true,
+      creditsReserved: false,
+      provider: 'kaggle-wan21',
+      googleBillingRequired: false,
+      geminiEnabled: false
+    });
+  }
+
+  const health = await wanHealth(env, fetcher);
+  if (!health.valid) {
+    return jsonResponse(503, {
+      error: {
+        code: 'ZERO_COST_VIDEO_WORKER_UNAVAILABLE',
+        message: 'Il worker gratuito SONARA WAN su Kaggle T4 non è disponibile. Nessuna richiesta è stata inviata a Google.'
+      },
+      retryable: true,
+      zeroCost: true,
+      creditsReserved: false,
+      provider: 'kaggle-wan21',
+      googleBillingRequired: false,
+      geminiEnabled: false,
+      worker: health.worker,
+      detail: health.error || null
+    });
+  }
+
+  try {
+    const started = await startWan(body, env, fetcher);
+    return jsonResponse(202, {
+      jobId: `${EDGE_JOB_PREFIX}${started.jobId}`,
+      status: 'PROCESSING',
+      progress: started.progress,
+      stage: 'SONARA Video AI: WAN 2.1 avviato direttamente su Kaggle T4',
+      provider: 'kaggle-wan21',
+      zeroCost: true,
+      creditsReserved: false,
+      googleBillingRequired: false,
+      geminiEnabled: false
     });
   } catch (cause) {
     return jsonResponse(503, {
-      configured: true,
-      valid: false,
-      provider: 'gemini-edge',
-      model: GEMINI_EDGE_MODEL,
-      error: cause instanceof Error ? cause.message : String(cause)
+      error: {
+        code: 'ZERO_COST_VIDEO_START_FAILED',
+        message: cause instanceof Error ? cause.message : String(cause)
+      },
+      retryable: true,
+      zeroCost: true,
+      creditsReserved: false,
+      provider: 'kaggle-wan21',
+      googleBillingRequired: false,
+      geminiEnabled: false
     });
   }
 }
 
-async function edgeMedia(request, env, fetcher = fetch) {
-  const url = new URL(request.url);
-  const token = await verifiedToken(url.searchParams.get('token'), env);
-  if (!token || token?.v !== 1 || typeof token?.u !== 'string' || Number(token?.exp || 0) < Date.now()) {
-    return jsonResponse(403, { error: { code: 'VIDEO_EDGE_MEDIA_FORBIDDEN', message: 'Link video non valido o scaduto.' } });
-  }
-  const headers = new Headers({ 'x-goog-api-key': String(env.GEMINI_API_KEY || '') });
-  const range = request.headers.get('range');
-  if (range) headers.set('range', range);
-  const response = await fetcher(token.u, { headers, redirect: 'follow' });
-  if (!response.ok && response.status !== 206) {
-    return jsonResponse(502, { error: { code: 'VIDEO_EDGE_MEDIA_DOWNLOAD_FAILED', message: `Download video Gemini HTTP ${response.status}.` } });
-  }
-  const outgoing = new Headers();
-  for (const name of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
-    const value = response.headers.get(name);
-    if (value) outgoing.set(name, value);
-  }
-  outgoing.set('cache-control', 'private, max-age=300');
-  outgoing.set('x-sonara-video-provider', 'gemini-edge');
-  return new Response(response.body, { status: response.status, headers: outgoing });
-}
-
-async function edgeJobPoll(request, env, fetcher = fetch) {
+async function edgeJobPoll(request, env, fetcher) {
   const url = new URL(request.url);
   const match = url.pathname.match(/^\/api\/video\/job\/(edge_[A-Za-z0-9_-]+)$/);
   if (!match) return null;
   const edgeJobId = match[1];
-  const state = await verifiedToken(cookieValue(request, EDGE_COOKIE), env);
-  if (!state || state?.v !== 1 || state?.e !== edgeJobId || typeof state?.o !== 'string') {
-    return jsonResponse(409, {
+  const workerJobId = workerJobIdFromEdge(edgeJobId);
+  if (!workerJobId) {
+    return jsonResponse(400, {
       jobId: edgeJobId,
       status: 'FAILED',
       progress: 0,
-      stage: 'Sessione Video AI scaduta',
-      error: 'La sessione temporanea Gemini è scaduta. Avvia nuovamente il video.'
+      stage: 'Job Video AI non valido',
+      error: 'Identificativo WAN non valido.',
+      provider: 'kaggle-wan21'
     });
   }
   try {
-    const result = await pollGeminiEdge(state.o, env, fetcher);
+    const result = await pollWan(workerJobId, env, fetcher);
     if (!result.done) {
       return jsonResponse(200, {
         jobId: edgeJobId,
         status: 'PROCESSING',
-        progress: 52,
-        stage: 'SONARA Video AI: Gemini sta generando il video',
-        provider: 'gemini'
+        progress: result.progress,
+        stage: result.stage,
+        provider: 'kaggle-wan21',
+        zeroCost: true,
+        googleBillingRequired: false,
+        geminiEnabled: false
       });
     }
     if (result.error) {
@@ -308,77 +355,144 @@ async function edgeJobPoll(request, env, fetcher = fetch) {
         jobId: edgeJobId,
         status: 'FAILED',
         progress: 0,
-        stage: 'Errore Gemini',
+        stage: 'Errore WAN Video AI',
         error: result.error,
-        provider: 'gemini'
-      }, { 'set-cookie': edgeCookie('', 0) });
+        provider: 'kaggle-wan21',
+        zeroCost: true,
+        googleBillingRequired: false,
+        geminiEnabled: false
+      });
     }
-    const mediaToken = await signedToken({ v: 1, u: result.uri, exp: Date.now() + EDGE_MEDIA_TTL_MS }, env);
-    const videoUrl = `${url.origin}/api/video/edge-media?token=${encodeURIComponent(mediaToken)}`;
+    const videoUrl = `${url.origin}/api/video/edge-media?job=${encodeURIComponent(workerJobId)}`;
     return jsonResponse(200, {
       jobId: edgeJobId,
       status: 'COMPLETED',
       progress: 100,
       stage: 'Video pronto',
       videoUrl,
-      provider: 'gemini'
-    }, { 'set-cookie': edgeCookie('', 0) });
+      provider: 'kaggle-wan21',
+      zeroCost: true,
+      googleBillingRequired: false,
+      geminiEnabled: false,
+      metadata: result.metadata
+    });
   } catch (cause) {
     return jsonResponse(200, {
       jobId: edgeJobId,
       status: 'FAILED',
       progress: 0,
-      stage: 'Errore Gemini',
+      stage: 'Errore WAN Video AI',
       error: cause instanceof Error ? cause.message : String(cause),
-      provider: 'gemini'
-    }, { 'set-cookie': edgeCookie('', 0) });
+      provider: 'kaggle-wan21',
+      zeroCost: true,
+      googleBillingRequired: false,
+      geminiEnabled: false
+    });
   }
 }
 
-async function maybeStartEdgeJob(request, bodyBytes, response, env, fetcher) {
-  if (request.method !== 'POST' || new URL(request.url).pathname !== '/api/video/generate') return null;
-  if (!isJsonResponse(response) || response.status !== 202 || !String(env?.GEMINI_API_KEY || '').trim()) return null;
-  const body = safeJsonBytes(bodyBytes);
-  if (!eligibleForEmergencyEdge(body)) return null;
-  let upstreamPayload;
-  try {
-    upstreamPayload = await response.clone().json();
-  } catch {
-    return null;
-  }
-  if (!upstreamPayload?.jobId) return null;
-  try {
-    const operationName = await startGeminiEdge(body, env, fetcher);
-    const edgeJobId = `${EDGE_JOB_PREFIX}${String(upstreamPayload.jobId).replace(/[^A-Za-z0-9_-]/g, '')}`;
-    const cookie = await signedToken({
-      v: 1,
-      e: edgeJobId,
-      u: String(upstreamPayload.jobId),
-      o: operationName,
-      ts: Date.now()
-    }, env);
-    return jsonResponse(202, {
-      ...upstreamPayload,
-      jobId: edgeJobId,
-      status: 'PROCESSING',
-      progress: 8,
-      stage: 'SONARA Video AI: Gemini avviato su Cloudflare',
-      provider: 'gemini'
-    }, {
-      'set-cookie': edgeCookie(cookie),
-      'x-sonara-video-provider': 'gemini-edge'
+async function edgeMedia(request, env, fetcher) {
+  const url = new URL(request.url);
+  const workerJobId = String(url.searchParams.get('job') || '').trim();
+  if (!/^wan_[A-Za-z0-9_-]+$/.test(workerJobId)) {
+    return jsonResponse(403, {
+      error: {
+        code: 'VIDEO_EDGE_MEDIA_FORBIDDEN',
+        message: 'Riferimento video non valido.'
+      }
     });
-  } catch (cause) {
-    console.warn('[SONARA VIDEO EDGE] Gemini fallback startup failed', {
-      error: cause instanceof Error ? cause.message : String(cause)
-    });
-    return null;
   }
+
+  const result = await pollWan(workerJobId, env, fetcher);
+  if (!result.done || result.error || !result.videoPath) {
+    return jsonResponse(409, {
+      error: {
+        code: 'VIDEO_EDGE_MEDIA_NOT_READY',
+        message: result.error || 'Il video WAN non è ancora pronto.'
+      }
+    });
+  }
+
+  const base = videoWorkerUrl(env);
+  const headers = new Headers();
+  const range = request.headers.get('range');
+  if (range) headers.set('range', range);
+  const response = await fetcher(`${base}${result.videoPath}`, {
+    headers,
+    redirect: 'follow',
+    signal: AbortSignal.timeout(120_000)
+  });
+  if (!response.ok && response.status !== 206) {
+    return jsonResponse(502, {
+      error: {
+        code: 'VIDEO_EDGE_MEDIA_DOWNLOAD_FAILED',
+        message: `Download video WAN HTTP ${response.status}.`
+      }
+    });
+  }
+
+  const outgoing = new Headers();
+  for (const name of ['content-type', 'content-length', 'content-range', 'accept-ranges']) {
+    const value = response.headers.get(name);
+    if (value) outgoing.set(name, value);
+  }
+  outgoing.set('cache-control', 'private, max-age=300');
+  outgoing.set('x-sonara-video-provider', 'kaggle-wan21');
+  outgoing.set('x-sonara-video-recovery', MARKER);
+  return new Response(response.body, {
+    status: response.status,
+    headers: outgoing
+  });
+}
+
+async function edgeHealth(env, fetcher) {
+  const health = await wanHealth(env, fetcher);
+  return jsonResponse(health.valid ? 200 : 503, {
+    ...health,
+    zeroCost: true,
+    googleBillingRequired: false,
+    geminiEnabled: false,
+    vertexEnabled: false,
+    routeMode: 'kaggle-t4-only'
+  });
+}
+
+async function proxyNonGenerationVideoApi(request, bodyBytes, fetcher, waiter) {
+  let lastResponse = null;
+  let lastError = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetcher(makeUpstreamRequest(request, bodyBytes));
+      lastResponse = response;
+      const html = await responseLooksHtml(response);
+      const retryable = RETRYABLE_STATUSES.has(response.status) || (response.status >= 500 && html);
+      if (!retryable) {
+        if (html) {
+          return jsonFailure(
+            response.status || 502,
+            `Il server Video AI ha restituito HTML invece di JSON (HTTP ${response.status || 502}).`,
+            attempt
+          );
+        }
+        return copyResponse(response);
+      }
+      if (attempt < MAX_ATTEMPTS) await waiter(RETRY_DELAY_MS);
+    } catch (cause) {
+      lastError = cause;
+      if (attempt < MAX_ATTEMPTS) await waiter(RETRY_DELAY_MS);
+    }
+  }
+  return jsonFailure(
+    lastResponse?.status || 502,
+    lastError instanceof Error
+      ? `Server Video AI temporaneamente non raggiungibile: ${lastError.message}`
+      : `Server Video AI temporaneamente non raggiungibile (HTTP ${lastResponse?.status || 502}).`,
+    MAX_ATTEMPTS
+  );
 }
 
 export function isVideoApiRequest(request) {
-  const url = new URL(request.url);
-  return url.pathname.startsWith(VIDEO_PREFIX);
+  return new URL(request.url).pathname.startsWith(VIDEO_PREFIX);
 }
 
 export async function recoverVideoApi(request, options = {}) {
@@ -400,48 +514,12 @@ export async function recoverVideoApi(request, options = {}) {
   const bodyBytes = request.method === 'GET' || request.method === 'HEAD'
     ? undefined
     : await request.clone().arrayBuffer();
-  let lastResponse = null;
-  let lastError = null;
 
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-    try {
-      const response = await fetcher(makeUpstreamRequest(request, bodyBytes));
-      lastResponse = response;
-      const html = await responseLooksHtml(response);
-      const retryable = RETRYABLE_STATUSES.has(response.status) || (response.status >= 500 && html);
-
-      if (!retryable) {
-        if (isJsonResponse(response)) {
-          const edge = await maybeStartEdgeJob(request, bodyBytes, response, env, fetcher);
-          if (edge) return edge;
-          return copyResponse(response);
-        }
-        if (html) {
-          return jsonFailure(
-            response.status || 502,
-            `Il server Video AI ha restituito HTML invece di JSON (HTTP ${response.status || 502}).`,
-            attempt
-          );
-        }
-        return copyResponse(response);
-      }
-
-      if (attempt < MAX_ATTEMPTS) await waiter(RETRY_DELAY_MS);
-    } catch (cause) {
-      lastError = cause;
-      if (attempt < MAX_ATTEMPTS) await waiter(RETRY_DELAY_MS);
-    }
+  if (request.method === 'POST' && url.pathname === '/api/video/generate') {
+    return startDirectT4Job(request, bodyBytes, env, fetcher);
   }
 
-  const status = lastResponse?.status || 502;
-  const detail = lastError instanceof Error ? lastError.message : '';
-  return jsonFailure(
-    status,
-    detail
-      ? `Video AI temporaneamente non raggiungibile: ${detail}`
-      : `Video AI temporaneamente non raggiungibile (HTTP ${status}).`,
-    MAX_ATTEMPTS
-  );
+  return proxyNonGenerationVideoApi(request, bodyBytes, fetcher, waiter);
 }
 
 export default {
