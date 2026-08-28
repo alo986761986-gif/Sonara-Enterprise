@@ -1,0 +1,41 @@
+name: Test Zero Cost Video WAN
+
+on:
+  push:
+    branches:
+      - feature/zero-cost-video-wan21-kaggle
+    paths:
+      - "cloudflare/sonara-video-api-recovery.mjs"
+      - "cloudflare/sonara-video-api-recovery.test.mjs"
+      - "scripts/kaggle-sonara-wan21-video-worker.py"
+      - ".github/workflows/test-zero-cost-video-wan.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test Cloudflare zero-cost video router
+        run: node cloudflare/sonara-video-api-recovery.test.mjs
+      - name: Compile Kaggle WAN worker bootstrap
+        run: python -m py_compile scripts/kaggle-sonara-wan21-video-worker.py
+      - name: Assert Google video is opt-in only
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "SONARA_ENABLE_GEMINI_VIDEO" cloudflare/sonara-video-api-recovery.mjs
+          grep -q "SONARA_ZERO_COST_VIDEO" cloudflare/sonara-video-api-recovery.mjs
+          grep -q "SONARA_VIDEO_WORKER_URL" cloudflare/sonara-video-api-recovery.mjs
+          grep -q "Wan-AI/Wan2.1-T2V-1.3B-Diffusers" scripts/kaggle-sonara-wan21-video-worker.py
+          echo "Zero-cost video guard present."
