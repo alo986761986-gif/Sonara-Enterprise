@@ -26,6 +26,7 @@ export interface SonaraPlan {
   features: string[];
 }
 
+// Production marker: SONARA Studio Video AI duration is 8 seconds through 8 minutes.
 export const SONARA_PLANS: Record<SonaraPlanId, SonaraPlan> = {
   free: {
     id: 'free',
