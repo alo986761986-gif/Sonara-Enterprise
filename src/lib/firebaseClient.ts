@@ -115,6 +115,47 @@ export async function uploadFirebaseAvatar(file: Blob): Promise<string> {
   return photoURL;
 }
 
+export type FirebaseVideoAiAsset = {
+  storagePath: string;
+  downloadUrl: string;
+  contentType: string;
+  size: number;
+  kind: 'image' | 'video';
+};
+
+function safeVideoAiFileName(value: string) {
+  const clean = String(value || 'media').trim().replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+  return clean.slice(0, 100) || 'media';
+}
+
+export async function uploadFirebaseVideoAiAsset(
+  file: Blob,
+  options: { fileName?: string; kind?: 'image' | 'video' } = {}
+): Promise<FirebaseVideoAiAsset> {
+  const user = getFirebaseAuth().currentUser;
+  if (!user) throw new Error('Accedi per caricare foto e video in SONARA Video AI.');
+  const storage = getStorage(app || getApps()[0] || initializeApp(firebaseConfig));
+  const kind = options.kind || (file.type.startsWith('video/') ? 'video' : 'image');
+  const fileName = safeVideoAiFileName(options.fileName || `${kind}-${Date.now()}`);
+  const randomPart = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2);
+  const storagePath = `video-ai-inputs/${user.uid}/${Date.now()}-${randomPart}-${fileName}`;
+  const assetRef = ref(storage, storagePath);
+  const snapshot = await uploadBytes(assetRef, file, {
+    contentType: file.type || (kind === 'video' ? 'video/mp4' : 'image/jpeg'),
+    customMetadata: { sonaraPurpose: 'video-ai-input', sonaraKind: kind }
+  });
+  const downloadUrl = await getDownloadURL(snapshot.ref);
+  return {
+    storagePath: snapshot.ref.fullPath,
+    downloadUrl,
+    contentType: file.type || (kind === 'video' ? 'video/mp4' : 'image/jpeg'),
+    size: file.size,
+    kind
+  };
+}
+
 export async function sendCurrentUserVerification(): Promise<void> {
   const user = getFirebaseAuth().currentUser;
   if (!user) throw new Error('Accedi per verificare l’email.');
