@@ -1,132 +1,109 @@
 import assert from 'node:assert/strict';
 import { recoverVideoApi, isVideoApiRequest } from './sonara-video-api-recovery.mjs';
 
-const request = new Request('https://sonaraenterprise.com/api/video/generate', {
-  method: 'POST',
-  headers: {
-    'content-type': 'application/json',
-    authorization: 'Bearer test-token'
-  },
-  body: JSON.stringify({ prompt: 'cinematic Naples sunset', aspectRatio: '16:9', resolution: '720p' })
-});
+function generateRequest(body = {}) {
+  return new Request('https://sonaraenterprise.com/api/video/generate', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: 'Bearer test-token' },
+    body: JSON.stringify({
+      prompt: 'cinematic Naples sunset over the sea',
+      aspectRatio: '16:9',
+      resolution: '720p',
+      durationSeconds: 8,
+      ...body
+    })
+  });
+}
 
-assert.equal(isVideoApiRequest(request), true);
+assert.equal(isVideoApiRequest(generateRequest()), true);
 assert.equal(isVideoApiRequest(new Request('https://sonaraenterprise.com/api/billing/generate')), false);
 
+// Generic upstream retry behavior remains available when zero-cost preflight is disabled.
 {
-  let calls = 0;
-  const response = await recoverVideoApi(request, {
+  let upstreamCalls = 0;
+  const response = await recoverVideoApi(generateRequest(), {
+    env: { SONARA_ZERO_COST_VIDEO: 'false' },
     waiter: async () => {},
-    fetcher: async upstream => {
-      calls += 1;
-      assert.equal(new URL(upstream.url).hostname, 'sonara-enterprise-sonaramusicai86-2765s-projects.vercel.app');
-      assert.equal(upstream.headers.get('authorization'), 'Bearer test-token');
-      if (calls === 1) {
-        return new Response('<!doctype html><html><body>Bad Gateway</body></html>', {
-          status: 502,
-          headers: { 'content-type': 'text/html; charset=utf-8' }
-        });
-      }
-      return new Response(JSON.stringify({ jobId: 'video-job-1', status: 'PROCESSING' }), {
-        status: 202,
-        headers: { 'content-type': 'application/json' }
-      });
+    fetcher: async input => {
+      const url = new URL(typeof input === 'string' ? input : input.url);
+      upstreamCalls += 1;
+      assert.equal(url.hostname, 'sonara-enterprise-sonaramusicai86-2765s-projects.vercel.app');
+      if (upstreamCalls === 1) return new Response('<html>bad gateway</html>', { status: 502, headers: { 'content-type': 'text/html' } });
+      return new Response(JSON.stringify({ jobId: 'video-job-1', status: 'PROCESSING' }), { status: 202, headers: { 'content-type': 'application/json' } });
     }
   });
-  assert.equal(calls, 2);
-  assert.equal(response.status, 202);
-  assert.match(response.headers.get('content-type') || '', /application\/json/);
-  assert.equal(response.headers.get('x-sonara-video-recovery'), 'cloudflare-video-json-v2');
-  const payload = await response.json();
-  assert.equal(payload.jobId, 'video-job-1');
-}
-
-{
-  let calls = 0;
-  const response = await recoverVideoApi(request, {
-    waiter: async () => {},
-    fetcher: async () => {
-      calls += 1;
-      return new Response('<html><body>upstream unavailable</body></html>', {
-        status: 502,
-        headers: { 'content-type': 'text/html' }
-      });
-    }
-  });
-  assert.equal(calls, 2);
+  assert.equal(upstreamCalls, 2);
   assert.equal(response.status, 503);
-  assert.match(response.headers.get('content-type') || '', /application\/json/);
-  const payload = await response.json();
-  assert.equal(payload.error.code, 'VIDEO_UPSTREAM_RETRYABLE');
-  assert.equal(payload.retryable, true);
-  assert.equal(payload.upstreamStatus, 502);
-  assert.equal(payload.attempts, 2);
+  assert.equal(response.headers.get('x-sonara-video-recovery'), 'cloudflare-video-json-v3');
 }
 
+// Healthy WAN: preflight succeeds, Vercel performs auth/credits, WAN starts, Google is never called.
 {
-  let calls = 0;
-  const statusRequest = new Request('https://sonaraenterprise.com/api/video/status', {
-    headers: { authorization: 'Bearer test-token' }
-  });
-  const response = await recoverVideoApi(statusRequest, {
-    waiter: async () => {},
-    fetcher: async () => {
-      calls += 1;
-      if (calls === 1) return new Response('gateway timeout', { status: 504, headers: { 'content-type': 'text/plain' } });
-      return new Response(JSON.stringify({ providerConfigured: true }), { status: 200, headers: { 'content-type': 'application/json' } });
-    }
-  });
-  assert.equal(calls, 2);
-  assert.equal(response.status, 200);
-  assert.equal((await response.json()).providerConfigured, true);
-}
-
-{
-  const env = { GEMINI_API_KEY: 'test-gemini-key' };
-  let startCalls = 0;
-  const started = await recoverVideoApi(request, {
+  const env = {
+    SONARA_VIDEO_WORKER_URL: 'https://wan.example.test',
+    SONARA_ZERO_COST_VIDEO: 'true',
+    SONARA_VIDEO_EDGE_SIGNING_SECRET: 'test-signing-secret',
+    GEMINI_API_KEY: 'must-never-be-called'
+  };
+  let geminiCalls = 0;
+  let vercelCalls = 0;
+  let healthCalls = 0;
+  let wanStartCalls = 0;
+  const started = await recoverVideoApi(generateRequest(), {
     env,
     fetcher: async (input, init = {}) => {
       const url = new URL(typeof input === 'string' ? input : input.url);
+      if (url.hostname.includes('generativelanguage.googleapis.com')) {
+        geminiCalls += 1;
+        throw new Error('Gemini must not be called in zero-cost mode');
+      }
       if (url.hostname.includes('vercel.app')) {
+        vercelCalls += 1;
         return new Response(JSON.stringify({ jobId: 'real-job-123', status: 'PROCESSING', progress: 3 }), {
           status: 202,
           headers: { 'content-type': 'application/json' }
         });
       }
-      if (url.pathname.endsWith(':predictLongRunning')) {
-        startCalls += 1;
-        const body = JSON.parse(String(init.body || '{}'));
-        assert.equal(new Headers(init.headers).get('x-goog-api-key'), 'test-gemini-key');
-        assert.equal(body.instances[0].prompt, 'cinematic Naples sunset');
-        assert.equal(body.parameters.durationSeconds, '8');
-        return new Response(JSON.stringify({ name: 'operations/gemini-edge-123' }), {
+      if (url.pathname === '/health') {
+        healthCalls += 1;
+        return new Response(JSON.stringify({ status: 'ok', provider: 'kaggle-wan21', model: 'Wan-AI/Wan2.1-T2V-1.3B-Diffusers' }), {
           status: 200,
+          headers: { 'content-type': 'application/json' }
+        });
+      }
+      if (url.pathname === '/v1/video/generate') {
+        wanStartCalls += 1;
+        const body = JSON.parse(String(init.body || '{}'));
+        assert.equal(body.prompt, 'cinematic Naples sunset over the sea');
+        assert.equal(body.durationSeconds, 8);
+        return new Response(JSON.stringify({ jobId: 'wan_abc', status: 'PROCESSING', provider: 'kaggle-wan21' }), {
+          status: 202,
           headers: { 'content-type': 'application/json' }
         });
       }
       throw new Error(`Unexpected request ${url}`);
     }
   });
-  assert.equal(startCalls, 1);
+  assert.equal(geminiCalls, 0);
+  assert.equal(vercelCalls, 1);
+  assert.equal(healthCalls, 2);
+  assert.equal(wanStartCalls, 1);
   assert.equal(started.status, 202);
-  assert.equal(started.headers.get('x-sonara-video-provider'), 'gemini-edge');
+  assert.equal(started.headers.get('x-sonara-video-provider'), 'kaggle-wan21');
   const startedPayload = await started.json();
-  assert.equal(startedPayload.jobId, 'edge_real-job-123');
-  assert.equal(startedPayload.provider, 'gemini');
+  assert.equal(startedPayload.provider, 'kaggle-wan21');
+  assert.equal(startedPayload.zeroCost, true);
+  assert.match(startedPayload.jobId, /^edge_/);
 
-  const setCookie = started.headers.get('set-cookie') || '';
-  const cookiePair = setCookie.split(';')[0];
-  assert.match(cookiePair, /^sonara_video_edge=/);
-
+  const cookiePair = (started.headers.get('set-cookie') || '').split(';')[0];
   const polling = await recoverVideoApi(new Request(`https://sonaraenterprise.com/api/video/job/${startedPayload.jobId}`, {
     headers: { cookie: cookiePair, authorization: 'Bearer test-token' }
   }), {
     env,
     fetcher: async input => {
       const url = new URL(typeof input === 'string' ? input : input.url);
-      assert.equal(url.pathname, '/v1beta/operations/gemini-edge-123');
-      return new Response(JSON.stringify({ done: false }), {
+      assert.equal(url.pathname, '/v1/video/job/wan_abc');
+      return new Response(JSON.stringify({ status: 'PROCESSING', progress: 44, stage: 'Generazione fotogrammi WAN 2.1' }), {
         status: 200,
         headers: { 'content-type': 'application/json' }
       });
@@ -134,31 +111,28 @@ assert.equal(isVideoApiRequest(new Request('https://sonaraenterprise.com/api/bil
   });
   const pollingPayload = await polling.json();
   assert.equal(pollingPayload.status, 'PROCESSING');
-  assert.equal(pollingPayload.provider, 'gemini');
+  assert.equal(pollingPayload.provider, 'kaggle-wan21');
+  assert.equal(pollingPayload.progress, 44);
 
   const completed = await recoverVideoApi(new Request(`https://sonaraenterprise.com/api/video/job/${startedPayload.jobId}`, {
     headers: { cookie: cookiePair, authorization: 'Bearer test-token' }
   }), {
     env,
     fetcher: async () => new Response(JSON.stringify({
-      done: true,
-      response: {
-        generateVideoResponse: {
-          generatedSamples: [{ video: { uri: 'https://files.example.test/generated-video.mp4' } }]
-        }
-      }
+      status: 'COMPLETED',
+      progress: 100,
+      videoPath: '/v1/video/file/wan_abc.mp4'
     }), { status: 200, headers: { 'content-type': 'application/json' } })
   });
   const completedPayload = await completed.json();
   assert.equal(completedPayload.status, 'COMPLETED');
-  assert.equal(completedPayload.progress, 100);
+  assert.equal(completedPayload.provider, 'kaggle-wan21');
   assert.match(completedPayload.videoUrl, /^https:\/\/sonaraenterprise\.com\/api\/video\/edge-media\?token=/);
 
   const media = await recoverVideoApi(new Request(completedPayload.videoUrl), {
     env,
-    fetcher: async (input, init) => {
-      assert.equal(String(input), 'https://files.example.test/generated-video.mp4');
-      assert.equal(init.headers.get('x-goog-api-key'), 'test-gemini-key');
+    fetcher: async input => {
+      assert.equal(String(input), 'https://wan.example.test/v1/video/file/wan_abc.mp4');
       return new Response(new Uint8Array([0, 0, 0, 24]), {
         status: 200,
         headers: { 'content-type': 'video/mp4', 'content-length': '4' }
@@ -166,40 +140,69 @@ assert.equal(isVideoApiRequest(new Request('https://sonaraenterprise.com/api/bil
     }
   });
   assert.equal(media.status, 200);
-  assert.equal(media.headers.get('content-type'), 'video/mp4');
-  assert.equal(media.headers.get('x-sonara-video-provider'), 'gemini-edge');
+  assert.equal(media.headers.get('x-sonara-video-provider'), 'kaggle-wan21');
 }
 
+// Offline WAN: stop before Vercel, reserve no SONARA credits, and never touch Google even if Gemini is configured.
 {
-  const env = { GEMINI_API_KEY: 'test-gemini-key' };
-  const longRequest = new Request('https://sonaraenterprise.com/api/video/generate', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: 'Bearer test-token' },
-    body: JSON.stringify({ prompt: 'cinematic long video sequence', aspectRatio: '16:9', resolution: '720p', durationSeconds: 60 })
-  });
-  let geminiCalled = false;
-  const response = await recoverVideoApi(longRequest, {
+  const env = {
+    SONARA_VIDEO_WORKER_URL: 'https://wan.example.test',
+    SONARA_ZERO_COST_VIDEO: 'true',
+    SONARA_VIDEO_EDGE_SIGNING_SECRET: 'test-signing-secret',
+    GEMINI_API_KEY: 'must-never-be-called',
+    SONARA_ENABLE_GEMINI_VIDEO: 'true'
+  };
+  let geminiCalls = 0;
+  let vercelCalls = 0;
+  const response = await recoverVideoApi(generateRequest(), {
     env,
     fetcher: async input => {
       const url = new URL(typeof input === 'string' ? input : input.url);
-      if (url.hostname.includes('generativelanguage.googleapis.com')) geminiCalled = true;
-      return new Response(JSON.stringify({ jobId: 'long-job', status: 'PROCESSING' }), {
-        status: 202,
-        headers: { 'content-type': 'application/json' }
-      });
+      if (url.hostname.includes('generativelanguage.googleapis.com')) geminiCalls += 1;
+      if (url.hostname.includes('vercel.app')) vercelCalls += 1;
+      if (url.pathname === '/health') {
+        return new Response(JSON.stringify({ status: 'offline', provider: 'kaggle-wan21' }), { status: 503, headers: { 'content-type': 'application/json' } });
+      }
+      throw new Error(`Unexpected request ${url}`);
     }
   });
-  assert.equal(geminiCalled, false);
-  assert.equal((await response.json()).jobId, 'long-job');
+  assert.equal(geminiCalls, 0);
+  assert.equal(vercelCalls, 0);
+  assert.equal(response.status, 503);
+  const payload = await response.json();
+  assert.equal(payload.error.code, 'ZERO_COST_VIDEO_WORKER_UNAVAILABLE');
+  assert.equal(payload.zeroCost, true);
+  assert.equal(payload.creditsReserved, false);
+}
+
+// Unsupported long request: stop before Vercel and Google.
+{
+  let googleCalls = 0;
+  let vercelCalls = 0;
+  const response = await recoverVideoApi(generateRequest({ durationSeconds: 60 }), {
+    env: { SONARA_ZERO_COST_VIDEO: 'true', GEMINI_API_KEY: 'must-never-be-called' },
+    fetcher: async input => {
+      const url = new URL(typeof input === 'string' ? input : input.url);
+      if (url.hostname.includes('generativelanguage.googleapis.com')) googleCalls += 1;
+      if (url.hostname.includes('vercel.app')) vercelCalls += 1;
+      throw new Error(`No network call expected, got ${url}`);
+    }
+  });
+  assert.equal(googleCalls, 0);
+  assert.equal(vercelCalls, 0);
+  assert.equal(response.status, 503);
+  const payload = await response.json();
+  assert.equal(payload.error.code, 'ZERO_COST_VIDEO_LIMIT');
+  assert.equal(payload.creditsReserved, false);
 }
 
 {
   const health = await recoverVideoApi(new Request('https://sonaraenterprise.com/api/video/edge-health'), {
-    env: { GEMINI_API_KEY: 'test-gemini-key' },
+    env: { SONARA_VIDEO_WORKER_URL: 'https://wan.example.test', SONARA_ZERO_COST_VIDEO: 'true', GEMINI_API_KEY: 'unused' },
     fetcher: async input => {
       const url = new URL(typeof input === 'string' ? input : input.url);
-      assert.equal(url.pathname, '/v1beta/models/veo-3.1-fast-generate-preview');
-      return new Response(JSON.stringify({ name: 'models/veo-3.1-fast-generate-preview' }), {
+      assert.equal(url.pathname, '/health');
+      return new Response(JSON.stringify({ status: 'ok', provider: 'kaggle-wan21', model: 'Wan-AI/Wan2.1-T2V-1.3B-Diffusers' }), {
         status: 200,
         headers: { 'content-type': 'application/json' }
       });
@@ -207,8 +210,10 @@ assert.equal(isVideoApiRequest(new Request('https://sonaraenterprise.com/api/bil
   });
   const payload = await health.json();
   assert.equal(health.status, 200);
-  assert.equal(payload.configured, true);
   assert.equal(payload.valid, true);
+  assert.equal(payload.zeroCost, true);
+  assert.equal(payload.googleBillingRequired, false);
+  assert.equal(payload.geminiEnabled, false);
 }
 
-console.log('SONARA Video AI recovery v2 test passed: retries remain safe and 8-second prompt-only jobs can use signed Gemini edge fallback.');
+console.log('SONARA Video AI recovery v3 test passed: WAN preflight prevents Vercel credit reservation when unavailable and Google is never called in zero-cost mode.');
