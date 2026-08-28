@@ -1,3 +1,3 @@
-GPU0=https://187819919b35b74f76.gradio.live
-GPU1=https://13dd18e128c50993e1.gradio.live
-ACTION=connect-dual-t4-workers-20260828
+GPU0=https://8348d9c782edba2831.gradio.live
+GPU1=https://1d8ebb88685a5cd241.gradio.live
+ACTION=reconnect-refreshed-dual-t4-20260828
