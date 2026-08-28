@@ -1,3 +1,3 @@
-GPU0=https://c3b07621cd85cd932b.gradio.live
-GPU1=
-ACTION=diagnose-current-t4-worker-health-20260828
+GPU0=https://187819919b35b74f76.gradio.live
+GPU1=https://13dd18e128c50993e1.gradio.live
+ACTION=connect-dual-t4-workers-20260828
