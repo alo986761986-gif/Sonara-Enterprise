@@ -13,13 +13,7 @@ function geminiApiKey() {
 }
 
 function projectId(app: App) {
-  return String(
-    process.env.SONARA_FIREBASE_PROJECT_ID ||
-    process.env.FIREBASE_PROJECT_ID ||
-    process.env.GCLOUD_PROJECT ||
-    app.options.projectId ||
-    ''
-  ).trim();
+  return String(process.env.SONARA_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || app.options.projectId || '').trim();
 }
 
 async function vertexAccessToken(app: App) {
@@ -64,6 +58,11 @@ export function videoModelForPlan(planId: SonaraPlanId, provider: SonaraVideoPro
   return SONARA_PLANS[planId].videoModelTier === 'lite' ? 'veo-3.1-lite-generate-preview' : 'veo-3.1-fast-generate-preview';
 }
 
+export type SonaraVideoReferenceImage = {
+  storagePath: string;
+  contentType?: string;
+};
+
 export interface StartVideoProviderInput {
   app: App;
   bucketName: string;
@@ -73,12 +72,45 @@ export interface StartVideoProviderInput {
   aspectRatio: '16:9' | '9:16';
   resolution: SonaraVideoResolution;
   userId: string;
+  referenceImages?: SonaraVideoReferenceImage[];
 }
 
 export interface StartedVideoProviderJob {
   provider: SonaraVideoProvider;
   model: string;
   operationName: string;
+}
+
+function safeReferenceImages(input: StartVideoProviderInput) {
+  return (Array.isArray(input.referenceImages) ? input.referenceImages : [])
+    .filter(item => item && typeof item.storagePath === 'string' && item.storagePath.trim())
+    .slice(0, 3)
+    .map(item => ({ storagePath: item.storagePath.trim(), contentType: String(item.contentType || 'image/jpeg').trim() || 'image/jpeg' }));
+}
+
+async function geminiMedia(input: StartVideoProviderInput) {
+  const refs = safeReferenceImages(input);
+  if (!refs.length) return {};
+  const bucket = getStorage(input.app).bucket(input.bucketName);
+  const loaded: Array<{ bytesBase64Encoded: string; mimeType: string }> = [];
+  for (const item of refs) {
+    const [bytes] = await bucket.file(item.storagePath).download();
+    loaded.push({ bytesBase64Encoded: bytes.toString('base64'), mimeType: item.contentType });
+  }
+  return {
+    image: loaded[0],
+    ...(loaded.length > 1 ? { referenceImages: loaded.slice(1).map(image => ({ image, referenceType: 'asset' })) } : {})
+  };
+}
+
+function vertexMedia(input: StartVideoProviderInput) {
+  const refs = safeReferenceImages(input);
+  if (!refs.length) return {};
+  const loaded = refs.map(item => ({ gcsUri: `gs://${input.bucketName}/${item.storagePath}`, mimeType: item.contentType }));
+  return {
+    image: loaded[0],
+    ...(loaded.length > 1 ? { referenceImages: loaded.slice(1).map(image => ({ image, referenceType: 'asset' })) } : {})
+  };
 }
 
 export async function startVideoProvider(input: StartVideoProviderInput): Promise<StartedVideoProviderJob> {
@@ -88,17 +120,17 @@ export async function startVideoProvider(input: StartVideoProviderInput): Promis
   const negativePrompt = String(input.negativePrompt || '').trim();
 
   if (provider === 'gemini') {
+    const media = await geminiMedia(input);
     const response = await fetch(`${GEMINI_BASE_URL}/models/${encodeURIComponent(model)}:predictLongRunning`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': geminiApiKey() },
       body: JSON.stringify({
-        instances: [{ prompt: input.prompt }],
+        instances: [{ prompt: input.prompt, ...media }],
         parameters: {
           numberOfVideos: 1,
           aspectRatio: input.aspectRatio,
           resolution: input.resolution,
           durationSeconds: '8',
-          personGeneration: 'allow_adult',
           ...(negativePrompt ? { negativePrompt } : {})
         }
       })
@@ -112,17 +144,17 @@ export async function startVideoProvider(input: StartVideoProviderInput): Promis
   const id = projectId(input.app);
   const storageUri = `gs://${input.bucketName}/generated-videos/provider/${input.userId}/${Date.now()}-${randomUUID()}/`;
   const endpoint = `https://${VERTEX_LOCATION}-aiplatform.googleapis.com/v1/projects/${encodeURIComponent(id)}/locations/${VERTEX_LOCATION}/publishers/google/models/${encodeURIComponent(model)}:predictLongRunning`;
+  const media = vertexMedia(input);
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     body: JSON.stringify({
-      instances: [{ prompt: input.prompt }],
+      instances: [{ prompt: input.prompt, ...media }],
       parameters: {
         aspectRatio: input.aspectRatio,
         durationSeconds: 8,
         resolution: input.resolution,
         sampleCount: 1,
-        personGeneration: 'allow_adult',
         storageUri,
         ...(negativePrompt ? { negativePrompt } : {})
       }
