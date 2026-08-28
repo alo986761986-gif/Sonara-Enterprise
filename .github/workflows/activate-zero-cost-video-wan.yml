@@ -1,0 +1,140 @@
+name: Activate SONARA Zero Cost Video WAN
+
+on:
+  push:
+    branches:
+      - feature/zero-cost-video-wan21-kaggle
+    paths:
+      - ".github/workflows/activate-zero-cost-video-wan.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonara-zero-cost-video-wan-activation
+  cancel-in-progress: false
+
+jobs:
+  activate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Load GPU endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          gpu0="$(sed -n 's/^GPU0=//p' .github/kaggle-workers-trigger | tail -n1 | tr -d '\r')"
+          gpu1="$(sed -n 's/^GPU1=//p' .github/kaggle-workers-trigger | tail -n1 | tr -d '\r')"
+          test -n "${gpu0}"
+          test -n "${gpu1}"
+          echo "KAGGLE_GPU0_URL=${gpu0%/}" >> "$GITHUB_ENV"
+          echo "KAGGLE_GPU1_URL=${gpu1%/}" >> "$GITHUB_ENV"
+
+      - name: Verify public GPU1 is WAN Video
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..24}; do
+            if response="$(curl -fsS --connect-timeout 10 --max-time 20 "${KAGGLE_GPU1_URL}/health" 2>/dev/null)"; then
+              printf '%s' "$response" > /tmp/wan-health.json
+              if node - <<'NODE'
+          const h = JSON.parse(require('fs').readFileSync('/tmp/wan-health.json','utf8'));
+          const ok = String(h.status || '').toLowerCase() === 'ok' && String(h.provider || '').toLowerCase().includes('wan') && String(h.model || '').includes('Wan2.1');
+          console.log(JSON.stringify(h));
+          process.exit(ok ? 0 : 1);
+          NODE
+              then
+                echo "GPU1 WAN public health verified."
+                exit 0
+              fi
+            fi
+            echo "GPU1 WAN not ready (${attempt}/24)"
+            sleep 5
+          done
+          echo "GPU1 public tunnel is not serving WAN Video." >&2
+          exit 1
+
+      - name: Verify GPU0 music remains reachable
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl -fsS --connect-timeout 10 --max-time 20 "${KAGGLE_GPU0_URL}/health")"
+          printf '%s' "$response" | grep -Eqi '"status"[[:space:]]*:[[:space:]]*"(ok|ready|healthy|online|success)"|"code"[[:space:]]*:[[:space:]]*200'
+          echo "GPU0 music health verified."
+
+      - name: Resolve Cloudflare account
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN}"
+          account_id="${CLOUDFLARE_ACCOUNT_ID}"
+          if [[ -z "${account_id}" ]]; then
+            response="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json" "https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50")"
+            account_id="$(CF_RESPONSE="${response}" node - <<'NODE'
+          const payload = JSON.parse(process.env.CF_RESPONSE || '{}');
+          const zone = Array.isArray(payload.result) ? payload.result.find(item => item?.name === 'sonaraenterprise.com') : null;
+          process.stdout.write(String(zone?.account?.id || ''));
+          NODE
+            )"
+          fi
+          test -n "${account_id}"
+          echo "::add-mask::${account_id}"
+          echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "$GITHUB_ENV"
+
+      - name: Configure zero-cost runtime bindings
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "${KAGGLE_GPU0_URL}" | npx --yes wrangler@latest secret put ACESTEP_WORKER_URLS --config wrangler.jsonc
+          printf '%s' "${KAGGLE_GPU1_URL}" | npx --yes wrangler@latest secret put SONARA_VIDEO_WORKER_URL --config wrangler.jsonc
+          printf '%s' 'true' | npx --yes wrangler@latest secret put SONARA_ZERO_COST_VIDEO --config wrangler.jsonc
+          printf '%s' 'false' | npx --yes wrangler@latest secret put SONARA_ENABLE_GEMINI_VIDEO --config wrangler.jsonc
+          signing_secret="$(openssl rand -hex 32)"
+          printf '%s' "${signing_secret}" | npx --yes wrangler@latest secret put SONARA_VIDEO_EDGE_SIGNING_SECRET --config wrangler.jsonc
+          echo "Cloudflare bindings configured: GPU0 music, GPU1 WAN video, Gemini disabled."
+
+      - name: Validate zero-cost router
+        run: node cloudflare/sonara-video-api-recovery.test.mjs
+
+      - name: Deploy zero-cost Worker
+        run: npx --yes wrangler@latest deploy --config wrangler.jsonc
+
+      - name: Verify live zero-cost Video AI
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..18}; do
+            if response="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/api/video/edge-health?activate=${GITHUB_SHA}-${attempt}" 2>/dev/null)"; then
+              printf '%s' "$response" > /tmp/edge-health.json
+              if node - <<'NODE'
+          const h = JSON.parse(require('fs').readFileSync('/tmp/edge-health.json','utf8'));
+          const ok = h.valid === true && h.provider === 'kaggle-wan21' && h.zeroCost === true && h.googleBillingRequired === false && h.geminiEnabled === false;
+          console.log(JSON.stringify(h));
+          process.exit(ok ? 0 : 1);
+          NODE
+              then
+                echo "LIVE_ZERO_COST_VIDEO_OK"
+                exit 0
+              fi
+            fi
+            echo "Live edge not ready (${attempt}/18)"
+            sleep 5
+          done
+          exit 1
+
+      - name: Verify public v3 marker
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -sS -D /tmp/h -o /tmp/b --max-time 20 "https://sonaraenterprise.com/api/video/status?zero_cost=${GITHUB_SHA}" || true
+          grep -qi '^x-sonara-video-recovery: cloudflare-video-json-v3' /tmp/h
+          node -e "JSON.parse(require('fs').readFileSync('/tmp/b','utf8'));"
+          echo "Public Video AI v3 marker verified."
