@@ -16,7 +16,7 @@ if not BASE.is_dir():
     raise RuntimeError(f'ACE-Step non trovato: {BASE}')
 
 print('=' * 76)
-print(' SONARA MUSIC V17 - GPU0 STUDIO COMPOSER + 5Hz LM / GPU1 VIDEO SAFE ')
+print(' SONARA MUSIC V17 - DEDICATED ASYNC API + 5Hz LM / GPU1 VIDEO SAFE ')
 print('=' * 76)
 
 # Stop only ACE-Step processes explicitly bound to GPU0/7860.
@@ -58,23 +58,28 @@ if stopped:
             pass
 print(f'GPU0 music worker fermati: {len(stopped)}')
 print('GPU1 Video AI: NON TOCCATA')
+print('Cloudflared   : NON TOCCATO')
 
-# Persist the quality profile. LM is deliberately PT backend and CPU-offloadable
-# to fit alongside the Turbo DiT on a Tesla T4.
+# Dedicated REST API configuration. The 0.6B LM stays on CUDA while the
+# general memory-saving policy remains enabled for the heavier components.
 env_path = BASE / '.env'
 existing = env_path.read_text(encoding='utf-8', errors='ignore') if env_path.exists() else ''
 settings = {
+    'ACESTEP_DEVICE': 'cuda',
     'ACESTEP_DTYPE': 'float32',
     'ACESTEP_CONFIG_PATH': 'acestep-v15-turbo',
     'ACESTEP_INIT_LLM': 'true',
     'ACESTEP_LM_MODEL_PATH': 'acestep-5Hz-lm-0.6B',
     'ACESTEP_LM_BACKEND': 'pt',
-    'ACESTEP_LM_OFFLOAD_TO_CPU': 'true',
+    'ACESTEP_LM_DEVICE': 'cuda',
+    'ACESTEP_LM_OFFLOAD_TO_CPU': 'false',
     'ACESTEP_OFFLOAD_TO_CPU': 'true',
     'ACESTEP_OFFLOAD_DIT_TO_CPU': 'false',
     'ACESTEP_USE_FLASH_ATTENTION': 'false',
     'ACESTEP_COMPILE_MODEL': 'true',
     'ACESTEP_SAVE_MEMORY': '1',
+    'ACESTEP_QUEUE_WORKERS': '1',
+    'ACESTEP_QUEUE_MAXSIZE': '64',
     'TOKENIZERS_PARALLELISM': 'false',
     'MPLBACKEND': 'Agg',
 }
@@ -85,42 +90,21 @@ for key, value in settings.items():
     lines.append(f'{key}={value}')
 env_path.write_text('\n'.join(lines).strip() + '\n', encoding='utf-8')
 
+# IMPORTANT: use the dedicated REST server instead of the Gradio process with
+# --enable-api. /release_task is a queue submission endpoint here and must
+# return task_id immediately while generation continues in the job worker.
 common = [
-    UV, 'run', 'acestep',
-    '--server-name', '0.0.0.0',
+    UV, 'run', '--no-sync', 'acestep-api',
+    '--host', '0.0.0.0',
     '--port', str(PORT),
-    '--device', 'cuda',
-    '--init_service', 'true',
-    '--config_path', 'acestep-v15-turbo',
-    '--init_llm', 'true',
-    '--lm_model_path', 'acestep-5Hz-lm-0.6B',
-    '--backend', 'pt',
-    '--use_flash_attention', 'false',
-    '--offload_to_cpu', 'true',
-    '--offload_dit_to_cpu', 'false',
-    '--quantization', 'int8_weight_only',
-    '--batch_size', '1',
-    '--download-source', 'huggingface',
-    '--enable-api',
+    '--lm-model-path', 'acestep-5Hz-lm-0.6B',
 ]
 
 env = os.environ.copy()
 env.update({
     'CUDA_VISIBLE_DEVICES': GPU,
-    'ACESTEP_DTYPE': 'float32',
-    'ACESTEP_CONFIG_PATH': 'acestep-v15-turbo',
-    'ACESTEP_INIT_LLM': 'true',
-    'ACESTEP_LM_MODEL_PATH': 'acestep-5Hz-lm-0.6B',
-    'ACESTEP_LM_BACKEND': 'pt',
-    'ACESTEP_LM_OFFLOAD_TO_CPU': 'true',
-    'ACESTEP_OFFLOAD_TO_CPU': 'true',
-    'ACESTEP_OFFLOAD_DIT_TO_CPU': 'false',
-    'ACESTEP_USE_FLASH_ATTENTION': 'false',
-    'ACESTEP_COMPILE_MODEL': 'true',
-    'ACESTEP_SAVE_MEMORY': '1',
+    **settings,
     'PYTHONUNBUFFERED': '1',
-    'TOKENIZERS_PARALLELISM': 'false',
-    'MPLBACKEND': 'Agg',
     'PYTORCH_CUDA_ALLOC_CONF': 'expandable_segments:True',
 })
 
@@ -133,13 +117,26 @@ proc = subprocess.Popen(
     stderr=subprocess.STDOUT,
     start_new_session=True,
 )
-print(f'GPU0 SONARA Music V17 PID {proc.pid} -> port {PORT}')
+print(f'GPU0 SONARA Music V17 API PID {proc.pid} -> port {PORT}')
 print('Caricamento Turbo + 5Hz LM 0.6B in corso...')
 
 
 def get_json(path: str, timeout: int = 6):
     with urllib.request.urlopen(f'http://127.0.0.1:{PORT}{path}', timeout=timeout) as response:
         return response.status, json.loads(response.read().decode('utf-8'))
+
+
+def post_json(path: str, payload: dict, timeout: int = 20):
+    request = urllib.request.Request(
+        f'http://127.0.0.1:{PORT}{path}',
+        data=json.dumps(payload).encode('utf-8'),
+        headers={'Content-Type': 'application/json', 'Accept': 'application/json'},
+        method='POST',
+    )
+    started = time.time()
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        body = json.loads(response.read().decode('utf-8'))
+        return response.status, body, time.time() - started
 
 
 def health_ok():
@@ -167,7 +164,7 @@ deadline = time.time() + 720
 last_inventory = {}
 while time.time() < deadline:
     if proc.poll() is not None:
-        tail = LOG.read_text(errors='ignore')[-12000:] if LOG.exists() else ''
+        tail = LOG.read_text(errors='ignore')[-16000:] if LOG.exists() else ''
         raise RuntimeError('SONARA Music V17 GPU0 terminata durante il bootstrap:\n' + tail)
     if health_ok():
         ready, inventory = lm_ready()
@@ -176,17 +173,51 @@ while time.time() < deadline:
             break
     time.sleep(5)
 else:
-    tail = LOG.read_text(errors='ignore')[-12000:] if LOG.exists() else ''
+    tail = LOG.read_text(errors='ignore')[-16000:] if LOG.exists() else ''
     raise RuntimeError('Timeout: 5Hz LM non pronta su GPU0. Inventory=' + repr(last_inventory) + '\n' + tail)
+
+# Self-verifying async submission probe. analysis_only keeps this lightweight;
+# the purpose is to prove that thinking=true is QUEUED without blocking the
+# HTTP request long enough for a Cloudflare 524.
+probe = {
+    'prompt': 'deep house instrumental production analysis',
+    'lyrics': '',
+    'model': 'acestep-v15-turbo',
+    'audio_duration': 5,
+    'inference_steps': 1,
+    'thinking': True,
+    'analysis_only': True,
+    'full_analysis_only': True,
+    'use_format': True,
+    'use_cot_caption': True,
+    'use_cot_language': True,
+    'constrained_decoding': True,
+    'allow_lm_batch': False,
+    'lm_model_path': 'acestep-5Hz-lm-0.6B',
+    'lm_backend': 'pt',
+}
+try:
+    probe_status, probe_body, probe_seconds = post_json('/release_task', probe, 20)
+    probe_data = probe_body.get('data') or {}
+    probe_task_id = str(probe_data.get('task_id') or '')
+    if probe_status != 200 or not probe_task_id:
+        raise RuntimeError('release_task non ha restituito task_id: ' + repr(probe_body))
+    if probe_seconds > 15:
+        raise RuntimeError(f'release_task ancora troppo lenta: {probe_seconds:.2f}s')
+except Exception as exc:
+    tail = LOG.read_text(errors='ignore')[-16000:] if LOG.exists() else ''
+    raise RuntimeError('Probe submit asincrona V17 fallita: ' + repr(exc) + '\n' + tail)
 
 print()
 print('✅ SONARA MUSIC V17 GPU0 PRONTA')
+print('Server API     : acestep-api DEDICATO')
 print('Model          : acestep-v15-turbo')
-print('Inference HQ   : 8-step profile lato Sonara V16/V17')
+print('Inference HQ   : 8-step profile lato Sonara V17')
 print('5Hz LM         : acestep-5Hz-lm-0.6B ATTIVO')
-print('LM backend     : PT')
-print('LM CPU offload : ON')
-print('Thinking/CoT   : DISPONIBILE')
+print('LM backend     : PT / CUDA')
+print('LM CPU offload : OFF')
+print('Thinking/CoT   : ATTIVO')
+print(f'Async submit   : OK in {probe_seconds:.2f}s / task {probe_task_id}')
 print('GPU0           : Music AI')
 print('GPU1           : Video AI INVARIATA')
 print('Cloudflare     : tunnel esistente preservato')
