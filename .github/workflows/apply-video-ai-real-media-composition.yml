@@ -19,7 +19,7 @@ jobs:
           fetch-depth: 0
 
       - name: Apply media composition patch
-        run: node scripts/patch-video-ai-real-media-composition.cjs
+        run: node -e "global.LOCATION='us-central1'; require('./scripts/patch-video-ai-real-media-composition.cjs')"
 
       - name: Validate TypeScript build
         run: |
