@@ -15,7 +15,7 @@ export default {
     }
 
     if (url.hostname !== API_HOST && isVideoApiRequest(request)) {
-      return recoverVideoApi(request);
+      return recoverVideoApi(request, { env, ctx });
     }
 
     if (url.hostname === API_HOST) {
