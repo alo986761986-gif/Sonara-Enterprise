@@ -83,7 +83,7 @@ export const SONARA_PLANS: Record<SonaraPlanId, SonaraPlan> = {
     maxTrackSeconds: 480,
     commercialUse: true,
     videoCreditsPerMonth: 60,
-    videoClipSeconds: 120,
+    videoClipSeconds: 480,
     videoResolutions: ['720p', '1080p', '4k'],
     videoModelTier: 'fast',
     badge: 'ALTO VOLUME',
@@ -92,7 +92,7 @@ export const SONARA_PLANS: Record<SonaraPlanId, SonaraPlan> = {
       '500 minuti di generazione al mese',
       'Tutte le funzioni Creator',
       'Brani completi fino a 8 minuti',
-      '60 crediti SONARA Video AI al mese · video fino a 2 minuti · fino a 4K',
+      '60 crediti SONARA Video AI al mese · video fino a 8 minuti · fino a 4K',
       'Download dei propri brani incluso',
       'Produzione ad alto volume',
       'Uso commerciale secondo i Termini SONARA'

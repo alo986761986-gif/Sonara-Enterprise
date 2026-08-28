@@ -401,8 +401,8 @@ export default function VideoAISectionControl() {
           </div>
 
           <div className="mt-3 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4">
-            <div className="flex items-center justify-between gap-3"><div className="text-[9px] font-black uppercase tracking-widest text-slate-500">Durata video</div>{status?.planId === 'studio' && <div className="text-[9px] font-black text-violet-300">STUDIO · FINO A 2 MINUTI</div>}</div>
-            <div className="mt-3 grid grid-cols-4 gap-2">{([8, 30, 60, 120] as const).map(value => { const allowed = value <= Number(status?.videoClipSeconds || 8); return <button key={value} type="button" disabled={busy || !allowed} onClick={() => setDurationSeconds(value)} className={`rounded-xl px-2 py-3 text-[10px] font-black ${durationSeconds === value && allowed ? 'bg-violet-500 text-white' : 'border border-white/[0.07] bg-black/30 text-slate-500 disabled:opacity-25'}`}>{value < 60 ? `${value}s` : `${value / 60} min`}</button>; })}</div>
+            <div className="flex items-center justify-between gap-3"><div className="text-[9px] font-black uppercase tracking-widest text-slate-500">Durata video</div>{status?.planId === 'studio' && <div className="text-[9px] font-black text-violet-300">STUDIO · DA 8 SEC A 8 MINUTI</div>}</div>
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">{([8, 30, 60, 120, 180, 240, 300, 360, 420, 480] as const).map(value => { const allowed = value <= Number(status?.videoClipSeconds || 8); return <button key={value} type="button" disabled={busy || !allowed} onClick={() => setDurationSeconds(value)} className={`rounded-xl px-2 py-3 text-[10px] font-black ${durationSeconds === value && allowed ? 'bg-violet-500 text-white' : 'border border-white/[0.07] bg-black/30 text-slate-500 disabled:opacity-25'}`}>{value < 60 ? `${value}s` : `${value / 60} min`}</button>; })}</div>
             {durationSeconds > 8 && <p className="mt-3 text-[9px] leading-5 text-slate-500">SONARA crea {Math.ceil(durationSeconds / 8)} scene coerenti usando gli stessi riferimenti visivi e le monta automaticamente in un unico video MP4.</p>}
           </div>
 

@@ -184,7 +184,7 @@ export default async function handler(req: any, res: any) {
     const aspectRatio = body.aspectRatio === '9:16' ? '9:16' : '16:9';
     const resolution = body.resolution;
     const requestedDuration = Number(body.durationSeconds || 8);
-    const durationSeconds = Number.isFinite(requestedDuration) ? Math.max(8, Math.min(120, Math.round(requestedDuration))) : 8;
+    const durationSeconds = Number.isFinite(requestedDuration) ? Math.max(8, Math.min(480, Math.round(requestedDuration))) : 8;
     const references = mediaReferences(body, user.uid);
     if (prompt.length < 8) return fail(res, 400, 'VIDEO_PROMPT_REQUIRED', 'Descrivi il video con un prompt più completo.');
     if (prompt.length > 5000) return fail(res, 400, 'VIDEO_PROMPT_TOO_LONG', 'Il prompt video è troppo lungo.');
@@ -196,7 +196,7 @@ export default async function handler(req: any, res: any) {
     } catch (cause) {
       const code = cause instanceof Error ? cause.message : 'VIDEO_BILLING_ERROR';
       if (code === 'VIDEO_RESOLUTION_NOT_ALLOWED') return fail(res, 403, code, 'Questa qualità video non è inclusa nel piano attivo.', { allowed: (cause as any).allowed });
-      if (code === 'VIDEO_DURATION_NOT_ALLOWED') return fail(res, 403, code, 'I video oltre 8 secondi sono disponibili esclusivamente con SONARA Studio.', { maxDurationSeconds: (cause as any).maxDurationSeconds });
+      if (code === 'VIDEO_DURATION_NOT_ALLOWED') return fail(res, 403, code, 'I video oltre 8 secondi e fino a 8 minuti sono disponibili esclusivamente con SONARA Studio.', { maxDurationSeconds: (cause as any).maxDurationSeconds });
       if (code === 'VIDEO_CREDITS_EXHAUSTED') return fail(res, 402, code, 'Hai terminato i crediti Video AI del mese.', { creditsRemaining: (cause as any).creditsRemaining });
       return fail(res, 503, 'VIDEO_BILLING_ERROR', 'Il controllo dei crediti video non è disponibile.');
     }
