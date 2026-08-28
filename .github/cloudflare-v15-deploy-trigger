@@ -1,2 +1,2 @@
-trigger: extreme-fidelity-v16-bpm-lock-rerun-2
-reason: deploy authoritative BPM 30-300 tempo lock with corrected v16 validation and preserve 12-step Extreme Fidelity
+trigger: extreme-fidelity-v16-query-result-parser-fix
+reason: deploy ACE-Step nested query_result parser so dual T4 jobs advance from 0/2 to completed audio candidates
