@@ -134,29 +134,63 @@ function fallbackVideoAiContentType(kind: 'image' | 'video' | 'audio') {
   return 'image/jpeg';
 }
 
+function uploadErrorMessage(payload: any, fallback: string) {
+  const message = String(payload?.error?.message || payload?.message || '').trim();
+  return message || fallback;
+}
+
 export async function uploadFirebaseVideoAiAsset(
   file: Blob,
   options: { fileName?: string; kind?: 'image' | 'video' | 'audio' } = {}
 ): Promise<FirebaseVideoAiAsset> {
   const user = getFirebaseAuth().currentUser;
   if (!user) throw new Error('Accedi per caricare foto, video e audio in SONARA Video AI.');
-  const storage = getStorage(app || getApps()[0] || initializeApp(firebaseConfig));
+
   const kind = options.kind || (file.type.startsWith('audio/') ? 'audio' : file.type.startsWith('video/') ? 'video' : 'image');
   const fileName = safeVideoAiFileName(options.fileName || `${kind}-${Date.now()}`);
-  const randomPart = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID()
-    : Math.random().toString(36).slice(2);
-  const storagePath = `video-ai-inputs/${user.uid}/${Date.now()}-${randomPart}-${fileName}`;
-  const assetRef = ref(storage, storagePath);
   const contentType = file.type || fallbackVideoAiContentType(kind);
-  const snapshot = await uploadBytes(assetRef, file, {
-    contentType,
-    customMetadata: { sonaraPurpose: 'video-ai-input', sonaraKind: kind }
+  const idToken = await user.getIdToken();
+
+  const prepareResponse = await fetch('/api/video/upload', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${idToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      fileName,
+      contentType,
+      size: file.size,
+      kind
+    })
   });
-  const downloadUrl = await getDownloadURL(snapshot.ref);
+
+  const prepared = await prepareResponse.json().catch(() => ({})) as {
+    storagePath?: string;
+    uploadUrl?: string;
+    downloadUrl?: string;
+    error?: { message?: string };
+  };
+
+  if (!prepareResponse.ok || !prepared.storagePath || !prepared.uploadUrl || !prepared.downloadUrl) {
+    throw new Error(uploadErrorMessage(prepared, 'SONARA non riesce a preparare il caricamento del file.'));
+  }
+
+  const uploadResponse = await fetch(prepared.uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': contentType },
+    body: file
+  });
+
+  if (!uploadResponse.ok) {
+    const providerMessage = await uploadResponse.text().catch(() => '');
+    console.error('[SONARA VIDEO AI] signed media upload failed', uploadResponse.status, providerMessage.slice(0, 500));
+    throw new Error(`Caricamento media SONARA fallito (${uploadResponse.status}).`);
+  }
+
   return {
-    storagePath: snapshot.ref.fullPath,
-    downloadUrl,
+    storagePath: prepared.storagePath,
+    downloadUrl: prepared.downloadUrl,
     contentType,
     size: file.size,
     kind
