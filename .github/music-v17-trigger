@@ -1,0 +1,3 @@
+ACTION=enable-sonara-music-v17-5hz-lm
+GPU=0
+MODE=quality
