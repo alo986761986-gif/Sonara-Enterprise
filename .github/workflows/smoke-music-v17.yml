@@ -62,12 +62,20 @@ jobs:
             "candidateCount": 2
           }
           JSON
-          curl -fsS --max-time 240 \
+          http_code="$(curl -sS --max-time 300 \
+            -o /tmp/start.json \
+            -w '%{http_code}' \
             -H 'Content-Type: application/json' \
             "${auth[@]}" \
             -X POST "$API_ORIGIN/api/engine/generate" \
-            --data-binary @/tmp/request.json > /tmp/start.json
-          cat /tmp/start.json
+            --data-binary @/tmp/request.json || true)"
+          echo "V17 submit HTTP ${http_code}"
+          cat /tmp/start.json 2>/dev/null || true
+          echo
+          if [[ "$http_code" != '202' && "$http_code" != '200' ]]; then
+            echo "V17 submit failed with HTTP ${http_code}. Response body printed above." >&2
+            exit 1
+          fi
           node - <<'NODE' >> "$GITHUB_ENV"
           const fs = require('fs');
           const r = JSON.parse(fs.readFileSync('/tmp/start.json','utf8'));
