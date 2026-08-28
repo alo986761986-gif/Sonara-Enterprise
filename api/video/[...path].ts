@@ -27,6 +27,7 @@ interface BillingRecord {
   usagePeriodEnd?: Timestamp;
   videoCreditsUsed?: number;
   videoCreditsPeriodKey?: string;
+  videoCreditsPerMonthOverride?: number;
 }
 interface VideoJobRecord {
   uid: string;
@@ -128,6 +129,12 @@ function currentPeriodKey(now = new Date()) {
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+function creditAllowance(record: BillingRecord | undefined, planId: SonaraPlanId) {
+  const base = SONARA_PLANS[planId].videoCreditsPerMonth;
+  const override = Math.max(0, Number(record?.videoCreditsPerMonthOverride || 0));
+  return Math.max(base, override);
+}
+
 async function billingRecord(uid: string): Promise<BillingRecord | undefined> {
   const snapshot = await getFirestore(getAdminApp()).collection('sonaraBilling').doc(uid).get();
   return snapshot.exists ? snapshot.data() as BillingRecord : undefined;
@@ -138,14 +145,15 @@ function publicStatus(record: BillingRecord | undefined) {
   const plan = SONARA_PLANS[planId];
   const periodKey = currentPeriodKey();
   const used = record?.videoCreditsPeriodKey === periodKey ? Math.max(0, Number(record.videoCreditsUsed || 0)) : 0;
+  const allowance = creditAllowance(record, planId);
   const app = getAdminApp();
   const bucket = storageBucketName();
   return {
     planId,
     planName: plan.name,
-    videoCreditsPerMonth: plan.videoCreditsPerMonth,
+    videoCreditsPerMonth: allowance,
     videoCreditsUsed: used,
-    videoCreditsRemaining: Math.max(0, plan.videoCreditsPerMonth - used),
+    videoCreditsRemaining: Math.max(0, allowance - used),
     videoClipSeconds: plan.videoClipSeconds,
     videoResolutions: plan.videoResolutions,
     providerConfigured: videoProviderReady(app, bucket),
@@ -166,7 +174,8 @@ async function reserveVideoCredits(uid: string, resolution: SonaraVideoResolutio
     const credits = SONARA_VIDEO_CREDIT_COST[resolution];
     const periodKey = currentPeriodKey();
     const used = record.videoCreditsPeriodKey === periodKey ? Math.max(0, Number(record.videoCreditsUsed || 0)) : 0;
-    if (used + credits > plan.videoCreditsPerMonth) throw Object.assign(new Error('VIDEO_CREDITS_EXHAUSTED'), { planId, creditsRemaining: Math.max(0, plan.videoCreditsPerMonth - used) });
+    const allowance = creditAllowance(record, planId);
+    if (used + credits > allowance) throw Object.assign(new Error('VIDEO_CREDITS_EXHAUSTED'), { planId, creditsRemaining: Math.max(0, allowance - used) });
     const next: BillingRecord = { ...record, videoCreditsPeriodKey: periodKey, videoCreditsUsed: used + credits };
     transaction.set(ref, { videoCreditsPeriodKey: periodKey, videoCreditsUsed: used + credits, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     result = { planId, credits, status: publicStatus(next) };
