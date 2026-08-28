@@ -20,8 +20,9 @@ type BillingRecord = {
 type VideoReference = {
   storagePath: string;
   contentType: string;
-  sourceKind: 'image' | 'video';
+  sourceKind: 'image' | 'video' | 'audio';
   sourceName?: string;
+  size?: number;
   originalStoragePath?: string;
 };
 
@@ -132,14 +133,16 @@ function mediaReferences(body: any, uid: string): VideoReference[] {
     .flatMap((raw: any) => {
       const storagePath = String(raw?.storagePath || '').trim();
       const contentType = String(raw?.contentType || 'image/jpeg').trim().toLowerCase();
-      const sourceKind = raw?.sourceKind === 'video' ? 'video' : 'image';
+      const sourceKind = raw?.sourceKind === 'audio' ? 'audio' : raw?.sourceKind === 'video' ? 'video' : 'image';
       const sourceName = String(raw?.sourceName || '').trim().slice(0, 160);
+      const size = Math.max(0, Number(raw?.size || 0));
       const originalStoragePath = String(raw?.originalStoragePath || '').trim();
-      if (!storagePath.startsWith(prefix) || !contentType.startsWith('image/')) return [];
+      const acceptedMedia = contentType.startsWith('image/') || contentType.startsWith('audio/');
+      if (!storagePath.startsWith(prefix) || !acceptedMedia) return [];
       if (originalStoragePath && !originalStoragePath.startsWith(prefix)) return [];
-      return [{ storagePath, contentType, sourceKind, ...(sourceName ? { sourceName } : {}), ...(originalStoragePath ? { originalStoragePath } : {}) } as VideoReference];
+      return [{ storagePath, contentType, sourceKind, ...(sourceName ? { sourceName } : {}), ...(size ? { size } : {}), ...(originalStoragePath ? { originalStoragePath } : {}) } as VideoReference];
     })
-    .slice(0, 3);
+    .slice(0, 6);
 }
 
 async function reserveVideoCredits(uid: string, resolution: SonaraVideoResolution, durationSeconds: number, app: App) {
@@ -228,7 +231,7 @@ export default async function handler(req: any, res: any) {
       jobId: jobRef.id,
       status: 'PROCESSING',
       progress: 3,
-      stage: references.length ? `SONARA Video AI: job accettato con ${references.length} riferimenti` : 'SONARA Video AI: job accettato',
+      stage: references.length ? `SONARA Video AI: job accettato con ${references.length} media caricati` : 'SONARA Video AI: job accettato',
       provider,
       billing: reservation.status
     });

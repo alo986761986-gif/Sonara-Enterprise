@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowDown, ArrowUp, BrainCircuit, Download, Film, ImagePlus, Loader2, Play, Shuffle, Sparkles, Trash2, Upload, Video, WandSparkles, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, BrainCircuit, CheckCircle2, Download, Film, ImagePlus, Loader2, Music2, Play, Shuffle, Sparkles, Trash2, Upload, Video, WandSparkles, X } from 'lucide-react';
 import { getFirebaseIdToken, uploadFirebaseVideoAiAsset } from '../../lib/firebaseClient';
 import type { SonaraPlanId, SonaraVideoResolution } from '../../billing/plans';
 import { buildIntelligentVideoPrompt, buildRandomVideoPrompt } from '../../videoPromptIntelligence';
@@ -28,18 +28,29 @@ type JobPayload = {
 
 type VideoAiMediaReference = {
   id: string;
-  sourceKind: 'image' | 'video';
+  sourceKind: 'image' | 'video' | 'audio';
   sourceName: string;
   previewUrl: string;
   storagePath: string;
   contentType: string;
+  size: number;
   originalStoragePath?: string;
 };
 
 const NAV_HOST_ID = 'sonara-video-ai-nav-host';
-const MAX_MEDIA_REFERENCES = 3;
+const MAX_MEDIA_REFERENCES = 6;
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 150 * 1024 * 1024;
+const MAX_AUDIO_BYTES = 250 * 1024 * 1024;
+const AUDIO_EXTENSION_RE = /\.(mp3|wav|wave|flac|aac|m4a|mp4a|ogg|oga|opus|aiff|aif|alac|wma|amr|ape|mka|caf|weba|3ga|mid|midi)$/i;
+const VIDEO_EXTENSION_RE = /\.(mp4|webm|mov|m4v|avi|mkv)$/i;
+const IMAGE_EXTENSION_RE = /\.(jpe?g|png|webp)$/i;
+
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB';
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 function errorMessage(payload: JobPayload, fallback: string) {
@@ -166,7 +177,7 @@ export default function VideoAISectionControl() {
     const selected = Array.from(files);
     const slots = MAX_MEDIA_REFERENCES - mediaReferences.length;
     if (slots <= 0) {
-      setError(`Puoi usare fino a ${MAX_MEDIA_REFERENCES} riferimenti visivi per ogni generazione.`);
+      setError(`Puoi caricare fino a ${MAX_MEDIA_REFERENCES} file per ogni generazione.`);
       return;
     }
     const accepted = selected.slice(0, slots);
@@ -175,11 +186,13 @@ export default function VideoAISectionControl() {
     try {
       const additions: VideoAiMediaReference[] = [];
       for (const file of accepted) {
-        const isImage = file.type.startsWith('image/');
-        const isVideo = file.type.startsWith('video/');
-        if (!isImage && !isVideo) throw new Error(`${file.name}: usa un file immagine o video.`);
+        const isImage = file.type.startsWith('image/') || IMAGE_EXTENSION_RE.test(file.name);
+        const isVideo = file.type.startsWith('video/') || VIDEO_EXTENSION_RE.test(file.name);
+        const isAudio = file.type.startsWith('audio/') || AUDIO_EXTENSION_RE.test(file.name);
+        if (!isImage && !isVideo && !isAudio) throw new Error(`${file.name}: formato non riconosciuto. Usa foto, video o audio.`);
         if (isImage && file.size > MAX_IMAGE_BYTES) throw new Error(`${file.name}: foto troppo grande. Massimo 15 MB.`);
         if (isVideo && file.size > MAX_VIDEO_BYTES) throw new Error(`${file.name}: video troppo grande. Massimo 150 MB.`);
+        if (isAudio && file.size > MAX_AUDIO_BYTES) throw new Error(`${file.name}: audio troppo grande. Massimo 250 MB.`);
 
         if (isImage) {
           const uploaded = await uploadFirebaseVideoAiAsset(file, { fileName: file.name, kind: 'image' });
@@ -189,7 +202,22 @@ export default function VideoAISectionControl() {
             sourceName: file.name,
             previewUrl: uploaded.downloadUrl,
             storagePath: uploaded.storagePath,
-            contentType: uploaded.contentType
+            contentType: uploaded.contentType,
+            size: uploaded.size
+          });
+          continue;
+        }
+
+        if (isAudio) {
+          const uploadedAudio = await uploadFirebaseVideoAiAsset(file, { fileName: file.name, kind: 'audio' });
+          additions.push({
+            id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            sourceKind: 'audio',
+            sourceName: file.name,
+            previewUrl: uploadedAudio.downloadUrl,
+            storagePath: uploadedAudio.storagePath,
+            contentType: uploadedAudio.contentType,
+            size: uploadedAudio.size
           });
           continue;
         }
@@ -205,6 +233,7 @@ export default function VideoAISectionControl() {
           previewUrl: uploadedVideo.downloadUrl,
           storagePath: uploadedFrame.storagePath,
           contentType: uploadedFrame.contentType,
+          size: uploadedVideo.size,
           originalStoragePath: uploadedVideo.storagePath
         });
       }
@@ -271,7 +300,7 @@ export default function VideoAISectionControl() {
     setError('');
     setVideoUrl('');
     setProgress(5);
-    setStage(mediaReferences.length ? 'SONARA Video AI: preparo i riferimenti visuali' : 'SONARA Video AI: avvio generazione');
+    setStage(mediaReferences.length ? 'SONARA Video AI: preparo i media caricati' : 'SONARA Video AI: avvio generazione');
     try {
       const token = await getFirebaseIdToken(true);
       const effectivePrompt = prompt.trim() || 'Create a polished cinematic video based faithfully on the uploaded visual references. Preserve the main subject, visual identity, environment and color language while adding natural cinematic motion, professional lighting and coherent camera movement.';
@@ -288,6 +317,7 @@ export default function VideoAISectionControl() {
             contentType: item.contentType,
             sourceKind: item.sourceKind,
             sourceName: item.sourceName,
+            size: item.size,
             ...(item.originalStoragePath ? { originalStoragePath: item.originalStoragePath } : {})
           }))
         })
@@ -330,7 +360,7 @@ export default function VideoAISectionControl() {
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-black"><Film className="h-5 w-5" /></div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2"><span className="font-black text-white">SONARA VIDEO AI</span><span className="rounded-full border border-violet-400/20 bg-violet-400/10 px-2 py-0.5 text-[8px] font-black tracking-wider text-violet-200">GENERATIVE VIDEO</span></div>
-            <div className="mt-0.5 text-[9px] font-bold uppercase tracking-[0.18em] text-slate-600">Text · Photo · Video to AI Video · Native AI Audio · 16:9 / 9:16</div>
+            <div className="mt-0.5 text-[9px] font-bold uppercase tracking-[0.18em] text-slate-600">Text · Photo · Video · Audio to AI Video · Native AI Audio · 16:9 / 9:16</div>
           </div>
           {status && <div className="hidden rounded-xl border border-white/[0.07] bg-white/[0.03] px-3 py-2 text-right sm:block"><div className="text-[9px] font-black text-white">{status.planName}</div><div className="text-[8px] text-slate-500">{status.videoCreditsRemaining}/{status.videoCreditsPerMonth} crediti</div></div>}
           <button type="button" onClick={() => setOpen(false)} className="flex h-10 w-10 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.03] text-slate-400 hover:text-white" aria-label="Chiudi Video AI"><X className="h-4 w-4" /></button>
@@ -339,22 +369,22 @@ export default function VideoAISectionControl() {
 
       <main className="mx-auto grid max-w-[1700px] gap-5 p-4 sm:p-6 xl:grid-cols-[minmax(0,1fr)_520px]">
         <section className="rounded-3xl border border-white/[0.07] bg-[#0b0c10] p-5 sm:p-6">
-          <div className="mb-5"><div className="text-xs font-black uppercase tracking-[0.18em] text-violet-300">AI Director</div><h2 className="mt-2 text-2xl font-black tracking-tight text-white">Crea da testo, foto e video</h2><p className="mt-2 max-w-2xl text-xs leading-6 text-slate-500">Carica fino a 3 riferimenti visuali. SONARA usa le foto direttamente; dai video estrae automaticamente un fotogramma guida e mantiene il file originale associato al progetto.</p></div>
+          <div className="mb-5"><div className="text-xs font-black uppercase tracking-[0.18em] text-violet-300">AI Director</div><h2 className="mt-2 text-2xl font-black tracking-tight text-white">Crea da testo, foto, video e audio</h2><p className="mt-2 max-w-2xl text-xs leading-6 text-slate-500">Carica fino a 6 file. SONARA mostra subito ogni upload completato; usa foto e fotogrammi video come riferimenti visivi e conserva anche gli audio nel progetto Video AI.</p></div>
 
           <div className="rounded-2xl border border-violet-400/15 bg-violet-400/[0.035] p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div><div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-violet-200"><ImagePlus className="h-4 w-4" />Media di riferimento</div><p className="mt-1 text-[9px] leading-5 text-slate-500">JPG, PNG, WEBP e video comuni. Il primo elemento è il riferimento principale.</p></div>
+              <div><div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-violet-200"><ImagePlus className="h-4 w-4" />Media di riferimento</div><p className="mt-1 text-[9px] leading-5 text-slate-500">Foto, video e tutti i principali formati audio. Ogni file completato viene marcato chiaramente come CARICATO.</p></div>
               <label className={`inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border border-violet-400/25 bg-violet-400/10 px-4 py-2 text-[10px] font-black text-violet-100 transition hover:bg-violet-400/15 ${(busy || uploadingMedia || mediaReferences.length >= MAX_MEDIA_REFERENCES) ? 'pointer-events-none opacity-35' : ''}`}>
                 {uploadingMedia ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                {uploadingMedia ? 'CARICAMENTO...' : 'CARICA FOTO / VIDEO'}
-                <input type="file" multiple accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime" className="hidden" disabled={busy || uploadingMedia || mediaReferences.length >= MAX_MEDIA_REFERENCES} onChange={event => { if (event.target.files?.length) void addMediaFiles(event.target.files); event.currentTarget.value = ''; }} />
+                {uploadingMedia ? 'CARICAMENTO...' : 'CARICA FOTO / VIDEO / AUDIO'}
+                <input type="file" multiple accept="image/jpeg,image/png,image/webp,video/*,audio/*,.mp3,.wav,.wave,.flac,.aac,.m4a,.mp4a,.ogg,.oga,.opus,.aiff,.aif,.alac,.wma,.amr,.ape,.mka,.caf,.weba,.3ga,.mid,.midi" className="hidden" disabled={busy || uploadingMedia || mediaReferences.length >= MAX_MEDIA_REFERENCES} onChange={event => { if (event.target.files?.length) void addMediaFiles(event.target.files); event.currentTarget.value = ''; }} />
               </label>
             </div>
             {mediaReferences.length > 0 && <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{mediaReferences.map((item, index) => <div key={item.id} className="overflow-hidden rounded-xl border border-white/[0.08] bg-black/30">
-              <div className="relative aspect-video bg-black">{item.sourceKind === 'video' ? <video src={item.previewUrl} muted playsInline preload="metadata" className="h-full w-full object-cover" /> : <img src={item.previewUrl} alt={item.sourceName} className="h-full w-full object-cover" />}<div className="absolute left-2 top-2 rounded-md bg-black/70 px-2 py-1 text-[8px] font-black text-white">{index === 0 ? 'PRINCIPALE' : `RIF. ${index + 1}`}</div><div className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-md bg-black/70 text-white">{item.sourceKind === 'video' ? <Video className="h-3.5 w-3.5" /> : <ImagePlus className="h-3.5 w-3.5" />}</div></div>
-              <div className="flex items-center gap-1 p-2"><div className="min-w-0 flex-1 truncate text-[9px] font-bold text-slate-300">{item.sourceName}</div><button type="button" disabled={busy || uploadingMedia || index === 0} onClick={() => moveMediaReference(item.id, -1)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.07] text-slate-500 disabled:opacity-20" aria-label="Sposta prima"><ArrowUp className="h-3 w-3" /></button><button type="button" disabled={busy || uploadingMedia || index === mediaReferences.length - 1} onClick={() => moveMediaReference(item.id, 1)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.07] text-slate-500 disabled:opacity-20" aria-label="Sposta dopo"><ArrowDown className="h-3 w-3" /></button><button type="button" disabled={busy || uploadingMedia} onClick={() => removeMediaReference(item.id)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-rose-400/15 text-rose-300 disabled:opacity-20" aria-label="Rimuovi media"><Trash2 className="h-3 w-3" /></button></div>
+              <div className="relative aspect-video bg-black">{item.sourceKind === 'audio' ? <div className="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-cyan-950/50 to-violet-950/40 p-4"><Music2 className="h-9 w-9 text-cyan-300" /><audio src={item.previewUrl} controls preload="metadata" className="w-full max-w-[260px]" /></div> : item.sourceKind === 'video' ? <video src={item.previewUrl} controls muted playsInline preload="metadata" className="h-full w-full object-cover" /> : <img src={item.previewUrl} alt={item.sourceName} className="h-full w-full object-cover" />}<div className="absolute left-2 top-2 flex items-center gap-1 rounded-md bg-emerald-500/90 px-2 py-1 text-[8px] font-black text-white"><CheckCircle2 className="h-3 w-3" />CARICATO</div><div className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-md bg-black/70 text-white">{item.sourceKind === 'audio' ? <Music2 className="h-3.5 w-3.5" /> : item.sourceKind === 'video' ? <Video className="h-3.5 w-3.5" /> : <ImagePlus className="h-3.5 w-3.5" />}</div></div>
+              <div className="flex items-center gap-1 p-2"><div className="min-w-0 flex-1"><div className="truncate text-[9px] font-bold text-slate-200">{item.sourceName}</div><div className="mt-0.5 flex items-center gap-2 text-[8px] text-slate-500"><span>{item.sourceKind.toUpperCase()}</span><span>·</span><span>{formatBytes(item.size)}</span><span>·</span><span className="font-black text-emerald-400">CARICATO</span></div></div><button type="button" disabled={busy || uploadingMedia || index === 0} onClick={() => moveMediaReference(item.id, -1)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.07] text-slate-500 disabled:opacity-20" aria-label="Sposta prima"><ArrowUp className="h-3 w-3" /></button><button type="button" disabled={busy || uploadingMedia || index === mediaReferences.length - 1} onClick={() => moveMediaReference(item.id, 1)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/[0.07] text-slate-500 disabled:opacity-20" aria-label="Sposta dopo"><ArrowDown className="h-3 w-3" /></button><button type="button" disabled={busy || uploadingMedia} onClick={() => removeMediaReference(item.id)} className="flex h-8 w-8 items-center justify-center rounded-lg border border-rose-400/15 text-rose-300 disabled:opacity-20" aria-label="Rimuovi media"><Trash2 className="h-3 w-3" /></button></div>
             </div>)}</div>}
-            {!mediaReferences.length && <div className="mt-4 flex min-h-24 items-center justify-center rounded-xl border border-dashed border-white/[0.08] bg-black/20 px-4 text-center text-[9px] leading-5 text-slate-600">Puoi anche generare solo dal prompt. Se carichi foto o video, SONARA li usa come sorgente visuale del risultato.</div>}
+            {!mediaReferences.length && <div className="mt-4 flex min-h-24 items-center justify-center rounded-xl border border-dashed border-white/[0.08] bg-black/20 px-4 text-center text-[9px] leading-5 text-slate-600">Puoi anche generare solo dal prompt. Foto e video guidano l'immagine; gli audio vengono caricati, mostrati con player e conservati nel progetto Video AI.</div>}
           </div>
 
           <div className="mb-3 mt-5 flex flex-wrap items-center gap-2">
@@ -363,7 +393,7 @@ export default function VideoAISectionControl() {
             <button type="button" onClick={improvePrompt} disabled={busy} title="Trasforma il prompt con SONARA Video Intelligence" aria-label="Prompt Video Intelligente" className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-[10px] font-black transition disabled:opacity-30 ${smartPromptActive ? 'border-cyan-300/50 bg-cyan-400/20 text-cyan-100' : 'border-cyan-400/25 bg-cyan-400/[0.08] text-cyan-200 hover:border-cyan-300/45 hover:bg-cyan-400/15'}`}><BrainCircuit className="h-3.5 w-3.5" />{smartPromptActive ? 'OTTIMIZZATO' : 'INTELLIGENTE'}</button>
             <span className="ml-auto text-[8px] font-bold uppercase tracking-[0.16em] text-slate-700">Regia · Musica · Montaggio · Continuità</span>
           </div>
-          <textarea value={prompt} onChange={event => { setPrompt(event.target.value); setSmartPromptActive(false); }} rows={8} disabled={busy} className="w-full resize-y rounded-2xl border border-white/[0.08] bg-black/40 p-5 text-sm leading-6 text-white outline-none focus:border-violet-400/40 disabled:opacity-50" placeholder="Descrivi come vuoi animare o trasformare le foto/video caricati. Puoi anche lasciare vuoto se vuoi che SONARA costruisca automaticamente la regia dai riferimenti." />
+          <textarea value={prompt} onChange={event => { setPrompt(event.target.value); setSmartPromptActive(false); }} rows={8} disabled={busy} className="w-full resize-y rounded-2xl border border-white/[0.08] bg-black/40 p-5 text-sm leading-6 text-white outline-none focus:border-violet-400/40 disabled:opacity-50" placeholder="Descrivi come vuoi animare o trasformare foto, video e materiale audio caricato. Puoi anche lasciare vuoto se vuoi che SONARA costruisca automaticamente la regia dai riferimenti." />
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <div className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4"><div className="text-[9px] font-black uppercase tracking-widest text-slate-500">Formato</div><div className="mt-3 grid grid-cols-2 gap-2">{(['16:9','9:16'] as AspectRatio[]).map(value => <button key={value} type="button" disabled={busy} onClick={() => setAspectRatio(value)} className={`rounded-xl px-3 py-3 text-xs font-black ${aspectRatio === value ? 'bg-white text-black' : 'border border-white/[0.07] bg-black/30 text-slate-400'}`}>{value === '16:9' ? 'Landscape 16:9' : 'Vertical 9:16'}</button>)}</div></div>

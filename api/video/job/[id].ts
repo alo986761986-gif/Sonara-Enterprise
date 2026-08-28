@@ -24,8 +24,9 @@ type SceneOperation = {
 type MediaReference = {
   storagePath: string;
   contentType?: string;
-  sourceKind?: 'image' | 'video';
+  sourceKind?: 'image' | 'video' | 'audio';
   sourceName?: string;
+  size?: number;
   originalStoragePath?: string;
 };
 
@@ -93,7 +94,7 @@ function firestoreSafeOperations(operations: SceneOperation[]): SceneOperation[]
 
 function referenceImages(record: VideoJobRecord) {
   return (Array.isArray(record.mediaReferences) ? record.mediaReferences : [])
-    .filter(item => item && typeof item.storagePath === 'string' && item.storagePath.trim())
+    .filter(item => item && typeof item.storagePath === 'string' && item.storagePath.trim() && String(item.contentType || 'image/jpeg').toLowerCase().startsWith('image/'))
     .slice(0, 3)
     .map(item => ({ storagePath: item.storagePath.trim(), contentType: String(item.contentType || 'image/jpeg') }));
 }
