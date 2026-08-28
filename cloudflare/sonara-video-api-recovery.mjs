@@ -338,16 +338,7 @@ async function maybeStartEdgeJob(request, bodyBytes, response, env, fetcher) {
   if (request.method !== 'POST' || new URL(request.url).pathname !== '/api/video/generate') return null;
   if (!isJsonResponse(response) || response.status !== 202) return null;
   const body = safeJsonBytes(bodyBytes);
-  if (!eligibleForEdge(body)) {
-    if (zeroCostMode(env)) {
-      return jsonResponse(503, {
-        error: { code: 'ZERO_COST_VIDEO_LIMIT', message: 'Il motore Video AI gratuito è attualmente abilitato per clip da 8 secondi senza media caricati. Google/Veo è disattivato per evitare costi.' },
-        retryable: false,
-        zeroCost: true
-      });
-    }
-    return null;
-  }
+  if (!eligibleForEdge(body)) return null;
   let upstreamPayload;
   try { upstreamPayload = await response.clone().json(); } catch { return null; }
   if (!upstreamPayload?.jobId) return null;
@@ -416,16 +407,37 @@ export async function recoverVideoApi(request, options = {}) {
   if (request.method === 'GET' && url.pathname.startsWith('/api/video/job/edge_')) return edgeJobPoll(request, env, fetcher);
 
   const bodyBytes = request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.clone().arrayBuffer();
+
+  if (request.method === 'POST' && url.pathname === '/api/video/generate' && zeroCostMode(env)) {
+    const body = safeJsonBytes(bodyBytes);
+    if (!eligibleForEdge(body)) {
+      return jsonResponse(503, {
+        error: { code: 'ZERO_COST_VIDEO_LIMIT', message: 'Il motore Video AI gratuito è attualmente abilitato per clip da 8 secondi senza media caricati. Google/Veo è disattivato per evitare costi.' },
+        retryable: false,
+        zeroCost: true,
+        creditsReserved: false
+      });
+    }
+    const wan = await wanHealth(env, fetcher);
+    if (!wan.valid) {
+      return jsonResponse(503, {
+        error: { code: 'ZERO_COST_VIDEO_WORKER_UNAVAILABLE', message: 'Il worker gratuito SONARA WAN non è disponibile. La richiesta è stata fermata prima di Vercel: nessun costo Google e nessun credito SONARA riservato.' },
+        retryable: true,
+        zeroCost: true,
+        creditsReserved: false,
+        provider: 'kaggle-wan21'
+      });
+    }
+  }
+
   let lastResponse = null;
   let lastError = null;
-
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     try {
       const response = await fetcher(makeUpstreamRequest(request, bodyBytes));
       lastResponse = response;
       const html = await responseLooksHtml(response);
       const retryable = RETRYABLE_STATUSES.has(response.status) || (response.status >= 500 && html);
-
       if (!retryable) {
         if (isJsonResponse(response)) {
           const edge = await maybeStartEdgeJob(request, bodyBytes, response, env, fetcher);
