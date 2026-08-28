@@ -1,4 +1,4 @@
-name: Configure SONARA Kaggle T4 Workers
+name: Configure SONARA Kaggle Workers
 
 on:
   push:
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   configure:
-    name: Verify T4 tunnels and update Cloudflare runtime
+    name: Verify Kaggle endpoint and update Cloudflare runtime
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -42,21 +42,34 @@ jobs:
             echo "Missing ${trigger}." >&2
             exit 1
           fi
+
           gpu0="$(sed -n 's/^GPU0=//p' "${trigger}" | tail -n 1 | tr -d '\r')"
           gpu1="$(sed -n 's/^GPU1=//p' "${trigger}" | tail -n 1 | tr -d '\r')"
-          for pair in "GPU0|${gpu0}" "GPU1|${gpu1}"; do
-            name="${pair%%|*}"
-            url="${pair#*|}"
-            if [[ ! "${url}" =~ ^https://[A-Za-z0-9.-]+\.trycloudflare\.com/?$ ]]; then
+
+          validate_url() {
+            local name="$1"
+            local url="$2"
+            [[ -z "${url}" ]] && return 0
+            if [[ ! "${url}" =~ ^https://[A-Za-z0-9.-]+\.(trycloudflare\.com|gradio\.live)/?$ ]]; then
               echo "Invalid ${name} URL in ${trigger}: ${url}" >&2
               exit 1
             fi
-          done
+          }
+
+          validate_url "GPU0" "${gpu0}"
+          validate_url "GPU1" "${gpu1}"
+
           gpu0="${gpu0%/}"
           gpu1="${gpu1%/}"
+
+          if [[ -z "${gpu0}" ]]; then
+            echo "GPU0 endpoint is required." >&2
+            exit 1
+          fi
+
           echo "KAGGLE_GPU0_URL=${gpu0}" >> "${GITHUB_ENV}"
           echo "KAGGLE_GPU1_URL=${gpu1}" >> "${GITHUB_ENV}"
-          echo "Loaded current Kaggle worker endpoints from ${trigger}."
+          echo "Loaded current Kaggle endpoint(s) from ${trigger}."
 
       - name: Resolve Cloudflare account
         shell: bash
@@ -83,16 +96,22 @@ jobs:
           echo "::add-mask::${account_id}"
           echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
 
-      - name: Verify Kaggle GPU0 and GPU1 public health
+      - name: Verify Kaggle public health
         shell: bash
         run: |
           set -euo pipefail
-          for pair in "GPU0|${KAGGLE_GPU0_URL}" "GPU1|${KAGGLE_GPU1_URL}"; do
-            name="${pair%%|*}"
-            url="${pair#*|}"
+          urls=("${KAGGLE_GPU0_URL}")
+          if [[ -n "${KAGGLE_GPU1_URL}" ]]; then
+            urls+=("${KAGGLE_GPU1_URL}")
+          fi
+
+          index=0
+          for url in "${urls[@]}"; do
+            name="GPU${index}"
             ready=0
             for attempt in {1..24}; do
               if response="$(curl -fsS --connect-timeout 10 --max-time 20 "${url}/health" 2>/dev/null)"; then
+                echo "${name} health response: ${response}"
                 if printf '%s' "${response}" | grep -Eqi '"status"[[:space:]]*:[[:space:]]*"(ok|ready|healthy|online|success)"|"code"[[:space:]]*:[[:space:]]*200'; then
                   echo "${name} healthy: ${url}"
                   ready=1
@@ -103,47 +122,54 @@ jobs:
               sleep 5
             done
             if [[ "${ready}" != "1" ]]; then
-              echo "${name} tunnel did not become healthy: ${url}" >&2
+              echo "${name} Kaggle endpoint did not become healthy: ${url}" >&2
               exit 1
             fi
+            index=$((index + 1))
           done
 
       - name: Update deployed Worker Kaggle endpoints
         shell: bash
         run: |
           set -euo pipefail
-          workers="${KAGGLE_GPU0_URL},${KAGGLE_GPU1_URL}"
+          workers="${KAGGLE_GPU0_URL}"
+          if [[ -n "${KAGGLE_GPU1_URL}" ]]; then
+            workers="${workers},${KAGGLE_GPU1_URL}"
+          fi
           printf '%s' "${workers}" | npx --yes wrangler@latest secret put ACESTEP_WORKER_URLS --config wrangler.jsonc
-          echo "SONARA Kaggle worker endpoints updated."
+          echo "SONARA Kaggle worker endpoints updated: ${workers}"
 
-      - name: Verify SONARA production sees both T4 workers
+      - name: Verify SONARA production sees Kaggle
         shell: bash
         run: |
           set -euo pipefail
+          expected="${KAGGLE_GPU0_URL}"
           for attempt in {1..18}; do
             if response="$(curl -fsS --max-time 30 https://api.sonaraenterprise.com/api/health 2>/dev/null)"; then
               printf '%s' "${response}" > /tmp/sonara-health.json
-              if node - <<'NODE'
+              if EXPECTED_KAGGLE_URL="${expected}" node - <<'NODE'
           const fs = require('fs');
           const health = JSON.parse(fs.readFileSync('/tmp/sonara-health.json', 'utf8'));
           const workers = Array.isArray(health.aceStepWorkers) ? health.aceStepWorkers : [];
+          const expected = String(process.env.EXPECTED_KAGGLE_URL || '').replace(/\/$/, '');
           const kaggle = workers.filter((item) => item?.kind === 'kaggle');
+          const matched = kaggle.some((item) => String(item?.baseUrl || '').replace(/\/$/, '') === expected);
           console.log(JSON.stringify({
             status: health.status,
-            kaggleT4x2: health.kaggleT4x2,
             aceStepWorkerCount: health.aceStepWorkerCount,
-            aceStepWorkers: workers
+            aceStepWorkers: workers,
+            expectedKaggleUrl: expected,
+            expectedEndpointReady: matched
           }, null, 2));
-          if (health.kaggleT4x2 === true && kaggle.length >= 2) process.exit(0);
-          process.exit(1);
+          process.exit(matched ? 0 : 1);
           NODE
               then
-                echo "SONARA production is using both Kaggle T4 workers."
+                echo "SONARA production is using the current Kaggle endpoint."
                 exit 0
               fi
             fi
             echo "Production health not updated yet (${attempt}/18)."
             sleep 5
           done
-          echo "SONARA production did not report both Kaggle T4 workers." >&2
+          echo "SONARA production did not report the current Kaggle endpoint." >&2
           exit 1
