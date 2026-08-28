@@ -1,5 +1,5 @@
 import webRuntime from './sonara-web-generator-stability.mjs';
-import engineV17 from './sonara-engine-v17-lm-composer.mjs';
+import engineV17 from './sonara-engine-v17-resilient-health.mjs';
 import { isVideoApiRequest, recoverVideoApi } from './sonara-video-api-recovery.mjs';
 import { injectVideoUiScript, videoUiScriptResponse } from './sonara-video-ui-edge.mjs';
 
