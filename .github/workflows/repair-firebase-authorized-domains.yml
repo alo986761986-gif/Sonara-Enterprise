@@ -1,4 +1,4 @@
-name: Repair Firebase Authorized Domains
+name: Repair Firebase and Transcoder IAM
 
 on:
   workflow_dispatch:
@@ -14,16 +14,72 @@ permissions:
 jobs:
   repair:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
       SONARA_FIREBASE_PROJECT_ID: ${{ secrets.SONARA_FIREBASE_PROJECT_ID }}
       FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
     steps:
       - uses: actions/checkout@v6
+
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+
       - run: npm ci --ignore-scripts
+
       - name: Repair Firebase authorized domains
         run: node scripts/ensure-firebase-authorized-domains.cjs
+
+      - name: Authenticate Google Cloud as SONARA service account
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+
+      - name: Set up Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Grant SONARA Transcoder Editor
+        shell: bash
+        run: |
+          set -euo pipefail
+          project="$(node - <<'NODE'
+          const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '{}');
+          process.stdout.write(String(process.env.SONARA_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || sa.project_id || 'sonara-enterprise'));
+          NODE
+          )"
+          service_account="$(node - <<'NODE'
+          const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '{}');
+          process.stdout.write(String(sa.client_email || ''));
+          NODE
+          )"
+
+          if [[ -z "${service_account}" ]]; then
+            echo "FIREBASE_SERVICE_ACCOUNT_JSON does not contain client_email." >&2
+            exit 1
+          fi
+
+          echo "::add-mask::${service_account}"
+          echo "Project: ${project}"
+          echo "Enabling Transcoder API..."
+          gcloud services enable transcoder.googleapis.com --project="${project}"
+
+          echo "Granting roles/transcoder.editor to the SONARA runtime service account..."
+          gcloud projects add-iam-policy-binding "${project}" \
+            --member="serviceAccount:${service_account}" \
+            --role="roles/transcoder.editor" \
+            --condition=None \
+            --quiet
+
+          echo "Verifying IAM binding..."
+          role="$(gcloud projects get-iam-policy "${project}" \
+            --flatten='bindings[].members' \
+            --filter="bindings.role:roles/transcoder.editor AND bindings.members:serviceAccount:${service_account}" \
+            --format='value(bindings.role)' | head -n 1)"
+
+          if [[ "${role}" != "roles/transcoder.editor" ]]; then
+            echo "Transcoder Editor IAM binding was not found after update." >&2
+            exit 1
+          fi
+
+          echo "SONARA_TRANSCODER_IAM_OK=1"
