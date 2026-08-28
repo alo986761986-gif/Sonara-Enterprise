@@ -49,6 +49,35 @@ interface VideoJobRecord {
 }
 
 let adminApp: App | null = null;
+let storageCorsReady = false;
+let storageCorsPromise: Promise<void> | null = null;
+
+async function ensureStorageCors(bucket: any) {
+  if (storageCorsReady) return;
+  if (!storageCorsPromise) {
+    storageCorsPromise = (async () => {
+      await bucket.setCorsConfiguration([{
+        origin: [
+          'https://sonaraenterprise.com',
+          'https://www.sonaraenterprise.com',
+          'https://sonara-enterprise-git-main-sonaramusicai86-2765s-projects.vercel.app',
+          'http://localhost:3000',
+          'http://127.0.0.1:3000'
+        ],
+        method: ['GET', 'HEAD', 'PUT'],
+        responseHeader: ['Content-Type', 'ETag', 'x-goog-hash', 'x-goog-generation', 'x-goog-metageneration'],
+        maxAgeSeconds: 3600
+      }]);
+      storageCorsReady = true;
+      console.info('[SONARA VIDEO UPLOAD] storage CORS configured');
+    })().catch(cause => {
+      storageCorsPromise = null;
+      console.error('[SONARA VIDEO UPLOAD] storage CORS configuration failed', cause);
+      throw cause;
+    });
+  }
+  await storageCorsPromise;
+}
 
 function serviceAccountConfigured() {
   return Boolean(String(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '').trim() || String(process.env.GOOGLE_APPLICATION_CREDENTIALS || '').trim());
@@ -158,6 +187,7 @@ async function prepareMediaUpload(user: AuthenticatedUser, req: any, res: any) {
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const storagePath = `video-ai-inputs/${user.uid}/${Date.now()}-${randomPart}-${fileName}`;
     const bucket = getStorage(getAdminApp()).bucket(bucketName);
+    await ensureStorageCors(bucket);
     const file = bucket.file(storagePath);
     const expiresWrite = Date.now() + 15 * 60 * 1000;
     const expiresRead = Date.now() + 7 * 24 * 60 * 60 * 1000;
