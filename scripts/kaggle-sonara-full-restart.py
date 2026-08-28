@@ -13,10 +13,7 @@ BASE = Path('/kaggle/working/ACE-Step-1.5')
 WORK = Path('/kaggle/working')
 REPO_RAW = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/main'
 SELF_HEAL_URL = f'{REPO_RAW}/scripts/kaggle-sonara-t4-self-heal.py'
-WAN_URL = (
-    'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/'
-    'db9134f6e71a8d64a62340267e7583ffe29c54d3/scripts/kaggle-sonara-wan21-video-worker.py'
-)
+WAN_URL = f'{REPO_RAW}/scripts/kaggle-sonara-wan21-video-worker.py'
 CLOUDFLARED_URL = 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64'
 CLOUDFLARED = WORK / 'cloudflared'
 MUSIC_PORT = 7860
@@ -118,7 +115,7 @@ def start_music_runtime() -> None:
 
 
 def start_video_runtime() -> None:
-    print('\n[5/8] Libero GPU1 dalla musica e avvio WAN 2.1 Video AI...', flush=True)
+    print('\n[5/8] Libero GPU1 dalla musica e avvio WAN 2.1 Video AI TURBO HQ...', flush=True)
     script = WORK / 'kaggle-sonara-wan21-video-worker.py'
     download(WAN_URL, script)
     run([sys.executable, str(script)])
@@ -132,7 +129,7 @@ def ensure_cloudflared() -> None:
     CLOUDFLARED.chmod(0o755)
 
 
-def wait_local_health(port: int, *, video: bool, timeout: int = 120) -> dict:
+def wait_local_health(port: int, *, video: bool, timeout: int = 900) -> dict:
     deadline = time.time() + timeout
     last = ''
     while time.time() < deadline:
@@ -143,7 +140,8 @@ def wait_local_health(port: int, *, video: bool, timeout: int = 120) -> dict:
                 status = str(payload.get('status') or payload.get('data', {}).get('status') or '').lower()
                 code = payload.get('code')
                 if video:
-                    if response.status == 200 and status == 'ok' and 'wan' in str(payload.get('provider', '')).lower():
+                    ready = payload.get('ready')
+                    if response.status == 200 and status == 'ok' and 'wan' in str(payload.get('provider', '')).lower() and ready is not False:
                         return payload
                 elif response.status == 200 and (status in {'ok', 'ready', 'healthy', 'online', 'success'} or code == 200):
                     return payload
@@ -177,7 +175,7 @@ def start_tunnel(port: int, label: str) -> tuple[subprocess.Popen, str]:
     raise RuntimeError(f'Timeout creazione tunnel {label}: {tail}')
 
 
-def public_health(base: str, *, video: bool, timeout: int = 90) -> dict:
+def public_health(base: str, *, video: bool, timeout: int = 120) -> dict:
     deadline = time.time() + timeout
     last = ''
     while time.time() < deadline:
@@ -189,7 +187,8 @@ def public_health(base: str, *, video: bool, timeout: int = 90) -> dict:
                 status = str(payload.get('status') or payload.get('data', {}).get('status') or '').lower()
                 code = payload.get('code')
                 if video:
-                    if response.status == 200 and status == 'ok' and 'wan' in str(payload.get('provider', '')).lower():
+                    ready = payload.get('ready')
+                    if response.status == 200 and status == 'ok' and 'wan' in str(payload.get('provider', '')).lower() and ready is not False:
                         return payload
                 elif response.status == 200 and (status in {'ok', 'ready', 'healthy', 'online', 'success'} or code == 200):
                     return payload
@@ -201,7 +200,7 @@ def public_health(base: str, *, video: bool, timeout: int = 90) -> dict:
 
 def main() -> None:
     print('=' * 84)
-    print(' SONARA KAGGLE CLEAN RESTART - GPU0 MUSIC + GPU1 WAN VIDEO AI ')
+    print(' SONARA KAGGLE CLEAN RESTART - GPU0 MUSIC + GPU1 WAN VIDEO AI TURBO HQ ')
     print('=' * 84)
     print('Questa procedura cancella i vecchi processi runtime e crea due tunnel nuovi.', flush=True)
 
@@ -227,17 +226,18 @@ def main() -> None:
     video_public = public_health(video_url, video=True)
 
     URLS_FILE.write_text(
-        f'GPU0={music_url}\nGPU1={video_url}\nACTION=clean-restart-kaggle-music-video\n',
+        f'GPU0={music_url}\nGPU1={video_url}\nACTION=clean-restart-kaggle-music-video-turbo-hq\n',
         encoding='utf-8',
     )
 
     print('\n' + '=' * 84)
-    print(' ✅ SONARA KAGGLE RIPARTITO DA ZERO ')
+    print(' ✅ SONARA KAGGLE RIPARTITO - VIDEO TURBO HQ ATTIVO ')
     print('=' * 84)
     print(f'GPU0 MUSICA ACE-STEP : {music_url}')
     print(f'GPU1 VIDEO WAN 2.1   : {video_url}')
     print('Musica health         : OK')
     print('Video health          : OK')
+    print('Video profile         : TURBO HQ T4')
     print(f'URL salvati in        : {URLS_FILE}')
     print()
     print('COPIA QUI IN CHAT ESATTAMENTE QUESTE DUE RIGHE:')
