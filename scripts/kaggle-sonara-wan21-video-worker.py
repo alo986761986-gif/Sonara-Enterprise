@@ -29,9 +29,21 @@ from pydantic import BaseModel, Field
 MODEL = os.environ.get('SONARA_WAN_MODEL', 'Wan-AI/Wan2.1-T2V-1.3B-Diffusers')
 OUT = Path('/kaggle/working/sonara-wan21-video/outputs')
 OUT.mkdir(parents=True, exist_ok=True)
+FAST_MODE = str(os.environ.get('SONARA_WAN_FAST_MODE', 'true')).strip().lower() not in {'0', 'false', 'no', 'off'}
+WARMUP = str(os.environ.get('SONARA_WAN_WARMUP', 'true')).strip().lower() not in {'0', 'false', 'no', 'off'}
+FAST_STEPS = max(8, min(28, int(os.environ.get('SONARA_WAN_FAST_STEPS', '16'))))
+FAST_WIDTH = 768
+FAST_HEIGHT = 432
+QUALITY_WIDTH = 832
+QUALITY_HEIGHT = 480
+NUM_FRAMES = 81
+OUTPUT_FPS = 10
+PROFILE = 'fast-t4-v2' if FAST_MODE else 'quality-t4-v1'
 
 app = FastAPI(title='SONARA WAN Video Worker')
 pipe = None
+pipe_device_mode = 'not-loaded'
+pipe_loading = False
 pipe_lock = threading.Lock()
 jobs = {}
 jobs_lock = threading.Lock()
@@ -44,17 +56,46 @@ class GenerateRequest(BaseModel):
 
 
 def load_pipe():
-    global pipe
+    global pipe, pipe_device_mode, pipe_loading
     if pipe is not None:
         return pipe
     with pipe_lock:
         if pipe is not None:
             return pipe
-        vae = AutoencoderKLWan.from_pretrained(MODEL, subfolder='vae', torch_dtype=torch.float32)
-        pipe = WanPipeline.from_pretrained(MODEL, vae=vae, torch_dtype=torch.float16)
-        pipe.enable_model_cpu_offload()
-        pipe.vae.enable_tiling()
-    return pipe
+        pipe_loading = True
+        try:
+            vae = AutoencoderKLWan.from_pretrained(MODEL, subfolder='vae', torch_dtype=torch.float32)
+            candidate = WanPipeline.from_pretrained(MODEL, vae=vae, torch_dtype=torch.float16)
+            candidate.vae.enable_tiling()
+
+            # WAN 1.3B normally fits a 16 GB T4. Keeping the pipeline on CUDA avoids
+            # repeated CPU<->GPU transfers and is substantially faster than CPU offload.
+            # If this specific Kaggle runtime cannot fit it, fall back safely to offload.
+            try:
+                candidate.to('cuda')
+                pipe_device_mode = 'full-cuda'
+            except RuntimeError as exc:
+                if 'out of memory' not in str(exc).lower():
+                    raise
+                try:
+                    candidate.to('cpu')
+                except Exception:
+                    pass
+                torch.cuda.empty_cache()
+                candidate.enable_model_cpu_offload()
+                pipe_device_mode = 'cpu-offload-fallback'
+
+            pipe = candidate
+            return pipe
+        finally:
+            pipe_loading = False
+
+
+def warm_pipe():
+    try:
+        load_pipe()
+    except Exception as exc:
+        print(f'[SONARA WAN] warmup failed; first request will retry: {exc}', flush=True)
 
 
 def set_job(job_id, **values):
@@ -66,29 +107,41 @@ def set_job(job_id, **values):
 
 def render(job_id, req):
     try:
-        set_job(job_id, status='PROCESSING', progress=5, stage='Caricamento WAN 2.1')
+        set_job(job_id, status='PROCESSING', progress=5, stage='Caricamento WAN 2.1 FAST')
         p = load_pipe()
         portrait = req.aspectRatio == '9:16'
-        width, height = (480, 832) if portrait else (832, 480)
-        fps = 16
-        num_frames = 81
+        if FAST_MODE:
+            width, height = (FAST_HEIGHT, FAST_WIDTH) if portrait else (FAST_WIDTH, FAST_HEIGHT)
+            steps = FAST_STEPS
+        else:
+            width, height = (QUALITY_HEIGHT, QUALITY_WIDTH) if portrait else (QUALITY_WIDTH, QUALITY_HEIGHT)
+            steps = 28
+
         seed = req.seed if req.seed is not None else int.from_bytes(os.urandom(4), 'big')
         generator = torch.Generator(device='cuda').manual_seed(seed)
-        set_job(job_id, progress=18, stage='Generazione fotogrammi WAN 2.1', seed=seed)
-        with pipe_lock:
+        set_job(
+            job_id,
+            progress=18,
+            stage=f'Generazione WAN 2.1 FAST - {steps} step',
+            seed=seed,
+            profile=PROFILE,
+            steps=steps,
+            resolution=f'{width}x{height}',
+        )
+        with pipe_lock, torch.inference_mode():
             result = p(
                 prompt=req.prompt,
                 negative_prompt='low quality, blurry, watermark, text, logo, deformed, duplicate, static frame',
                 height=height,
                 width=width,
-                num_frames=num_frames,
+                num_frames=NUM_FRAMES,
                 guidance_scale=5.0,
-                num_inference_steps=28,
+                num_inference_steps=steps,
                 generator=generator,
             )
-        set_job(job_id, progress=90, stage='Codifica MP4')
+        set_job(job_id, progress=90, stage='Codifica MP4 FAST')
         path = OUT / f'{job_id}.mp4'
-        export_to_video(result.frames[0], str(path), fps=fps)
+        export_to_video(result.frames[0], str(path), fps=OUTPUT_FPS)
         set_job(
             job_id,
             status='COMPLETED',
@@ -96,6 +149,12 @@ def render(job_id, req):
             stage='Video pronto',
             provider='kaggle-wan21',
             model=MODEL,
+            profile=PROFILE,
+            deviceMode=pipe_device_mode,
+            steps=steps,
+            resolution=f'{width}x{height}',
+            fps=OUTPUT_FPS,
+            clipSeconds=round(NUM_FRAMES / OUTPUT_FPS, 2),
             videoPath=f'/v1/video/file/{path.name}',
         )
     except Exception as exc:
@@ -104,13 +163,23 @@ def render(job_id, req):
 
 @app.get('/health')
 def health():
+    width, height = (FAST_WIDTH, FAST_HEIGHT) if FAST_MODE else (QUALITY_WIDTH, QUALITY_HEIGHT)
     return {
         'status': 'ok',
         'provider': 'kaggle-wan21',
         'model': MODEL,
         'gpu': os.environ.get('CUDA_VISIBLE_DEVICES', '1'),
         'loaded': pipe is not None,
+        'loading': pipe_loading,
+        'deviceMode': pipe_device_mode,
         'jobs': len(jobs),
+        'profile': PROFILE,
+        'fastMode': FAST_MODE,
+        'steps': FAST_STEPS if FAST_MODE else 28,
+        'resolution': f'{width}x{height}',
+        'frames': NUM_FRAMES,
+        'fps': OUTPUT_FPS,
+        'clipSeconds': round(NUM_FRAMES / OUTPUT_FPS, 2),
     }
 
 
@@ -124,9 +193,10 @@ def generate(req: GenerateRequest):
         jobId=job_id,
         status='PROCESSING',
         progress=2,
-        stage='In coda su SONARA WAN',
+        stage='In coda su SONARA WAN FAST',
         provider='kaggle-wan21',
         model=MODEL,
+        profile=PROFILE,
     )
     thread = threading.Thread(target=render, args=(job_id, req), daemon=True)
     thread.start()
@@ -149,6 +219,12 @@ def video_file(name: str):
     if not path.exists() or path.suffix.lower() != '.mp4':
         raise HTTPException(status_code=404, detail='Video not found')
     return FileResponse(path, media_type='video/mp4', filename=path.name)
+
+
+@app.on_event('startup')
+def startup_warmup():
+    if WARMUP:
+        threading.Thread(target=warm_pipe, daemon=True).start()
 '''
 
 
@@ -202,9 +278,9 @@ def install_runtime():
 
 
 def main():
-    print('=' * 72)
-    print(' SONARA VIDEO AI - WAN 2.1 1.3B / KAGGLE GPU1 / ZERO GOOGLE API COST ')
-    print('=' * 72)
+    print('=' * 78)
+    print(' SONARA VIDEO AI - WAN 2.1 FAST / KAGGLE GPU1 / ZERO GOOGLE API COST ')
+    print('=' * 78)
     subprocess.run(['nvidia-smi', '-L'], check=True)
     WORKDIR.mkdir(parents=True, exist_ok=True)
     (WORKDIR / 'outputs').mkdir(parents=True, exist_ok=True)
@@ -216,6 +292,9 @@ def main():
     env.update({
         'CUDA_VISIBLE_DEVICES': GPU,
         'SONARA_WAN_MODEL': MODEL,
+        'SONARA_WAN_FAST_MODE': 'true',
+        'SONARA_WAN_FAST_STEPS': '16',
+        'SONARA_WAN_WARMUP': 'true',
         'PYTORCH_CUDA_ALLOC_CONF': 'expandable_segments:True',
         'TOKENIZERS_PARALLELISM': 'false',
         'HF_HUB_ENABLE_HF_TRANSFER': '1',
@@ -229,7 +308,7 @@ def main():
         stderr=subprocess.STDOUT,
         start_new_session=True,
     )
-    print(f'WAN worker PID {proc.pid} on GPU1 port {PORT}')
+    print(f'WAN FAST worker PID {proc.pid} on GPU1 port {PORT}')
 
     import urllib.request
     deadline = time.time() + 180
@@ -241,12 +320,14 @@ def main():
                 payload = json.loads(r.read().decode())
                 if r.status == 200 and payload.get('status') == 'ok':
                     print(json.dumps(payload, indent=2))
-                    print('SONARA WAN Video worker READY. Existing Cloudflare tunnel on GPU1/7861 can be reused.')
+                    print('SONARA WAN Video FAST worker READY. Existing Cloudflare tunnel on GPU1/7861 can be reused.')
+                    print('FAST profile: 16 steps, 768x432 landscape / 432x768 portrait, 81 frames @ 10 fps (~8.1 s).')
+                    print('Warm-up is running in background so the first generation avoids model-load latency when possible.')
                     return
         except Exception:
             pass
         time.sleep(3)
-    raise RuntimeError('WAN worker health timeout. Log tail:\n' + LOG.read_text(errors='ignore')[-8000:])
+    raise RuntimeError('WAN FAST worker health timeout. Log tail:\n' + LOG.read_text(errors='ignore')[-8000:])
 
 
 if __name__ == '__main__':
