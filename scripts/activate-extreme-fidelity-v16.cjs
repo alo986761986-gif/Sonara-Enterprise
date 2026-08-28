@@ -51,12 +51,32 @@ replaceAny(
   'preserve weirdness inference method'
 );
 
+// Never let one T4 submission crash the entire Cloudflare request with a non-JSON HTTP 500.
+// Keep every worker that accepted the task and degrade 2 -> 1 cleanly when necessary.
+replaceAny(
+  "  const selected = workers.slice(0, 2);\n  const submissions = await Promise.all(selected.map((worker, index) => submitOnWorker(worker, env, payloadForWorker(payload, worker, index))));\n  const jobId = `d9pair_${crypto.randomUUID()}`;",
+  "  const selected = workers.slice(0, 2);\n  const settled = await Promise.allSettled(selected.map((worker, index) => submitOnWorker(worker, env, payloadForWorker(payload, worker, index))));\n  const submissions = settled.flatMap((result, index) => {\n    if (result.status === 'fulfilled') return [result.value];\n    console.error('[SONARA T4 SUBMIT]', { worker: selected[index]?.id, error: result.reason instanceof Error ? result.reason.message : String(result.reason || 'submit failed') });\n    return [];\n  });\n  if (!submissions.length) {\n    const errors = settled\n      .filter(result => result.status === 'rejected')\n      .map(result => result.reason instanceof Error ? result.reason.message : String(result.reason || 'submit failed'))\n      .filter(Boolean);\n    return json(request, {\n      error: 'Le T4 SONARA sono online ma non hanno accettato il job di generazione.',\n      retryable: true,\n      details: errors.slice(0, 2)\n    }, 503);\n  }\n  const jobId = `d9pair_${crypto.randomUUID()}`;",
+  'fault tolerant dual T4 submission'
+);
+replaceAny(
+  "      currentStage: selected.length >= 2 ? 'SONARA T4x2 tempo-locked rendering A + B' : 'SONARA tempo-locked rendering',",
+  "      currentStage: submissions.length >= 2 ? 'SONARA T4x2 tempo-locked rendering A + B' : 'SONARA tempo-locked rendering su T4 disponibile',",
+  'accurate active worker stage'
+);
+
 // ACE-Step /query_result wraps the generated files inside item.result as a JSON string.
 // Decode that nested payload so completed T4 jobs advance from 0/2 to 1/2 and 2/2.
 replaceAny(
   "      const ref = audioRefFromItem(item, worker);\n      if (ref) {\n        refs.push(ref);\n        completed += 1;\n      }",
   "      let ref = audioRefFromItem(item, worker);\n      if (!ref && status === 1) {\n        const resultItems = parseItems(item?.result);\n        for (const resultItem of resultItems) {\n          ref = audioRefFromItem(resultItem, worker);\n          if (ref) break;\n        }\n        if (!ref) {\n          throw new SonaraEngineError(`SONARA worker ${worker.id} completed without returning an audio file.`, 502, false);\n        }\n      }\n      if (ref) {\n        refs.push(ref);\n        completed += 1;\n      }",
   'decode nested ACE-Step query_result audio files'
+);
+
+// Make /api/health report the runtime worker pool actually visible to this Worker.
+replaceAny(
+  "export default {\n  async fetch(request, env, ctx) {\n    const pair = await maybeSubmitPair(request, env);",
+  "export default {\n  async fetch(request, env, ctx) {\n    const requestUrl = new URL(request.url);\n    if (request.method === 'GET' && requestUrl.pathname === '/api/health') {\n      const baseResponse = await baseEngine.fetch(request, env, ctx);\n      if (!baseResponse.ok) return baseResponse;\n      try {\n        const payload = await baseResponse.clone().json();\n        const configured = configuredWorkers(env);\n        const ready = await healthyWorkers(env);\n        return json(request, {\n          ...payload,\n          aceStepConfiguredWorkerCount: configured.length,\n          aceStepWorkerCount: ready.length,\n          aceStepWorkers: ready.map(worker => ({ id: worker.id, kind: worker.kind, baseUrl: worker.baseUrl })),\n          kaggleProfile: KAGGLE_PROFILE,\n          kaggleInferenceSteps: KAGGLE_STEPS,\n          kaggleGuidanceScale: KAGGLE_GUIDANCE_SCALE\n        }, baseResponse.status);\n      } catch {\n        return baseResponse;\n      }\n    }\n    const pair = await maybeSubmitPair(request, env);",
+  'runtime worker health exposure'
 );
 
 // Legacy health/metadata patches only apply when those exact blocks are present.
@@ -84,6 +104,12 @@ if (!source.includes('never half-time')) {
 if (!source.includes('const resultItems = parseItems(item?.result)')) {
   throw new Error('[SONARA v16] ACE-Step nested query_result parser missing before deploy');
 }
+if (!source.includes('Promise.allSettled(selected.map')) {
+  throw new Error('[SONARA v16] fault tolerant T4 submission missing before deploy');
+}
+if (!source.includes('aceStepWorkers: ready.map')) {
+  throw new Error('[SONARA v16] runtime worker health exposure missing before deploy');
+}
 
 fs.writeFileSync(file, source, 'utf8');
-console.log('[SONARA] Extreme Fidelity v16 activated with 12-step T4 render, authoritative BPM lock and ACE-Step result decoding.');
+console.log('[SONARA] Extreme Fidelity v16 activated with resilient dual T4 submit, worker health, BPM lock and ACE-Step result decoding.');
