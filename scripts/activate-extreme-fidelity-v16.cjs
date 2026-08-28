@@ -64,6 +64,19 @@ replaceAny(
   'accurate active worker stage'
 );
 
+// Normalize every failure in the dual-generation branch as a JSON response.
+// This covers request parsing, worker discovery and job storage in addition to T4 submission.
+replaceAny(
+  "async function maybeSubmitPair(request, env) {\n  if (request.method !== 'POST') return null;\n  const url = new URL(request.url);\n  if (url.pathname !== '/api/engine/generate') return null;\n  if (!internalGenerationAuthorized(request, env)) return json(request, { error: 'Unauthorized SONARA generation request.' }, 401);\n\n  const body = await request.clone().json();",
+  "async function maybeSubmitPair(request, env) {\n  if (request.method !== 'POST') return null;\n  const url = new URL(request.url);\n  if (url.pathname !== '/api/engine/generate') return null;\n  if (!internalGenerationAuthorized(request, env)) return json(request, { error: 'Unauthorized SONARA generation request.' }, 401);\n\n  try {\n    const body = await request.clone().json();",
+  'start guarded dual generation pipeline'
+);
+replaceAny(
+  "  await storeJob(jobId, context);\n  return json(request, { jobId, status: 'PROCESSING', progress: 12, metadata: context.metadata }, 202);\n}",
+  "    await storeJob(jobId, context);\n    return json(request, { jobId, status: 'PROCESSING', progress: 12, metadata: context.metadata }, 202);\n  } catch (error) {\n    const normalized = engineError(error, 'SONARA dual generation request failed.');\n    console.error('[SONARA DUAL GENERATE]', { status: normalized.status, retryable: normalized.retryable, error: normalized.message });\n    return json(request, {\n      error: normalized.message,\n      retryable: normalized.retryable\n    }, normalized.status || 502);\n  }\n}",
+  'catch guarded dual generation pipeline failures'
+);
+
 // ACE-Step /query_result wraps the generated files inside item.result as a JSON string.
 // Decode that nested payload so completed T4 jobs advance from 0/2 to 1/2 and 2/2.
 replaceAny(
@@ -73,9 +86,10 @@ replaceAny(
 );
 
 // Make /api/health report the runtime worker pool actually visible to this Worker.
+// v16 metadata is always emitted even if a worker readiness probe fails.
 replaceAny(
   "export default {\n  async fetch(request, env, ctx) {\n    const pair = await maybeSubmitPair(request, env);",
-  "export default {\n  async fetch(request, env, ctx) {\n    const requestUrl = new URL(request.url);\n    if (request.method === 'GET' && requestUrl.pathname === '/api/health') {\n      const baseResponse = await baseEngine.fetch(request, env, ctx);\n      if (!baseResponse.ok) return baseResponse;\n      try {\n        const payload = await baseResponse.clone().json();\n        const configured = configuredWorkers(env);\n        const ready = await healthyWorkers(env);\n        return json(request, {\n          ...payload,\n          aceStepConfiguredWorkerCount: configured.length,\n          aceStepWorkerCount: ready.length,\n          aceStepWorkers: ready.map(worker => ({ id: worker.id, kind: worker.kind, baseUrl: worker.baseUrl })),\n          kaggleProfile: KAGGLE_PROFILE,\n          kaggleInferenceSteps: KAGGLE_STEPS,\n          kaggleGuidanceScale: KAGGLE_GUIDANCE_SCALE\n        }, baseResponse.status);\n      } catch {\n        return baseResponse;\n      }\n    }\n    const pair = await maybeSubmitPair(request, env);",
+  "export default {\n  async fetch(request, env, ctx) {\n    const requestUrl = new URL(request.url);\n    if (request.method === 'GET' && requestUrl.pathname === '/api/health') {\n      const baseResponse = await baseEngine.fetch(request, env, ctx);\n      let payload = {};\n      try {\n        payload = await baseResponse.clone().json();\n      } catch {}\n      const configured = configuredWorkers(env);\n      let ready = [];\n      let workerHealthError = '';\n      try {\n        ready = await healthyWorkers(env);\n      } catch (error) {\n        workerHealthError = error instanceof Error ? error.message : String(error || 'worker health failed');\n        console.error('[SONARA WORKER HEALTH]', workerHealthError);\n      }\n      return json(request, {\n        ...payload,\n        aceStepConfiguredWorkerCount: configured.length,\n        aceStepWorkerCount: ready.length,\n        aceStepWorkers: ready.map(worker => ({ id: worker.id, kind: worker.kind, baseUrl: worker.baseUrl })),\n        kaggleProfile: KAGGLE_PROFILE,\n        kaggleInferenceSteps: KAGGLE_STEPS,\n        kaggleGuidanceScale: KAGGLE_GUIDANCE_SCALE,\n        kaggleThinking: true,\n        kaggleInferMethod: 'adaptive-ode-sde',\n        ...(workerHealthError ? { aceStepWorkerHealthError: workerHealthError } : {})\n      }, baseResponse.status);\n    }\n    const pair = await maybeSubmitPair(request, env);",
   'runtime worker health exposure'
 );
 
@@ -107,9 +121,15 @@ if (!source.includes('const resultItems = parseItems(item?.result)')) {
 if (!source.includes('Promise.allSettled(selected.map')) {
   throw new Error('[SONARA v16] fault tolerant T4 submission missing before deploy');
 }
+if (!source.includes("console.error('[SONARA DUAL GENERATE]'")) {
+  throw new Error('[SONARA v16] dual generation JSON error guard missing before deploy');
+}
 if (!source.includes('aceStepWorkers: ready.map')) {
   throw new Error('[SONARA v16] runtime worker health exposure missing before deploy');
 }
+if (!source.includes('kaggleThinking: true') || !source.includes("kaggleInferMethod: 'adaptive-ode-sde'")) {
+  throw new Error('[SONARA v16] complete runtime health metadata missing before deploy');
+}
 
 fs.writeFileSync(file, source, 'utf8');
-console.log('[SONARA] Extreme Fidelity v16 activated with resilient dual T4 submit, worker health, BPM lock and ACE-Step result decoding.');
+console.log('[SONARA] Extreme Fidelity v16 activated with resilient dual T4 submit, JSON-safe generation errors, stable worker health, BPM lock and ACE-Step result decoding.');
