@@ -1,3 +1,4 @@
 Redeploy SONARA Video AI production fix.
 Includes Studio durations up to 120 seconds, multi-scene rendering, Transcoder assembly, and Clear / Random / Intelligent prompt controls.
 Production redeploy retriggered 2026-08-28 00:34 UTC for source commit f6349e8.
+Production redeploy retriggered 2026-08-28 for Video AI media v2 commit bc03bb0f: visible CARICATO state, previews, file metadata and audio uploads.
