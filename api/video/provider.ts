@@ -153,15 +153,58 @@ export interface PolledVideoProviderJob {
   uri?: string;
 }
 
+function stringValue(value: unknown) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function generatedSampleUri(value: any) {
+  if (typeof value === 'string') return value.trim();
+  return stringValue(value?.video?.uri || value?.video?.gcsUri || value?.uri || value?.gcsUri);
+}
+
 function readVideoUri(operation: any) {
-  return String(
-    operation?.response?.videos?.[0]?.gcsUri ||
-    operation?.response?.videos?.[0]?.uri ||
-    operation?.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri ||
-    operation?.response?.generatedSamples?.[0]?.video?.uri ||
-    operation?.response?.generatedVideos?.[0]?.video?.uri ||
-    ''
+  const response = operation?.response || {};
+  const nested = response?.generateVideoResponse || {};
+  const candidates = [
+    response?.videos?.[0]?.gcsUri,
+    response?.videos?.[0]?.uri,
+    response?.generatedVideos?.[0]?.video?.uri,
+    response?.generatedVideos?.[0]?.video?.gcsUri,
+    response?.result?.generatedVideos?.[0]?.video?.uri,
+    generatedSampleUri(response?.generatedSamples?.[0]),
+    generatedSampleUri(nested?.generatedSamples?.[0]),
+    nested?.videos?.[0]?.gcsUri,
+    nested?.videos?.[0]?.uri
+  ];
+  for (const candidate of candidates) {
+    const uri = stringValue(candidate);
+    if (uri) return uri;
+  }
+  return '';
+}
+
+function completedWithoutVideoMessage(operation: any) {
+  const response = operation?.response || {};
+  const nested = response?.generateVideoResponse || {};
+  const reasons = [
+    ...(Array.isArray(response?.raiMediaFilteredReasons) ? response.raiMediaFilteredReasons : []),
+    ...(Array.isArray(nested?.raiMediaFilteredReasons) ? nested.raiMediaFilteredReasons : [])
+  ].map((item: unknown) => stringValue(item)).filter(Boolean);
+  const filteredCount = Math.max(
+    Number(response?.raiMediaFilteredCount || 0),
+    Number(nested?.raiMediaFilteredCount || 0)
   );
+  const raiMessage = stringValue(
+    response?.raiErrorMessage ||
+    nested?.raiErrorMessage ||
+    response?.raiTextFilteredReason?.reason ||
+    nested?.raiTextFilteredReason?.reason
+  );
+  if (filteredCount > 0 || reasons.length || raiMessage) {
+    const detail = raiMessage || reasons.join('; ');
+    return `Veo ha filtrato il risultato della scena${detail ? `: ${detail}` : ' per i controlli di sicurezza'}.`;
+  }
+  return 'Il provider ha completato il job senza restituire il file video.';
 }
 
 export async function pollVideoProvider(input: PollVideoProviderInput): Promise<PolledVideoProviderJob> {
@@ -188,7 +231,17 @@ export async function pollVideoProvider(input: PollVideoProviderInput): Promise<
   if (!operation.done) return { done: false };
   if (operation.error) return { done: true, error: String(operation.error?.message || 'Generazione video interrotta dal provider.') };
   const uri = readVideoUri(operation);
-  if (!uri) return { done: true, error: 'Il provider ha completato il job senza restituire il file video.' };
+  if (!uri) {
+    console.warn('[SONARA VIDEO] completed provider operation missing video', {
+      provider: input.provider,
+      model: input.model,
+      operationName: input.operationName,
+      responseKeys: Object.keys(operation?.response || {}),
+      raiMediaFilteredCount: Number(operation?.response?.raiMediaFilteredCount || 0),
+      raiMediaFilteredReasons: operation?.response?.raiMediaFilteredReasons || []
+    });
+    return { done: true, error: completedWithoutVideoMessage(operation) };
+  }
   return { done: true, uri };
 }
 
