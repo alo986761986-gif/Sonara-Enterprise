@@ -155,6 +155,12 @@ jobs:
           echo "GPU1 is not running the SONARA WAN Video worker. Music remains bound to GPU0." >&2
           exit 1
 
+      - name: Deploy latest Cloudflare worker before video secret updates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@latest deploy --config wrangler.jsonc
+
       - name: Bind GPU1 to zero-cost WAN video
         shell: bash
         run: |
