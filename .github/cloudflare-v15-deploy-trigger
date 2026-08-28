@@ -1,2 +1,2 @@
-trigger: extreme-fidelity-v16-bpm-lock
-reason: deploy authoritative BPM 30-300 tempo lock, anti-half-time pacing, and preserve 12-step Extreme Fidelity
+trigger: extreme-fidelity-v16-bpm-lock-rerun-2
+reason: deploy authoritative BPM 30-300 tempo lock with corrected v16 validation and preserve 12-step Extreme Fidelity
