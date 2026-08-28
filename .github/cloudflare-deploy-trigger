@@ -1,2 +1,2 @@
-trigger: 2026-08-28T10:00:00+02:00
-reason: deploy guarded SONARA v17 audio runtime; eliminate 20-percent stall while preserving authoritative family, genre, subgenre, atmosphere, BPM and Extreme Fidelity quality
+trigger: 2026-08-28T11:46:00+02:00
+reason: restore guarded SONARA v17 audio runtime after confirmed production rollback to kaggle-t4x2-tempo-lock-v3; preserve 12 steps, guidance 1.15, authoritative taxonomy, recursive-v17 decoding and progress heartbeat
