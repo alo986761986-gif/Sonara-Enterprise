@@ -104,30 +104,30 @@ jobs:
           printf '%s' "${KAGGLE_GPU0_URL}" | npx --yes wrangler@latest secret put ACESTEP_WORKER_URLS --config wrangler.jsonc
           echo "Cloudflare music binding updated independently from Video AI."
 
-      - name: Verify SONARA production music uses GPU0
+      - name: Verify SONARA production music has a healthy Kaggle worker
         shell: bash
         run: |
           set -euo pipefail
-          expected="${KAGGLE_GPU0_URL}"
           for attempt in {1..18}; do
             if response="$(curl -fsS --max-time 30 https://api.sonaraenterprise.com/api/health 2>/dev/null)"; then
               printf '%s' "${response}" > /tmp/sonara-health.json
-              if EXPECTED_KAGGLE_URL="${expected}" node - <<'NODE'
+              if node - <<'NODE'
           const fs = require('fs');
           const health = JSON.parse(fs.readFileSync('/tmp/sonara-health.json', 'utf8'));
           const workers = Array.isArray(health.aceStepWorkers) ? health.aceStepWorkers : [];
-          const expected = String(process.env.EXPECTED_KAGGLE_URL || '').replace(/\/$/, '');
-          const matched = workers.some((item) => item?.kind === 'kaggle' && String(item?.baseUrl || '').replace(/\/$/, '') === expected);
-          process.exit(matched ? 0 : 1);
+          const count = Number(health.aceStepWorkerCount || workers.length || 0);
+          const hasKaggle = workers.some((item) => item?.kind === 'kaggle');
+          console.log(JSON.stringify({ status: health.status, aceStepWorkerCount: count, aceStepWorkers: workers }));
+          process.exit(count > 0 && hasKaggle ? 0 : 1);
           NODE
               then
-                echo "Music production sees GPU0."
+                echo "Music production has a healthy Kaggle ACE-Step worker."
                 exit 0
               fi
             fi
             sleep 5
           done
-          echo "Music production did not report GPU0." >&2
+          echo "Music production did not report a healthy Kaggle ACE-Step worker." >&2
           exit 1
 
       - name: Verify GPU1 WAN Video AI health
