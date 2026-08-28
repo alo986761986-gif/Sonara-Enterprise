@@ -1,0 +1,50 @@
+name: Upgrade SONARA Video AI Media v2
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "scripts/upgrade-video-ai-media-v2.cjs"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+        with:
+          token: ${{ github.token }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Apply Video AI media v2 patch
+        run: node scripts/upgrade-video-ai-media-v2.cjs
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build SONARA
+        run: npm run build
+
+      - name: Commit upgraded Video AI
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/components/video/VideoAISectionControl.tsx api/video/generate.ts api/video/job/[id].ts
+          if git diff --cached --quiet; then
+            echo "Video AI media v2 already applied."
+            exit 0
+          fi
+          git commit -m "feat(video): show uploaded media and accept audio files"
+          git push origin main
