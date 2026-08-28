@@ -23,7 +23,7 @@ jobs:
 
       - name: Validate TypeScript build
         run: |
-          npm ci
+          npm install --no-audit --no-fund
           npm run build
 
       - name: Commit final implementation and remove helpers
