@@ -54,14 +54,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          response="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json" "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/scripts/sonara-enterprise-web/secrets")"
-          CF_SECRETS_RESPONSE="${response}" node - <<'NODE'
-          const payload = JSON.parse(process.env.CF_SECRETS_RESPONSE || '{}');
-          if (!payload.success) {
-            console.error('Cloudflare secret metadata request failed.');
-            process.exit(1);
-          }
-          const names = (Array.isArray(payload.result) ? payload.result : [])
+          npx --yes wrangler@latest secret list --name sonara-enterprise-web --format json > /tmp/sonara-worker-secrets.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const payload = JSON.parse(fs.readFileSync('/tmp/sonara-worker-secrets.json', 'utf8'));
+          const names = (Array.isArray(payload) ? payload : [])
             .map(item => String(item?.name || ''))
             .filter(Boolean)
             .sort();
