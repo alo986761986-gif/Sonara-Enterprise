@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Download, Film, Loader2, Play, Sparkles, WandSparkles, X } from 'lucide-react';
+import { BrainCircuit, Download, Film, Loader2, Play, Shuffle, Sparkles, WandSparkles, X } from 'lucide-react';
 import { getFirebaseIdToken } from '../../lib/firebaseClient';
 import type { SonaraPlanId, SonaraVideoResolution } from '../../billing/plans';
+import { buildIntelligentVideoPrompt, buildRandomVideoPrompt } from '../../videoPromptIntelligence';
 
 type AspectRatio = '16:9' | '9:16';
 type VideoStatus = {
@@ -64,6 +65,34 @@ export default function VideoAISectionControl() {
   const [stage, setStage] = useState('Pronto');
   const [error, setError] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
+  const [promptVariant, setPromptVariant] = useState(0);
+  const [smartPromptActive, setSmartPromptActive] = useState(false);
+
+  const nextPromptVariant = () => {
+    const next = promptVariant + 1;
+    setPromptVariant(next);
+    return next;
+  };
+
+  const clearPrompt = () => {
+    if (busy) return;
+    setPrompt('');
+    setSmartPromptActive(false);
+  };
+
+  const randomizePrompt = () => {
+    if (busy) return;
+    const variant = nextPromptVariant();
+    setPrompt(buildRandomVideoPrompt({ aspectRatio, durationSeconds, variant }));
+    setSmartPromptActive(false);
+  };
+
+  const improvePrompt = () => {
+    if (busy) return;
+    const variant = nextPromptVariant();
+    setPrompt(buildIntelligentVideoPrompt(prompt, { aspectRatio, durationSeconds, variant }));
+    setSmartPromptActive(true);
+  };
 
   useEffect(() => {
     const mountNav = () => {
@@ -176,7 +205,13 @@ export default function VideoAISectionControl() {
       <main className="mx-auto grid max-w-[1700px] gap-5 p-4 sm:p-6 xl:grid-cols-[minmax(0,1fr)_520px]">
         <section className="rounded-3xl border border-white/[0.07] bg-[#0b0c10] p-5 sm:p-6">
           <div className="mb-5"><div className="text-xs font-black uppercase tracking-[0.18em] text-violet-300">AI Director</div><h2 className="mt-2 text-2xl font-black tracking-tight text-white">Descrivi il video che vuoi creare</h2><p className="mt-2 max-w-2xl text-xs leading-6 text-slate-500">SONARA trasforma il prompt in una clip cinematografica. Specifica scena, soggetto, camera, luce, atmosfera e movimento.</p></div>
-          <textarea value={prompt} onChange={event => setPrompt(event.target.value)} rows={10} disabled={busy} className="w-full resize-y rounded-2xl border border-white/[0.08] bg-black/40 p-5 text-sm leading-6 text-white outline-none focus:border-violet-400/40 disabled:opacity-50" placeholder="Es. Una cantante su un tetto di Napoli al tramonto, camera orbitale lenta, vento nei capelli, look cinematografico..." />
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <button type="button" onClick={clearPrompt} disabled={busy || !prompt} title="Cancella tutto il prompt" aria-label="Cancella tutto il prompt" className="inline-flex items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[10px] font-black text-slate-300 transition hover:border-rose-400/30 hover:bg-rose-400/10 hover:text-rose-200 disabled:opacity-30"><X className="h-3.5 w-3.5" />CANCELLA</button>
+            <button type="button" onClick={randomizePrompt} disabled={busy} title="Crea un prompt video casuale professionale" aria-label="Prompt video Random" className="inline-flex items-center gap-2 rounded-xl border border-fuchsia-400/25 bg-fuchsia-400/[0.08] px-3 py-2 text-[10px] font-black text-fuchsia-200 transition hover:border-fuchsia-300/45 hover:bg-fuchsia-400/15 disabled:opacity-30"><Shuffle className="h-3.5 w-3.5" />RANDOM</button>
+            <button type="button" onClick={improvePrompt} disabled={busy} title="Trasforma il prompt con SONARA Video Intelligence" aria-label="Prompt Video Intelligente" className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-[10px] font-black transition disabled:opacity-30 ${smartPromptActive ? 'border-cyan-300/50 bg-cyan-400/20 text-cyan-100' : 'border-cyan-400/25 bg-cyan-400/[0.08] text-cyan-200 hover:border-cyan-300/45 hover:bg-cyan-400/15'}`}><BrainCircuit className="h-3.5 w-3.5" />{smartPromptActive ? 'OTTIMIZZATO' : 'INTELLIGENTE'}</button>
+            <span className="ml-auto text-[8px] font-bold uppercase tracking-[0.16em] text-slate-700">Regia · Musica · Montaggio · Continuità</span>
+          </div>
+          <textarea value={prompt} onChange={event => { setPrompt(event.target.value); setSmartPromptActive(false); }} rows={10} disabled={busy} className="w-full resize-y rounded-2xl border border-white/[0.08] bg-black/40 p-5 text-sm leading-6 text-white outline-none focus:border-violet-400/40 disabled:opacity-50" placeholder="Es. Una cantante su un tetto di Napoli al tramonto, camera orbitale lenta, vento nei capelli, look cinematografico..." />
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <div className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4"><div className="text-[9px] font-black uppercase tracking-widest text-slate-500">Formato</div><div className="mt-3 grid grid-cols-2 gap-2">{(['16:9','9:16'] as AspectRatio[]).map(value => <button key={value} type="button" disabled={busy} onClick={() => setAspectRatio(value)} className={`rounded-xl px-3 py-3 text-xs font-black ${aspectRatio === value ? 'bg-white text-black' : 'border border-white/[0.07] bg-black/30 text-slate-400'}`}>{value === '16:9' ? 'Landscape 16:9' : 'Vertical 9:16'}</button>)}</div></div>
@@ -206,7 +241,7 @@ export default function VideoAISectionControl() {
         </aside>
       </main>
     </div>
-  ), [open, prompt, aspectRatio, resolution, durationSeconds, status, busy, progress, stage, error, videoUrl]);
+  ), [open, prompt, aspectRatio, resolution, durationSeconds, status, busy, progress, stage, error, videoUrl, promptVariant, smartPromptActive]);
 
   return <>{navHost && createPortal(<button type="button" onClick={() => setOpen(true)} className="group flex w-full items-center gap-3 rounded-xl border border-violet-400/20 bg-violet-400/[0.05] px-4 py-3 text-left text-sm font-semibold text-violet-100 transition hover:border-violet-300/40 hover:bg-violet-400/[0.09]" aria-label="Apri SONARA Video AI"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white"><Film className="h-3.5 w-3.5" /></span><span>VIDEO AI</span><span className="ml-auto rounded-md border border-violet-400/20 bg-violet-400/10 px-1.5 py-0.5 text-[8px] font-black tracking-wider text-violet-200">AI</span></button>, navHost)}{overlay && createPortal(overlay, document.body)}</>;
 }
