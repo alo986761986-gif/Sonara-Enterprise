@@ -1,4 +1,4 @@
-name: Repair Firebase and Transcoder IAM
+name: Repair SONARA Transcoder IAM
 
 on:
   workflow_dispatch:
@@ -25,11 +25,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-
-      - run: npm ci --ignore-scripts
-
-      - name: Repair Firebase authorized domains
-        run: node scripts/ensure-firebase-authorized-domains.cjs
 
       - name: Authenticate Google Cloud as SONARA service account
         uses: google-github-actions/auth@v2
@@ -61,10 +56,12 @@ jobs:
 
           echo "::add-mask::${service_account}"
           echo "Project: ${project}"
+          gcloud config set project "${project}"
+
           echo "Enabling Transcoder API..."
           gcloud services enable transcoder.googleapis.com --project="${project}"
 
-          echo "Granting roles/transcoder.editor to the SONARA runtime service account..."
+          echo "Granting roles/transcoder.editor..."
           gcloud projects add-iam-policy-binding "${project}" \
             --member="serviceAccount:${service_account}" \
             --role="roles/transcoder.editor" \
@@ -74,7 +71,7 @@ jobs:
           echo "Verifying IAM binding..."
           role="$(gcloud projects get-iam-policy "${project}" \
             --flatten='bindings[].members' \
-            --filter="bindings.role:roles/transcoder.editor AND bindings.members:serviceAccount:${service_account}" \
+            --filter="bindings.role=roles/transcoder.editor AND bindings.members=serviceAccount:${service_account}" \
             --format='value(bindings.role)' | head -n 1)"
 
           if [[ "${role}" != "roles/transcoder.editor" ]]; then
