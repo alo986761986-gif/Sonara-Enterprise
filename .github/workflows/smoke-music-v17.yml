@@ -1,0 +1,131 @@
+name: Smoke SONARA Music V17 LM Composer
+
+on:
+  push:
+    paths:
+      - '.github/music-v17-smoke-trigger'
+      - '.github/workflows/smoke-music-v17.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-v17:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      API_ORIGIN: https://api.sonaraenterprise.com
+      SONARA_INTERNAL_PROXY_SECRET: ${{ secrets.SONARA_INTERNAL_PROXY_SECRET }}
+    steps:
+      - name: Verify V17 production health
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 40 -H 'Cache-Control: no-cache' "$API_ORIGIN/api/health?smoke=$GITHUB_SHA" > /tmp/health.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const h = JSON.parse(fs.readFileSync('/tmp/health.json','utf8'));
+          console.log(JSON.stringify({
+            status: h.status,
+            sonaraMusicV17: h.sonaraMusicV17,
+            lmComposer: h.lmComposer,
+            studioQualityProfile: h.studioQualityProfile,
+            workerCount: h.aceStepWorkerCount
+          }));
+          if (h.sonaraMusicV17 !== true) throw new Error('V17 marker missing in production health.');
+          if (h.lmComposer !== true) throw new Error('LM Composer marker missing in production health.');
+          if (!(Number(h.aceStepWorkerCount || 0) > 0)) throw new Error('No ACE-Step worker available.');
+          NODE
+
+      - name: Submit real V17 LM generation
+        shell: bash
+        run: |
+          set -euo pipefail
+          auth=()
+          if [[ -n "${SONARA_INTERNAL_PROXY_SECRET:-}" ]]; then
+            auth=(-H "X-Sonara-Internal-Secret: ${SONARA_INTERNAL_PROXY_SECRET}")
+          fi
+          cat > /tmp/request.json <<'JSON'
+          {
+            "title": "SONARA V17 Production Smoke",
+            "genreFamily": "Electronic",
+            "genre": "House",
+            "subgenre": "Deep House",
+            "mood": "Deep, dark, emotional, hypnotic",
+            "prompt": "Professional deep house instrumental with a memorable restrained hook, warm analog chords, deep controlled sub bass, tight four-on-the-floor kick, subtle shuffled percussion, evolving atmospheric textures, sophisticated club arrangement, natural musical transitions, polished modern studio mix, no generic EDM festival elements.",
+            "lyrics": "",
+            "bpm": 122,
+            "durationSec": 30,
+            "weirdness": 55,
+            "styleInfluence": 88,
+            "dualFast": true,
+            "candidateCount": 2
+          }
+          JSON
+          curl -fsS --max-time 240 \
+            -H 'Content-Type: application/json' \
+            "${auth[@]}" \
+            -X POST "$API_ORIGIN/api/engine/generate" \
+            --data-binary @/tmp/request.json > /tmp/start.json
+          cat /tmp/start.json
+          node - <<'NODE' >> "$GITHUB_ENV"
+          const fs = require('fs');
+          const r = JSON.parse(fs.readFileSync('/tmp/start.json','utf8'));
+          if (!r.jobId) throw new Error(`No jobId: ${JSON.stringify(r)}`);
+          if (r.status !== 'PROCESSING') throw new Error(`Unexpected start status: ${JSON.stringify(r)}`);
+          const m = r.metadata || {};
+          if (m.thinking !== true) throw new Error('thinking=true not active.');
+          if (m.cotCaption !== true || m.cotLanguage !== true) throw new Error('CoT not active.');
+          if (m.constrainedDecoding !== true) throw new Error('constrained decoding not active.');
+          if (Number(m.inferenceSteps) !== 8) throw new Error(`Expected 8 Turbo steps, got ${m.inferenceSteps}`);
+          if (!String(m.lmModel || '').includes('0.6B')) throw new Error(`Unexpected LM model: ${m.lmModel}`);
+          console.log(`SONARA_V17_JOB_ID=${r.jobId}`);
+          NODE
+
+      - name: Wait for two completed V17 masters
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..120}; do
+            if curl -fsS --max-time 45 -H 'Cache-Control: no-cache' "$API_ORIGIN/api/music/job/$SONARA_V17_JOB_ID?attempt=$attempt" > /tmp/job.json 2>/dev/null; then
+              status="$(node -e "const r=require('/tmp/job.json'); process.stdout.write(String(r.status||''))")"
+              stage="$(node -e "const r=require('/tmp/job.json'); process.stdout.write(String(r.metadata?.currentStage||''))")"
+              echo "Attempt $attempt: $status - $stage"
+              if [[ "$status" == 'COMPLETED' ]]; then
+                node - <<'NODE'
+                const fs = require('fs');
+                const r = JSON.parse(fs.readFileSync('/tmp/job.json','utf8'));
+                const m = r.metadata || {};
+                if (r.sonaraMusicV17 !== true) throw new Error('Completed response lost V17 marker.');
+                if (r.lmComposer !== true || m.lmComposer !== true) throw new Error('Completed response lost LM Composer marker.');
+                if (m.thinking !== true || m.cotCaption !== true || m.cotLanguage !== true || m.constrainedDecoding !== true) {
+                  throw new Error(`LM planning metadata incomplete: ${JSON.stringify(m)}`);
+                }
+                if (Number(m.inferenceSteps) !== 8) throw new Error(`Expected 8 steps, got ${m.inferenceSteps}`);
+                if (!Array.isArray(r.candidates) || r.candidates.length !== 2) throw new Error('Expected two completed candidates.');
+                if (!r.candidates.every(c => typeof c.audioUrl === 'string' && c.audioUrl.length > 0)) throw new Error('Candidate audio URL missing.');
+                console.log(JSON.stringify({
+                  status: r.status,
+                  profile: m.studioQualityProfile,
+                  qualityLock: m.qualityLock,
+                  lmModel: m.lmModel,
+                  thinking: m.thinking,
+                  cotCaption: m.cotCaption,
+                  cotLanguage: m.cotLanguage,
+                  constrainedDecoding: m.constrainedDecoding,
+                  inferenceSteps: m.inferenceSteps,
+                  candidates: r.candidates.map(c => ({ id: c.id, strategy: c.strategy, hasAudio: Boolean(c.audioUrl) }))
+                }, null, 2));
+                NODE
+                exit 0
+              fi
+              if [[ "$status" == 'FAILED' ]]; then
+                cat /tmp/job.json
+                exit 1
+              fi
+            fi
+            sleep 10
+          done
+          echo 'Timed out waiting for V17 production generation.' >&2
+          cat /tmp/job.json 2>/dev/null || true
+          exit 1
