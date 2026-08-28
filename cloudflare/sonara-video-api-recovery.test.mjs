@@ -86,7 +86,7 @@ assert.equal(isVideoApiRequest(new Request('https://sonaraenterprise.com/api/bil
   let startCalls = 0;
   const started = await recoverVideoApi(request, {
     env,
-    fetcher: async input => {
+    fetcher: async (input, init = {}) => {
       const url = new URL(typeof input === 'string' ? input : input.url);
       if (url.hostname.includes('vercel.app')) {
         return new Response(JSON.stringify({ jobId: 'real-job-123', status: 'PROCESSING', progress: 3 }), {
@@ -96,8 +96,8 @@ assert.equal(isVideoApiRequest(new Request('https://sonaraenterprise.com/api/bil
       }
       if (url.pathname.endsWith(':predictLongRunning')) {
         startCalls += 1;
-        const body = JSON.parse(String(input.body || '{}'));
-        assert.equal(input.headers.get('x-goog-api-key'), 'test-gemini-key');
+        const body = JSON.parse(String(init.body || '{}'));
+        assert.equal(new Headers(init.headers).get('x-goog-api-key'), 'test-gemini-key');
         assert.equal(body.instances[0].prompt, 'cinematic Naples sunset');
         assert.equal(body.parameters.durationSeconds, '8');
         return new Response(JSON.stringify({ name: 'operations/gemini-edge-123' }), {
