@@ -53,6 +53,13 @@ function formatBytes(bytes: number) {
 }
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+function videoPollDelay(attempt: number, progress: number) {
+  if (attempt === 0) return 0;
+  if (progress >= 80) return 900;
+  if (progress >= 20) return 1_250;
+  return attempt < 8 ? 1_000 : 1_750;
+}
+
 function errorMessage(payload: JobPayload, fallback: string) {
   if (typeof payload.error === 'string') return payload.error;
   if (payload.error && typeof payload.error.message === 'string') return payload.error.message;
@@ -196,29 +203,13 @@ export default function VideoAISectionControl() {
 
         if (isImage) {
           const uploaded = await uploadFirebaseVideoAiAsset(file, { fileName: file.name, kind: 'image' });
-          additions.push({
-            id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-            sourceKind: 'image',
-            sourceName: file.name,
-            previewUrl: uploaded.downloadUrl,
-            storagePath: uploaded.storagePath,
-            contentType: uploaded.contentType,
-            size: uploaded.size
-          });
+          additions.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, sourceKind: 'image', sourceName: file.name, previewUrl: uploaded.downloadUrl, storagePath: uploaded.storagePath, contentType: uploaded.contentType, size: uploaded.size });
           continue;
         }
 
         if (isAudio) {
           const uploadedAudio = await uploadFirebaseVideoAiAsset(file, { fileName: file.name, kind: 'audio' });
-          additions.push({
-            id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-            sourceKind: 'audio',
-            sourceName: file.name,
-            previewUrl: uploadedAudio.downloadUrl,
-            storagePath: uploadedAudio.storagePath,
-            contentType: uploadedAudio.contentType,
-            size: uploadedAudio.size
-          });
+          additions.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, sourceKind: 'audio', sourceName: file.name, previewUrl: uploadedAudio.downloadUrl, storagePath: uploadedAudio.storagePath, contentType: uploadedAudio.contentType, size: uploadedAudio.size });
           continue;
         }
 
@@ -226,16 +217,7 @@ export default function VideoAISectionControl() {
         const frame = await videoFrameBlob(file);
         const frameName = `${file.name.replace(/\.[^.]+$/, '') || 'video'}-reference.jpg`;
         const uploadedFrame = await uploadFirebaseVideoAiAsset(frame, { fileName: frameName, kind: 'image' });
-        additions.push({
-          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-          sourceKind: 'video',
-          sourceName: file.name,
-          previewUrl: uploadedVideo.downloadUrl,
-          storagePath: uploadedFrame.storagePath,
-          contentType: uploadedFrame.contentType,
-          size: uploadedVideo.size,
-          originalStoragePath: uploadedVideo.storagePath
-        });
+        additions.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, sourceKind: 'video', sourceName: file.name, previewUrl: uploadedVideo.downloadUrl, storagePath: uploadedFrame.storagePath, contentType: uploadedFrame.contentType, size: uploadedVideo.size, originalStoragePath: uploadedVideo.storagePath });
       }
       setMediaReferences(current => [...current, ...additions].slice(0, MAX_MEDIA_REFERENCES));
     } catch (cause) {
@@ -312,27 +294,23 @@ export default function VideoAISectionControl() {
           aspectRatio,
           resolution,
           durationSeconds,
-          mediaReferences: mediaReferences.map(item => ({
-            storagePath: item.storagePath,
-            contentType: item.contentType,
-            sourceKind: item.sourceKind,
-            sourceName: item.sourceName,
-            size: item.size,
-            ...(item.originalStoragePath ? { originalStoragePath: item.originalStoragePath } : {})
-          }))
+          mediaReferences: mediaReferences.map(item => ({ storagePath: item.storagePath, contentType: item.contentType, sourceKind: item.sourceKind, sourceName: item.sourceName, size: item.size, ...(item.originalStoragePath ? { originalStoragePath: item.originalStoragePath } : {}) }))
         })
       });
       const started = await readApiJson<JobPayload>(response, 'Video non avviato.');
       if (!response.ok || !started.jobId) throw new Error(errorMessage(started, `Video non avviato (HTTP ${response.status}).`));
 
-      for (let attempt = 0; attempt < 360; attempt += 1) {
-        await sleep(5_000);
+      let latestProgress = Number(started.progress || 5);
+      for (let attempt = 0; attempt < 1_200; attempt += 1) {
+        const delay = videoPollDelay(attempt, latestProgress);
+        if (delay > 0) await sleep(delay);
         const poll = await fetch(`/api/video/job/${encodeURIComponent(started.jobId)}`, {
           headers: { Authorization: `Bearer ${token}` }, cache: 'no-store'
         });
         const current = await readApiJson<JobPayload>(poll, 'Controllo Video AI non disponibile.');
         if (!poll.ok) throw new Error(errorMessage(current, `Controllo video fallito (HTTP ${poll.status}).`));
-        setProgress(Number(current.progress || Math.min(95, 12 + attempt)));
+        latestProgress = Number(current.progress || Math.min(95, 12 + attempt));
+        setProgress(latestProgress);
         setStage(current.stage || 'SONARA Video AI: rendering');
         if (current.status === 'FAILED') throw new Error(errorMessage(current, 'Generazione video fallita.'));
         if (current.status === 'COMPLETED' && current.videoUrl) {
