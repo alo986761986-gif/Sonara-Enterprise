@@ -1,3 +1,4 @@
-trigger: audio-progress-stall-recovery-20260828-1107
-reason: prevent audio generation jobs from sticking at 20 percent with recursive ACE-Step result decoding and live progress heartbeat
-source-commits: 92cf277a497641c51c9113cb947f76e83a764c65
+trigger: restore-exact-pre-bpm-audio-20260828
+reason: restore the exact audio generation configuration from commit 38a9d8221bd75a2e2ea7b161fbd7218b273703d0 immediately before BPM changes
+restore-commit: 3d59d085235937e221a839eab34152e3762f440d
+pre-bpm-source: 38a9d8221bd75a2e2ea7b161fbd7218b273703d0
