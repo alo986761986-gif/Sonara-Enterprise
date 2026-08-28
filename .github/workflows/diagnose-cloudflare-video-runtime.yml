@@ -54,7 +54,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx --yes wrangler@latest secret list --name sonara-enterprise-web --format json > /tmp/sonara-worker-secrets.json
+          npx --yes wrangler@latest secret list --config wrangler.jsonc --format json > /tmp/sonara-worker-secrets.json
           node - <<'NODE'
           const fs = require('fs');
           const payload = JSON.parse(fs.readFileSync('/tmp/sonara-worker-secrets.json', 'utf8'));
