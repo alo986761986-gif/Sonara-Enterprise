@@ -8,6 +8,7 @@ import { pollConcatenation, publishTranscodedVideo, startConcatenation, startSou
 const JOB_COLLECTION = 'sonaraVideoJobs';
 const MAX_SCENE_RETRIES = 3;
 const MAX_SINGLE_CLIP_SAFETY_RETRIES = 3;
+const SCENE_START_CONCURRENCY = 4;
 let adminApp: App | null = null;
 
 type SceneOperation = {
@@ -245,9 +246,10 @@ export default async function handler(req: any, res: any) {
     if (clipCount > 1) {
       const operations = Array.isArray(record.operations) ? [...record.operations] : [];
       if (operations.length < clipCount) {
-        const batchSize = Math.min(4, clipCount - operations.length);
-        for (let offset = 0; offset < batchSize; offset += 1) {
-          const scene = operations.length + 1;
+        const batchStart = operations.length;
+        const batchSize = Math.min(SCENE_START_CONCURRENCY, clipCount - batchStart);
+        const startedBatch = await Promise.all(Array.from({ length: batchSize }, async (_, offset) => {
+          const scene = batchStart + offset + 1;
           const result = await within(startVideoProvider({
             app,
             bucketName: storageBucketName(),
@@ -258,11 +260,12 @@ export default async function handler(req: any, res: any) {
             userId: record.uid,
             referenceImages: referenceImages(record)
           }), 25_000, `Avvio scena ${scene}`);
-          operations.push({ ...result, retryCount: 0 });
-          await ref.set({ operations: firestoreSafeOperations(operations), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-        }
+          return { ...result, retryCount: 0 } as SceneOperation;
+        }));
+        operations.push(...startedBatch);
+        await ref.set({ operations: firestoreSafeOperations(operations), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
         const progress = Math.max(6, Math.round((operations.length / clipCount) * 20));
-        return json(res, 200, { jobId, status: 'PROCESSING', progress, stage: `SONARA Video AI: avvio scene ${operations.length}/${clipCount}` });
+        return json(res, 200, { jobId, status: 'PROCESSING', progress, stage: `SONARA Video AI: avvio parallelo scene ${operations.length}/${clipCount}` });
       }
 
       let completed = 0;
