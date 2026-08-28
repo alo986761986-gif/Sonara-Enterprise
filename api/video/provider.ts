@@ -33,15 +33,10 @@ async function vertexAccessToken(app: App) {
 async function providerJson(response: Response, providerLabel: string): Promise<any> {
   const raw = await response.text();
   const text = raw.trim();
-  if (!text) {
-    throw new Error(`${providerLabel} ha restituito una risposta vuota (HTTP ${response.status}).`);
-  }
-  if (/^<!doctype\s+html/i.test(text) || /^<html/i.test(text)) {
-    throw new Error(`${providerLabel} ha restituito HTML invece di JSON (HTTP ${response.status}).`);
-  }
-  try {
-    return JSON.parse(text);
-  } catch {
+  if (!text) throw new Error(`${providerLabel} ha restituito una risposta vuota (HTTP ${response.status}).`);
+  if (/^<!doctype\s+html/i.test(text) || /^<html/i.test(text)) throw new Error(`${providerLabel} ha restituito HTML invece di JSON (HTTP ${response.status}).`);
+  try { return JSON.parse(text); }
+  catch {
     const preview = text.replace(/\s+/g, ' ').slice(0, 180);
     throw new Error(`${providerLabel} ha restituito una risposta non JSON (HTTP ${response.status})${preview ? `: ${preview}` : ''}.`);
   }
@@ -66,9 +61,7 @@ export function videoModelForPlan(planId: SonaraPlanId, provider: SonaraVideoPro
   const override = String(process.env.SONARA_VIDEO_MODEL || '').trim();
   if (override) return override;
   if (provider === 'vertex') return vertexModelOverride() || 'veo-3.1-fast-generate-001';
-  return SONARA_PLANS[planId].videoModelTier === 'lite'
-    ? 'veo-3.1-lite-generate-preview'
-    : 'veo-3.1-fast-generate-preview';
+  return SONARA_PLANS[planId].videoModelTier === 'lite' ? 'veo-3.1-lite-generate-preview' : 'veo-3.1-fast-generate-preview';
 }
 
 export interface StartVideoProviderInput {
@@ -76,6 +69,7 @@ export interface StartVideoProviderInput {
   bucketName: string;
   planId: SonaraPlanId;
   prompt: string;
+  negativePrompt?: string;
   aspectRatio: '16:9' | '9:16';
   resolution: SonaraVideoResolution;
   userId: string;
@@ -91,6 +85,7 @@ export async function startVideoProvider(input: StartVideoProviderInput): Promis
   const provider = videoProviderMode(input.app, input.bucketName);
   if (!provider) throw new Error('Nessun provider Video AI configurato.');
   const model = videoModelForPlan(input.planId, provider);
+  const negativePrompt = String(input.negativePrompt || '').trim();
 
   if (provider === 'gemini') {
     const response = await fetch(`${GEMINI_BASE_URL}/models/${encodeURIComponent(model)}:predictLongRunning`, {
@@ -103,14 +98,13 @@ export async function startVideoProvider(input: StartVideoProviderInput): Promis
           aspectRatio: input.aspectRatio,
           resolution: input.resolution,
           durationSeconds: '8',
-          personGeneration: 'allow_adult'
+          personGeneration: 'allow_adult',
+          ...(negativePrompt ? { negativePrompt } : {})
         }
       })
     });
     const payload = await providerJson(response, 'Gemini Video API');
-    if (!response.ok || !payload?.name) {
-      throw new Error(String(payload?.error?.message || `Gemini Video API HTTP ${response.status}`));
-    }
+    if (!response.ok || !payload?.name) throw new Error(String(payload?.error?.message || `Gemini Video API HTTP ${response.status}`));
     return { provider, model, operationName: String(payload.name) };
   }
 
@@ -129,14 +123,13 @@ export async function startVideoProvider(input: StartVideoProviderInput): Promis
         resolution: input.resolution,
         sampleCount: 1,
         personGeneration: 'allow_adult',
-        storageUri
+        storageUri,
+        ...(negativePrompt ? { negativePrompt } : {})
       }
     })
   });
   const payload = await providerJson(response, 'Vertex AI Video');
-  if (!response.ok || !payload?.name) {
-    throw new Error(String(payload?.error?.message || `Vertex AI Video HTTP ${response.status}`));
-  }
+  if (!response.ok || !payload?.name) throw new Error(String(payload?.error?.message || `Vertex AI Video HTTP ${response.status}`));
   return { provider, model, operationName: String(payload.name) };
 }
 
@@ -190,16 +183,8 @@ function completedWithoutVideoMessage(operation: any) {
     ...(Array.isArray(response?.raiMediaFilteredReasons) ? response.raiMediaFilteredReasons : []),
     ...(Array.isArray(nested?.raiMediaFilteredReasons) ? nested.raiMediaFilteredReasons : [])
   ].map((item: unknown) => stringValue(item)).filter(Boolean);
-  const filteredCount = Math.max(
-    Number(response?.raiMediaFilteredCount || 0),
-    Number(nested?.raiMediaFilteredCount || 0)
-  );
-  const raiMessage = stringValue(
-    response?.raiErrorMessage ||
-    nested?.raiErrorMessage ||
-    response?.raiTextFilteredReason?.reason ||
-    nested?.raiTextFilteredReason?.reason
-  );
+  const filteredCount = Math.max(Number(response?.raiMediaFilteredCount || 0), Number(nested?.raiMediaFilteredCount || 0));
+  const raiMessage = stringValue(response?.raiErrorMessage || nested?.raiErrorMessage || response?.raiTextFilteredReason?.reason || nested?.raiTextFilteredReason?.reason);
   if (filteredCount > 0 || reasons.length || raiMessage) {
     const detail = raiMessage || reasons.join('; ');
     return `Veo ha filtrato il risultato della scena${detail ? `: ${detail}` : ' per i controlli di sicurezza'}.`;
@@ -210,10 +195,7 @@ function completedWithoutVideoMessage(operation: any) {
 export async function pollVideoProvider(input: PollVideoProviderInput): Promise<PolledVideoProviderJob> {
   let response: Response;
   if (input.provider === 'gemini') {
-    response = await fetch(`${GEMINI_BASE_URL}/${input.operationName}`, {
-      headers: { 'x-goog-api-key': geminiApiKey() },
-      cache: 'no-store'
-    });
+    response = await fetch(`${GEMINI_BASE_URL}/${input.operationName}`, { headers: { 'x-goog-api-key': geminiApiKey() }, cache: 'no-store' });
   } else {
     const token = await vertexAccessToken(input.app);
     const id = projectId(input.app);
@@ -259,18 +241,10 @@ export async function persistProviderVideo(app: App, bucketName: string, userId:
     const sourceBucket = getStorage(app).bucket(sourceBucketName);
     const sourceFile = sourceBucket.file(sourcePath);
     if (sourceBucketName === bucketName && sourcePath === finalPath) {
-      await sourceFile.setMetadata({
-        contentType: 'video/mp4',
-        cacheControl: 'private,max-age=3600',
-        metadata: { firebaseStorageDownloadTokens: token }
-      });
+      await sourceFile.setMetadata({ contentType: 'video/mp4', cacheControl: 'private,max-age=3600', metadata: { firebaseStorageDownloadTokens: token } });
     } else {
       await sourceFile.copy(bucket.file(finalPath));
-      await bucket.file(finalPath).setMetadata({
-        contentType: 'video/mp4',
-        cacheControl: 'private,max-age=3600',
-        metadata: { firebaseStorageDownloadTokens: token }
-      });
+      await bucket.file(finalPath).setMetadata({ contentType: 'video/mp4', cacheControl: 'private,max-age=3600', metadata: { firebaseStorageDownloadTokens: token } });
     }
   } else {
     const headers: Record<string, string> = {};
@@ -278,11 +252,7 @@ export async function persistProviderVideo(app: App, bucketName: string, userId:
     const response = await fetch(uri, { headers, redirect: 'follow' });
     if (!response.ok) throw new Error(`Download video provider HTTP ${response.status}`);
     const bytes = Buffer.from(await response.arrayBuffer());
-    await bucket.file(finalPath).save(bytes, {
-      resumable: false,
-      contentType: 'video/mp4',
-      metadata: { cacheControl: 'private,max-age=3600', metadata: { firebaseStorageDownloadTokens: token } }
-    });
+    await bucket.file(finalPath).save(bytes, { resumable: false, contentType: 'video/mp4', metadata: { cacheControl: 'private,max-age=3600', metadata: { firebaseStorageDownloadTokens: token } } });
   }
 
   return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucketName)}/o/${encodeURIComponent(finalPath)}?alt=media&token=${encodeURIComponent(token)}`;
