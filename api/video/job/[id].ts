@@ -2,10 +2,12 @@ import { applicationDefault, cert, getApps, initializeApp, type App } from 'fire
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { SONARA_PLANS, type SonaraPlanId, type SonaraVideoResolution } from '../../../src/billing/plans';
 import { persistProviderVideo, pollVideoProvider, startVideoProvider, type SonaraVideoProvider } from '../provider';
+import { buildVeoSafetyRetryPrompt, isVeoSafetyFilterError, veoNegativePrompt, veoSafetyCategory } from '../safety';
 import { pollConcatenation, publishTranscodedVideo, startConcatenation } from '../../../src/server/video/transcoder';
 
 const JOB_COLLECTION = 'sonaraVideoJobs';
 const MAX_SCENE_RETRIES = 3;
+const MAX_SINGLE_CLIP_SAFETY_RETRIES = 3;
 let adminApp: App | null = null;
 
 type SceneOperation = {
@@ -16,6 +18,7 @@ type SceneOperation = {
   videoUrl?: string;
   retryCount?: number;
   lastError?: string;
+  safetyCategory?: string;
 };
 
 type VideoJobRecord = {
@@ -35,6 +38,8 @@ type VideoJobRecord = {
   refunded?: boolean;
   startAttempts?: number;
   pollErrors?: number;
+  safetyRetryCount?: number;
+  lastSafetyError?: string;
   durationSeconds?: number;
   clipCount?: number;
   operations?: SceneOperation[];
@@ -124,7 +129,7 @@ async function failAndRefund(record: VideoJobRecord, jobId: string, ref: Firebas
 
 function scenePrompt(record: VideoJobRecord, scene: number, clipCount: number, retryCount = 0) {
   const retryInstruction = retryCount > 0
-    ? ` This is regeneration attempt ${retryCount}. Keep the scene safe, non-graphic, policy-compliant, visually simple and unambiguous while preserving continuity.`
+    ? ` This is regeneration attempt ${retryCount}. Keep the scene safe, non-graphic, visually simple and unambiguous while preserving continuity. Use only original fictional adult identities and do not create a recognizable real-person or celebrity likeness.`
     : '';
   return `${record.prompt}\n\nScene ${scene} of ${clipCount}. Maintain the same subjects, wardrobe, visual style, lighting and cinematic continuity. Create the next distinct shot in the sequence.${retryInstruction}`;
 }
@@ -132,16 +137,43 @@ function scenePrompt(record: VideoJobRecord, scene: number, clipCount: number, r
 async function restartScene(app: App, record: VideoJobRecord, sceneIndex: number, clipCount: number, previous: SceneOperation) {
   const retryCount = Math.max(0, Number(previous.retryCount || 0)) + 1;
   if (retryCount > MAX_SCENE_RETRIES) throw new Error(`Scena ${sceneIndex + 1}: ${previous.lastError || 'generazione fallita'} dopo ${MAX_SCENE_RETRIES} tentativi automatici.`);
+
+  const safetyFiltered = isVeoSafetyFilterError(previous.lastError);
+  const prompt = safetyFiltered
+    ? buildVeoSafetyRetryPrompt(record.prompt, previous.lastError, retryCount, { scene: sceneIndex + 1, clipCount, aspectRatio: record.aspectRatio })
+    : scenePrompt(record, sceneIndex + 1, clipCount, retryCount);
   const restarted = await within(startVideoProvider({
     app,
     bucketName: storageBucketName(),
     planId: record.planId,
-    prompt: scenePrompt(record, sceneIndex + 1, clipCount, retryCount),
+    prompt,
+    ...(safetyFiltered ? { negativePrompt: veoNegativePrompt(previous.lastError) } : {}),
     aspectRatio: record.aspectRatio,
     resolution: record.resolution,
     userId: record.uid
   }), 25_000, `Riavvio scena ${sceneIndex + 1}`);
-  return { ...restarted, retryCount, lastError: previous.lastError } as SceneOperation;
+  return {
+    ...restarted,
+    retryCount,
+    lastError: previous.lastError,
+    ...(safetyFiltered ? { safetyCategory: veoSafetyCategory(previous.lastError) || 'other' } : {})
+  } as SceneOperation;
+}
+
+async function restartSingleClipAfterSafetyFilter(app: App, record: VideoJobRecord, error: string) {
+  const retryCount = Math.max(0, Number(record.safetyRetryCount || 0)) + 1;
+  if (retryCount > MAX_SINGLE_CLIP_SAFETY_RETRIES) return null;
+  const restarted = await within(startVideoProvider({
+    app,
+    bucketName: storageBucketName(),
+    planId: record.planId,
+    prompt: buildVeoSafetyRetryPrompt(record.prompt, error, retryCount, { scene: 1, clipCount: 1, aspectRatio: record.aspectRatio }),
+    negativePrompt: veoNegativePrompt(error),
+    aspectRatio: record.aspectRatio,
+    resolution: record.resolution,
+    userId: record.uid
+  }), 25_000, `Rigenerazione sicura clip (${retryCount}/${MAX_SINGLE_CLIP_SAFETY_RETRIES})`);
+  return { ...restarted, retryCount };
 }
 
 export default async function handler(req: any, res: any) {
@@ -187,8 +219,16 @@ export default async function handler(req: any, res: any) {
           try {
             operations[index] = await restartScene(app, record, index, clipCount, previous);
             await ref.set({ operations, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-            console.warn('[SONARA VIDEO] scene regenerated', { jobId, scene: index + 1, retryCount: operations[index].retryCount, reason: operation.error });
-            return json(res, 200, { jobId, status: 'PROCESSING', progress: 20 + Math.round((completed / clipCount) * 55), stage: `SONARA Video AI: rigenerazione scena ${index + 1}/${clipCount}` });
+            const filtered = isVeoSafetyFilterError(operation.error);
+            console.warn('[SONARA VIDEO] scene regenerated', { jobId, scene: index + 1, retryCount: operations[index].retryCount, safetyCategory: filtered ? veoSafetyCategory(operation.error) : undefined, reason: operation.error });
+            return json(res, 200, {
+              jobId,
+              status: 'PROCESSING',
+              progress: 20 + Math.round((completed / clipCount) * 55),
+              stage: filtered
+                ? `SONARA Video AI: riformulazione sicura scena ${index + 1}/${clipCount}`
+                : `SONARA Video AI: rigenerazione scena ${index + 1}/${clipCount}`
+            });
           } catch (retryError) {
             throw new Error(retryError instanceof Error ? retryError.message : String(retryError));
           }
@@ -235,6 +275,22 @@ export default async function handler(req: any, res: any) {
       const operation = await within(pollVideoProvider({ app, provider: record.provider || 'gemini', model: record.model, operationName: String(record.operationName) }), 15_000, 'Controllo provider Video AI');
       if (!operation.done) return json(res, 200, { jobId, status: 'PROCESSING', progress: 55, stage: 'SONARA Video AI: rendering cinematografico' });
       if (operation.error) {
+        if (isVeoSafetyFilterError(operation.error)) {
+          const restarted = await restartSingleClipAfterSafetyFilter(app, record, operation.error);
+          if (restarted) {
+            await ref.set({
+              operationName: restarted.operationName,
+              model: restarted.model,
+              provider: restarted.provider,
+              safetyRetryCount: restarted.retryCount,
+              lastSafetyError: operation.error,
+              pollErrors: 0,
+              updatedAt: FieldValue.serverTimestamp()
+            }, { merge: true });
+            console.warn('[SONARA VIDEO] single clip safety regeneration', { jobId, retryCount: restarted.retryCount, category: veoSafetyCategory(operation.error), reason: operation.error });
+            return json(res, 200, { jobId, status: 'PROCESSING', progress: 35, stage: `SONARA Video AI: riformulazione sicura (${restarted.retryCount}/${MAX_SINGLE_CLIP_SAFETY_RETRIES})` });
+          }
+        }
         const finalMessage = await failAndRefund(record, jobId, ref, app, operation.error);
         return json(res, 200, { jobId, status: 'FAILED', progress: 0, stage: 'Errore', error: finalMessage });
       }
