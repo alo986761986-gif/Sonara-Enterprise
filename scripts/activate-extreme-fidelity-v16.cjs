@@ -51,6 +51,14 @@ replaceAny(
   'preserve weirdness inference method'
 );
 
+// ACE-Step /query_result wraps the generated files inside item.result as a JSON string.
+// Decode that nested payload so completed T4 jobs advance from 0/2 to 1/2 and 2/2.
+replaceAny(
+  "      const ref = audioRefFromItem(item, worker);\n      if (ref) {\n        refs.push(ref);\n        completed += 1;\n      }",
+  "      let ref = audioRefFromItem(item, worker);\n      if (!ref && status === 1) {\n        const resultItems = parseItems(item?.result);\n        for (const resultItem of resultItems) {\n          ref = audioRefFromItem(resultItem, worker);\n          if (ref) break;\n        }\n        if (!ref) {\n          throw new SonaraEngineError(`SONARA worker ${worker.id} completed without returning an audio file.`, 502, false);\n        }\n      }\n      if (ref) {\n        refs.push(ref);\n        completed += 1;\n      }",
+  'decode nested ACE-Step query_result audio files'
+);
+
 // Legacy health/metadata patches only apply when those exact blocks are present.
 const optionalPatches = [
   ["          kaggleThinking: false,", "          kaggleThinking: true,"],
@@ -73,6 +81,9 @@ if (!source.includes('Math.round(clamp(body.bpm, 124, 30, 300))')) {
 if (!source.includes('never half-time')) {
   throw new Error('[SONARA v16] anti-half-time tempo lock missing before deploy');
 }
+if (!source.includes('const resultItems = parseItems(item?.result)')) {
+  throw new Error('[SONARA v16] ACE-Step nested query_result parser missing before deploy');
+}
 
 fs.writeFileSync(file, source, 'utf8');
-console.log('[SONARA] Extreme Fidelity v16 activated with 12-step T4 render and authoritative BPM tempo lock preserved.');
+console.log('[SONARA] Extreme Fidelity v16 activated with 12-step T4 render, authoritative BPM lock and ACE-Step result decoding.');
