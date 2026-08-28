@@ -37,6 +37,7 @@ jobs:
           test -n "${gpu1}"
           echo "KAGGLE_GPU0_URL=${gpu0%/}" >> "$GITHUB_ENV"
           echo "KAGGLE_GPU1_URL=${gpu1%/}" >> "$GITHUB_ENV"
+          echo "Activation target GPU1: ${gpu1%/}"
 
       - name: Verify public GPU1 is WAN Video
         shell: bash
