@@ -2,6 +2,7 @@ import { applicationDefault, cert, getApps, initializeApp, type App } from 'fire
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { SONARA_PLANS, type SonaraPlanId, type SonaraVideoResolution } from '../../../src/billing/plans';
 import { persistProviderVideo, pollVideoProvider, startVideoProvider, type SonaraVideoProvider } from '../provider';
+import { pollConcatenation, publishTranscodedVideo, startConcatenation } from '../transcoder';
 
 const JOB_COLLECTION = 'sonaraVideoJobs';
 let adminApp: App | null = null;
@@ -23,6 +24,11 @@ type VideoJobRecord = {
   refunded?: boolean;
   startAttempts?: number;
   pollErrors?: number;
+  durationSeconds?: number;
+  clipCount?: number;
+  operations?: Array<{ operationName: string; model: string; provider: SonaraVideoProvider; clipUri?: string; videoUrl?: string }>;
+  transcoderJobName?: string;
+  transcoderOutputPath?: string;
 };
 
 function storageBucketName() {
@@ -143,6 +149,75 @@ export default async function handler(req: any, res: any) {
     }
     if (record.status === 'FAILED') {
       return json(res, 200, { jobId, status: 'FAILED', progress: 0, stage: 'Errore', error: record.error || 'Generazione video fallita.' });
+    }
+
+    const durationSeconds = Math.max(8, Number(record.durationSeconds || 8));
+    const clipCount = Math.max(1, Number(record.clipCount || Math.ceil(durationSeconds / 8)));
+
+    if (clipCount > 1) {
+      const operations = Array.isArray(record.operations) ? [...record.operations] : [];
+      if (operations.length < clipCount) {
+        const batchSize = Math.min(4, clipCount - operations.length);
+        for (let offset = 0; offset < batchSize; offset += 1) {
+          const scene = operations.length + 1;
+          const result = await within(startVideoProvider({
+            app,
+            bucketName: storageBucketName(),
+            planId: record.planId,
+            prompt: `${record.prompt}\n\nScene ${scene} of ${clipCount}. Maintain the same subjects, wardrobe, visual style, lighting and cinematic continuity. Create the next distinct shot in the sequence.`,
+            aspectRatio: record.aspectRatio,
+            resolution: record.resolution,
+            userId: record.uid
+          }), 25_000, `Avvio scena ${scene}`);
+          operations.push(result);
+          await ref.set({ operations, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        }
+        const progress = Math.max(6, Math.round((operations.length / clipCount) * 20));
+        return json(res, 200, { jobId, status: 'PROCESSING', progress, stage: `SONARA Video AI: avvio scene ${operations.length}/${clipCount}` });
+      }
+
+      let completed = 0;
+      for (let index = 0; index < operations.length; index += 1) {
+        if (operations[index].clipUri) { completed += 1; continue; }
+        const operation = await within(pollVideoProvider({
+          app,
+          provider: operations[index].provider,
+          model: operations[index].model,
+          operationName: operations[index].operationName
+        }), 15_000, `Controllo scena ${index + 1}`);
+        if (operation.error) throw new Error(`Scena ${index + 1}: ${operation.error}`);
+        if (!operation.done || !operation.uri) continue;
+        const clipPath = `generated-videos/staging/${record.uid}/${jobId}/clip-${String(index).padStart(3, '0')}.mp4`;
+        const videoUrl = await within(persistProviderVideo(app, storageBucketName(), record.uid, jobId, operation.uri, clipPath), 45_000, `Salvataggio scena ${index + 1}`);
+        operations[index] = { ...operations[index], clipUri: `gs://${storageBucketName()}/${clipPath}`, videoUrl };
+        completed += 1;
+      }
+      await ref.set({ operations, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      if (completed < clipCount) {
+        return json(res, 200, { jobId, status: 'PROCESSING', progress: 20 + Math.round((completed / clipCount) * 55), stage: `SONARA Video AI: rendering scene ${completed}/${clipCount}` });
+      }
+
+      if (!record.transcoderJobName) {
+        const concat = await within(startConcatenation(
+          app,
+          storageBucketName(),
+          record.uid,
+          jobId,
+          operations.map(item => String(item.clipUri)),
+          record.resolution,
+          record.aspectRatio,
+          durationSeconds
+        ), 20_000, 'Avvio montaggio video');
+        await ref.set({ transcoderJobName: concat.name, transcoderOutputPath: concat.outputPath, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        return json(res, 200, { jobId, status: 'PROCESSING', progress: 82, stage: 'SONARA Video AI: montaggio automatico' });
+      }
+
+      const transcoder = await within(pollConcatenation(app, record.transcoderJobName), 15_000, 'Controllo montaggio video');
+      if (transcoder.state === 'FAILED') throw new Error(transcoder.error || 'Montaggio video fallito.');
+      if (transcoder.state !== 'SUCCEEDED') return json(res, 200, { jobId, status: 'PROCESSING', progress: 90, stage: 'SONARA Video AI: finalizzazione MP4' });
+      const videoUrl = await publishTranscodedVideo(app, storageBucketName(), String(record.transcoderOutputPath));
+      await ref.set({ status: 'COMPLETED', videoUrl, completedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      return json(res, 200, { jobId, status: 'COMPLETED', progress: 100, stage: 'Video pronto', videoUrl });
     }
 
     if (!String(record.operationName || '').trim()) {

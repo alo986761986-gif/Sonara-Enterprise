@@ -192,10 +192,10 @@ export async function pollVideoProvider(input: PollVideoProviderInput): Promise<
   return { done: true, uri };
 }
 
-export async function persistProviderVideo(app: App, bucketName: string, userId: string, jobId: string, uri: string) {
+export async function persistProviderVideo(app: App, bucketName: string, userId: string, jobId: string, uri: string, finalPathOverride?: string) {
   const token = randomUUID();
   const bucket = getStorage(app).bucket(bucketName);
-  const finalPath = `generated-videos/${userId}/${jobId}.mp4`;
+  const finalPath = finalPathOverride || `generated-videos/${userId}/${jobId}.mp4`;
 
   if (uri.startsWith('gs://')) {
     const withoutScheme = uri.slice(5);

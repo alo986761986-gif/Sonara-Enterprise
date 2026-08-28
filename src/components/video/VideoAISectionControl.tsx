@@ -57,6 +57,7 @@ export default function VideoAISectionControl() {
   const [prompt, setPrompt] = useState('Cinematic music video, dramatic lighting, elegant camera movement, premium production design, realistic textures, atmospheric depth.');
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('16:9');
   const [resolution, setResolution] = useState<SonaraVideoResolution>('720p');
+  const [durationSeconds, setDurationSeconds] = useState(8);
   const [status, setStatus] = useState<VideoStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -104,6 +105,7 @@ export default function VideoAISectionControl() {
       if (!response.ok) throw new Error(payload?.error?.message || payload?.error || `Impossibile leggere il piano Video AI (HTTP ${response.status}).`);
       setStatus(payload as VideoStatus);
       if (!payload.videoResolutions?.includes(resolution)) setResolution(payload.videoResolutions?.[0] || '720p');
+      if (durationSeconds > Number(payload.videoClipSeconds || 8)) setDurationSeconds(8);
     } catch (cause) {
       setStatus(null);
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -124,12 +126,12 @@ export default function VideoAISectionControl() {
       const response = await fetch('/api/video/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ prompt: prompt.trim(), aspectRatio, resolution })
+        body: JSON.stringify({ prompt: prompt.trim(), aspectRatio, resolution, durationSeconds })
       });
       const started = await readApiJson<JobPayload>(response, 'Video non avviato.');
       if (!response.ok || !started.jobId) throw new Error(errorMessage(started, `Video non avviato (HTTP ${response.status}).`));
 
-      for (let attempt = 0; attempt < 90; attempt += 1) {
+      for (let attempt = 0; attempt < 360; attempt += 1) {
         await sleep(5_000);
         const poll = await fetch(`/api/video/job/${encodeURIComponent(started.jobId)}`, {
           headers: { Authorization: `Bearer ${token}` }, cache: 'no-store'
@@ -181,6 +183,12 @@ export default function VideoAISectionControl() {
             <div className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4"><div className="text-[9px] font-black uppercase tracking-widest text-slate-500">Qualità piano</div><div className="mt-3 grid grid-cols-3 gap-2">{(['720p','1080p','4k'] as SonaraVideoResolution[]).map(value => { const allowed = Boolean(status?.videoResolutions.includes(value)); return <button key={value} type="button" disabled={busy || !allowed} onClick={() => setResolution(value)} className={`rounded-xl px-2 py-3 text-[10px] font-black ${resolution === value && allowed ? 'bg-violet-500 text-white' : 'border border-white/[0.07] bg-black/30 text-slate-500 disabled:opacity-25'}`}>{value.toUpperCase()}</button>; })}</div></div>
           </div>
 
+          <div className="mt-3 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4">
+            <div className="flex items-center justify-between gap-3"><div className="text-[9px] font-black uppercase tracking-widest text-slate-500">Durata video</div>{status?.planId === 'studio' && <div className="text-[9px] font-black text-violet-300">STUDIO · FINO A 2 MINUTI</div>}</div>
+            <div className="mt-3 grid grid-cols-4 gap-2">{([8, 30, 60, 120] as const).map(value => { const allowed = value <= Number(status?.videoClipSeconds || 8); return <button key={value} type="button" disabled={busy || !allowed} onClick={() => setDurationSeconds(value)} className={`rounded-xl px-2 py-3 text-[10px] font-black ${durationSeconds === value && allowed ? 'bg-violet-500 text-white' : 'border border-white/[0.07] bg-black/30 text-slate-500 disabled:opacity-25'}`}>{value < 60 ? `${value}s` : `${value / 60} min`}</button>; })}</div>
+            {durationSeconds > 8 && <p className="mt-3 text-[9px] leading-5 text-slate-500">SONARA crea {Math.ceil(durationSeconds / 8)} scene coerenti e le monta automaticamente in un unico video MP4.</p>}
+          </div>
+
           {status && <div className="mt-4 grid gap-3 sm:grid-cols-3"><div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3"><div className="text-[8px] uppercase tracking-widest text-slate-600">Piano</div><div className="mt-1 text-xs font-black text-white">SONARA {status.planName}</div></div><div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3"><div className="text-[8px] uppercase tracking-widest text-slate-600">Crediti rimasti</div><div className="mt-1 text-xs font-black text-white">{status.videoCreditsRemaining}</div></div><div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3"><div className="text-[8px] uppercase tracking-widest text-slate-600">Durata clip</div><div className="mt-1 text-xs font-black text-white">{status.videoClipSeconds}s</div></div></div>}
 
           {!status?.providerConfigured && <div className="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/[0.07] p-3 text-[10px] leading-5 text-amber-200">Motore Video AI non ancora configurato sul server. L'interfaccia e i limiti piano sono attivi; per generare serve la chiave provider lato Vercel.</div>}
@@ -198,7 +206,7 @@ export default function VideoAISectionControl() {
         </aside>
       </main>
     </div>
-  ), [open, prompt, aspectRatio, resolution, status, busy, progress, stage, error, videoUrl]);
+  ), [open, prompt, aspectRatio, resolution, durationSeconds, status, busy, progress, stage, error, videoUrl]);
 
   return <>{navHost && createPortal(<button type="button" onClick={() => setOpen(true)} className="group flex w-full items-center gap-3 rounded-xl border border-violet-400/20 bg-violet-400/[0.05] px-4 py-3 text-left text-sm font-semibold text-violet-100 transition hover:border-violet-300/40 hover:bg-violet-400/[0.09]" aria-label="Apri SONARA Video AI"><span className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500 text-white"><Film className="h-3.5 w-3.5" /></span><span>VIDEO AI</span><span className="ml-auto rounded-md border border-violet-400/20 bg-violet-400/10 px-1.5 py-0.5 text-[8px] font-black tracking-wider text-violet-200">AI</span></button>, navHost)}{overlay && createPortal(overlay, document.body)}</>;
 }

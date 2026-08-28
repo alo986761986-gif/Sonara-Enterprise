@@ -110,7 +110,7 @@ function publicStatus(record: BillingRecord | undefined, app: App) {
   };
 }
 
-async function reserveVideoCredits(uid: string, resolution: SonaraVideoResolution, app: App) {
+async function reserveVideoCredits(uid: string, resolution: SonaraVideoResolution, durationSeconds: number, app: App) {
   const firestore = getFirestore(app);
   const ref = firestore.collection('sonaraBilling').doc(uid);
   let result!: { planId: SonaraPlanId; credits: number; status: ReturnType<typeof publicStatus> };
@@ -120,7 +120,10 @@ async function reserveVideoCredits(uid: string, resolution: SonaraVideoResolutio
     const planId = effectivePlan(record);
     const plan = SONARA_PLANS[planId];
     if (!plan.videoResolutions.includes(resolution)) throw Object.assign(new Error('VIDEO_RESOLUTION_NOT_ALLOWED'), { allowed: plan.videoResolutions });
-    const credits = SONARA_VIDEO_CREDIT_COST[resolution];
+    if (durationSeconds > plan.videoClipSeconds || (durationSeconds > 8 && planId !== 'studio')) {
+      throw Object.assign(new Error('VIDEO_DURATION_NOT_ALLOWED'), { maxDurationSeconds: plan.videoClipSeconds });
+    }
+    const credits = Math.ceil(durationSeconds / 8) * SONARA_VIDEO_CREDIT_COST[resolution];
     const periodKey = currentPeriodKey();
     const used = record.videoCreditsPeriodKey === periodKey ? Math.max(0, Number(record.videoCreditsUsed || 0)) : 0;
     if (used + credits > plan.videoCreditsPerMonth) throw Object.assign(new Error('VIDEO_CREDITS_EXHAUSTED'), { creditsRemaining: Math.max(0, plan.videoCreditsPerMonth - used) });
@@ -144,16 +147,19 @@ export default async function handler(req: any, res: any) {
     const prompt = String(body.prompt || '').trim();
     const aspectRatio = body.aspectRatio === '9:16' ? '9:16' : '16:9';
     const resolution = body.resolution;
+    const requestedDuration = Number(body.durationSeconds || 8);
+    const durationSeconds = Number.isFinite(requestedDuration) ? Math.max(8, Math.min(120, Math.round(requestedDuration))) : 8;
     if (prompt.length < 8) return fail(res, 400, 'VIDEO_PROMPT_REQUIRED', 'Descrivi il video con un prompt più completo.');
     if (prompt.length > 5000) return fail(res, 400, 'VIDEO_PROMPT_TOO_LONG', 'Il prompt video è troppo lungo.');
     if (!isSonaraVideoResolution(resolution)) return fail(res, 400, 'INVALID_VIDEO_RESOLUTION', 'Risoluzione video non valida.');
 
     let reservation: Awaited<ReturnType<typeof reserveVideoCredits>>;
     try {
-      reservation = await reserveVideoCredits(user.uid, resolution, app);
+      reservation = await reserveVideoCredits(user.uid, resolution, durationSeconds, app);
     } catch (cause) {
       const code = cause instanceof Error ? cause.message : 'VIDEO_BILLING_ERROR';
       if (code === 'VIDEO_RESOLUTION_NOT_ALLOWED') return fail(res, 403, code, 'Questa qualità video non è inclusa nel piano attivo.', { allowed: (cause as any).allowed });
+      if (code === 'VIDEO_DURATION_NOT_ALLOWED') return fail(res, 403, code, 'I video oltre 8 secondi sono disponibili esclusivamente con SONARA Studio.', { maxDurationSeconds: (cause as any).maxDurationSeconds });
       if (code === 'VIDEO_CREDITS_EXHAUSTED') return fail(res, 402, code, 'Hai terminato i crediti Video AI del mese.', { creditsRemaining: (cause as any).creditsRemaining });
       return fail(res, 503, 'VIDEO_BILLING_ERROR', 'Il controllo dei crediti video non è disponibile.');
     }
@@ -167,6 +173,9 @@ export default async function handler(req: any, res: any) {
       prompt,
       aspectRatio,
       resolution,
+      durationSeconds,
+      clipCount: Math.ceil(durationSeconds / 8),
+      operations: [],
       credits: reservation.credits,
       planId: reservation.planId,
       model,
@@ -179,7 +188,7 @@ export default async function handler(req: any, res: any) {
       updatedAt: FieldValue.serverTimestamp()
     });
 
-    console.info('[SONARA VIDEO] job accepted', { jobId: jobRef.id, provider, model, resolution, aspectRatio });
+    console.info('[SONARA VIDEO] job accepted', { jobId: jobRef.id, provider, model, resolution, aspectRatio, durationSeconds });
     return json(res, 202, {
       jobId: jobRef.id,
       status: 'PROCESSING',
