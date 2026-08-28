@@ -31,14 +31,27 @@ OUT = Path('/kaggle/working/sonara-wan21-video/outputs')
 OUT.mkdir(parents=True, exist_ok=True)
 FAST_MODE = str(os.environ.get('SONARA_WAN_FAST_MODE', 'true')).strip().lower() not in {'0', 'false', 'no', 'off'}
 WARMUP = str(os.environ.get('SONARA_WAN_WARMUP', 'true')).strip().lower() not in {'0', 'false', 'no', 'off'}
-FAST_STEPS = max(8, min(28, int(os.environ.get('SONARA_WAN_FAST_STEPS', '16'))))
-FAST_WIDTH = 768
-FAST_HEIGHT = 432
+FAST_STEPS = max(8, min(28, int(os.environ.get('SONARA_WAN_FAST_STEPS', '12'))))
+FAST_WIDTH = 672
+FAST_HEIGHT = 384
 QUALITY_WIDTH = 832
 QUALITY_HEIGHT = 480
 NUM_FRAMES = 81
 OUTPUT_FPS = 10
-PROFILE = 'fast-t4-v2' if FAST_MODE else 'quality-t4-v1'
+PROFILE = 'max-t4-v3' if FAST_MODE else 'quality-t4-v1'
+
+# T4 performance profile: inference only, no gradients, autotune convolution kernels,
+# and allow the memory-efficient SDPA path when PyTorch supports it on this runtime.
+torch.set_grad_enabled(False)
+torch.backends.cudnn.benchmark = True
+try:
+    torch.backends.cuda.enable_mem_efficient_sdp(True)
+except Exception:
+    pass
+try:
+    torch.backends.cuda.enable_math_sdp(True)
+except Exception:
+    pass
 
 app = FastAPI(title='SONARA WAN Video Worker')
 pipe = None
@@ -68,12 +81,11 @@ def load_pipe():
             candidate = WanPipeline.from_pretrained(MODEL, vae=vae, torch_dtype=torch.float16)
             candidate.vae.enable_tiling()
 
-            # WAN 1.3B normally fits a 16 GB T4. Keeping the pipeline on CUDA avoids
-            # repeated CPU<->GPU transfers and is substantially faster than CPU offload.
-            # If this specific Kaggle runtime cannot fit it, fall back safely to offload.
+            # Maximum stable T4 speed: keep the complete WAN pipeline on CUDA.
+            # Only fall back to CPU offload if this Kaggle allocation cannot fit it.
             try:
                 candidate.to('cuda')
-                pipe_device_mode = 'full-cuda'
+                pipe_device_mode = 'full-cuda-max'
             except RuntimeError as exc:
                 if 'out of memory' not in str(exc).lower():
                     raise
@@ -95,7 +107,7 @@ def warm_pipe():
     try:
         load_pipe()
     except Exception as exc:
-        print(f'[SONARA WAN] warmup failed; first request will retry: {exc}', flush=True)
+        print(f'[SONARA WAN MAX] warmup failed; first request will retry: {exc}', flush=True)
 
 
 def set_job(job_id, **values):
@@ -107,7 +119,7 @@ def set_job(job_id, **values):
 
 def render(job_id, req):
     try:
-        set_job(job_id, status='PROCESSING', progress=5, stage='Caricamento WAN 2.1 FAST')
+        set_job(job_id, status='PROCESSING', progress=5, stage='Caricamento WAN 2.1 MAX')
         p = load_pipe()
         portrait = req.aspectRatio == '9:16'
         if FAST_MODE:
@@ -122,7 +134,7 @@ def render(job_id, req):
         set_job(
             job_id,
             progress=18,
-            stage=f'Generazione WAN 2.1 FAST - {steps} step',
+            stage=f'Generazione WAN 2.1 MAX - {steps} step',
             seed=seed,
             profile=PROFILE,
             steps=steps,
@@ -135,11 +147,11 @@ def render(job_id, req):
                 height=height,
                 width=width,
                 num_frames=NUM_FRAMES,
-                guidance_scale=5.0,
+                guidance_scale=4.5,
                 num_inference_steps=steps,
                 generator=generator,
             )
-        set_job(job_id, progress=90, stage='Codifica MP4 FAST')
+        set_job(job_id, progress=90, stage='Codifica MP4 MAX')
         path = OUT / f'{job_id}.mp4'
         export_to_video(result.frames[0], str(path), fps=OUTPUT_FPS)
         set_job(
@@ -193,7 +205,7 @@ def generate(req: GenerateRequest):
         jobId=job_id,
         status='PROCESSING',
         progress=2,
-        stage='In coda su SONARA WAN FAST',
+        stage='In coda su SONARA WAN MAX',
         provider='kaggle-wan21',
         model=MODEL,
         profile=PROFILE,
@@ -278,9 +290,9 @@ def install_runtime():
 
 
 def main():
-    print('=' * 78)
-    print(' SONARA VIDEO AI - WAN 2.1 FAST / KAGGLE GPU1 / ZERO GOOGLE API COST ')
-    print('=' * 78)
+    print('=' * 82)
+    print(' SONARA VIDEO AI - WAN 2.1 MAX T4 / KAGGLE GPU1 / ZERO GOOGLE API COST ')
+    print('=' * 82)
     subprocess.run(['nvidia-smi', '-L'], check=True)
     WORKDIR.mkdir(parents=True, exist_ok=True)
     (WORKDIR / 'outputs').mkdir(parents=True, exist_ok=True)
@@ -293,22 +305,27 @@ def main():
         'CUDA_VISIBLE_DEVICES': GPU,
         'SONARA_WAN_MODEL': MODEL,
         'SONARA_WAN_FAST_MODE': 'true',
-        'SONARA_WAN_FAST_STEPS': '16',
+        'SONARA_WAN_FAST_STEPS': '12',
         'SONARA_WAN_WARMUP': 'true',
         'PYTORCH_CUDA_ALLOC_CONF': 'expandable_segments:True',
+        'CUDA_MODULE_LOADING': 'LAZY',
+        'OMP_NUM_THREADS': '4',
+        'MKL_NUM_THREADS': '4',
+        'NUMEXPR_NUM_THREADS': '4',
+        'MALLOC_ARENA_MAX': '2',
         'TOKENIZERS_PARALLELISM': 'false',
         'HF_HUB_ENABLE_HF_TRANSFER': '1',
     })
     log = open(LOG, 'w', buffering=1)
     proc = subprocess.Popen(
-        [sys.executable, '-m', 'uvicorn', 'app:app', '--host', '0.0.0.0', '--port', str(PORT)],
+        [sys.executable, '-m', 'uvicorn', 'app:app', '--host', '0.0.0.0', '--port', str(PORT), '--workers', '1'],
         cwd=str(WORKDIR),
         env=env,
         stdout=log,
         stderr=subprocess.STDOUT,
         start_new_session=True,
     )
-    print(f'WAN FAST worker PID {proc.pid} on GPU1 port {PORT}')
+    print(f'WAN MAX worker PID {proc.pid} on GPU1 port {PORT}')
 
     import urllib.request
     deadline = time.time() + 180
@@ -320,14 +337,14 @@ def main():
                 payload = json.loads(r.read().decode())
                 if r.status == 200 and payload.get('status') == 'ok':
                     print(json.dumps(payload, indent=2))
-                    print('SONARA WAN Video FAST worker READY. Existing Cloudflare tunnel on GPU1/7861 can be reused.')
-                    print('FAST profile: 16 steps, 768x432 landscape / 432x768 portrait, 81 frames @ 10 fps (~8.1 s).')
-                    print('Warm-up is running in background so the first generation avoids model-load latency when possible.')
+                    print('SONARA WAN Video MAX worker READY. Existing Cloudflare tunnel on GPU1/7861 can be reused.')
+                    print('MAX profile: 12 steps, 672x384 landscape / 384x672 portrait, 81 frames @ 10 fps (~8.1 s).')
+                    print('Warm-up is running in background; full-CUDA is preferred automatically.')
                     return
         except Exception:
             pass
         time.sleep(3)
-    raise RuntimeError('WAN FAST worker health timeout. Log tail:\n' + LOG.read_text(errors='ignore')[-8000:])
+    raise RuntimeError('WAN MAX worker health timeout. Log tail:\n' + LOG.read_text(errors='ignore')[-8000:])
 
 
 if __name__ == '__main__':
