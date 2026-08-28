@@ -6,7 +6,7 @@ const BLOCKED_GENERATOR_EDGE_SCRIPTS = [
   'sonara-vocal-character-visible.js'
 ];
 const BILLING_GENERATE_PATH = '/api/billing/generate';
-const RETRYABLE_GENERATION_STATUSES = new Set([502, 503, 504, 524]);
+const RETRYABLE_GENERATION_STATUSES = new Set([500, 502, 503, 504, 524]);
 const GENERATION_RETRY_DELAY_MS = 1200;
 const AUDIO_GESTURE_UNLOCK_SCRIPT = String.raw`(() => {
   if (window.__sonaraAudioGestureUnlockV1) return;
