@@ -1,2 +1,2 @@
-trigger: extreme-fidelity-v16-query-result-parser-fix
-reason: deploy ACE-Step nested query_result parser so dual T4 jobs advance from 0/2 to completed audio candidates
+trigger: resilient-dual-t4-submit-and-health-20260828
+reason: deploy JSON-safe allSettled T4 submit fallback, runtime worker health exposure and ACE-Step nested result parsing
