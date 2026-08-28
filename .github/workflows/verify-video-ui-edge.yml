@@ -1,4 +1,4 @@
-name: Verify SONARA Video UI Edge
+name: Verify SONARA Video UI Production
 
 on:
   push:
@@ -16,20 +16,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Verify public Video UI edge script
+      - name: Verify public production bundle
         shell: bash
         run: |
           set -euo pipefail
+          root='https://sonaraenterprise.com/'
           for attempt in {1..12}; do
-            code="$(curl -sS -o /tmp/video-ui.js -D /tmp/video-ui.headers -w '%{http_code}' --max-time 15 -H 'Cache-Control: no-cache' 'https://sonaraenterprise.com/sonara-video-ui-edge.js?v=2' || true)"
-            marker="$(awk 'BEGIN{IGNORECASE=1} /^x-sonara-video-ui-edge:/{print $2}' /tmp/video-ui.headers | tail -n1 | tr -d '\r')"
-            if [ "${code}" = "200" ] && [ "${marker}" = "controls-v2" ] && grep -q 'CANCELLA' /tmp/video-ui.js && grep -q 'RANDOM' /tmp/video-ui.js && grep -q 'INTELLIGENTE' /tmp/video-ui.js; then
-              echo "PUBLIC_VIDEO_UI_EDGE_OK=1"
-              echo "HTTP=${code} MARKER=${marker}"
-              exit 0
+            code="$(curl -sS -L -o /tmp/sonara.html -D /tmp/sonara.headers -w '%{http_code}' --max-time 20 -H 'Cache-Control: no-cache' "${root}?video_ui_check=${GITHUB_SHA}-${attempt}" || true)"
+            asset="$(grep -oE '/assets/index-[A-Za-z0-9_-]+\.js' /tmp/sonara.html | head -n1 || true)"
+            echo "attempt=${attempt} HTTP=${code} ASSET=${asset}"
+            if [ "${code}" = "200" ] && [ -n "${asset}" ]; then
+              asset_code="$(curl -sS -L -o /tmp/sonara.js -w '%{http_code}' --max-time 30 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com${asset}?video_ui_check=${GITHUB_SHA}-${attempt}" || true)"
+              echo "asset_HTTP=${asset_code}"
+              if [ "${asset_code}" = "200" ] \
+                && grep -q 'CANCELLA' /tmp/sonara.js \
+                && grep -q 'RANDOM' /tmp/sonara.js \
+                && grep -q 'INTELLIGENTE' /tmp/sonara.js \
+                && grep -q '2 min' /tmp/sonara.js; then
+                echo "PUBLIC_VIDEO_UI_PRODUCTION_OK=1"
+                echo "PUBLIC_ASSET=${asset}"
+                exit 0
+              fi
             fi
-            echo "attempt=${attempt} HTTP=${code} MARKER=${marker}"
             sleep 3
           done
-          echo "Public Video UI edge v2 verification failed." >&2
+          echo "Public SONARA production bundle does not contain all Video AI controls." >&2
           exit 1
