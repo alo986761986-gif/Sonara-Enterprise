@@ -1,3 +1,3 @@
 trigger: video-ai-production
-source: f77383b
-features: prompt-controls,studio-120s,multiscene-transcoder
+source: c38eab5b37508bf1aaedfc0d048d1fba3a89a897
+features: prompt-controls,studio-120s,multiscene-transcoder,uploaded-photo-video-audio-composition
