@@ -3,7 +3,7 @@ import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { SONARA_PLANS, type SonaraPlanId, type SonaraVideoResolution } from '../../../src/billing/plans';
 import { persistProviderVideo, pollVideoProvider, startVideoProvider, type SonaraVideoProvider } from '../provider';
 import { buildVeoSafetyRetryPrompt, isVeoSafetyFilterError, veoNegativePrompt, veoSafetyCategory } from '../../../src/server/video/safety';
-import { pollConcatenation, publishTranscodedVideo, startConcatenation } from '../../../src/server/video/transcoder';
+import { pollConcatenation, publishTranscodedVideo, startConcatenation, startSoundtrackMux } from '../../../src/server/video/transcoder';
 
 const JOB_COLLECTION = 'sonaraVideoJobs';
 const MAX_SCENE_RETRIES = 3;
@@ -54,6 +54,9 @@ type VideoJobRecord = {
   operations?: SceneOperation[];
   transcoderJobName?: string;
   transcoderOutputPath?: string;
+  soundtrackJobName?: string;
+  soundtrackOutputPath?: string;
+  singleClipUri?: string;
   mediaReferences?: MediaReference[];
 };
 
@@ -97,6 +100,21 @@ function referenceImages(record: VideoJobRecord) {
     .filter(item => item && typeof item.storagePath === 'string' && item.storagePath.trim() && String(item.contentType || 'image/jpeg').toLowerCase().startsWith('image/'))
     .slice(0, 3)
     .map(item => ({ storagePath: item.storagePath.trim(), contentType: String(item.contentType || 'image/jpeg') }));
+}
+
+function sourceVideoUris(record: VideoJobRecord) {
+  const bucket = storageBucketName();
+  return (Array.isArray(record.mediaReferences) ? record.mediaReferences : [])
+    .filter(item => item?.sourceKind === 'video' && typeof item.originalStoragePath === 'string' && item.originalStoragePath.trim())
+    .map(item => `gs://${bucket}/${String(item.originalStoragePath).trim()}`)
+    .slice(0, 6);
+}
+
+function soundtrackUri(record: VideoJobRecord) {
+  const bucket = storageBucketName();
+  const audio = (Array.isArray(record.mediaReferences) ? record.mediaReferences : [])
+    .find(item => item?.sourceKind === 'audio' && typeof item.storagePath === 'string' && item.storagePath.trim());
+  return audio ? `gs://${bucket}/${String(audio.storagePath).trim()}` : '';
 }
 
 function bearerToken(req: any) {
@@ -281,7 +299,9 @@ export default async function handler(req: any, res: any) {
       if (completed < clipCount) return json(res, 200, { jobId, status: 'PROCESSING', progress: 20 + Math.round((completed / clipCount) * 55), stage: `SONARA Video AI: rendering scene ${completed}/${clipCount}` });
 
       if (!record.transcoderJobName) {
-        const concat = await within(startConcatenation(app, storageBucketName(), record.uid, jobId, operations.map(item => String(item.clipUri)), record.resolution, record.aspectRatio, durationSeconds), 20_000, 'Avvio montaggio video');
+        const uploadedVideos = sourceVideoUris(record);
+        const soundtrack = soundtrackUri(record);
+        const concat = await within(startConcatenation(app, storageBucketName(), record.uid, jobId, operations.map(item => String(item.clipUri)), record.resolution, record.aspectRatio, durationSeconds, uploadedVideos, Boolean(soundtrack) || uploadedVideos.length > 0), 20_000, 'Avvio montaggio video');
         await ref.set({ transcoderJobName: concat.name, transcoderOutputPath: concat.outputPath, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
         return json(res, 200, { jobId, status: 'PROCESSING', progress: 82, stage: 'SONARA Video AI: montaggio automatico' });
       }
@@ -289,9 +309,56 @@ export default async function handler(req: any, res: any) {
       const transcoder = await within(pollConcatenation(app, record.transcoderJobName), 15_000, 'Controllo montaggio video');
       if (transcoder.state === 'FAILED') throw new Error(transcoder.error || 'Montaggio video fallito.');
       if (transcoder.state !== 'SUCCEEDED') return json(res, 200, { jobId, status: 'PROCESSING', progress: 90, stage: 'SONARA Video AI: finalizzazione MP4' });
+      const soundtrack = soundtrackUri(record);
+      if (soundtrack) {
+        if (!record.soundtrackJobName) {
+          const mixed = await within(startSoundtrackMux(
+            app, storageBucketName(), record.uid, jobId,
+            `gs://${storageBucketName()}/${String(record.transcoderOutputPath)}`, soundtrack,
+            record.resolution, record.aspectRatio, durationSeconds
+          ), 20_000, 'Avvio soundtrack Video AI');
+          await ref.set({ soundtrackJobName: mixed.name, soundtrackOutputPath: mixed.outputPath, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+          return json(res, 200, { jobId, status: 'PROCESSING', progress: 95, stage: 'SONARA Video AI: applicazione audio caricato' });
+        }
+        const mixed = await within(pollConcatenation(app, record.soundtrackJobName), 15_000, 'Controllo soundtrack Video AI');
+        if (mixed.state === 'FAILED') throw new Error(mixed.error || 'Applicazione audio fallita.');
+        if (mixed.state !== 'SUCCEEDED') return json(res, 200, { jobId, status: 'PROCESSING', progress: 97, stage: 'SONARA Video AI: mix audio/video' });
+        const mixedVideoUrl = await publishTranscodedVideo(app, storageBucketName(), String(record.soundtrackOutputPath));
+        await ref.set({ status: 'COMPLETED', videoUrl: mixedVideoUrl, completedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        return json(res, 200, { jobId, status: 'COMPLETED', progress: 100, stage: 'Video pronto con media caricati', videoUrl: mixedVideoUrl });
+      }
       const videoUrl = await publishTranscodedVideo(app, storageBucketName(), String(record.transcoderOutputPath));
       await ref.set({ status: 'COMPLETED', videoUrl, completedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-      return json(res, 200, { jobId, status: 'COMPLETED', progress: 100, stage: 'Video pronto', videoUrl });
+      return json(res, 200, { jobId, status: 'COMPLETED', progress: 100, stage: sourceVideoUris(record).length ? 'Video pronto con clip caricate' : 'Video pronto', videoUrl });
+    }
+
+    if (record.transcoderJobName) {
+      const transcoder = await within(pollConcatenation(app, record.transcoderJobName), 15_000, 'Controllo montaggio media Video AI');
+      if (transcoder.state === 'FAILED') throw new Error(transcoder.error || 'Montaggio media Video AI fallito.');
+      if (transcoder.state !== 'SUCCEEDED') return json(res, 200, { jobId, status: 'PROCESSING', progress: 88, stage: 'SONARA Video AI: composizione media caricati' });
+
+      const soundtrack = soundtrackUri(record);
+      if (soundtrack) {
+        if (!record.soundtrackJobName) {
+          const mixed = await within(startSoundtrackMux(
+            app, storageBucketName(), record.uid, jobId,
+            `gs://${storageBucketName()}/${String(record.transcoderOutputPath)}`, soundtrack,
+            record.resolution, record.aspectRatio, durationSeconds
+          ), 20_000, 'Avvio soundtrack Video AI');
+          await ref.set({ soundtrackJobName: mixed.name, soundtrackOutputPath: mixed.outputPath, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+          return json(res, 200, { jobId, status: 'PROCESSING', progress: 95, stage: 'SONARA Video AI: applicazione audio caricato' });
+        }
+        const mixed = await within(pollConcatenation(app, record.soundtrackJobName), 15_000, 'Controllo soundtrack Video AI');
+        if (mixed.state === 'FAILED') throw new Error(mixed.error || 'Applicazione audio fallita.');
+        if (mixed.state !== 'SUCCEEDED') return json(res, 200, { jobId, status: 'PROCESSING', progress: 97, stage: 'SONARA Video AI: mix audio/video' });
+        const mixedVideoUrl = await publishTranscodedVideo(app, storageBucketName(), String(record.soundtrackOutputPath));
+        await ref.set({ status: 'COMPLETED', videoUrl: mixedVideoUrl, completedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        return json(res, 200, { jobId, status: 'COMPLETED', progress: 100, stage: 'Video pronto con media caricati', videoUrl: mixedVideoUrl });
+      }
+
+      const composedVideoUrl = await publishTranscodedVideo(app, storageBucketName(), String(record.transcoderOutputPath));
+      await ref.set({ status: 'COMPLETED', videoUrl: composedVideoUrl, completedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      return json(res, 200, { jobId, status: 'COMPLETED', progress: 100, stage: 'Video pronto con media caricati', videoUrl: composedVideoUrl });
     }
 
     if (!String(record.operationName || '').trim()) {
@@ -342,6 +409,26 @@ export default async function handler(req: any, res: any) {
         return json(res, 200, { jobId, status: 'FAILED', progress: 0, stage: 'Errore', error: finalMessage });
       }
       const uri = String(operation.uri || '');
+      const uploadedVideos = sourceVideoUris(record);
+      const soundtrack = soundtrackUri(record);
+      if (uploadedVideos.length || soundtrack) {
+        const clipPath = `generated-videos/staging/${record.uid}/${jobId}/single-generated.mp4`;
+        await within(persistProviderVideo(app, storageBucketName(), record.uid, jobId, uri, clipPath), 45_000, 'Salvataggio clip AI');
+        const clipUri = `gs://${storageBucketName()}/${clipPath}`;
+        const concat = await within(startConcatenation(
+          app, storageBucketName(), record.uid, jobId, [clipUri],
+          record.resolution, record.aspectRatio, durationSeconds, uploadedVideos,
+          Boolean(soundtrack) || uploadedVideos.length > 0
+        ), 20_000, 'Avvio composizione media Video AI');
+        await ref.set({
+          providerVideoUri: uri,
+          singleClipUri: clipUri,
+          transcoderJobName: concat.name,
+          transcoderOutputPath: concat.outputPath,
+          updatedAt: FieldValue.serverTimestamp()
+        }, { merge: true });
+        return json(res, 200, { jobId, status: 'PROCESSING', progress: 82, stage: 'SONARA Video AI: combinazione file caricati' });
+      }
       const videoUrl = await within(persistProviderVideo(app, storageBucketName(), record.uid, jobId, uri), 45_000, 'Salvataggio video');
       await ref.set({ status: 'COMPLETED', providerVideoUri: uri, videoUrl, completedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       return json(res, 200, { jobId, status: 'COMPLETED', progress: 100, stage: 'Video pronto', videoUrl });
