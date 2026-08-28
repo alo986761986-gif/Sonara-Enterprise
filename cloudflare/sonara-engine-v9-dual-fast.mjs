@@ -8,7 +8,7 @@ const JOB_TTL_SECONDS = 3 * 60 * 60;
 // Legacy health/profile identifiers are intentionally preserved because the
 // higher v10-v14 taxonomy layers and production health checks depend on them.
 const FAST_MODEL = 'acestep-v15-xl-turbo';
-const FAST_STEPS = 8;
+const FAST_STEPS = 6;
 const BATCH_SIZE = 2;
 const READINESS_TIMEOUT_MS = 180_000;
 const SUBMIT_TIMEOUT_MS = 120_000;
@@ -17,9 +17,9 @@ const AUDIO_TIMEOUT_MS = 120_000;
 const HEALTH_TIMEOUT_MS = 15_000;
 const MAX_QUERY_FAILURES = 4;
 const SAFE_FALLBACK_PROFILE = 'dual-safe-independent-v1';
-const KAGGLE_PROFILE = 'kaggle-t4x2-tempo-lock-v3';
+const KAGGLE_PROFILE = 'kaggle-t4x2-ultra-fast-v2';
 const KAGGLE_MODEL = 'acestep-v15-turbo';
-const KAGGLE_STEPS = 8;
+const KAGGLE_STEPS = 4;
 const KAGGLE_GUIDANCE_SCALE = 1.0;
 const KAGGLE_SHIFT = 3.0;
 const RETRYABLE_HTTP_STATUSES = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
@@ -224,13 +224,6 @@ function clamp(value, fallback, min, max) {
   return Number.isFinite(number) ? Math.max(min, Math.min(max, number)) : fallback;
 }
 
-function tempoLockText(bpm) {
-  if (bpm >= 150) return `Hard tempo lock: exactly ${bpm} BPM, full-speed perceived pulse, never half-time or ${Math.round(bpm / 2)} BPM feel. Drums, bass, subdivisions and melodic rhythm must audibly communicate ${bpm} BPM.`;
-  if (bpm >= 130) return `Hard tempo lock: exactly ${bpm} BPM with an energetic perceived pulse. Do not reinterpret as half-time.`;
-  if (bpm <= 75) return `Hard tempo lock: exactly ${bpm} BPM. Do not reinterpret as double-time.`;
-  return `Hard tempo lock: exactly ${bpm} BPM with no tempo drift.`;
-}
-
 export function resolveCreativeControls(body = {}) {
   const weirdness = Math.round(clamp(body.weirdness, 50, 0, 100));
   const styleInfluence = Math.round(clamp(body.styleInfluence ?? body.style_influence, 50, 0, 100));
@@ -283,14 +276,12 @@ function audioRefFromItem(item, worker) {
 
 export function buildPayload(body, env) {
   const durationSec = Math.round(clamp(body.durationSec ?? body.duration, 30, 30, 480));
-  const bpm = Math.round(clamp(body.bpm, 124, 30, 300));
+  const bpm = Math.round(clamp(body.bpm, 124, 40, 220));
   const creativeControls = resolveCreativeControls(body);
   const prompt = String(body.prompt || '').trim();
   if (!prompt) throw new Error('Prompt richiesto.');
-  const lockedPrompt = `${tempoLockText(bpm)}\n\n${prompt}`;
   return {
-    prompt: lockedPrompt,
-    global_caption: tempoLockText(bpm),
+    prompt,
     lyrics: String(body.lyrics || '').trim(),
     vocal_language: String(body.vocalLanguage || body.vocal_language || 'unknown'),
     bpm,
@@ -314,7 +305,6 @@ export function buildPayload(body, env) {
     lm_repetition_penalty: 1.03,
     batch_size: BATCH_SIZE,
     infer_method: 'ode',
-    shift: 3.0,
     audio_format: 'wav',
     mp3_bitrate: '320k',
     mp3_sample_rate: 48000
@@ -388,121 +378,405 @@ function completedPayload(jobId, context, audioRefs) {
       jobId,
       status: 'COMPLETED',
       progress: 100,
-      audioUrl: audioUrls[0] || '',
+      audioUrl: audioUrls[0] || null,
       audioUrls,
-      candidates: audioUrls.slice(0, 2).map((audioUrl, index) => ({ id: index === 0 ? 'A' : 'B', audioUrl, audioFormat: 'wav' })),
+      candidates: audioUrls.map((audioUrl, index) => ({ id: index === 0 ? 'A' : 'B', audioUrl, audioFormat: 'wav' })),
       metadata: {
-        ...(context.metadata || {}),
+        engine: 'SONARA ACE-Step 1.5',
+        performanceProfile: context.performanceProfile || KAGGLE_PROFILE,
+        renderModel: context.renderModel || KAGGLE_MODEL,
+        candidateCount: audioUrls.length,
+        creativeControls: context.creativeControls,
+        workerAssignments: context.tasks?.map(task => ({ candidate: task.candidate, workerId: task.workerId, model: task.model })) || [],
         audioUrls,
-        currentStage: 'SONARA T4x2 tempo-locked generation complete',
-        performanceProfile: KAGGLE_PROFILE
+        audioFormat: 'wav',
+        currentStage: '2 brani pronti — T4 x2'
       }
     }
   };
 }
 
-async function maybeSubmitPair(request, env) {
-  if (request.method !== 'POST') return null;
-  const url = new URL(request.url);
-  if (url.pathname !== '/api/engine/generate') return null;
-  if (!internalGenerationAuthorized(request, env)) return json(request, { error: 'Unauthorized SONARA generation request.' }, 401);
+async function startDualGeneration(request, env, body) {
+  let payload;
+  try {
+    payload = buildPayload(body, env);
+  } catch (error) {
+    return json(request, { error: error instanceof Error ? error.message : String(error) }, 400);
+  }
 
-  const body = await request.clone().json();
-  if (!body?.dualFast) return null;
-  const payload = buildPayload(body, env);
-  const workers = await healthyWorkers(env);
-  if (!workers.length) return json(request, { error: 'SONARA sta riattivando il motore di generazione. Riprova automaticamente senza perdere la sessione.' }, 503);
+  let ready;
+  try {
+    ready = await healthyWorkers(env);
+  } catch (rawError) {
+    const error = engineError(rawError);
+    return json(request, { status: 'FAILED', retryable: true, error: error.message }, 503);
+  }
+  if (!ready.length) {
+    return json(request, {
+      status: 'FAILED',
+      progress: 0,
+      retryable: true,
+      error: 'Nessun worker ACE-Step è raggiungibile. Mantieni attiva la sessione Kaggle oppure riattiva il fallback Modal.'
+    }, 503);
+  }
 
-  const selected = workers.slice(0, 2);
-  const submissions = await Promise.all(selected.map((worker, index) => submitOnWorker(worker, env, payloadForWorker(payload, worker, index))));
+  const selected = ready.length >= 2 ? ready.slice(0, 2) : [ready[0], ready[0]];
   const jobId = `d9pair_${crypto.randomUUID()}`;
+  const creativeControls = resolveCreativeControls(body);
+  const longForm = Number(payload.audio_duration) >= 240;
+  const performanceProfile = selected.every(worker => worker.kind === 'kaggle')
+    ? KAGGLE_PROFILE
+    : SAFE_FALLBACK_PROFILE;
+
   const context = {
-    phase: 'processing',
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    tasks: submissions,
-    metadata: {
-      currentStage: selected.length >= 2 ? 'SONARA T4x2 tempo-locked rendering A + B' : 'SONARA tempo-locked rendering',
-      performanceProfile: KAGGLE_PROFILE,
-      bpm: payload.bpm,
-      tempoLock: tempoLockText(payload.bpm)
+    phase: 'starting',
+    payload,
+    tasks: [],
+    generationPairId: String(body.generationPairId || jobId),
+    title: String(body.title || 'SONARA Track'),
+    genre: String(body.genre || ''),
+    subgenre: String(body.subgenre || ''),
+    durationSec: payload.audio_duration,
+    renderModel: selected.every(worker => worker.kind === 'kaggle') ? KAGGLE_MODEL : payload.model,
+    performanceProfile,
+    creativeControls: {
+      weirdness: creativeControls.weirdness,
+      styleInfluence: creativeControls.styleInfluence
     },
-    queryFailures: 0
+    queryFailures: 0,
+    createdAt: Date.now(),
+    updatedAt: Date.now()
   };
   await storeJob(jobId, context);
-  return json(request, { jobId, status: 'PROCESSING', progress: 12, metadata: context.metadata }, 202);
-}
-
-async function pollPair(request, env) {
-  if (request.method !== 'GET') return null;
-  const url = new URL(request.url);
-  const match = url.pathname.match(JOB_PATH);
-  if (!match) return null;
-  const jobId = match[1];
-  const context = await readJob(jobId);
-  if (!context) return null;
 
   try {
-    const refs = [];
-    let completed = 0;
-    for (const task of context.tasks || []) {
-      const worker = workerFromTask(task);
-      const result = await workerJson(worker, env, '/query_result', {
+    const taskPayloads = selected.map((worker, index) => payloadForWorker(payload, worker, index + 1));
+    const submitted = await Promise.all(selected.map((worker, index) => submitOnWorker(worker, env, taskPayloads[index])));
+    const tasks = submitted.map((task, index) => ({ ...task, candidate: index === 0 ? 'A' : 'B' }));
+    await storeJob(jobId, { ...context, phase: 'submitted', tasks, updatedAt: Date.now() });
+
+    return json(request, {
+      jobId,
+      status: 'PROCESSING',
+      progress: 30,
+      metadata: {
+        engine: 'SONARA ACE-Step 1.5',
+        performanceProfile,
+        renderModel: context.renderModel,
+        candidateCount: 2,
+        creativeControls: context.creativeControls,
+        workerAssignments: tasks.map(task => ({ candidate: task.candidate, workerId: task.workerId, model: task.model })),
+        inferenceSteps: selected.every(worker => worker.kind === 'kaggle') ? KAGGLE_STEPS : FAST_STEPS,
+        guidanceScale: selected.every(worker => worker.kind === 'kaggle') ? KAGGLE_GUIDANCE_SCALE : null,
+        shift: selected.every(worker => worker.kind === 'kaggle') ? KAGGLE_SHIFT : null,
+        thinking: selected.every(worker => worker.kind === 'kaggle') ? false : null,
+        inferMethod: selected.every(worker => worker.kind === 'kaggle') ? 'ode' : null,
+        currentStage: selected.length === 2 && selected[0].id !== selected[1].id
+          ? 'SONARA ULTRA FAST: A su T4 #0 + B su T4 #1'
+          : 'SONARA: due render indipendenti in coda'
+      }
+    }, longForm ? 200 : 202);
+  } catch (rawError) {
+    const error = engineError(rawError);
+    const failed = { ...context, phase: 'failed', error: error.message, retryable: error.retryable, updatedAt: Date.now() };
+    await storeJob(jobId, failed);
+    return json(request, {
+      jobId,
+      status: 'FAILED',
+      progress: 0,
+      retryable: error.retryable,
+      error: error.message,
+      metadata: { engine: 'SONARA ACE-Step 1.5', performanceProfile, currentStage: 'SONARA: avvio T4 x2 non riuscito' }
+    }, error.status >= 400 && error.status < 600 ? error.status : 502);
+  }
+}
+
+async function pollDualJob(request, env, jobId) {
+  let context = await readJob(jobId);
+  if (!context) return json(request, { jobId, status: 'FAILED', progress: 0, error: 'SONARA dual generation session expired.' }, 410);
+
+  if (context.phase === 'completed' && Array.isArray(context.audioUrls)) {
+    return json(request, {
+      jobId,
+      status: 'COMPLETED',
+      progress: 100,
+      audioUrl: context.audioUrls[0] || null,
+      audioUrls: context.audioUrls,
+      candidates: context.audioUrls.map((audioUrl, index) => ({ id: index === 0 ? 'A' : 'B', audioUrl, audioFormat: 'wav' })),
+      metadata: {
+        engine: 'SONARA ACE-Step 1.5',
+        performanceProfile: context.performanceProfile || KAGGLE_PROFILE,
+        renderModel: context.renderModel || KAGGLE_MODEL,
+        candidateCount: context.audioUrls.length,
+        creativeControls: context.creativeControls,
+        workerAssignments: context.tasks?.map(task => ({ candidate: task.candidate, workerId: task.workerId, model: task.model })) || [],
+        audioUrls: context.audioUrls,
+        audioFormat: 'wav',
+        currentStage: '2 brani pronti — T4 x2'
+      }
+    });
+  }
+
+  if (context.phase === 'failed') {
+    return json(request, {
+      jobId,
+      status: 'FAILED',
+      progress: 0,
+      retryable: Boolean(context.retryable),
+      error: context.error || 'SONARA dual generation failed.'
+    });
+  }
+
+  const tasks = Array.isArray(context.tasks) ? context.tasks.slice(0, 2) : [];
+  if (tasks.length !== 2) {
+    return json(request, {
+      jobId,
+      status: 'PROCESSING',
+      progress: 15,
+      metadata: { engine: 'SONARA ACE-Step 1.5', performanceProfile: context.performanceProfile || KAGGLE_PROFILE, currentStage: 'SONARA: assegnazione T4 x2' }
+    });
+  }
+
+  try {
+    const queried = await Promise.all(tasks.map(async taskRef => {
+      const worker = workerFromTask(taskRef);
+      const data = await workerJson(worker, env, '/query_result', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ task_id_list: [task.taskId] })
+        body: JSON.stringify({ task_id_list: [taskRef.taskId] })
       }, QUERY_TIMEOUT_MS);
-      const items = parseItems(result?.data);
-      const item = items[0] || {};
-      const status = Number(item?.status ?? item?.state ?? 0);
-      if (status === 2 || status === 3 || item?.error) {
-        throw new SonaraEngineError(String(item?.error || item?.message || `SONARA worker ${worker.id} generation failed.`), 502, false);
+      return { taskRef, worker, task: data?.data?.[0] || null };
+    }));
+
+    if (queried.some(entry => !entry.task || Number(entry.task.status) === 0)) {
+      if (Number(context.queryFailures || 0) !== 0) {
+        context = { ...context, queryFailures: 0, updatedAt: Date.now() };
+        await storeJob(jobId, context);
       }
-      const ref = audioRefFromItem(item, worker);
-      if (ref) {
-        refs.push(ref);
-        completed += 1;
-      }
+      return json(request, {
+        jobId,
+        status: 'PROCESSING',
+        progress: 78,
+        metadata: {
+          engine: 'SONARA ACE-Step 1.5',
+          performanceProfile: context.performanceProfile || KAGGLE_PROFILE,
+          renderModel: context.renderModel || KAGGLE_MODEL,
+          candidateCount: 2,
+          workerAssignments: tasks.map(task => ({ candidate: task.candidate, workerId: task.workerId, model: task.model })),
+          currentStage: 'SONARA ULTRA FAST: T4 #0 + T4 #1 stanno renderizzando'
+        }
+      });
     }
 
-    if (completed >= (context.tasks || []).length && refs.length) {
-      const done = completedPayload(jobId, context, refs);
-      await storeJob(jobId, done.context);
-      return json(request, done.response, 200);
-    }
-
-    const progress = 20 + Math.round((completed / Math.max(1, (context.tasks || []).length)) * 70);
-    const next = {
-      ...context,
-      queryFailures: 0,
-      updatedAt: Date.now(),
-      metadata: { ...(context.metadata || {}), currentStage: `SONARA: rendering tempo-locked ${completed}/${(context.tasks || []).length}` }
-    };
-    await storeJob(jobId, next);
-    return json(request, { jobId, status: 'PROCESSING', progress, metadata: next.metadata }, 200);
-  } catch (error) {
-    const normalized = engineError(error);
-    const failures = Number(context.queryFailures || 0) + 1;
-    if (normalized.retryable && failures <= MAX_QUERY_FAILURES) {
-      const next = {
-        ...context,
-        queryFailures: failures,
-        updatedAt: Date.now(),
-        metadata: { ...(context.metadata || {}), currentStage: `SONARA: riconnessione motore (${failures}/${MAX_QUERY_FAILURES})` }
-      };
+    const failed = queried.find(entry => Number(entry.task.status) !== 1);
+    if (failed) {
+      const reason = String(failed.task?.error || failed.task?.message || `ACE-Step ${failed.taskRef.workerId} non ha completato il render.`);
+      const next = { ...context, phase: 'failed', error: reason, retryable: false, updatedAt: Date.now() };
       await storeJob(jobId, next);
-      return json(request, { jobId, status: 'PROCESSING', progress: 18, metadata: next.metadata }, 200);
+      return json(request, { jobId, status: 'FAILED', progress: 0, retryable: false, error: reason });
     }
-    return json(request, { jobId, status: 'FAILED', progress: 0, error: normalized.message }, normalized.status || 502);
+
+    const audioRefs = queried.map(entry => {
+      const items = parseItems(entry.task.result);
+      return items.map(item => audioRefFromItem(item, entry.worker)).find(Boolean) || null;
+    });
+    if (audioRefs.some(ref => !ref)) {
+      const reason = 'SONARA ha completato i render T4 x2 ma non ha ricevuto entrambi i riferimenti audio.';
+      const next = { ...context, phase: 'failed', error: reason, retryable: false, updatedAt: Date.now() };
+      await storeJob(jobId, next);
+      return json(request, { jobId, status: 'FAILED', progress: 0, retryable: false, error: reason });
+    }
+
+    const completed = completedPayload(jobId, context, audioRefs);
+    await storeJob(jobId, completed.context);
+    return json(request, completed.response);
+  } catch (rawError) {
+    const error = engineError(rawError);
+    const failures = Number(context.queryFailures || 0) + 1;
+    const shouldFail = !error.retryable || failures >= MAX_QUERY_FAILURES;
+    context = {
+      ...context,
+      phase: shouldFail ? 'failed' : context.phase,
+      queryFailures: failures,
+      error: shouldFail ? error.message : context.error,
+      retryable: error.retryable,
+      updatedAt: Date.now()
+    };
+    await storeJob(jobId, context);
+
+    if (shouldFail) {
+      return json(request, {
+        jobId,
+        status: 'FAILED',
+        progress: 0,
+        retryable: error.retryable,
+        error: error.message,
+        metadata: { engine: 'SONARA ACE-Step 1.5', performanceProfile: context.performanceProfile || KAGGLE_PROFILE, currentStage: 'SONARA: impossibile leggere il risultato T4 x2' }
+      });
+    }
+    return json(request, {
+      jobId,
+      status: 'PROCESSING',
+      progress: 82,
+      retryable: true,
+      metadata: { engine: 'SONARA ACE-Step 1.5', performanceProfile: context.performanceProfile || KAGGLE_PROFILE, currentStage: `SONARA: riconnessione T4 x2 (${failures}/${MAX_QUERY_FAILURES})` }
+    });
   }
+}
+
+async function proxyWorkerAudio(request, env, url) {
+  const workerId = String(url.searchParams.get('sonara_worker') || '').trim();
+  const path = String(url.searchParams.get('path') || '').trim();
+  if (!workerId || !path) return null;
+
+  const worker = configuredWorkers(env).find(candidate => candidate.id === workerId);
+  if (!worker) return json(request, { error: `Worker audio ${workerId} non disponibile.` }, 404);
+
+  const target = new URL('/v1/audio', `${worker.baseUrl}/`);
+  target.searchParams.set('path', path);
+  const headers = workerHeaders(worker, env, {});
+  const range = request.headers.get('Range');
+  if (range) headers.Range = range;
+
+  let upstream;
+  try {
+    upstream = await fetch(target.toString(), {
+      method: 'GET',
+      headers,
+      signal: AbortSignal.timeout(AUDIO_TIMEOUT_MS)
+    });
+  } catch (rawError) {
+    const error = engineError(rawError);
+    return json(request, { error: error.message, retryable: true }, 502);
+  }
+  if (!upstream.ok && upstream.status !== 206) {
+    const raw = await upstream.text().catch(() => '');
+    return json(request, { error: raw || `ACE-Step audio HTTP ${upstream.status}` }, upstream.status || 502);
+  }
+
+  const responseHeaders = new Headers(corsHeaders(request));
+  for (const name of ['content-type', 'content-length', 'content-range', 'accept-ranges', 'content-disposition', 'etag', 'last-modified']) {
+    const value = upstream.headers.get(name);
+    if (value) responseHeaders.set(name, value);
+  }
+  responseHeaders.set('cache-control', 'private, no-store');
+  responseHeaders.set('x-sonara-ace-worker', worker.id);
+  return new Response(request.method === 'HEAD' ? null : upstream.body, {
+    status: upstream.status,
+    statusText: upstream.statusText,
+    headers: responseHeaders
+  });
+}
+
+async function engineReadiness(request, env) {
+  const ready = await healthyWorkers(env);
+  if (!ready.length) {
+    return json(request, {
+      ready: false,
+      engine: 'ACE-Step',
+      model: KAGGLE_MODEL,
+      workerCount: 0,
+      retryable: true,
+      error: 'Nessun worker ACE-Step raggiungibile.'
+    }, 503);
+  }
+  return json(request, {
+    ready: true,
+    engine: 'ACE-Step',
+    model: ready.every(worker => worker.kind === 'kaggle') ? KAGGLE_MODEL : FAST_MODEL,
+    profile: ready.length >= 2 ? KAGGLE_PROFILE : SAFE_FALLBACK_PROFILE,
+    workerCount: ready.length,
+    workers: ready.slice(0, 3).map(worker => ({ id: worker.id, kind: worker.kind })),
+    coldStartAllowanceMs: READINESS_TIMEOUT_MS
+  });
 }
 
 export default {
   async fetch(request, env, ctx) {
-    const pair = await maybeSubmitPair(request, env);
-    if (pair) return pair;
-    const poll = await pollPair(request, env);
-    if (poll) return poll;
-    return baseEngine.fetch(request, env, ctx);
+    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders(request) });
+    const url = new URL(request.url);
+    const jobMatch = url.pathname.match(JOB_PATH);
+
+    if (jobMatch && request.method === 'GET') {
+      return pollDualJob(request, env, decodeURIComponent(jobMatch[1]));
+    }
+
+    if (url.pathname === '/api/modal/audio' && (request.method === 'GET' || request.method === 'HEAD') && url.searchParams.has('sonara_worker')) {
+      const proxied = await proxyWorkerAudio(request, env, url);
+      if (proxied) return proxied;
+    }
+
+    if (url.pathname === '/api/engine/ready' && request.method === 'GET') {
+      return engineReadiness(request, env);
+    }
+
+    if (url.pathname === '/api/engine/generate' && request.method === 'POST') {
+      if (!internalGenerationAuthorized(request, env)) return json(request, { error: 'Unauthorized SONARA generation proxy.' }, 401);
+      let body;
+      try { body = await request.clone().json(); }
+      catch { return json(request, { error: 'Invalid JSON request body.' }, 400); }
+      if (body?.dualFast === true && Number(body?.candidateCount || 0) === 2) {
+        return startDualGeneration(request, env, body);
+      }
+    }
+
+    if (url.pathname === '/api/health' && request.method === 'GET') {
+      const ready = await healthyWorkers(env);
+      if (ready.length) {
+        return json(request, {
+          status: 'ok',
+          engine: 'SONARA ACE-Step 1.5',
+          dualFast: true,
+          dualFastProfile: 'single-job-native-batch-v9',
+          dualFastModel: FAST_MODEL,
+          dualFastInferenceSteps: FAST_STEPS,
+          dualFastCandidateCount: BATCH_SIZE,
+          dualFastAutoRegeneration: false,
+          dualFastReadinessTimeoutMs: READINESS_TIMEOUT_MS,
+          dualFastSubmitTimeoutMs: SUBMIT_TIMEOUT_MS,
+          dualFastQueryTimeoutMs: QUERY_TIMEOUT_MS,
+          kaggleT4x2: ready.filter(worker => worker.kind === 'kaggle').length >= 2,
+          kaggleProfile: KAGGLE_PROFILE,
+          kaggleModel: KAGGLE_MODEL,
+          kaggleInferenceSteps: KAGGLE_STEPS,
+          kaggleGuidanceScale: KAGGLE_GUIDANCE_SCALE,
+          kaggleShift: KAGGLE_SHIFT,
+          kaggleThinking: false,
+          kaggleInferMethod: 'ode',
+          kaggleShortTrackDirectDecode: true,
+          aceStepWorkerCount: ready.length,
+          aceStepWorkers: ready.slice(0, 3).map(worker => ({ id: worker.id, kind: worker.kind }))
+        });
+      }
+    }
+
+    const response = await baseEngine.fetch(request, env, ctx);
+    if ((url.pathname === '/' || url.pathname === '/api/health') && response.ok) {
+      try {
+        const data = await response.clone().json();
+        return json(request, {
+          ...data,
+          dualFast: true,
+          dualFastProfile: 'single-job-native-batch-v9',
+          dualFastModel: FAST_MODEL,
+          dualFastInferenceSteps: FAST_STEPS,
+          dualFastCandidateCount: BATCH_SIZE,
+          dualFastAutoRegeneration: false,
+          dualFastReadinessTimeoutMs: READINESS_TIMEOUT_MS,
+          dualFastSubmitTimeoutMs: SUBMIT_TIMEOUT_MS,
+          dualFastQueryTimeoutMs: QUERY_TIMEOUT_MS,
+          kaggleT4x2: false,
+          kaggleProfile: KAGGLE_PROFILE,
+          kaggleModel: KAGGLE_MODEL,
+          kaggleInferenceSteps: KAGGLE_STEPS,
+          kaggleGuidanceScale: KAGGLE_GUIDANCE_SCALE,
+          kaggleShift: KAGGLE_SHIFT,
+          kaggleThinking: false,
+          kaggleInferMethod: 'ode',
+          kaggleShortTrackDirectDecode: true
+        }, response.status);
+      } catch {}
+    }
+    return response;
   }
 };
