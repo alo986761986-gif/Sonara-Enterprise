@@ -27,15 +27,12 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Load GPU endpoints
+      - name: Load GPU1 video endpoint
         shell: bash
         run: |
           set -euo pipefail
-          gpu0="$(sed -n 's/^GPU0=//p' .github/kaggle-workers-trigger | tail -n1 | tr -d '\r')"
           gpu1="$(sed -n 's/^GPU1=//p' .github/kaggle-workers-trigger | tail -n1 | tr -d '\r')"
-          test -n "${gpu0}"
           test -n "${gpu1}"
-          echo "KAGGLE_GPU0_URL=${gpu0%/}" >> "$GITHUB_ENV"
           echo "KAGGLE_GPU1_URL=${gpu1%/}" >> "$GITHUB_ENV"
           echo "Activation target GPU1: ${gpu1%/}"
 
@@ -63,14 +60,6 @@ jobs:
           echo "GPU1 public tunnel is not serving WAN Video." >&2
           exit 1
 
-      - name: Verify GPU0 music remains reachable
-        shell: bash
-        run: |
-          set -euo pipefail
-          response="$(curl -fsS --connect-timeout 10 --max-time 20 "${KAGGLE_GPU0_URL}/health")"
-          printf '%s' "$response" | grep -Eqi '"status"[[:space:]]*:[[:space:]]*"(ok|ready|healthy|online|success)"|"code"[[:space:]]*:[[:space:]]*200'
-          echo "GPU0 music health verified."
-
       - name: Resolve Cloudflare account
         shell: bash
         run: |
@@ -90,17 +79,16 @@ jobs:
           echo "::add-mask::${account_id}"
           echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "$GITHUB_ENV"
 
-      - name: Configure zero-cost runtime bindings
+      - name: Configure zero-cost video bindings only
         shell: bash
         run: |
           set -euo pipefail
-          printf '%s' "${KAGGLE_GPU0_URL}" | npx --yes wrangler@latest secret put ACESTEP_WORKER_URLS --config wrangler.jsonc
           printf '%s' "${KAGGLE_GPU1_URL}" | npx --yes wrangler@latest secret put SONARA_VIDEO_WORKER_URL --config wrangler.jsonc
           printf '%s' 'true' | npx --yes wrangler@latest secret put SONARA_ZERO_COST_VIDEO --config wrangler.jsonc
           printf '%s' 'false' | npx --yes wrangler@latest secret put SONARA_ENABLE_GEMINI_VIDEO --config wrangler.jsonc
           signing_secret="$(openssl rand -hex 32)"
           printf '%s' "${signing_secret}" | npx --yes wrangler@latest secret put SONARA_VIDEO_EDGE_SIGNING_SECRET --config wrangler.jsonc
-          echo "Cloudflare bindings configured: GPU0 music, GPU1 WAN video, Gemini disabled."
+          echo "Video bindings configured: GPU1 WAN video, zero-cost enabled, Gemini disabled. Music bindings unchanged."
 
       - name: Validate zero-cost router
         run: node cloudflare/sonara-video-api-recovery.test.mjs
