@@ -1,2 +1,3 @@
-Redeploy SONARA UI fix: BPM always visible and synchronized; Workspace Brano A/B raised.
-Triggered 2026-08-27 Europe/Rome.
+Redeploy SONARA Video AI production fix.
+Includes Studio durations up to 120 seconds, multi-scene rendering, Transcoder assembly, and Clear / Random / Intelligent prompt controls.
+Triggered 2026-08-28 UTC.
