@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { App } from 'firebase-admin/app';
+import { cert, type App } from 'firebase-admin/app';
 import { getStorage } from 'firebase-admin/storage';
 import { SONARA_PLANS, type SonaraPlanId, type SonaraVideoResolution } from '../../src/billing/plans';
 
@@ -13,11 +13,21 @@ function geminiApiKey() {
 }
 
 function projectId(app: App) {
-  return String(process.env.SONARA_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || app.options.projectId || '').trim();
+  return String(process.env.SONARA_VERTEX_PROJECT_ID || process.env.SONARA_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || process.env.GCLOUD_PROJECT || app.options.projectId || '').trim();
+}
+
+function vertexCredential(app: App) {
+  const separateServiceAccount = String(process.env.SONARA_VERTEX_SERVICE_ACCOUNT_JSON || '').trim();
+  if (separateServiceAccount) return cert(JSON.parse(separateServiceAccount));
+  return app.options.credential;
+}
+
+function hasVertexCredential(app: App) {
+  return Boolean(String(process.env.SONARA_VERTEX_SERVICE_ACCOUNT_JSON || '').trim() || app.options.credential);
 }
 
 async function vertexAccessToken(app: App) {
-  const credential = app.options.credential;
+  const credential = vertexCredential(app);
   if (!credential) throw new Error('Google service account credential non disponibile.');
   const token = await credential.getAccessToken();
   if (!token?.access_token) throw new Error('Impossibile ottenere un access token Google Cloud.');
@@ -43,7 +53,7 @@ function vertexModelOverride() {
 export function videoProviderMode(app: App, bucketName: string): SonaraVideoProvider | null {
   if (!bucketName) return null;
   if (geminiApiKey()) return 'gemini';
-  if (projectId(app) && app.options.credential) return 'vertex';
+  if (projectId(app) && hasVertexCredential(app)) return 'vertex';
   return null;
 }
 
