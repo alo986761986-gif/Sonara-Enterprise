@@ -120,7 +120,7 @@ export type FirebaseVideoAiAsset = {
   downloadUrl: string;
   contentType: string;
   size: number;
-  kind: 'image' | 'video';
+  kind: 'image' | 'video' | 'audio';
 };
 
 function safeVideoAiFileName(value: string) {
@@ -128,29 +128,36 @@ function safeVideoAiFileName(value: string) {
   return clean.slice(0, 100) || 'media';
 }
 
+function fallbackVideoAiContentType(kind: 'image' | 'video' | 'audio') {
+  if (kind === 'video') return 'video/mp4';
+  if (kind === 'audio') return 'audio/mpeg';
+  return 'image/jpeg';
+}
+
 export async function uploadFirebaseVideoAiAsset(
   file: Blob,
-  options: { fileName?: string; kind?: 'image' | 'video' } = {}
+  options: { fileName?: string; kind?: 'image' | 'video' | 'audio' } = {}
 ): Promise<FirebaseVideoAiAsset> {
   const user = getFirebaseAuth().currentUser;
-  if (!user) throw new Error('Accedi per caricare foto e video in SONARA Video AI.');
+  if (!user) throw new Error('Accedi per caricare foto, video e audio in SONARA Video AI.');
   const storage = getStorage(app || getApps()[0] || initializeApp(firebaseConfig));
-  const kind = options.kind || (file.type.startsWith('video/') ? 'video' : 'image');
+  const kind = options.kind || (file.type.startsWith('audio/') ? 'audio' : file.type.startsWith('video/') ? 'video' : 'image');
   const fileName = safeVideoAiFileName(options.fileName || `${kind}-${Date.now()}`);
   const randomPart = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
     : Math.random().toString(36).slice(2);
   const storagePath = `video-ai-inputs/${user.uid}/${Date.now()}-${randomPart}-${fileName}`;
   const assetRef = ref(storage, storagePath);
+  const contentType = file.type || fallbackVideoAiContentType(kind);
   const snapshot = await uploadBytes(assetRef, file, {
-    contentType: file.type || (kind === 'video' ? 'video/mp4' : 'image/jpeg'),
+    contentType,
     customMetadata: { sonaraPurpose: 'video-ai-input', sonaraKind: kind }
   });
   const downloadUrl = await getDownloadURL(snapshot.ref);
   return {
     storagePath: snapshot.ref.fullPath,
     downloadUrl,
-    contentType: file.type || (kind === 'video' ? 'video/mp4' : 'image/jpeg'),
+    contentType,
     size: file.size,
     kind
   };
