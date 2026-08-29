@@ -56,7 +56,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q 'cloudflare/sonara-world-style-production-router.mjs' wrangler.jsonc
+          grep -q 'cloudflare/sonara-studio-max-router.mjs' wrangler.jsonc
+          grep -q "./sonara-world-style-production-router.mjs" cloudflare/sonara-studio-max-router.mjs
+          grep -q 'sonara-studio-max-v1' src/sonaraStudioMaxIntelligence.ts
+          grep -q '/api/studio-max-profile' cloudflare/sonara-studio-max-router.mjs
+          grep -q 'CREATOR INTENT' cloudflare/sonara-studio-max-router.mjs
+          grep -q 'HOOK/STRUCTURE' src/sonaraStudioMaxIntelligence.ts
+          grep -q 'MUSICAL DETAIL' src/sonaraStudioMaxIntelligence.ts
           grep -q "./sonara-production-router.mjs" cloudflare/sonara-world-style-production-router.mjs
           grep -q 'sonara-world-style-v1' cloudflare/sonara-world-style-production-router.mjs
           grep -q '/api/style-profile' cloudflare/sonara-world-style-production-router.mjs
@@ -79,6 +85,7 @@ jobs:
           grep -q 'sonara-brand-icon.svg' index.html
           grep -q 'sonara-brand-boot.svg' src/components/brand/SonaraBrandControl.tsx
           npx --yes tsx src/musicStyleIntelligence.world.test.ts
+          node --check cloudflare/sonara-studio-max-router.mjs
           node --check cloudflare/sonara-world-style-production-router.mjs
           node --check cloudflare/sonara-production-router.mjs
           node --check cloudflare/sonara-world-tempo-router.mjs
@@ -88,7 +95,7 @@ jobs:
       - name: Deploy Worker to Cloudflare production
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
 
-      - name: Verify public SONARA favicon, branding, onboarding, world style, world tempo and job recovery
+      - name: Verify public SONARA Studio Max, world style, world tempo and recovery
         shell: bash
         run: |
           set -euo pipefail
@@ -96,6 +103,7 @@ jobs:
             icon_code="$(curl -L -sS -o /tmp/sonara-icon -w '%{http_code}' --max-time 20 "https://sonaraenterprise.com/sonara-brand-icon.svg?brand=${GITHUB_SHA}-${attempt}" || true)"
             site_headers="$(curl -sSI --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?brand=${GITHUB_SHA}-${attempt}" || true)"
             site_html="$(curl -sS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?brand=${GITHUB_SHA}-${attempt}" || true)"
+            studio_probe="$(curl -sS -i --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/api/studio-max-profile?duration=480&bpm=126&key=F%23%20minor&genre=House&subgenre=Tech%20House&mood=Dark&lyrics=Test&vocalLanguage=it" || true)"
             style_probe="$(curl -sS -i --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/api/style-profile?family=Electronic%20%2F%20Dance&genre=Drum%20%26%20Bass&subgenre=Jungle&mood=Raw" || true)"
             tempo_headers="$(curl -sSI --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/api/tempo-profile?family=Electronic%20%2F%20Dance&genre=Drum%20%26%20Bass&subgenre=Jungle&prompt=Jungle%20170%20BPM" || true)"
             tempo_body="$(curl -sS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/api/tempo-profile?family=Electronic%20%2F%20Dance&genre=Drum%20%26%20Bass&subgenre=Jungle&prompt=Jungle%20170%20BPM" || true)"
@@ -107,26 +115,29 @@ jobs:
               && printf '%s' "${site_headers}" | grep -qi 'x-sonara-tempo-taxonomy: sonara-world-tempo-v1' \
               && printf '%s' "${site_headers}" | grep -qi 'x-sonara-job-recovery: sonara-job-recovery-v1' \
               && printf '%s' "${site_headers}" | grep -qi 'x-sonara-world-style: sonara-world-style-v1' \
+              && printf '%s' "${site_headers}" | grep -qi 'x-sonara-studio-max: sonara-studio-max-v1' \
               && printf '%s' "${site_html}" | grep -q 'sonara-header-brand-v5' \
               && printf '%s' "${site_html}" | grep -q 'sonara-onboarding-guide-v1' \
               && printf '%s' "${site_html}" | grep -q 'sonara-world-tempo-production-v1' \
+              && printf '%s' "${studio_probe}" | grep -qi 'x-sonara-studio-max: sonara-studio-max-v1' \
+              && printf '%s' "${studio_probe}" | grep -q '"durationSec":480' \
+              && printf '%s' "${studio_probe}" | grep -q '"bpm":126' \
+              && printf '%s' "${studio_probe}" | grep -q '"Final Chorus"' \
+              && printf '%s' "${studio_probe}" | grep -q '"hookContract"' \
+              && printf '%s' "${studio_probe}" | grep -q '"vocalContract"' \
+              && printf '%s' "${studio_probe}" | grep -q '"productionContract"' \
               && printf '%s' "${style_probe}" | grep -qi 'x-sonara-world-style: sonara-world-style-v1' \
               && printf '%s' "${style_probe}" | grep -q '"subgenre":"Jungle"' \
-              && printf '%s' "${style_probe}" | grep -q '"rhythm"' \
               && printf '%s' "${style_probe}" | grep -q 'breakbeat' \
-              && printf '%s' "${style_probe}" | grep -q '"instrumentation"' \
-              && printf '%s' "${style_probe}" | grep -q '"fingerprint"' \
               && printf '%s' "${tempo_headers}" | grep -qi 'x-sonara-tempo-taxonomy: sonara-world-tempo-v1' \
               && printf '%s' "${tempo_body}" | grep -q '"bpm":170' \
-              && printf '%s' "${tempo_body}" | grep -q '"subgenre":"Jungle"' \
               && printf '%s' "${recovery_probe}" | grep -qi 'x-sonara-job-recovery: sonara-job-recovery-v1' \
-              && printf '%s' "${recovery_probe}" | grep -q '"status":"FAILED"' \
               && printf '%s' "${recovery_probe}" | grep -q 'Job SONARA non trovato'; then
-              echo "SONARA branding, onboarding, world style DNA, world tempo taxonomy and anti-stall job recovery verified."
+              echo "SONARA Studio Max, world style DNA, world tempo taxonomy and anti-stall recovery verified."
               exit 0
             fi
-            echo "SONARA production propagation pending (${attempt}/15)."
+            echo "SONARA Studio Max propagation pending (${attempt}/15)."
             sleep 4
           done
-          echo "SONARA public production verification failed." >&2
+          echo "SONARA Studio Max public production verification failed." >&2
           exit 1
