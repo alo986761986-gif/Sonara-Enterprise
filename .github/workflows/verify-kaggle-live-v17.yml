@@ -1,0 +1,134 @@
+name: Verify SONARA Kaggle Live V17
+
+on:
+  push:
+    paths:
+      - '.github/workflows/verify-kaggle-live-v17.yml'
+      - '.github/kaggle-live-v17-trigger'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-live-kaggle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+
+      - name: Load Kaggle endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          f='.github/kaggle-workers-trigger'
+          GPU0="$(sed -n 's/^GPU0=//p' "$f" | tail -n1 | tr -d '\r')"
+          GPU1="$(sed -n 's/^GPU1=//p' "$f" | tail -n1 | tr -d '\r')"
+          test -n "$GPU0"
+          test -n "$GPU1"
+          echo "GPU0=$GPU0" >> "$GITHUB_ENV"
+          echo "GPU1=$GPU1" >> "$GITHUB_ENV"
+          echo 'Endpoints caricati dal binding di produzione.'
+
+      - name: Verify GPU0 music health
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --connect-timeout 10 --max-time 30 "$GPU0/health" | tee /tmp/gpu0-health.json
+          node - <<'NODE'
+          const fs=require('fs');
+          const p=JSON.parse(fs.readFileSync('/tmp/gpu0-health.json','utf8'));
+          const d=p.data||p;
+          const s=String(d.status||p.status||'').toLowerCase();
+          if (!(p.code===200 || ['ok','ready','healthy','online','success'].includes(s))) {
+            throw new Error('GPU0 health non valida: '+JSON.stringify(p));
+          }
+          console.log('GPU0_HEALTH=OK');
+          NODE
+
+      - name: Inspect GPU0 model inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --connect-timeout 10 --max-time 30 "$GPU0/v1/models" | tee /tmp/gpu0-models.json
+          node - <<'NODE'
+          const fs=require('fs');
+          const p=JSON.parse(fs.readFileSync('/tmp/gpu0-models.json','utf8'));
+          const text=JSON.stringify(p);
+          if (!text.includes('acestep-v15-turbo')) throw new Error('Turbo model non presente.');
+          console.log(JSON.stringify({
+            turbo: true,
+            llm_initialized: (p.data||p).llm_initialized ?? null,
+            loaded_lm_model: (p.data||p).loaded_lm_model ?? null
+          }));
+          NODE
+
+      - name: Verify GPU0 async LM submit
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/probe.json <<'JSON'
+          {
+            "prompt":"deep house instrumental production analysis",
+            "lyrics":"",
+            "model":"acestep-v15-turbo",
+            "audio_duration":5,
+            "inference_steps":1,
+            "thinking":true,
+            "analysis_only":true,
+            "full_analysis_only":true,
+            "use_format":true,
+            "use_cot_caption":true,
+            "use_cot_language":true,
+            "constrained_decoding":true,
+            "allow_lm_batch":false,
+            "lm_model_path":"acestep-5Hz-lm-0.6B",
+            "lm_backend":"pt"
+          }
+          JSON
+          started="$(date +%s)"
+          code="$(curl -sS --connect-timeout 10 --max-time 20 -o /tmp/probe-out.json -w '%{http_code}' -H 'Content-Type: application/json' -X POST "$GPU0/release_task" --data-binary @/tmp/probe.json || true)"
+          ended="$(date +%s)"
+          elapsed="$((ended-started))"
+          echo "HTTP=$code ELAPSED=${elapsed}s"
+          cat /tmp/probe-out.json 2>/dev/null || true
+          echo
+          if [[ "$code" != '200' ]]; then
+            echo 'GPU0 async submit non pronta.' >&2
+            exit 1
+          fi
+          node - <<'NODE'
+          const fs=require('fs');
+          const p=JSON.parse(fs.readFileSync('/tmp/probe-out.json','utf8'));
+          const id=String(p?.data?.task_id||'');
+          if (!id) throw new Error('release_task non ha restituito task_id.');
+          console.log('GPU0_ASYNC_TASK_ID='+id);
+          NODE
+          if (( elapsed > 15 )); then
+            echo "Submit troppo lenta: ${elapsed}s" >&2
+            exit 1
+          fi
+          echo 'GPU0_ASYNC_LM_SUBMIT=OK'
+
+      - name: Verify GPU1 video health
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --connect-timeout 10 --max-time 30 "$GPU1/health" | tee /tmp/gpu1-health.json
+          node - <<'NODE'
+          const fs=require('fs');
+          const p=JSON.parse(fs.readFileSync('/tmp/gpu1-health.json','utf8'));
+          const d=p.data||p;
+          const s=String(d.status||p.status||'').toLowerCase();
+          if (!(p.code===200 || ['ok','ready','healthy','online','success'].includes(s))) {
+            throw new Error('GPU1 health non valida: '+JSON.stringify(p));
+          }
+          console.log('GPU1_VIDEO_HEALTH=OK');
+          NODE
+
+      - name: Summary
+        shell: bash
+        run: |
+          echo '✅ KAGGLE SONARA LIVE CHECK COMPLETATO'
+          echo 'GPU0 Music: health OK, Turbo presente, submit LM asincrona OK'
+          echo 'GPU1 Video: health OK'
