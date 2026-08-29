@@ -59,6 +59,10 @@ jobs:
           grep -q 'cloudflare/sonara-production-router.mjs' wrangler.jsonc
           grep -q "./sonara-onboarding-router.mjs" cloudflare/sonara-production-router.mjs
           grep -q "./sonara-world-tempo-router.mjs" cloudflare/sonara-production-router.mjs
+          grep -q 'sonara-job-recovery-v1' cloudflare/sonara-production-router.mjs
+          grep -q 'robustJobPoll' cloudflare/sonara-production-router.mjs
+          grep -q 'automatic-query-failover' cloudflare/sonara-production-router.mjs
+          grep -q 'automatic-stall-failover' cloudflare/sonara-production-router.mjs
           grep -q "./sonara-brand-router.mjs" cloudflare/sonara-world-tempo-router.mjs
           grep -q 'sonara-world-tempo-v1' cloudflare/sonara-world-tempo-router.mjs
           grep -q '/api/tempo-profile' cloudflare/sonara-world-tempo-router.mjs
@@ -77,7 +81,7 @@ jobs:
       - name: Deploy Worker to Cloudflare production
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
 
-      - name: Verify public SONARA favicon, branding, onboarding and world tempo
+      - name: Verify public SONARA favicon, branding, onboarding, world tempo and job recovery
         shell: bash
         run: |
           set -euo pipefail
@@ -87,21 +91,26 @@ jobs:
             site_html="$(curl -sS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?brand=${GITHUB_SHA}-${attempt}" || true)"
             tempo_headers="$(curl -sSI --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/api/tempo-profile?family=Electronic%20%2F%20Dance&genre=Drum%20%26%20Bass&subgenre=Jungle&prompt=Jungle%20170%20BPM" || true)"
             tempo_body="$(curl -sS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/api/tempo-profile?family=Electronic%20%2F%20Dance&genre=Drum%20%26%20Bass&subgenre=Jungle&prompt=Jungle%20170%20BPM" || true)"
+            recovery_probe="$(curl -sS -i --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/api/music/job/d16pair_public-recovery-probe-${GITHUB_SHA}-${attempt}" || true)"
             if [[ "${icon_code}" == "200" ]] \
               && printf '%s' "${site_headers}" | grep -qi 'x-sonara-brand: sonic-s-v5' \
               && printf '%s' "${site_headers}" | grep -qi 'x-sonara-header-brand: enterprise-logo-v5' \
               && printf '%s' "${site_headers}" | grep -qi 'x-sonara-guide: creator-onboarding-v1' \
               && printf '%s' "${site_headers}" | grep -qi 'x-sonara-tempo-taxonomy: sonara-world-tempo-v1' \
+              && printf '%s' "${site_headers}" | grep -qi 'x-sonara-job-recovery: sonara-job-recovery-v1' \
               && printf '%s' "${site_html}" | grep -q 'sonara-header-brand-v5' \
               && printf '%s' "${site_html}" | grep -q 'sonara-onboarding-guide-v1' \
               && printf '%s' "${site_html}" | grep -q 'sonara-world-tempo-production-v1' \
               && printf '%s' "${tempo_headers}" | grep -qi 'x-sonara-tempo-taxonomy: sonara-world-tempo-v1' \
               && printf '%s' "${tempo_body}" | grep -q '"bpm":170' \
-              && printf '%s' "${tempo_body}" | grep -q '"subgenre":"Jungle"'; then
-              echo "SONARA branding, onboarding and world tempo taxonomy verified."
+              && printf '%s' "${tempo_body}" | grep -q '"subgenre":"Jungle"' \
+              && printf '%s' "${recovery_probe}" | grep -qi 'x-sonara-job-recovery: sonara-job-recovery-v1' \
+              && printf '%s' "${recovery_probe}" | grep -q '"status":"FAILED"' \
+              && printf '%s' "${recovery_probe}" | grep -q 'Job SONARA non trovato'; then
+              echo "SONARA branding, onboarding, world tempo taxonomy and anti-stall job recovery verified."
               exit 0
             fi
-            echo "Brand/onboarding/world-tempo propagation pending (${attempt}/15)."
+            echo "SONARA production propagation pending (${attempt}/15)."
             sleep 4
           done
           echo "SONARA public production verification failed." >&2
