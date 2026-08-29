@@ -1,0 +1,61 @@
+name: Fix SONARA MoLab Browser Integrity
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/molab-bic-trigger"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  configure:
+    name: Disable Browser Integrity Check only for MoLab hostname
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+
+    steps:
+      - name: Configure Cloudflare BIC exception for MoLab
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN}"
+
+          api='https://api.cloudflare.com/client/v4'
+          auth=(-H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json')
+
+          zone_json="$(curl -fsS "${auth[@]}" "${api}/zones?name=sonaraenterprise.com&per_page=50")"
+          zone_id="$(printf '%s' "${zone_json}" | jq -r '.result[] | select(.name == "sonaraenterprise.com") | .id' | head -n 1)"
+          test -n "${zone_id}"
+          echo "::add-mask::${zone_id}"
+
+          rulesets="$(curl -fsS "${auth[@]}" "${api}/zones/${zone_id}/rulesets")"
+          ruleset_id="$(printf '%s' "${rulesets}" | jq -r '.result[] | select(.kind == "zone" and .phase == "http_config_settings") | .id' | head -n 1)"
+
+          if [[ -z "${ruleset_id}" ]]; then
+            created="$(curl -fsS -X POST "${auth[@]}" "${api}/zones/${zone_id}/rulesets" \
+              --data '{"name":"SONARA configuration rules","description":"SONARA hostname-specific configuration","kind":"zone","phase":"http_config_settings","rules":[]}')"
+            ruleset_id="$(printf '%s' "${created}" | jq -r '.result.id')"
+          fi
+          test -n "${ruleset_id}"
+          echo "::add-mask::${ruleset_id}"
+
+          current="$(curl -fsS "${auth[@]}" "${api}/zones/${zone_id}/rulesets/${ruleset_id}")"
+          existing_id="$(printf '%s' "${current}" | jq -r '.result.rules[]? | select(.ref == "sonara_molab_disable_bic") | .id' | head -n 1)"
+
+          body='{"action":"set_config","action_parameters":{"bic":false},"expression":"(http.host eq \"molab.sonaraenterprise.com\")","description":"SONARA MoLab API - disable Browser Integrity Check","ref":"sonara_molab_disable_bic","enabled":true}'
+
+          if [[ -n "${existing_id}" ]]; then
+            response="$(curl -fsS -X PATCH "${auth[@]}" "${api}/zones/${zone_id}/rulesets/${ruleset_id}/rules/${existing_id}" --data "${body}")"
+          else
+            response="$(curl -fsS -X POST "${auth[@]}" "${api}/zones/${zone_id}/rulesets/${ruleset_id}/rules" --data "${body}")"
+          fi
+
+          printf '%s' "${response}" | jq -e '.success == true' >/dev/null
+          printf '%s' "${response}" | jq '{success, result: {id, ref, description, expression, action, action_parameters, enabled}}'
+          echo 'Cloudflare Browser Integrity Check disabled only for molab.sonaraenterprise.com.'
