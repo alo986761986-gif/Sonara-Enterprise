@@ -7,7 +7,9 @@ import { injectVideoUiScript, videoUiScriptResponse } from './sonara-video-ui-ed
 const API_HOST = 'api.sonaraenterprise.com';
 const VIDEO_UI_SCRIPT_PATH = '/sonara-video-ui-edge.js';
 const BILLING_GENERATE_PATH = '/api/billing/generate';
+const BILLING_JOB_PATH = '/api/billing/job';
 const MUSIC_JOB_PATH = /^\/api\/music\/job\/(?:d18fast_|d16pair_)[^/]+$/;
+const RESILIENT_JOB_ID = /^d16pair_[A-Za-z0-9-]{16,}$/;
 const RETRYABLE_GENERATION_STATUSES = new Set([500, 502, 503, 504, 524]);
 const API_ALLOWED_ORIGINS = new Set([
   'https://sonaraenterprise.com',
@@ -85,6 +87,22 @@ async function resilientDualGeneration(request, env, ctx) {
   return decorateGenerationResponse(response);
 }
 
+function resilientJobFromLegacyBillingBridge(request, url, env, ctx) {
+  if (request.method !== 'GET' || url.pathname !== BILLING_JOB_PATH) return null;
+  const jobId = String(url.searchParams.get('jobId') || '').trim();
+  if (!RESILIENT_JOB_ID.test(jobId)) return null;
+
+  const target = new URL(`/api/music/job/${encodeURIComponent(jobId)}`, url.origin);
+  const headers = new Headers(request.headers);
+  headers.set('x-sonara-job-bridge', 'cloudflare-same-edge-v19');
+  const direct = new Request(target.toString(), {
+    method: 'GET',
+    headers,
+    redirect: 'manual'
+  });
+  return engineV19.fetch(direct, env, ctx);
+}
+
 function disableCrossOriginV18Poll(response) {
   const contentType = String(response.headers.get('content-type') || '').toLowerCase();
   if (!contentType.includes('text/html')) return response;
@@ -129,6 +147,15 @@ export default {
     // authoritative two-track V19 route before that legacy layer can run.
     if (url.hostname !== API_HOST && request.method === 'POST' && url.pathname === BILLING_GENERATE_PATH) {
       return resilientDualGeneration(request, env, ctx);
+    }
+
+    // Older browser bundles rewrite d16pair_* polling to /api/billing/job.
+    // Handle those requests on the same Cloudflare edge instead of sending
+    // them through Vercel and back to a different colo, where Cache API state
+    // would be missing and the Studio session would appear expired.
+    if (url.hostname !== API_HOST) {
+      const directJob = resilientJobFromLegacyBillingBridge(request, url, env, ctx);
+      if (directJob) return directJob;
     }
 
     if (request.method === 'GET' && MUSIC_JOB_PATH.test(url.pathname)) {
