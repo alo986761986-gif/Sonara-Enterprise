@@ -1,0 +1,5 @@
+SONARA_RUNPOD_XL_URL=https://REPLACE-POD-ID-8001.proxy.runpod.net
+MODEL=acestep-v15-xl-turbo
+MODE=RUNPOD_XL_ONLY
+ACTION=activate-runpod-xl
+VERIFY=WAITING-FOR-POD
