@@ -33,14 +33,10 @@
   function pollJob(jobId, bridgeUrl, nextInit) {
     const existing = jobPollCache.get(jobId);
     const now = Date.now();
-
     if (existing?.snapshot && now - existing.snapshot.cachedAt < POLL_CACHE_MS) {
       return Promise.resolve(responseFromSnapshot(existing.snapshot));
     }
-
-    if (existing?.inflight) {
-      return existing.inflight.then(responseFromSnapshot);
-    }
+    if (existing?.inflight) return existing.inflight.then(responseFromSnapshot);
 
     const inflight = nativeFetch(bridgeUrl.toString(), nextInit)
       .then(snapshotResponse)
@@ -53,11 +49,7 @@
         throw error;
       });
 
-    jobPollCache.set(jobId, {
-      snapshot: existing?.snapshot,
-      inflight
-    });
-
+    jobPollCache.set(jobId, { snapshot: existing?.snapshot, inflight });
     return inflight.then(responseFromSnapshot);
   }
 
@@ -75,10 +67,16 @@
     const jobMatch = url.origin === window.location.origin
       ? url.pathname.match(/^\/api\/music\/job\/([^/]+)$/)
       : null;
-
     if (!jobMatch) return nativeFetch(input, init);
 
     const jobId = decodeURIComponent(jobMatch[1]);
+
+    // V18 is stateless and must use the native /api/music/job route.
+    // Never rewrite d18fast_* jobs to the legacy /api/billing/job endpoint.
+    if (jobId.startsWith('d18fast_')) {
+      return nativeFetch(input, { ...init, cache: 'no-store' });
+    }
+
     const bridgeUrl = new URL('/api/billing/job', window.location.origin);
     bridgeUrl.searchParams.set('jobId', jobId);
 
@@ -86,14 +84,8 @@
     if (authorization) headers.set('Authorization', authorization);
     headers.set('Accept', 'application/json');
 
-    const nextInit = {
-      ...init,
-      method: 'GET',
-      headers,
-      cache: 'no-store'
-    };
+    const nextInit = { ...init, method: 'GET', headers, cache: 'no-store' };
     delete nextInit.body;
-
     return pollJob(jobId, bridgeUrl, nextInit);
   };
 })();
