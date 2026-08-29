@@ -42,12 +42,13 @@ const BRAND_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256
   </g>
 </svg>`;
 
-const HEADER_BRAND_SCRIPT = `<script id="sonara-header-brand-v5">(()=>{const icon=${JSON.stringify(BRAND_ICON)};const apply=()=>{document.querySelectorAll('header').forEach(header=>{const label=[...header.querySelectorAll('h1,h2,span,div')].find(el=>el.children.length===0&&(el.textContent||'').trim().toUpperCase()==='SONARA ENTERPRISE');if(!label)return;const group=label.parentElement;const row=group&&group.parentElement?group.parentElement:group;let img=(row&&row.querySelector('img'))||header.querySelector('img[src*="sonara-ai-icon"],img[alt*="SONARA"],img[data-sonara-brand-logo="true"]');if(!img&&row){img=document.createElement('img');row.insertBefore(img,row.firstChild);}if(img){if(img.getAttribute('src')!==icon)img.setAttribute('src',icon);img.setAttribute('alt','SONARA Enterprise');img.setAttribute('width','44');img.setAttribute('height','44');img.setAttribute('data-sonara-brand-logo','true');img.setAttribute('loading','eager');img.style.width='44px';img.style.height='44px';img.style.objectFit='contain';img.style.borderRadius='12px';img.style.flex='0 0 auto';}});};const start=()=>{apply();new MutationObserver(apply).observe(document.body||document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['src']});[100,350,800,1500,3000].forEach(ms=>setTimeout(apply,ms));};if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();})();</script>`;
+const HEADER_BRAND_SCRIPT = `<script id="sonara-header-brand-v5-safe">(()=>{const icon=${JSON.stringify(BRAND_ICON)};const isBrandIcon=src=>{try{return new URL(src||'',location.origin).pathname==='/sonara-brand-icon.svg'}catch{return String(src||'').includes('/sonara-brand-icon.svg')}};let scheduled=false;const apply=()=>{if(scheduled)return;scheduled=true;requestAnimationFrame(()=>{scheduled=false;document.querySelectorAll('header').forEach(header=>{const label=[...header.querySelectorAll('h1,h2,span,div')].find(el=>el.children.length===0&&(el.textContent||'').trim().toUpperCase()==='SONARA ENTERPRISE');if(!label)return;const group=label.parentElement;const row=group&&group.parentElement?group.parentElement:group;let img=(row&&row.querySelector('img'))||header.querySelector('img[src*="sonara-ai-icon"],img[alt*="SONARA"],img[data-sonara-brand-logo="true"]');if(!img&&row){img=document.createElement('img');row.insertBefore(img,row.firstChild);}if(img){if(!isBrandIcon(img.getAttribute('src')))img.setAttribute('src',icon);if(img.getAttribute('alt')!=='SONARA Enterprise')img.setAttribute('alt','SONARA Enterprise');img.setAttribute('width','44');img.setAttribute('height','44');img.setAttribute('data-sonara-brand-logo','true');img.setAttribute('loading','eager');img.style.width='44px';img.style.height='44px';img.style.objectFit='contain';img.style.borderRadius='12px';img.style.flex='0 0 auto';}});});};const releaseBoot=()=>document.querySelectorAll('[aria-label="SONARA boot animation"],[data-sonara-boot="active"]').forEach(el=>{el.style.pointerEvents='none';el.style.opacity='0';setTimeout(()=>el.remove(),120)});const start=()=>{apply();new MutationObserver(apply).observe(document.body||document.documentElement,{childList:true,subtree:true});[100,350,800,1500,3000].forEach(ms=>setTimeout(apply,ms));setTimeout(releaseBoot,2700);};if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();})();</script>`;
 
 function withBrandHeaders(response) {
   const headers = new Headers(response.headers);
   headers.set('x-sonara-brand', BRAND_VERSION);
   headers.set('x-sonara-header-brand', 'enterprise-logo-v5');
+  headers.set('x-sonara-boot-safety', 'loop-guard-v1');
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
@@ -60,6 +61,7 @@ function brandHtml(response) {
   headers.set('cache-control', 'no-store, max-age=0');
   headers.set('x-sonara-brand', BRAND_VERSION);
   headers.set('x-sonara-header-brand', 'enterprise-logo-v5');
+  headers.set('x-sonara-boot-safety', 'loop-guard-v1');
   const safe = new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   return new HTMLRewriter()
     .on('link[rel="icon"]', { element(el) { el.remove(); } })
