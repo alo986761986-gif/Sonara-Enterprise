@@ -108,14 +108,14 @@ jobs:
           set -euo pipefail
           npx --yes wrangler@latest deploy --config wrangler.jsonc
 
-      - name: Verify production dual music health
+      - name: Verify production dual music max-speed health
         shell: bash
         run: |
           set -euo pipefail
           for attempt in {1..24}; do
-            if response="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/health?dual=${GITHUB_SHA}-${attempt}" 2>/dev/null)"; then
-              if HEALTH="$response" node -e "const h=JSON.parse(process.env.HEALTH); const w=Array.isArray(h.aceStepWorkers)?h.aceStepWorkers:[]; const c=Number(h.aceStepWorkerCount||w.length||0); console.log(JSON.stringify({aceStepWorkerCount:c,aceStepWorkers:w,realPromptVersion:h.realPromptVersion})); process.exit(c>=2&&h.realPromptEngine===true&&h.realPromptVersion==='v20-5hz-lm-authoritative'?0:1);"; then
-                echo "SONARA production verified: dual T4 ACE-Step music active"
+            if response="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/health?maxspeed=${GITHUB_SHA}-${attempt}" 2>/dev/null)"; then
+              if HEALTH="$response" node -e "const h=JSON.parse(process.env.HEALTH); const w=Array.isArray(h.aceStepWorkers)?h.aceStepWorkers:[]; const c=Number(h.aceStepWorkerCount||w.length||0); console.log(JSON.stringify({aceStepWorkerCount:c,aceStepWorkers:w,realPromptVersion:h.realPromptVersion,maxSpeed:h.maxSpeed,inferenceSteps:h.resilientDualInferenceSteps})); process.exit(c>=2&&h.maxSpeed===true&&h.realPromptEngine===true&&h.realPromptVersion==='v21-dual-t4-max-speed'&&Number(h.resilientDualInferenceSteps)===4?0:1);"; then
+                echo "SONARA production verified: dual T4 MAX SPEED active"
                 exit 0
               fi
             fi
