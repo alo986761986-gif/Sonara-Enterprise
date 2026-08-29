@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">SONARA Creative AI Platform</title>
+  <desc id="desc">Professional SONARA boot splash with sonic S emblem</desc>
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="43%" r="58%">
+      <stop offset="0" stop-color="#071c42"/>
+      <stop offset="0.42" stop-color="#030916"/>
+      <stop offset="1" stop-color="#000"/>
+    </radialGradient>
+    <linearGradient id="blue" x1="530" y1="145" x2="1035" y2="620" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0b4dff"/>
+      <stop offset="0.42" stop-color="#009dff"/>
+      <stop offset="0.78" stop-color="#19e8ff"/>
+      <stop offset="1" stop-color="#4ff8ff"/>
+    </linearGradient>
+    <linearGradient id="deep" x1="1000" y1="280" x2="570" y2="610" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4cf8ff"/>
+      <stop offset="0.32" stop-color="#0aa5ff"/>
+      <stop offset="0.68" stop-color="#0754ff"/>
+      <stop offset="1" stop-color="#082a8e"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="12" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="22"/></filter>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <ellipse cx="800" cy="430" rx="390" ry="250" fill="#0b4dff" opacity=".08" filter="url(#soft)"/>
+  <g transform="translate(520 120) scale(2.18)" filter="url(#glow)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M42 82C61 35 118 22 169 36c24 7 43 20 55 36-30-17-63-23-94-16-31 7-50 27-47 49 2 16 14 28 34 35" stroke="url(#blue)" stroke-width="28"/>
+    <path d="M139 124c24 7 39 21 41 39 2 20-11 38-34 48-32 15-74 7-104-17 31 13 64 13 86 0 20-12 28-31 21-47-4-9-11-17-21-23" stroke="url(#deep)" stroke-width="28"/>
+    <g stroke="url(#blue)" stroke-width="6">
+      <line x1="76" y1="125" x2="76" y2="133"/><line x1="88" y1="118" x2="88" y2="140"/><line x1="100" y1="108" x2="100" y2="150"/><line x1="112" y1="96" x2="112" y2="162"/><line x1="124" y1="78" x2="124" y2="180"/><line x1="136" y1="92" x2="136" y2="166"/><line x1="148" y1="105" x2="148" y2="153"/><line x1="160" y1="114" x2="160" y2="144"/><line x1="172" y1="121" x2="172" y2="137"/><line x1="184" y1="126" x2="184" y2="132"/>
+    </g>
+  </g>
+  <text x="800" y="700" fill="#f8fbff" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="82" font-weight="300" letter-spacing="26">SONARA</text>
+  <text x="800" y="756" fill="#6aa8ff" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="500" letter-spacing="14">CREATIVE AI PLATFORM</text>
+  <rect x="665" y="812" width="270" height="3" rx="2" fill="#07152f"/>
+  <rect x="720" y="812" width="120" height="3" rx="2" fill="#16dfff" filter="url(#glow)"/>
+</svg>
