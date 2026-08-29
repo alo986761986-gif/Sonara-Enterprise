@@ -116,12 +116,22 @@ function lmControls(body, strategy) {
   const baseCfg = 1.8 + styleInfluence * 0.012;
   const baseTopP = 0.84 + weirdness * 0.0009;
 
-  return {
-    lmTemperature: Math.round(clamp(baseTemperature + (structure ? -0.03 : 0.08), 0.68, 0.98) * 1000) / 1000,
-    lmCfgScale: Math.round(clamp(baseCfg + (structure ? 0.35 : -0.15), 1.5, 3.5) * 1000) / 1000,
-    lmTopP: Math.round(clamp(baseTopP + (structure ? -0.015 : 0.035), 0.82, 0.97) * 1000) / 1000,
-    lmRepetitionPenalty: structure ? 1.055 : 1.035
-  };
+  const lmTemperature = Math.round(
+    clamp(baseTemperature + (structure ? -0.03 : 0.08), 0.85, 0.68, 0.98) * 1000
+  ) / 1000;
+  const lmCfgScale = Math.round(
+    clamp(baseCfg + (structure ? 0.35 : -0.15), 2.5, 1.5, 3.5) * 1000
+  ) / 1000;
+  const lmTopP = Math.round(
+    clamp(baseTopP + (structure ? -0.015 : 0.035), 0.9, 0.82, 0.97) * 1000
+  ) / 1000;
+  const lmRepetitionPenalty = structure ? 1.055 : 1.035;
+
+  for (const [name, value] of Object.entries({ lmTemperature, lmCfgScale, lmTopP, lmRepetitionPenalty })) {
+    if (!Number.isFinite(value)) throw new Error(`SONARA V17 invalid LM control ${name}: ${value}`);
+  }
+
+  return { lmTemperature, lmCfgScale, lmTopP, lmRepetitionPenalty };
 }
 
 export function buildV17Payload(body = {}, strategy = 'structure', seed = 1) {
@@ -132,7 +142,6 @@ export function buildV17Payload(body = {}, strategy = 'structure', seed = 1) {
     ...base,
     model: MODEL,
     inference_steps: STUDIO_STEPS,
-    // Turbo ignores shift as a creative differentiator. Keep the official/default value.
     shift: 3.0,
     thinking: true,
     use_format: true,
@@ -268,8 +277,6 @@ async function startV17(request, env, body) {
     }, 503);
   }
 
-  // Quality-first: if only GPU0 music is available, both masters are queued there.
-  // GPU1 Video AI is never used by this engine.
   const selected = workers.length >= 2 ? workers.slice(0, 2) : [workers[0], workers[0]];
   const baseSeed = Math.max(1, Math.floor(Date.now() % 2_000_000_000));
   const payloads = [
