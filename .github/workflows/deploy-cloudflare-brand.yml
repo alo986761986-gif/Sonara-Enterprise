@@ -58,6 +58,7 @@ jobs:
           set -euo pipefail
           grep -q 'cloudflare/sonara-brand-router.mjs' wrangler.jsonc
           grep -q 'sonara-brand-icon.svg' cloudflare/sonara-brand-router.mjs
+          grep -q 'sonara-header-brand-v5' cloudflare/sonara-brand-router.mjs
           grep -q 'sonara-brand-icon.svg' index.html
           grep -q 'sonara-brand-boot.svg' src/components/brand/SonaraBrandControl.tsx
           node --check cloudflare/sonara-brand-router.mjs
@@ -65,15 +66,16 @@ jobs:
       - name: Deploy Worker to Cloudflare production
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
 
-      - name: Verify public SONARA favicon and site
+      - name: Verify public SONARA favicon and header branding
         shell: bash
         run: |
           set -euo pipefail
           for attempt in {1..15}; do
-            icon_code="$(curl -L -sS -o /tmp/sonara-icon -w '%{http_code}' --max-time 20 "https://sonaraenterprise.com/favicon.ico?brand=${GITHUB_SHA}-${attempt}" || true)"
+            icon_code="$(curl -L -sS -o /tmp/sonara-icon -w '%{http_code}' --max-time 20 "https://sonaraenterprise.com/sonara-brand-icon.svg?brand=${GITHUB_SHA}-${attempt}" || true)"
             site_headers="$(curl -sSI --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?brand=${GITHUB_SHA}-${attempt}" || true)"
-            if [[ "${icon_code}" == "200" ]] && printf '%s' "${site_headers}" | grep -qi 'x-sonara-brand: sonic-s-v3'; then
-              echo "SONARA brand favicon and edge wrapper verified."
+            site_html="$(curl -sS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?brand=${GITHUB_SHA}-${attempt}" || true)"
+            if [[ "${icon_code}" == "200" ]] && printf '%s' "${site_headers}" | grep -qi 'x-sonara-brand: sonic-s-v5' && printf '%s' "${site_headers}" | grep -qi 'x-sonara-header-brand: enterprise-logo-v5' && printf '%s' "${site_html}" | grep -q 'sonara-header-brand-v5'; then
+              echo "SONARA favicon and Enterprise header logo verified."
               exit 0
             fi
             echo "Brand propagation pending (${attempt}/15)."
