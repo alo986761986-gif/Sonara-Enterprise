@@ -22,15 +22,15 @@ PORTS = {0: 7860, 1: 7861}
 
 SETTINGS = {
     'ACESTEP_DEVICE': 'cuda',
-    'ACESTEP_DTYPE': 'float32',
+    'ACESTEP_DTYPE': 'float16',
     'ACESTEP_CONFIG_PATH': MODEL,
     'ACESTEP_NO_INIT': 'true',
     'ACESTEP_INIT_LLM': 'true',
     'ACESTEP_LM_MODEL_PATH': LM_MODEL,
-    'ACESTEP_LM_BACKEND': 'pt',
+    'ACESTEP_LM_BACKEND': 'vllm',
     'ACESTEP_LM_DEVICE': 'cuda',
-    'ACESTEP_LM_OFFLOAD_TO_CPU': 'true',
-    'ACESTEP_OFFLOAD_TO_CPU': 'true',
+    'ACESTEP_LM_OFFLOAD_TO_CPU': 'false',
+    'ACESTEP_OFFLOAD_TO_CPU': 'false',
     'ACESTEP_OFFLOAD_DIT_TO_CPU': 'false',
     'ACESTEP_USE_FLASH_ATTENTION': 'false',
     'ACESTEP_COMPILE_MODEL': 'false',
@@ -107,7 +107,7 @@ def ensure_acestep():
 
 
 def patch_t4_float32():
-    print('\n[3/8] Applico/verifico profilo T4 stabile FLOAT32...', flush=True)
+    print('\n[3/8] Verifica profilo T4 ULTRA SPEED FP16...', flush=True)
     orchestrator = BASE / 'acestep/core/generation/handler/init_service_orchestrator.py'
     if not orchestrator.exists():
         raise RuntimeError(f'Loader ACE-Step non trovato: {orchestrator}')
@@ -122,7 +122,7 @@ def patch_t4_float32():
         source = orchestrator.read_text(encoding='utf-8')
     if marker not in source:
         raise RuntimeError('Patch FLOAT32 non verificata.')
-    print('FLOAT32 T4-safe: OK', flush=True)
+    print('FP16 T4 ULTRA SPEED: OK', flush=True)
 
 
 def stop_old_compute_keep_tunnels():
@@ -273,7 +273,7 @@ def start_worker(uv: str, gpu: int):
     print(f'GPU{gpu} -> ACE-Step PID {proc.pid}, porta {port}', flush=True)
     wait_api(proc, port, log_path)
     info = init_and_verify(port, log_path)
-    print(f'GPU{gpu} Turbo + 5Hz LM: PRONTI', flush=True)
+    print(f'GPU{gpu} Turbo + 5Hz LM vLLM: PRONTI', flush=True)
     return proc, info
 
 
@@ -388,7 +388,7 @@ def resolve_public_urls():
 
 def main():
     print('=' * 88)
-    print(' SONARA MUSIC V20 - DUAL T4 x2 / GPU0 + GPU1 MUSIC / VIDEO AI SUSPENDED ')
+    print(' SONARA MUSIC V22 - DUAL T4 x2 / FP16 + vLLM ULTRA SPEED / VIDEO AI SUSPENDED ')
     print('=' * 88)
     print('Obiettivo: 2 brani = 2 GPU in parallelo, una traccia per T4.', flush=True)
 
@@ -413,14 +413,16 @@ def main():
     )
 
     print('\n' + '=' * 88)
-    print(' ✅ SONARA DUAL T4 MUSIC PRONTA ')
+    print(' ✅ SONARA DUAL T4 MUSIC ULTRA SPEED PRONTA ')
     print('=' * 88)
-    print('GPU0             : ACE-Step 1.5 + 5Hz LM / MUSIC')
-    print('GPU1             : ACE-Step 1.5 + 5Hz LM / MUSIC')
+    print('GPU0             : ACE-Step 1.5 + 5Hz LM vLLM / MUSIC')
+    print('GPU1             : ACE-Step 1.5 + 5Hz LM vLLM / MUSIC')
     print('Video AI         : SOSPESO')
     print('Strategia        : brano A -> GPU0 | brano B -> GPU1, in parallelo')
-    print('Inference        : V20 Real Prompt / 8 step lato edge')
-    print('DiT              : FLOAT32 T4-safe')
+    print('Inference        : V21 Real Controls / 4 step lato edge')
+    print('DiT              : FP16 T4 ULTRA SPEED')
+    print('LM backend       : vLLM GPU-resident')
+    print('CPU offload      : DISATTIVATO')
     print(f'GPU0={urls[0]}')
     print(f'GPU1={urls[1]}')
     print('MODE=MUSIC_DUAL_T4')
