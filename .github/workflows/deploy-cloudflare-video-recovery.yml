@@ -10,6 +10,7 @@ on:
       - "cloudflare/sonara-video-api-recovery.test.mjs"
       - "cloudflare/sonara-web-v15-router.mjs"
       - "cloudflare/sonara-engine-v17-lm-composer.mjs"
+      - "cloudflare/sonara-engine-v18-fast-hq.mjs"
       - "cloudflare/sonara-web-generator-stability.mjs"
   workflow_dispatch:
 
@@ -84,6 +85,11 @@ jobs:
           node cloudflare/sonara-engine-v15-authoritative-prompt.test.mjs
           node scripts/activate-extreme-fidelity-v16.cjs
           node cloudflare/extreme-fidelity-v16.test.mjs
+          grep -q "stateTransport: 'job-id-direct-task'" cloudflare/sonara-engine-v18-fast-hq.mjs
+          if grep -q "caches.default" cloudflare/sonara-engine-v18-fast-hq.mjs; then
+            echo "V18 must remain stateless and must not depend on caches.default." >&2
+            exit 1
+          fi
 
       - name: Deploy Worker to Cloudflare production
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
