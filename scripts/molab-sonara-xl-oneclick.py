@@ -20,7 +20,7 @@ PUBLIC_URL = 'https://' + HOSTNAME
 
 BOOTSTRAP_URL = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/4404f7c23ff1812e939d0f42aa1bb56ef53ca27d/scripts/molab-sonara-xl-clean-bootstrap.py'
 REPAIR_URL = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/d5fd7a6c4ad3cc407bba235b9885d9bf0016901d/scripts/molab-sonara-xl-repair-checkpoint.py'
-SUPERVISOR_URL = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/49032bda925d4cce067096b33db6305e3c30937d/scripts/molab-sonara-xl-supervisor.py'
+SUPERVISOR_URL = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/27fe7af26cf9f3f68a91c249fa2f3e5a3f026f80/scripts/molab-sonara-xl-supervisor.py'
 
 
 def fetch(url):
@@ -29,7 +29,7 @@ def fetch(url):
         headers={
             'Cache-Control': 'no-cache, no-store, max-age=0',
             'Pragma': 'no-cache',
-            'User-Agent': 'SONARA-MoLab-OneClick/5.0',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
         },
     )
     return urllib.request.urlopen(req, timeout=120).read().decode('utf-8')
@@ -78,7 +78,10 @@ def public_dns_ready():
     query = urllib.parse.urlencode({'name': HOSTNAME, 'type': 'A'})
     req = urllib.request.Request(
         'https://cloudflare-dns.com/dns-query?' + query,
-        headers={'Accept': 'application/dns-json', 'User-Agent': 'SONARA-MoLab-OneClick/5.0'},
+        headers={
+            'Accept': 'application/dns-json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36',
+        },
     )
     try:
         with urllib.request.urlopen(req, timeout=10) as response:
@@ -112,20 +115,18 @@ def ensure_stable_dns():
             return
         time.sleep(3)
 
-    raise RuntimeError(
-        'Cloudflare ha accettato la route ma il DNS pubblico non risolve ancora ' + HOSTNAME + '.'
-    )
+    raise RuntimeError('Cloudflare ha accettato la route ma il DNS pubblico non risolve ancora ' + HOSTNAME + '.')
 
 
 def main():
     print('=' * 82)
-    print(' SONARA MOLAB XL - ONE CLICK ON-DEMAND V5 ')
+    print(' SONARA MOLAB XL - ONE CLICK ON-DEMAND V6 ')
     print('=' * 82)
     print('URL STABILE=' + PUBLIC_URL)
     ensure_clean_environment()
     repair_checkpoint()
     ensure_stable_dns()
-    print('🚀 Avvio supervisor HTTP/2 diagnostico con Named Tunnel stabile...', flush=True)
+    print('🚀 Avvio supervisor con browser-probe Cloudflare...', flush=True)
 
     supervisor = fetch(SUPERVISOR_URL)
     exec(
