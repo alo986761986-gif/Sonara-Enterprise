@@ -4,14 +4,14 @@ import { rewriteGenerationRequest } from './sonara-engine-v15-authoritative-prom
 export { SonaraJobState } from './sonara-job-state-do.mjs';
 
 const PUBLIC_API_ORIGIN = 'https://api.sonaraenterprise.com';
-const CACHE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/resilient-dual-v20/';
+const CACHE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/resilient-dual-v21-max-speed/';
 const CACHE_TTL = 3 * 60 * 60;
-const STEPS = 8;
-const HEALTH_TIMEOUT = 4_000;
+const STEPS = 4;
+const HEALTH_TIMEOUT = 2_500;
 const SUBMIT_TIMEOUT = 120_000;
-const QUERY_TIMEOUT = 15_000;
+const QUERY_TIMEOUT = 8_000;
 const MAX_ATTEMPTS = 2;
-const PROFILE = 'real-prompt-dual-v20';
+const PROFILE = 'dual-t4-max-speed-v21';
 
 const cleanUrl = value => String(value || '').trim().replace(/\/$/, '');
 const workerUrls = env => String(env.ACESTEP_WORKER_URLS || env.ACE_STEP_API_URLS || env.SONARA_ACE_STEP_WORKERS || '')
@@ -44,7 +44,7 @@ function json(request, data, status = 200) {
     'cache-control': 'private, no-store',
     'x-sonara-music-quality': PROFILE,
     'x-sonara-speed-profile': PROFILE,
-    'x-sonara-real-prompt': '5hz-lm-authoritative-v20',
+    'x-sonara-real-prompt': 'authoritative-max-speed-v21',
     ...cors(request)
   }});
 }
@@ -165,17 +165,17 @@ function realPayload(payload, slot, attempt = 0) {
     : 'CANDIDATE B: preserve every technical/style lock but create a materially different melodic contour, voicing, performance detail, transitions and sound-palette balance.';
   return {
     ...payload,
-    prompt: `${String(payload.prompt || '')}\n\nSONARA REAL-PROMPT V20. ${candidateDirection} Every explicit creator instruction must have an audible musical consequence.`.slice(0, 12000),
+    prompt: `${String(payload.prompt || '')}\n\nSONARA MAX-SPEED V21. ${candidateDirection} Obey BPM, duration, genre, mood, key, lyrics and creator controls exactly. Render immediately without extra reasoning passes.`.slice(0, 12000),
     inference_steps: STEPS,
     batch_size: 1,
     use_random_seed: false,
     seed: seed + (slot + 1) * 104729 + attempt * 7919,
-    thinking: true,
-    use_format: true,
+    thinking: false,
+    use_format: false,
     use_cot_metas: false,
-    use_cot_caption: true,
-    use_cot_language: true,
-    constrained_decoding: true,
+    use_cot_caption: false,
+    use_cot_language: false,
+    constrained_decoding: false,
     allow_lm_batch: false
   };
 }
@@ -185,27 +185,28 @@ function completed(request, jobId, state) {
   const refs = state.slots.map(slot => slot.audioRef).filter(Boolean).slice(0, 2);
   const urls = refs.map(audioUrl);
   return json(request, { jobId, status: 'COMPLETED', progress: 100, audioUrl: urls[0] || null, audioUrls: urls,
-    candidates: urls.map((url, index) => ({ id: index ? 'B' : 'A', audioUrl: url, audioFormat: 'wav', strategy: index ? 'real-detail-master' : 'real-structure-master', inferenceSteps: STEPS })),
-    metadata: { engine: 'SONARA ACE-Step 1.5 + 5Hz LM', candidateCount: urls.length, inferenceSteps: STEPS, speedProfile: PROFILE, realPrompt: true, lmThinking: true, cotCaption: true, constrainedDecoding: true, automaticMissingTrackRecovery: true, durableJobState: true, currentStage: '2 brani SONARA real-prompt pronti' } });
+    candidates: urls.map((url, index) => ({ id: index ? 'B' : 'A', audioUrl: url, audioFormat: 'wav', strategy: index ? 'max-speed-detail' : 'max-speed-structure', inferenceSteps: STEPS })),
+    metadata: { engine: 'SONARA ACE-Step 1.5 Turbo Dual T4', candidateCount: urls.length, inferenceSteps: STEPS, speedProfile: PROFILE, maxSpeed: true, realPrompt: true, lmThinking: false, cotCaption: false, constrainedDecoding: false, automaticMissingTrackRecovery: true, durableJobState: true, currentStage: '2 brani SONARA MAX SPEED pronti' } });
 }
 function processing(request, jobId, state, progress, stage) {
   return json(request, { jobId, status: 'PROCESSING', progress, retryable: true,
-    metadata: { engine: 'SONARA ACE-Step 1.5 + 5Hz LM', candidateCount: 2, readyCount: state.slots.filter(slot => slot.audioRef).length, inferenceSteps: STEPS, speedProfile: PROFILE, realPrompt: true, lmThinking: true, automaticMissingTrackRecovery: true, durableJobState: true, currentStage: stage } });
+    metadata: { engine: 'SONARA ACE-Step 1.5 Turbo Dual T4', candidateCount: 2, readyCount: state.slots.filter(slot => slot.audioRef).length, inferenceSteps: STEPS, speedProfile: PROFILE, maxSpeed: true, realPrompt: true, lmThinking: false, automaticMissingTrackRecovery: true, durableJobState: true, currentStage: stage } });
 }
 
 async function start(request, env, body) {
-  const pool = await healthy(env);
+  const configured = workers(env);
+  const pool = configured.length >= 2 ? configured.slice(0, 2) : await healthy(env);
   if (!pool.length) return json(request, { status: 'FAILED', progress: 0, retryable: true, error: 'Nessuna T4 SONARA raggiungibile.' }, 503);
   const seed = Math.max(1, Math.floor(Date.now() % 2_000_000_000));
   const payloads = [buildV17Payload(body, 'structure', seed + 7919), buildV17Payload(body, 'detail', seed + 15838)];
   const jobId = `d16pair_${crypto.randomUUID()}`;
-  const base = { createdAt: Date.now(), updatedAt: Date.now(), payloads, failures: 0, speedProfile: PROFILE, realPrompt: true, lmThinking: true };
+  const base = { createdAt: Date.now(), updatedAt: Date.now(), payloads, failures: 0, speedProfile: PROFILE, maxSpeed: true, realPrompt: true, lmThinking: false };
   try {
     if (pool.length >= 2) {
       const tasks = await Promise.all([submit(pool[0], env, realPayload(payloads[0], 0)), submit(pool[1], env, realPayload(payloads[1], 1))]);
       const state = { ...base, mode: 'slots', slots: tasks.map((task, i) => ({ candidate: i ? 'B' : 'A', worker: pool[i], payload: payloads[i], task, audioRef: null, attempts: 1 })) };
       await save(env, jobId, state);
-      return processing(request, jobId, state, 34, 'SONARA Real Prompt: 5Hz LM interpreta 2 brani in parallelo');
+      return processing(request, jobId, state, 42, 'SONARA MAX SPEED: GPU0 e GPU1 stanno renderizzando i 2 brani in parallelo');
     }
 
     const firstTask = await submit(pool[0], env, realPayload(payloads[0], 0));
@@ -219,7 +220,7 @@ async function start(request, env, body) {
       ]
     };
     await save(env, jobId, state);
-    return processing(request, jobId, state, 30, 'SONARA Real Prompt: 5Hz LM compone il primo master sulla T4');
+    return processing(request, jobId, state, 30, 'SONARA MAX SPEED: rendering sulla T4 disponibile');
   } catch (error) {
     return json(request, { jobId, status: 'FAILED', progress: 0, retryable: true, error: error instanceof Error ? error.message : String(error) }, 502);
   }
@@ -256,7 +257,7 @@ async function pollSlots(request, env, jobId, state) {
   if (!pending || state.slots.some(slot => !slot.audioRef && !slot.task)) state = await launchMissing(state, env);
   await save(env, jobId, state);
   const ready = state.slots.filter(slot => slot.audioRef).length;
-  return processing(request, jobId, state, ready ? 78 + ready * 10 : 62, ready ? 'SONARA Real Prompt: primo master pronto, 5Hz LM compone il secondo' : 'SONARA Real Prompt: rendering musicale guidato dal prompt');
+  return processing(request, jobId, state, ready ? 84 + ready * 8 : 68, ready ? 'SONARA MAX SPEED: primo brano pronto, seconda T4 ancora in rendering' : 'SONARA MAX SPEED: rendering parallelo su entrambe le T4');
 }
 
 async function poll(request, env, jobId) {
@@ -268,14 +269,14 @@ async function poll(request, env, jobId) {
     state.failures = Number(state.failures || 0) + 1;
     await save(env, jobId, state).catch(() => undefined);
     if (state.failures >= 6) return json(request, { jobId, status: 'FAILED', progress: 0, retryable: true, error: error instanceof Error ? error.message : String(error) }, 502);
-    return processing(request, jobId, state, 70, `SONARA Real Prompt: riconnessione T4 (${state.failures}/6)`);
+    return processing(request, jobId, state, 70, `SONARA MAX SPEED: riconnessione T4 (${state.failures}/6)`);
   }
 }
 
 async function decorateHealth(request, response, env) {
   try {
     const data = await response.clone().json();
-    return json(request, { ...data, resilientDual: true, resilientDualProfile: PROFILE, resilientDualInferenceSteps: STEPS, resilientDualAutomaticMissingTrackRecovery: true, resilientDualDurableState: Boolean(env?.SONARA_JOB_STATE), realPromptEngine: true, realPromptVersion: 'v20-5hz-lm-authoritative', realPromptLmThinking: true, realPromptCotCaption: true, realPromptConstrainedDecoding: true }, response.status);
+    return json(request, { ...data, resilientDual: true, resilientDualProfile: PROFILE, resilientDualInferenceSteps: STEPS, resilientDualAutomaticMissingTrackRecovery: true, resilientDualDurableState: Boolean(env?.SONARA_JOB_STATE), maxSpeed: true, realPromptEngine: true, realPromptVersion: 'v21-dual-t4-max-speed', realPromptLmThinking: false, realPromptCotCaption: false, realPromptConstrainedDecoding: false }, response.status);
   } catch { return response; }
 }
 
