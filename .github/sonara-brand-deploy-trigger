@@ -1,3 +1,3 @@
-trigger: 2026-08-29T19:22:00+02:00
-reason: retry Suno-style contextual help after Cloudflare workflow validation update
-source: e402c1da79534c0ef1859f01fd3436e395dbaec6
+trigger: 2026-08-29T19:45:00+02:00
+reason: deploy compact closable contextual help popovers
+source: 9036c5598651b8a2e244a356b3b6982dff395cc4
