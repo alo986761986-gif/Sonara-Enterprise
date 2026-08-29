@@ -77,7 +77,7 @@ function sendJson(res: any, status: number, body: Record<string, unknown>) {
 }
 
 function validJobId(jobId: string): boolean {
-  return /^(?:d6_[A-Za-z0-9-]{16,}|d9pair_[A-Za-z0-9-]{16,})$/.test(jobId);
+  return /^(?:d6_|d9pair_|d16pair_)[A-Za-z0-9-]{16,}$/.test(jobId);
 }
 
 export default async function handler(req: any, res: any) {
