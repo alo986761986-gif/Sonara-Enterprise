@@ -1,5 +1,5 @@
 import webRuntime from './sonara-web-generator-stability.mjs';
-import engineV17 from './sonara-engine-v17-resilient-health.mjs';
+import engineV18 from './sonara-engine-v18-fast-hq.mjs';
 import { isVideoApiRequest, recoverVideoApi } from './sonara-video-api-recovery.mjs';
 import { injectVideoUiScript, videoUiScriptResponse } from './sonara-video-ui-edge.mjs';
 
@@ -19,7 +19,7 @@ export default {
     }
 
     if (url.hostname === API_HOST) {
-      return engineV17.fetch(request, env, ctx);
+      return engineV18.fetch(request, env, ctx);
     }
 
     const response = await webRuntime.fetch(request, env, ctx);
