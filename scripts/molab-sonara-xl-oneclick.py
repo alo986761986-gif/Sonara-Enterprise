@@ -4,13 +4,23 @@ from pathlib import Path
 CLEAN_ROOT = Path('/marimo/SONARA-ACE-Step-CLEAN')
 CLEAN_PY = CLEAN_ROOT / '.venv/bin/python'
 MODEL = CLEAN_ROOT / 'checkpoints/acestep-v15-xl-turbo'
-BOOTSTRAP_URL = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/main/scripts/molab-sonara-xl-clean-bootstrap.py'
-REPAIR_URL = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/main/scripts/molab-sonara-xl-repair-checkpoint.py'
-SUPERVISOR_URL = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/main/scripts/molab-sonara-xl-supervisor.py'
+
+# Pinned immutable revisions: MoLab/raw GitHub cache cannot serve an older script.
+BOOTSTRAP_URL = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/1f8ae02ceb15bd4276c018159217e4ee3182fb89/scripts/molab-sonara-xl-clean-bootstrap.py'
+REPAIR_URL = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/d5fd7a6c4ad3cc407bba235b9885d9bf0016901d/scripts/molab-sonara-xl-repair-checkpoint.py'
+SUPERVISOR_URL = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/b035d4a029cb65ece417264dfed0eaeee1262838/scripts/molab-sonara-xl-supervisor.py'
 
 
 def fetch(url):
-    return urllib.request.urlopen(url, timeout=120).read().decode('utf-8')
+    req = urllib.request.Request(
+        url,
+        headers={
+            'Cache-Control': 'no-cache, no-store, max-age=0',
+            'Pragma': 'no-cache',
+            'User-Agent': 'SONARA-MoLab-OneClick/2.0',
+        },
+    )
+    return urllib.request.urlopen(req, timeout=120).read().decode('utf-8')
 
 
 def ensure_clean_environment():
@@ -42,7 +52,7 @@ def repair_checkpoint():
 
 def main():
     print('=' * 82)
-    print(' SONARA MOLAB XL - ONE CLICK LAUNCHER ')
+    print(' SONARA MOLAB XL - ONE CLICK LAUNCHER V2 ')
     print('=' * 82)
     ensure_clean_environment()
     repair_checkpoint()
