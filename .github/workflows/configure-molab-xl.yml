@@ -23,6 +23,7 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+      SONARA_BROWSER_UA: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36
 
     steps:
       - name: Checkout SONARA
@@ -49,7 +50,7 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in $(seq 1 8); do
-            health="$(curl -fsS --connect-timeout 8 --max-time 15 -H 'Cache-Control: no-cache' "${MOLAB_XL_URL}/health" || true)"
+            health="$(curl -fsS --connect-timeout 8 --max-time 15 -A "${SONARA_BROWSER_UA}" -H 'Accept: application/json' -H 'Cache-Control: no-cache' "${MOLAB_XL_URL}/health" || true)"
 
             health_ok=false
             model_ok=false
@@ -71,9 +72,9 @@ jobs:
 
             inventory=""
             if [[ "${model_ok}" != true ]]; then
-              inventory="$(curl -fsS --connect-timeout 8 --max-time 12 -H 'Cache-Control: no-cache' "${MOLAB_XL_URL}/v1/model_inventory" || true)"
+              inventory="$(curl -fsS --connect-timeout 8 --max-time 12 -A "${SONARA_BROWSER_UA}" -H 'Accept: application/json' -H 'Cache-Control: no-cache' "${MOLAB_XL_URL}/v1/model_inventory" || true)"
               if [[ -z "${inventory}" ]]; then
-                inventory="$(curl -fsS --connect-timeout 8 --max-time 12 -H 'Cache-Control: no-cache' "${MOLAB_XL_URL}/v1/models" || true)"
+                inventory="$(curl -fsS --connect-timeout 8 --max-time 12 -A "${SONARA_BROWSER_UA}" -H 'Accept: application/json' -H 'Cache-Control: no-cache' "${MOLAB_XL_URL}/v1/models" || true)"
               fi
               if [[ -n "${inventory}" ]] && printf '%s' "${inventory}" | jq -e '
                 def d: (.data // .);
@@ -130,7 +131,7 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in $(seq 1 12); do
-            response="$(curl -sS --max-time 30 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/molab/ready?verify=${GITHUB_SHA}-${attempt}" || true)"
+            response="$(curl -sS --max-time 30 -A "${SONARA_BROWSER_UA}" -H 'Accept: application/json' -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/molab/ready?verify=${GITHUB_SHA}-${attempt}" || true)"
             if [[ -n "${response}" ]] && printf '%s' "${response}" | jq -e '
               .profile == "sonara-molab-xl-only-v1" and
               .provider == "molab" and
