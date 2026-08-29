@@ -43,6 +43,73 @@ jobs:
       - name: Validate Video RTX source
         run: python -m py_compile modal/sonara_video_wan22.py
 
+      - name: Normalize and auto-extract Modal deployment credentials
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          import re
+
+          def clean(value: str) -> str:
+              value = (value or "").strip()
+              if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+                  value = value[1:-1].strip()
+              return value
+
+          raw_id = clean(os.environ.get("MODAL_TOKEN_ID", ""))
+          raw_secret = clean(os.environ.get("MODAL_TOKEN_SECRET", ""))
+
+          for name in ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET"):
+              prefix = f"{name}="
+              if raw_id.startswith(prefix):
+                  raw_id = raw_id[len(prefix):].strip()
+              if raw_secret.startswith(prefix):
+                  raw_secret = raw_secret[len(prefix):].strip()
+
+          def extract(prefix: str, *values: str) -> str:
+              pattern = re.compile(re.escape(prefix) + r"[A-Za-z0-9_-]+")
+              for value in values:
+                  if value.startswith(prefix):
+                      return value
+                  match = pattern.search(value)
+                  if match:
+                      return match.group(0)
+              return ""
+
+          token_id = extract("ak-", raw_id, raw_secret) or raw_id
+          token_secret = extract("as-", raw_secret, raw_id) or raw_secret
+
+          for value in (token_id, token_secret):
+              if value:
+                  print(f"::add-mask::{value}")
+
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as handle:
+              handle.write(f"MODAL_TOKEN_ID={token_id}\n")
+              handle.write(f"MODAL_TOKEN_SECRET={token_secret}\n")
+          PY
+
+      - name: Diagnose Modal credential families safely
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          checks = (
+              ("MODAL_TOKEN_ID", "ak-", "wk-"),
+              ("MODAL_TOKEN_SECRET", "as-", "ws-"),
+          )
+          for name, api_prefix, proxy_prefix in checks:
+              value = os.environ.get(name, "").strip()
+              if not value:
+                  family = "missing"
+              elif value.startswith(api_prefix):
+                  family = "api"
+              elif value.startswith(proxy_prefix):
+                  family = "proxy"
+              else:
+                  family = "other"
+              print(f"{name}: family={family}, length={len(value)}")
+          PY
+
       - name: Verify Modal credentials
         shell: bash
         run: |
@@ -50,11 +117,15 @@ jobs:
             echo "MODAL_TOKEN_ID and MODAL_TOKEN_SECRET are required." >&2
             exit 1
           fi
-          if [[ "${MODAL_TOKEN_ID}" != ak-* || "${MODAL_TOKEN_SECRET}" != as-* ]]; then
-            echo "Modal API credentials have an invalid format." >&2
+          if [[ "${MODAL_TOKEN_ID}" != ak-* ]]; then
+            echo "MODAL_TOKEN_ID must contain a Modal API token ID beginning with ak-." >&2
             exit 1
           fi
-          echo "Modal credentials present."
+          if [[ "${MODAL_TOKEN_SECRET}" != as-* ]]; then
+            echo "MODAL_TOKEN_SECRET must contain the matching Modal API token secret beginning with as-." >&2
+            exit 1
+          fi
+          echo "Modal API credentials verified."
 
       - name: Install Modal CLI
         run: python -m pip install --upgrade "modal>=1.4,<2"
