@@ -6,12 +6,12 @@ export { SonaraJobState } from './sonara-job-state-do.mjs';
 const PUBLIC_API_ORIGIN = 'https://api.sonaraenterprise.com';
 const CACHE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/stable-dual-v20/';
 const CACHE_TTL = 3 * 60 * 60;
-const STEPS = 4;
+const STEPS = 8;
 const QUERY_TIMEOUT = 12_000;
 const SUBMIT_TIMEOUT = 60_000;
 const STALL_MS = 180_000;
 const MAX_ATTEMPTS = 2;
-const PROFILE = 'dual-t4-render-only-v24';
+const PROFILE = 'dual-t4-studio-max-8step-v25';
 
 const cleanUrl = value => String(value || '').trim().replace(/\/$/, '');
 const workerUrls = env => String(env.ACESTEP_WORKER_URLS || env.ACE_STEP_API_URLS || env.SONARA_ACE_STEP_WORKERS || '')
@@ -44,7 +44,7 @@ function json(request, data, status = 200) {
     'cache-control': 'private, no-store',
     'x-sonara-music-quality': PROFILE,
     'x-sonara-speed-profile': PROFILE,
-    'x-sonara-real-prompt': 'render-only-stable-v24',
+    'x-sonara-real-prompt': 'studio-max-8step-v25',
     ...cors(request)
   }});
 }
@@ -79,13 +79,21 @@ function stablePayload(body, slot, seed) {
     : controls.styleInfluence <= 30
       ? 'Allow broader stylistic interpretation while preserving the selected core genre.'
       : 'Keep a balanced adherence to the selected style fingerprint.';
-  const candidate = slot === 0
+  const studioCandidate = slot === 0 ? body.sonaraStudioMaxCandidateA : body.sonaraStudioMaxCandidateB;
+  const candidate = String(studioCandidate || (slot === 0
     ? 'Candidate A: emphasize groove, hook identity and section architecture.'
-    : 'Candidate B: keep all technical locks but use a different melodic contour, voicing, transitions and sound-palette balance.';
+    : 'Candidate B: keep all technical locks but use a different melodic contour, voicing, transitions and sound-palette balance.'));
+  const studioLocks = [
+    body.sonaraStudioMaxHookContract,
+    body.sonaraStudioMaxVocalContract,
+    body.sonaraStudioMaxContinuityContract,
+    body.sonaraStudioMaxArrangementContract,
+    body.sonaraStudioMaxProductionContract
+  ].filter(Boolean).join(' ');
 
   const payload = {
     ...base,
-    prompt: `${String(base.prompt || body.prompt || '')}\n\nSONARA STABLE T4 RENDER MODE. ${candidate} ${variation} ${adherence} Weirdness=${controls.weirdness}/100. Style Influence=${controls.styleInfluence}/100. Obey BPM, duration, key, lyrics, genre and subgenre exactly.`.slice(0, 12000),
+    prompt: `${String(base.prompt || body.prompt || '')}\n\nSONARA STUDIO MAX 8-STEP HQ RENDER. ${candidate} ${studioLocks} ${variation} ${adherence} Weirdness=${controls.weirdness}/100. Style Influence=${controls.styleInfluence}/100. Obey BPM, duration, key, lyrics, genre and subgenre exactly.`.slice(0, 12000),
     inference_steps: STEPS,
     batch_size: 1,
     use_random_seed: false,
@@ -207,13 +215,15 @@ function audioUrl(ref) {
 function responseMeta(state, stage) {
   const controls = state.controls || { weirdness: 50, styleInfluence: 50 };
   return {
-    engine: 'SONARA ACE-Step 1.5 Turbo Dual T4 Stable Render',
+    engine: 'SONARA ACE-Step 1.5 Turbo Dual T4 Studio Max HQ',
     candidateCount: 2,
     readyCount: state.slots.filter(s => s.audioRef).length,
     inferenceSteps: STEPS,
     speedProfile: PROFILE,
     renderOnly: true,
     lmThinking: false,
+    studioMax: true,
+    studioMax8Step: true,
     creativeControlsReal: true,
     weirdnessReal: true,
     styleInfluenceReal: true,
@@ -244,8 +254,8 @@ function completed(request, jobId, state) {
     progress: 100,
     audioUrl: urls[0] || null,
     audioUrls: urls,
-    candidates: urls.map((url, index) => ({ id: index ? 'B' : 'A', audioUrl: url, audioFormat: 'wav', strategy: index ? 'stable-detail' : 'stable-structure', inferenceSteps: STEPS })),
-    metadata: responseMeta(state, '2 brani SONARA pronti')
+    candidates: urls.map((url, index) => ({ id: index ? 'B' : 'A', audioUrl: url, audioFormat: 'wav', strategy: index ? 'studio-max-musical-detail' : 'studio-max-hook-structure', inferenceSteps: STEPS })),
+    metadata: responseMeta(state, '2 brani SONARA Studio Max HQ pronti')
   });
 }
 
@@ -277,7 +287,7 @@ async function start(request, env, body) {
       }))
     };
     await save(env, jobId, state);
-    return processing(request, jobId, state, 'GPU0/GPU1: render audio stabile in parallelo');
+    return processing(request, jobId, state, 'GPU0/GPU1: Studio Max HQ 8-step in parallelo');
   } catch (error) {
     return json(request, { jobId, status: 'FAILED', progress: 0, retryable: true, error: error instanceof Error ? error.message : String(error) }, 502);
   }
@@ -368,6 +378,8 @@ async function decorateHealth(request, response, env) {
       ...data,
       stableDual: true,
       stableDualProfile: PROFILE,
+      inferenceSteps: STEPS,
+      studioMax8Step: true,
       aceStepWorkerCount: workers(env).length,
       aceStepWorkers: workers(env).map(({id,kind}) => ({id,kind})),
       renderOnly: true,
