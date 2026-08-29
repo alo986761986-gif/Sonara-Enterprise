@@ -1,0 +1,108 @@
+name: Configure SONARA MoLab XL Hybrid
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/molab-xl-trigger"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonara-molab-xl-config
+  cancel-in-progress: true
+
+jobs:
+  configure:
+    name: Bind MoLab XL-Turbo to SONARA hybrid music router
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+
+      - name: Load MoLab XL endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          trigger=".github/molab-xl-trigger"
+          test -f "${trigger}"
+          url="$(sed -n 's/^SONARA_MOLAB_XL_URL=//p' "${trigger}" | tail -n 1 | tr -d '\r')"
+          model="$(sed -n 's/^MODEL=//p' "${trigger}" | tail -n 1 | tr -d '\r')"
+          mode="$(sed -n 's/^MODE=//p' "${trigger}" | tail -n 1 | tr -d '\r')"
+          [[ "${url}" =~ ^https://[A-Za-z0-9.-]+\.(trycloudflare\.com|gradio\.live)/?$ ]]
+          test "${model}" = "acestep-v15-xl-turbo"
+          test "${mode}" = "MOLAB_XL_KAGGLE_HYBRID"
+          echo "MOLAB_XL_URL=${url%/}" >> "${GITHUB_ENV}"
+
+      - name: Verify MoLab ACE-Step XL-Turbo
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 12); do
+            response="$(curl -fsS --connect-timeout 10 --max-time 25 -H 'Cache-Control: no-cache' "${MOLAB_XL_URL}/health" || true)"
+            if [[ -n "${response}" ]] && printf '%s' "${response}" | jq -e '
+              (.code == 200 or ((.data.status // .status // "") | ascii_downcase) == "ok" or ((.data.status // .status // "") | ascii_downcase) == "ready") and
+              ((.data.models_initialized // .models_initialized // false) == true) and
+              (((.data.loaded_model // .loaded_model // .data.model // .model // "") | tostring) | contains("acestep-v15-xl-turbo"))
+            ' >/dev/null 2>&1; then
+              printf '%s\n' "${response}" | jq '{status: (.data.status // .status), models_initialized: (.data.models_initialized // .models_initialized), loaded_model: (.data.loaded_model // .loaded_model // .data.model // .model), llm_initialized: (.data.llm_initialized // .llm_initialized)}'
+              echo "MoLab XL-Turbo healthy: ${MOLAB_XL_URL}"
+              exit 0
+            fi
+            echo "MoLab XL health attempt ${attempt}/12 failed"
+            sleep 5
+          done
+          echo "MoLab endpoint is not reporting ACE-Step XL-Turbo ready: ${MOLAB_XL_URL}" >&2
+          exit 1
+
+      - name: Resolve Cloudflare account
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN}"
+          account_id="${CLOUDFLARE_ACCOUNT_ID}"
+          if [[ -z "${account_id}" ]]; then
+            zone_response="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' 'https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50')"
+            account_id="$(printf '%s' "${zone_response}" | jq -r '.result[] | select(.name == "sonaraenterprise.com") | .account.id' | head -n 1)"
+          fi
+          test -n "${account_id}"
+          echo "::add-mask::${account_id}"
+          echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
+
+      - name: Bind MoLab XL URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "${MOLAB_XL_URL}" | npx --yes wrangler@latest secret put SONARA_MOLAB_XL_URL --config wrangler.jsonc
+
+      - name: Deploy MoLab plus Kaggle hybrid router
+        run: npx --yes wrangler@latest deploy --config wrangler.jsonc
+
+      - name: Verify production hybrid routing
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 12); do
+            response="$(curl -sS --max-time 30 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/hybrid/ready?verify=${GITHUB_SHA}-${attempt}" || true)"
+            if [[ -n "${response}" ]] && printf '%s' "${response}" | jq -e '
+              .profile == "sonara-molab-kaggle-xl-v1" and
+              any(.workers[]?; .id == "molab-xl" and .kind == "molab" and .ok == true) and
+              any(.workers[]?; .id == "kaggle-t4" and .kind == "kaggle")
+            ' >/dev/null 2>&1; then
+              printf '%s\n' "${response}" | jq '{ready, profile, engine, workers, fallback}'
+              echo "SONARA MoLab XL + Kaggle hybrid routing verified."
+              exit 0
+            fi
+            echo "Production hybrid verification attempt ${attempt}/12 failed"
+            sleep 5
+          done
+          echo "Production hybrid router did not verify MoLab XL." >&2
+          exit 1
