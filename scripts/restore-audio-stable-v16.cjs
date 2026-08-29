@@ -11,12 +11,28 @@ function replaceExact(from, to, label) {
   source = source.replace(from, to);
 }
 
+function isAlreadyStableV16(value) {
+  return !value.includes('function deepAudioRef') &&
+    !value.includes('function taskOutcome') &&
+    !value.includes('heartbeatProgress') &&
+    !value.includes("resultDecoder: 'recursive-v17'") &&
+    !value.includes('progressHeartbeat: true') &&
+    value.includes('const resultItems = parseItems(item?.result)') &&
+    value.includes("const KAGGLE_PROFILE = 'kaggle-t4x2-extreme-fidelity-v16';") &&
+    value.includes('const KAGGLE_STEPS = 12;') &&
+    value.includes('const KAGGLE_GUIDANCE_SCALE = 1.15;');
+}
+
 // Remove the v17 recursive result decoder and restore the exact v16 one-level
 // ACE-Step /query_result decoding that was present in the saved stable build.
 const helperStart = source.indexOf('\n\nfunction deepAudioRef(');
 const helperEnd = source.indexOf('\n\nexport function buildPayload', helperStart);
 if (helperStart < 0 || helperEnd < 0) {
-  throw new Error('[SONARA stable-v16] recursive v17 decoder helpers not found');
+  if (isAlreadyStableV16(source)) {
+    console.log('[SONARA] Audio runtime is already on saved stable v16 behavior; rollback step is a no-op.');
+    process.exit(0);
+  }
+  throw new Error('[SONARA stable-v16] recursive v17 decoder helpers not found and runtime is not verifiably stable v16');
 }
 source = source.slice(0, helperStart) + source.slice(helperEnd);
 
