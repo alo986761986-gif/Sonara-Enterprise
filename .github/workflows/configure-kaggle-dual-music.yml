@@ -28,11 +28,6 @@ jobs:
       - name: Checkout SONARA
         uses: actions/checkout@v6
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-
       - name: Load dual music endpoints
         shell: bash
         run: |
@@ -42,114 +37,78 @@ jobs:
           gpu0="$(sed -n 's/^GPU0=//p' "${trigger}" | tail -n 1 | tr -d '\r')"
           gpu1="$(sed -n 's/^GPU1=//p' "${trigger}" | tail -n 1 | tr -d '\r')"
           mode="$(sed -n 's/^MODE=//p' "${trigger}" | tail -n 1 | tr -d '\r')"
-          validate_url() {
-            local name="$1"
-            local url="$2"
-            if [[ ! "${url}" =~ ^https://[A-Za-z0-9.-]+\.(trycloudflare\.com|gradio\.live)/?$ ]]; then
-              echo "Invalid ${name}: ${url}" >&2
-              exit 1
-            fi
-          }
-          validate_url GPU0 "${gpu0}"
-          validate_url GPU1 "${gpu1}"
+          [[ "${gpu0}" =~ ^https://[A-Za-z0-9.-]+\.(trycloudflare\.com|gradio\.live)/?$ ]]
+          [[ "${gpu1}" =~ ^https://[A-Za-z0-9.-]+\.(trycloudflare\.com|gradio\.live)/?$ ]]
           test "${mode}" = "MUSIC_DUAL_T4"
           echo "KAGGLE_GPU0_URL=${gpu0%/}" >> "${GITHUB_ENV}"
           echo "KAGGLE_GPU1_URL=${gpu1%/}" >> "${GITHUB_ENV}"
 
-      - name: Verify both endpoints are ACE-Step + 5Hz LM
+      - name: Verify both ACE-Step workers
         shell: bash
         run: |
           set -euo pipefail
-          verify_music() {
+          verify_worker() {
             local name="$1"
             local url="$2"
-            for attempt in {1..24}; do
-              if response="$(curl -fsS --connect-timeout 10 --max-time 20 "${url}/health" 2>/dev/null)"; then
-                printf '%s' "${response}" > "/tmp/${name}.json"
-                if NAME="${name}" node - <<'NODE'
-          const fs = require('fs');
-          const name = process.env.NAME;
-          const h = JSON.parse(fs.readFileSync(`/tmp/${name}.json`, 'utf8'));
-          const d = h?.data || h;
-          const ok = h?.code === 200 || String(d?.status || '').toLowerCase() === 'ok';
-          const ace = d?.models_initialized === true && d?.llm_initialized === true && String(d?.loaded_model || '').includes('acestep-v15-turbo') && String(d?.loaded_lm_model || '').includes('0.6B');
-          console.log(JSON.stringify({name, status:d?.status, model:d?.loaded_model, lm:d?.loaded_lm_model}));
-          process.exit(ok && ace ? 0 : 1);
-NODE
-                then
-                  echo "${name} ACE-Step + 5Hz LM healthy: ${url}"
-                  return 0
-                fi
+            for attempt in $(seq 1 12); do
+              response="$(curl -fsS --connect-timeout 10 --max-time 20 "${url}/health" || true)"
+              if [[ -n "${response}" ]] && printf '%s' "${response}" | jq -e '
+                (.code == 200 or ((.data.status // .status // "") | ascii_downcase) == "ok") and
+                ((.data.models_initialized // .models_initialized // false) == true) and
+                ((.data.llm_initialized // .llm_initialized // false) == true) and
+                ((.data.loaded_model // .loaded_model // "") | contains("acestep-v15-turbo")) and
+                ((.data.loaded_lm_model // .loaded_lm_model // "") | contains("0.6B"))
+              ' >/dev/null 2>&1; then
+                echo "${name} healthy: ${url}"
+                return 0
               fi
+              echo "${name} health attempt ${attempt}/12 failed"
               sleep 5
             done
-            echo "${name} is not a valid SONARA ACE-Step worker: ${url}" >&2
+            echo "${name} is not a healthy SONARA ACE-Step worker: ${url}" >&2
             return 1
           }
-          verify_music gpu0 "${KAGGLE_GPU0_URL}"
-          verify_music gpu1 "${KAGGLE_GPU1_URL}"
+          verify_worker gpu0 "${KAGGLE_GPU0_URL}"
+          verify_worker gpu1 "${KAGGLE_GPU1_URL}"
 
       - name: Resolve Cloudflare account
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -z "${CLOUDFLARE_API_TOKEN}" ]]; then
-            echo "Missing Cloudflare API token." >&2
-            exit 1
-          fi
+          test -n "${CLOUDFLARE_API_TOKEN}"
           account_id="${CLOUDFLARE_ACCOUNT_ID}"
           if [[ -z "${account_id}" ]]; then
-            response="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json" "https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50")"
-            account_id="$(CF_RESPONSE="${response}" node - <<'NODE'
-          const payload = JSON.parse(process.env.CF_RESPONSE || '{}');
-          const zone = Array.isArray(payload.result) ? payload.result.find(item => item?.name === 'sonaraenterprise.com') : null;
-          process.stdout.write(String(zone?.account?.id || ''));
-NODE
-            )"
+            zone_response="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' 'https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50')"
+            account_id="$(printf '%s' "${zone_response}" | jq -r '.result[] | select(.name == "sonaraenterprise.com") | .account.id' | head -n 1)"
           fi
           test -n "${account_id}"
           echo "::add-mask::${account_id}"
           echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
 
-      - name: Bind both T4 workers to ACE-Step music
+      - name: Bind both T4 workers to music router
         shell: bash
         run: |
           set -euo pipefail
           workers="${KAGGLE_GPU0_URL},${KAGGLE_GPU1_URL}"
           printf '%s' "${workers}" | npx --yes wrangler@latest secret put ACESTEP_WORKER_URLS --config wrangler.jsonc
-          echo "SONARA Music pool configured with two Kaggle T4 workers."
-
-      - name: Suspend Video AI worker binding
-        shell: bash
-        run: |
-          set -euo pipefail
           printf '%s' "false" | npx --yes wrangler@latest secret put SONARA_ZERO_COST_VIDEO --config wrangler.jsonc
           printf '%s' "false" | npx --yes wrangler@latest secret put SONARA_ENABLE_GEMINI_VIDEO --config wrangler.jsonc
-          echo "Video AI remains suspended while both T4 GPUs serve music."
 
       - name: Deploy dual-T4 music router
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
 
-      - name: Verify production sees two Kaggle music workers
+      - name: Verify production dual T4 routing
         shell: bash
         run: |
           set -euo pipefail
-          for attempt in {1..18}; do
-            if response="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/health?dual=${GITHUB_SHA}-${attempt}" 2>/dev/null)"; then
-              printf '%s' "${response}" > /tmp/music-health.json
-              if node - <<'NODE'
-          const fs = require('fs');
-          const h = JSON.parse(fs.readFileSync('/tmp/music-health.json','utf8'));
-          const workers = Array.isArray(h.aceStepWorkers) ? h.aceStepWorkers : [];
-          const count = Number(h.aceStepWorkerCount || workers.length || 0);
-          console.log(JSON.stringify({status:h.status, aceStepWorkerCount:count, aceStepWorkers:workers, realPromptEngine:h.realPromptEngine, realPromptLmThinking:h.realPromptLmThinking}));
-          process.exit(count >= 2 ? 0 : 1);
-NODE
-              then
-                echo "Dual T4 Music verified in production."
-                exit 0
-              fi
+          for attempt in $(seq 1 12); do
+            response="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/health?dual=${GITHUB_SHA}-${attempt}" || true)"
+            if [[ -n "${response}" ]] && printf '%s' "${response}" | jq -e '((.aceStepWorkerCount // (.aceStepWorkers | length) // 0) | tonumber) >= 2' >/dev/null 2>&1; then
+              printf '%s\n' "${response}" | jq '{status, aceStepWorkerCount, aceStepWorkers, realPromptEngine, realPromptLmThinking}'
+              echo "Dual T4 Music verified in production."
+              exit 0
             fi
+            echo "Production dual-worker verification attempt ${attempt}/12 failed"
             sleep 5
           done
           echo "Production did not report two ACE-Step music workers." >&2
