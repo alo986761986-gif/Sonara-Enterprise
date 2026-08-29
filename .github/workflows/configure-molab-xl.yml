@@ -47,17 +47,43 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in $(seq 1 12); do
-            response="$(curl -fsS --connect-timeout 10 --max-time 25 -H 'Cache-Control: no-cache' "${MOLAB_XL_URL}/health" || true)"
-            if [[ -n "${response}" ]] && printf '%s' "${response}" | jq -e '
-              (.code == 200 or ((.data.status // .status // "") | ascii_downcase) == "ok" or ((.data.status // .status // "") | ascii_downcase) == "ready") and
-              ((.data.models_initialized // .models_initialized // false) == true) and
-              (((.data.loaded_model // .loaded_model // .data.model // .model // "") | tostring) | contains("acestep-v15-xl-turbo"))
+            health="$(curl -fsS --connect-timeout 10 --max-time 25 -H 'Cache-Control: no-cache' "${MOLAB_XL_URL}/health" || true)"
+            inventory="$(curl -fsS --connect-timeout 10 --max-time 25 -H 'Cache-Control: no-cache' "${MOLAB_XL_URL}/v1/model_inventory" || true)"
+            if [[ -z "${inventory}" ]]; then
+              inventory="$(curl -fsS --connect-timeout 10 --max-time 25 -H 'Cache-Control: no-cache' "${MOLAB_XL_URL}/v1/models" || true)"
+            fi
+
+            health_ok=false
+            if [[ -n "${health}" ]] && printf '%s' "${health}" | jq -e '
+              (.code == 200) or
+              (((.data.status // .status // "") | tostring | ascii_downcase) | IN("ok","ready","healthy")) or
+              (((.data.service // .service // "") | tostring | ascii_downcase) | contains("ace-step"))
             ' >/dev/null 2>&1; then
-              printf '%s\n' "${response}" | jq '{status: (.data.status // .status), models_initialized: (.data.models_initialized // .models_initialized), loaded_model: (.data.loaded_model // .loaded_model // .data.model // .model)}'
+              health_ok=true
+            fi
+
+            model_ok=false
+            if [[ -n "${inventory}" ]] && printf '%s' "${inventory}" | jq -e '
+              def d: (.data // .);
+              def direct: [d.loaded_model, d.default_model, d.model] | map(select(. != null) | tostring);
+              def rows: (d.models // []) | map(
+                select(type == "object") |
+                {name: ((.name // .model // "") | tostring), loaded: (.is_loaded // false), default: (.is_default // false)}
+              );
+              (direct | any(contains("acestep-v15-xl-turbo"))) or
+              (rows | any((.name | contains("acestep-v15-xl-turbo")) and (.loaded or .default)))
+            ' >/dev/null 2>&1; then
+              model_ok=true
+            fi
+
+            if [[ "${health_ok}" == true && "${model_ok}" == true ]]; then
               echo "MoLab XL-Turbo healthy: ${MOLAB_XL_URL}"
+              printf '%s\n' "${health}" | jq '.' || true
+              printf '%s\n' "${inventory}" | jq '.' || true
               exit 0
             fi
-            echo "MoLab XL health attempt ${attempt}/12 failed"
+
+            echo "MoLab XL health attempt ${attempt}/12 failed (health=${health_ok}, model=${model_ok})"
             sleep 5
           done
           echo "MoLab endpoint is not reporting ACE-Step XL-Turbo ready: ${MOLAB_XL_URL}" >&2
