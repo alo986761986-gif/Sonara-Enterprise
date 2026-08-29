@@ -16,6 +16,7 @@ const RETRYABLE_GENERATION_STATUSES = new Set([500, 502, 503, 504, 524]);
 const BPM_MIN = 40;
 const BPM_MAX = 220;
 const BPM_DEFAULT = 124;
+const USER_TEMPO_LOCK_PATTERN = /(?:SONARA HARD TEMPO LOCK|Tempo lock)\s*:\s*(?:exactly\s*)?(\d{2,3})\s*BPM\b/i;
 const BPM_TEXT_PATTERN = /\b(\d{2,3})\s*BPM\b/i;
 const API_ALLOWED_ORIGINS = new Set([
   'https://sonaraenterprise.com',
@@ -51,6 +52,11 @@ function parseBpm(value) {
 }
 
 function resolveRequestedBpm(payload) {
+  const prompt = String(payload?.prompt || '');
+  const lockMatch = prompt.match(USER_TEMPO_LOCK_PATTERN);
+  const lockedPromptBpm = lockMatch ? parseBpm(lockMatch[1]) : null;
+  if (lockedPromptBpm !== null) return lockedPromptBpm;
+
   const candidates = [
     payload?.bpm,
     payload?.tempo,
@@ -66,7 +72,8 @@ function resolveRequestedBpm(payload) {
     const bpm = parseBpm(candidate);
     if (bpm !== null) return bpm;
   }
-  const promptMatch = String(payload?.prompt || '').match(BPM_TEXT_PATTERN);
+
+  const promptMatch = prompt.match(BPM_TEXT_PATTERN);
   const promptBpm = promptMatch ? parseBpm(promptMatch[1]) : null;
   return promptBpm ?? BPM_DEFAULT;
 }
@@ -119,14 +126,14 @@ function decorateGenerationResponse(response) {
   headers.set('cache-control', 'no-store');
   headers.set('x-sonara-music-route', 'v19-resilient-dual');
   headers.set('x-sonara-generator-recovery', 'resilient-dual-v19');
-  headers.set('x-sonara-bpm-lock', 'hard-user-bpm-v1');
+  headers.set('x-sonara-bpm-lock', 'hard-user-bpm-v2-visible-control-authoritative');
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
 function decorateDirectEngineResponse(response) {
   const headers = new Headers(response.headers);
   headers.set('cache-control', 'no-store');
-  headers.set('x-sonara-bpm-lock', 'hard-user-bpm-v1');
+  headers.set('x-sonara-bpm-lock', 'hard-user-bpm-v2-visible-control-authoritative');
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
