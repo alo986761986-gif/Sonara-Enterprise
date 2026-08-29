@@ -56,7 +56,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q 'cloudflare/sonara-onboarding-router.mjs' wrangler.jsonc
+          grep -q 'cloudflare/sonara-production-router.mjs' wrangler.jsonc
+          grep -q "./sonara-onboarding-router.mjs" cloudflare/sonara-production-router.mjs
+          grep -q "./sonara-world-tempo-router.mjs" cloudflare/sonara-production-router.mjs
+          grep -q "./sonara-brand-router.mjs" cloudflare/sonara-world-tempo-router.mjs
+          grep -q 'sonara-world-tempo-v1' cloudflare/sonara-world-tempo-router.mjs
+          grep -q '/api/tempo-profile' cloudflare/sonara-world-tempo-router.mjs
           grep -q "./sonara-brand-router.mjs" cloudflare/sonara-onboarding-router.mjs
           grep -q 'sonara-onboarding-guide-v1' cloudflare/sonara-onboarding-router.mjs
           grep -q 'creator-onboarding-v1' cloudflare/sonara-onboarding-router.mjs
@@ -64,13 +69,15 @@ jobs:
           grep -q 'sonara-header-brand-v5' cloudflare/sonara-brand-router.mjs
           grep -q 'sonara-brand-icon.svg' index.html
           grep -q 'sonara-brand-boot.svg' src/components/brand/SonaraBrandControl.tsx
+          node --check cloudflare/sonara-production-router.mjs
+          node --check cloudflare/sonara-world-tempo-router.mjs
           node --check cloudflare/sonara-brand-router.mjs
           node --check cloudflare/sonara-onboarding-router.mjs
 
       - name: Deploy Worker to Cloudflare production
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
 
-      - name: Verify public SONARA favicon, branding and onboarding
+      - name: Verify public SONARA favicon, branding, onboarding and world tempo
         shell: bash
         run: |
           set -euo pipefail
@@ -78,12 +85,24 @@ jobs:
             icon_code="$(curl -L -sS -o /tmp/sonara-icon -w '%{http_code}' --max-time 20 "https://sonaraenterprise.com/sonara-brand-icon.svg?brand=${GITHUB_SHA}-${attempt}" || true)"
             site_headers="$(curl -sSI --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?brand=${GITHUB_SHA}-${attempt}" || true)"
             site_html="$(curl -sS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?brand=${GITHUB_SHA}-${attempt}" || true)"
-            if [[ "${icon_code}" == "200" ]] && printf '%s' "${site_headers}" | grep -qi 'x-sonara-brand: sonic-s-v5' && printf '%s' "${site_headers}" | grep -qi 'x-sonara-header-brand: enterprise-logo-v5' && printf '%s' "${site_headers}" | grep -qi 'x-sonara-guide: creator-onboarding-v1' && printf '%s' "${site_html}" | grep -q 'sonara-header-brand-v5' && printf '%s' "${site_html}" | grep -q 'sonara-onboarding-guide-v1'; then
-              echo "SONARA branding and onboarding guide verified."
+            tempo_headers="$(curl -sSI --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/api/tempo-profile?family=Electronic%20%2F%20Dance&genre=Drum%20%26%20Bass&subgenre=Jungle&prompt=Jungle%20170%20BPM" || true)"
+            tempo_body="$(curl -sS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/api/tempo-profile?family=Electronic%20%2F%20Dance&genre=Drum%20%26%20Bass&subgenre=Jungle&prompt=Jungle%20170%20BPM" || true)"
+            if [[ "${icon_code}" == "200" ]] \
+              && printf '%s' "${site_headers}" | grep -qi 'x-sonara-brand: sonic-s-v5' \
+              && printf '%s' "${site_headers}" | grep -qi 'x-sonara-header-brand: enterprise-logo-v5' \
+              && printf '%s' "${site_headers}" | grep -qi 'x-sonara-guide: creator-onboarding-v1' \
+              && printf '%s' "${site_headers}" | grep -qi 'x-sonara-tempo-taxonomy: sonara-world-tempo-v1' \
+              && printf '%s' "${site_html}" | grep -q 'sonara-header-brand-v5' \
+              && printf '%s' "${site_html}" | grep -q 'sonara-onboarding-guide-v1' \
+              && printf '%s' "${site_html}" | grep -q 'sonara-world-tempo-production-v1' \
+              && printf '%s' "${tempo_headers}" | grep -qi 'x-sonara-tempo-taxonomy: sonara-world-tempo-v1' \
+              && printf '%s' "${tempo_body}" | grep -q '"bpm":170' \
+              && printf '%s' "${tempo_body}" | grep -q '"subgenre":"Jungle"'; then
+              echo "SONARA branding, onboarding and world tempo taxonomy verified."
               exit 0
             fi
-            echo "Brand/onboarding propagation pending (${attempt}/15)."
+            echo "Brand/onboarding/world-tempo propagation pending (${attempt}/15)."
             sleep 4
           done
-          echo "SONARA brand/onboarding public verification failed." >&2
+          echo "SONARA public production verification failed." >&2
           exit 1
