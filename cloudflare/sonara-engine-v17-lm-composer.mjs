@@ -10,6 +10,7 @@ const PROFILE = 'sonara-lm-composer-v17';
 const QUALITY_LOCK = 'v17-5hz-thinking-cot-8step';
 const STUDIO_STEPS = 8;
 const SUBMIT_TIMEOUT_MS = 180_000;
+const QUERY_TIMEOUT_MS = 30_000;
 const HEALTH_TIMEOUT_MS = 20_000;
 
 function clamp(value, fallback, min, max) {
@@ -188,6 +189,72 @@ async function storeJob(jobId, context) {
   );
 }
 
+async function readJob(jobId) {
+  try {
+    if (typeof caches === 'undefined' || !caches.default) return null;
+    const response = await caches.default.match(new Request(cacheUrl(jobId)));
+    return response ? await response.json() : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseTaskResult(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+    } catch {
+      return [];
+    }
+  }
+  return value && typeof value === 'object' ? [value] : [];
+}
+
+function taskFailureMessage(task, candidate) {
+  const items = parseTaskResult(task?.result);
+  const first = items.find(item => item && typeof item === 'object') || {};
+  return String(
+    first?.error ||
+    first?.message ||
+    task?.error ||
+    task?.message ||
+    task?.progress_text ||
+    `Master ${candidate} non completato.`
+  ).trim();
+}
+
+async function diagnoseV17Failure(context, env) {
+  const tasks = Array.isArray(context?.tasks) ? context.tasks.slice(0, 2) : [];
+  for (const taskRef of tasks) {
+    try {
+      const response = await fetch(`${taskRef.baseUrl}/query_result`, {
+        method: 'POST',
+        headers: workerHeaders(env, { 'content-type': 'application/json', Accept: 'application/json' }),
+        body: JSON.stringify({ task_id_list: [taskRef.taskId] }),
+        signal: AbortSignal.timeout(QUERY_TIMEOUT_MS)
+      });
+      if (!response.ok) continue;
+      const payload = await response.json();
+      const task = payload?.data?.[0] || null;
+      if (!task || Number(task.status) === 0 || Number(task.status) === 1) continue;
+      const items = parseTaskResult(task.result);
+      const first = items.find(item => item && typeof item === 'object') || {};
+      return {
+        candidate: taskRef.candidate || '?',
+        strategy: taskRef.strategy || '',
+        workerId: taskRef.workerId || '',
+        status: Number(task.status),
+        stage: String(first?.stage || ''),
+        progress: Number(first?.progress || 0),
+        error: taskFailureMessage(task, taskRef.candidate || '?')
+      };
+    } catch {}
+  }
+  return null;
+}
+
 async function startV17(request, env, body) {
   const workers = await healthyWorkers(env);
   if (!workers.length) {
@@ -286,6 +353,28 @@ async function startV17(request, env, body) {
   }
 }
 
+async function enrichFailedV17Response(request, env, jobId, response) {
+  try {
+    const data = await response.clone().json();
+    if (data?.status !== 'FAILED') return response;
+    const context = await readJob(jobId);
+    if (!context?.v17LmComposer) return response;
+    const diagnostic = await diagnoseV17Failure(context, env);
+    if (!diagnostic?.error) return response;
+    return json(request, {
+      ...data,
+      error: diagnostic.error,
+      aceStepFailure: diagnostic,
+      sonaraMusicV17: true,
+      lmComposer: true,
+      studioQualityProfile: PROFILE,
+      qualityLock: QUALITY_LOCK
+    }, response.status);
+  } catch {
+    return response;
+  }
+}
+
 async function decorateV17Response(request, response) {
   if (!response.ok) return response;
   try {
@@ -336,9 +425,14 @@ export default {
     }
 
     const response = await engineV16.fetch(request, env, ctx);
+    const jobMatch = url.pathname.match(/^\/api\/music\/job\/(d16pair_[^/]+)$/);
+    if (request.method === 'GET' && jobMatch) {
+      const enriched = await enrichFailedV17Response(request, env, jobMatch[1], response);
+      return decorateV17Response(request, enriched);
+    }
     if (
       request.method === 'GET' &&
-      (url.pathname === '/' || url.pathname === '/api/health' || url.pathname === '/api/engine/ready' || /^\/api\/music\/job\/d16pair_/.test(url.pathname))
+      (url.pathname === '/' || url.pathname === '/api/health' || url.pathname === '/api/engine/ready')
     ) {
       return decorateV17Response(request, response);
     }
