@@ -5,6 +5,8 @@ import { analyzeCreatorBrief } from '../../generationPrompt';
 import { getMusicStyleProfile } from '../../musicStyleIntelligence';
 import { AssistantServiceInstance } from '../../services/AssistantService';
 
+type BpmMode = 'manual' | 'auto';
+
 type CreatorContext = {
   family: string;
   genre: string;
@@ -12,6 +14,8 @@ type CreatorContext = {
   mood: string;
   keySignature: string;
   bpm: number;
+  bpmMode: BpmMode;
+  bpmReason: string;
   durationSec: number;
 };
 
@@ -27,6 +31,7 @@ function readCreatorContext(textarea: HTMLTextAreaElement): CreatorContext {
   const selects = card ? Array.from(card.querySelectorAll('select')) : [];
   const valueAt = (index: number, fallback: string) => (selects[index] as HTMLSelectElement | undefined)?.value || fallback;
   const bpmInput = card?.querySelector('input[aria-label="BPM preferiti"]') as HTMLInputElement | null;
+  const bpmMode = bpmInput?.dataset.sonaraBpmMode === 'auto' || card?.dataset.sonaraBpmMode === 'auto' ? 'auto' : 'manual';
 
   return {
     family: valueAt(0, 'Electronic / Dance'),
@@ -35,6 +40,8 @@ function readCreatorContext(textarea: HTMLTextAreaElement): CreatorContext {
     mood: valueAt(3, 'Authentic'),
     keySignature: valueAt(4, 'A Minor'),
     bpm: Number(bpmInput?.value || 124),
+    bpmMode,
+    bpmReason: bpmInput?.dataset.sonaraAutoBpmReason || '',
     durationSec: Number(valueAt(5, '30'))
   };
 }
@@ -47,6 +54,9 @@ function buildIntelligentBrief(currentPrompt: string, context: CreatorContext): 
   const exclusions = analysis.exclusions.length
     ? `CREATOR EXCLUSIONS — STRICT: ${analysis.exclusions.join(' | ')}`
     : '';
+  const tempoInstruction = context.bpmMode === 'auto'
+    ? `SONARA AUTO BPM selected ${context.bpm} BPM from the live musical context${context.bpmReason ? ` (${context.bpmReason})` : ''}. Treat this as the intelligent tempo choice for this creation and keep it coherent with genre, subgenre, mood and groove.`
+    : `Manual BPM lock: exactly ${context.bpm} BPM. The creator chose this tempo explicitly; do not change it.`;
 
   const sections = [
     `CREATOR INTENT — PRESERVE AS AUTHORITATIVE:\n${creatorIntent}`,
@@ -56,7 +66,8 @@ function buildIntelligentBrief(currentPrompt: string, context: CreatorContext): 
     `HARMONY / MUSICAL LANGUAGE:\n${compact(profile.harmony, analysis.detailed ? 360 : 520)}`,
     `ARRANGEMENT DIRECTION:\n${compact(profile.arrangement, analysis.detailed ? 360 : 520)}`,
     `PRODUCTION DIRECTION:\n${compact(profile.production, analysis.detailed ? 420 : 620)}`,
-    `TECHNICAL LOCKS:\n${context.family} → ${context.genre} → ${context.subgenre}; atmosphere ${context.mood}; exactly ${context.bpm} BPM; key ${context.keySignature}; approximately ${context.durationSec} seconds with a complete musical-bar ending.`,
+    `TEMPO INTELLIGENCE:\n${tempoInstruction}`,
+    `TECHNICAL LOCKS:\n${context.family} → ${context.genre} → ${context.subgenre}; atmosphere ${context.mood}; active tempo ${context.bpm} BPM; key ${context.keySignature}; approximately ${context.durationSec} seconds with a complete musical-bar ending.`,
     exclusions,
     'INTELLIGENT PRIORITY RULE: never replace, weaken or contradict explicit creator instructions. Use the selected style DNA only to complete details the creator did not specify. Keep the result original, musically performed, evolving and release-ready.'
   ].filter(Boolean);
