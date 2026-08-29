@@ -165,19 +165,31 @@ function realPayload(payload, slot, attempt = 0) {
     : 'CANDIDATE B: preserve every technical/style lock but create a materially different melodic contour, voicing, performance detail, transitions and sound-palette balance.';
   return {
     ...payload,
-    prompt: `${String(payload.prompt || '')}\n\nSONARA MAX-SPEED V21. ${candidateDirection} Obey BPM, duration, genre, mood, key, lyrics and creator controls exactly. Render immediately without extra reasoning passes.`.slice(0, 12000),
+    prompt: `${String(payload.prompt || '')}\n\nSONARA MAX-SPEED V21 REAL CREATIVE CONTROLS. ${candidateDirection} Weirdness is an active 5Hz LM sampling control through temperature and top-p. Style Influence is an active 5Hz LM guidance control through LM CFG. Obey BPM, duration, genre, mood, key and lyrics exactly.`.slice(0, 12000),
     inference_steps: STEPS,
     batch_size: 1,
     use_random_seed: false,
     seed: seed + (slot + 1) * 104729 + attempt * 7919,
-    thinking: false,
-    use_format: false,
+    thinking: true,
+    use_format: true,
     use_cot_metas: false,
-    use_cot_caption: false,
-    use_cot_language: false,
-    constrained_decoding: false,
+    use_cot_caption: true,
+    use_cot_language: true,
+    constrained_decoding: true,
     allow_lm_batch: false
   };
+}
+
+function creativeControlAudit(state) {
+  const payloads = Array.isArray(state?.payloads) ? state.payloads.slice(0, 2) : [];
+  return payloads.map((payload, index) => ({
+    candidate: index === 0 ? 'A' : 'B',
+    lmTemperature: Number(payload?.lm_temperature),
+    lmCfgScale: Number(payload?.lm_cfg_scale),
+    lmTopP: Number(payload?.lm_top_p),
+    lmRepetitionPenalty: Number(payload?.lm_repetition_penalty),
+    thinking: true
+  }));
 }
 
 function audioUrl(ref) { return `${PUBLIC_API_ORIGIN}/api/modal/audio?sonara_worker=${encodeURIComponent(ref.workerId)}&path=${encodeURIComponent(ref.path)}`; }
@@ -186,11 +198,11 @@ function completed(request, jobId, state) {
   const urls = refs.map(audioUrl);
   return json(request, { jobId, status: 'COMPLETED', progress: 100, audioUrl: urls[0] || null, audioUrls: urls,
     candidates: urls.map((url, index) => ({ id: index ? 'B' : 'A', audioUrl: url, audioFormat: 'wav', strategy: index ? 'max-speed-detail' : 'max-speed-structure', inferenceSteps: STEPS })),
-    metadata: { engine: 'SONARA ACE-Step 1.5 Turbo Dual T4', candidateCount: urls.length, inferenceSteps: STEPS, speedProfile: PROFILE, maxSpeed: true, realPrompt: true, lmThinking: false, cotCaption: false, constrainedDecoding: false, automaticMissingTrackRecovery: true, durableJobState: true, currentStage: '2 brani SONARA MAX SPEED pronti' } });
+    metadata: { engine: 'SONARA ACE-Step 1.5 Turbo Dual T4 + 5Hz LM', candidateCount: urls.length, inferenceSteps: STEPS, speedProfile: PROFILE, maxSpeed: true, realPrompt: true, lmThinking: true, cotCaption: true, constrainedDecoding: true, creativeControlsReal: true, weirdnessReal: true, styleInfluenceReal: true, creativeControlEngine: '5Hz-LM-sampling-and-CFG', candidateCreativeControls: creativeControlAudit(state), automaticMissingTrackRecovery: true, durableJobState: true, currentStage: '2 brani SONARA REAL CONTROLS pronti' } });
 }
 function processing(request, jobId, state, progress, stage) {
   return json(request, { jobId, status: 'PROCESSING', progress, retryable: true,
-    metadata: { engine: 'SONARA ACE-Step 1.5 Turbo Dual T4', candidateCount: 2, readyCount: state.slots.filter(slot => slot.audioRef).length, inferenceSteps: STEPS, speedProfile: PROFILE, maxSpeed: true, realPrompt: true, lmThinking: false, automaticMissingTrackRecovery: true, durableJobState: true, currentStage: stage } });
+    metadata: { engine: 'SONARA ACE-Step 1.5 Turbo Dual T4 + 5Hz LM', candidateCount: 2, readyCount: state.slots.filter(slot => slot.audioRef).length, inferenceSteps: STEPS, speedProfile: PROFILE, maxSpeed: true, realPrompt: true, lmThinking: true, creativeControlsReal: true, weirdnessReal: true, styleInfluenceReal: true, creativeControlEngine: '5Hz-LM-sampling-and-CFG', candidateCreativeControls: creativeControlAudit(state), automaticMissingTrackRecovery: true, durableJobState: true, currentStage: stage } });
 }
 
 async function start(request, env, body) {
@@ -200,13 +212,13 @@ async function start(request, env, body) {
   const seed = Math.max(1, Math.floor(Date.now() % 2_000_000_000));
   const payloads = [buildV17Payload(body, 'structure', seed + 7919), buildV17Payload(body, 'detail', seed + 15838)];
   const jobId = `d16pair_${crypto.randomUUID()}`;
-  const base = { createdAt: Date.now(), updatedAt: Date.now(), payloads, failures: 0, speedProfile: PROFILE, maxSpeed: true, realPrompt: true, lmThinking: false };
+  const base = { createdAt: Date.now(), updatedAt: Date.now(), payloads, failures: 0, speedProfile: PROFILE, maxSpeed: true, realPrompt: true, lmThinking: true, creativeControlsReal: true };
   try {
     if (pool.length >= 2) {
       const tasks = await Promise.all([submit(pool[0], env, realPayload(payloads[0], 0)), submit(pool[1], env, realPayload(payloads[1], 1))]);
       const state = { ...base, mode: 'slots', slots: tasks.map((task, i) => ({ candidate: i ? 'B' : 'A', worker: pool[i], payload: payloads[i], task, audioRef: null, attempts: 1 })) };
       await save(env, jobId, state);
-      return processing(request, jobId, state, 42, 'SONARA MAX SPEED: GPU0 e GPU1 stanno renderizzando i 2 brani in parallelo');
+      return processing(request, jobId, state, 42, 'SONARA REAL CONTROLS: 5Hz LM + GPU0/GPU1 stanno generando i 2 brani in parallelo');
     }
 
     const firstTask = await submit(pool[0], env, realPayload(payloads[0], 0));
@@ -220,7 +232,7 @@ async function start(request, env, body) {
       ]
     };
     await save(env, jobId, state);
-    return processing(request, jobId, state, 30, 'SONARA MAX SPEED: rendering sulla T4 disponibile');
+    return processing(request, jobId, state, 30, 'SONARA REAL CONTROLS: rendering sulla T4 disponibile con 5Hz LM attivo');
   } catch (error) {
     return json(request, { jobId, status: 'FAILED', progress: 0, retryable: true, error: error instanceof Error ? error.message : String(error) }, 502);
   }
@@ -257,7 +269,7 @@ async function pollSlots(request, env, jobId, state) {
   if (!pending || state.slots.some(slot => !slot.audioRef && !slot.task)) state = await launchMissing(state, env);
   await save(env, jobId, state);
   const ready = state.slots.filter(slot => slot.audioRef).length;
-  return processing(request, jobId, state, ready ? 84 + ready * 8 : 68, ready ? 'SONARA MAX SPEED: primo brano pronto, seconda T4 ancora in rendering' : 'SONARA MAX SPEED: rendering parallelo su entrambe le T4');
+  return processing(request, jobId, state, ready ? 84 + ready * 8 : 68, ready ? 'SONARA REAL CONTROLS: primo brano pronto, seconda T4 ancora in rendering' : 'SONARA REAL CONTROLS: 5Hz LM + rendering parallelo su entrambe le T4');
 }
 
 async function poll(request, env, jobId) {
@@ -269,14 +281,14 @@ async function poll(request, env, jobId) {
     state.failures = Number(state.failures || 0) + 1;
     await save(env, jobId, state).catch(() => undefined);
     if (state.failures >= 6) return json(request, { jobId, status: 'FAILED', progress: 0, retryable: true, error: error instanceof Error ? error.message : String(error) }, 502);
-    return processing(request, jobId, state, 70, `SONARA MAX SPEED: riconnessione T4 (${state.failures}/6)`);
+    return processing(request, jobId, state, 70, `SONARA REAL CONTROLS: riconnessione T4 (${state.failures}/6)`);
   }
 }
 
 async function decorateHealth(request, response, env) {
   try {
     const data = await response.clone().json();
-    return json(request, { ...data, resilientDual: true, resilientDualProfile: PROFILE, resilientDualInferenceSteps: STEPS, resilientDualAutomaticMissingTrackRecovery: true, resilientDualDurableState: Boolean(env?.SONARA_JOB_STATE), maxSpeed: true, realPromptEngine: true, realPromptVersion: 'v21-dual-t4-max-speed', realPromptLmThinking: false, realPromptCotCaption: false, realPromptConstrainedDecoding: false }, response.status);
+    return json(request, { ...data, resilientDual: true, resilientDualProfile: PROFILE, resilientDualInferenceSteps: STEPS, resilientDualAutomaticMissingTrackRecovery: true, resilientDualDurableState: Boolean(env?.SONARA_JOB_STATE), maxSpeed: true, realPromptEngine: true, realPromptVersion: 'v21-dual-t4-max-speed', realPromptLmThinking: true, realPromptCotCaption: true, realPromptConstrainedDecoding: true, realCreativeControls: true, weirdnessReal: true, styleInfluenceReal: true, creativeControlEngine: '5Hz-LM-sampling-and-CFG' }, response.status);
   } catch { return response; }
 }
 
