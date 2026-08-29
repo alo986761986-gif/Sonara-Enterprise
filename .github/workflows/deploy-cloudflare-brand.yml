@@ -63,6 +63,11 @@ jobs:
           grep -q 'CREATOR INTENT' cloudflare/sonara-studio-max-router.mjs
           grep -q 'HOOK/STRUCTURE' src/sonaraStudioMaxIntelligence.ts
           grep -q 'MUSICAL DETAIL' src/sonaraStudioMaxIntelligence.ts
+          grep -q 'const STEPS = 8' cloudflare/sonara-engine-v20-stable-dual.mjs
+          grep -q 'dual-t4-studio-max-8step-v25' cloudflare/sonara-engine-v20-stable-dual.mjs
+          grep -q 'SONARA STUDIO MAX 8-STEP HQ RENDER' cloudflare/sonara-engine-v20-stable-dual.mjs
+          grep -q 'sonaraStudioMaxCandidateA' cloudflare/sonara-engine-v20-stable-dual.mjs
+          grep -q 'sonaraStudioMaxCandidateB' cloudflare/sonara-engine-v20-stable-dual.mjs
           grep -q "./sonara-production-router.mjs" cloudflare/sonara-world-style-production-router.mjs
           grep -q 'sonara-world-style-v1' cloudflare/sonara-world-style-production-router.mjs
           grep -q '/api/style-profile' cloudflare/sonara-world-style-production-router.mjs
@@ -85,6 +90,7 @@ jobs:
           grep -q 'sonara-brand-icon.svg' index.html
           grep -q 'sonara-brand-boot.svg' src/components/brand/SonaraBrandControl.tsx
           npx --yes tsx src/musicStyleIntelligence.world.test.ts
+          node --check cloudflare/sonara-engine-v20-stable-dual.mjs
           node --check cloudflare/sonara-studio-max-router.mjs
           node --check cloudflare/sonara-world-style-production-router.mjs
           node --check cloudflare/sonara-production-router.mjs
@@ -133,11 +139,11 @@ jobs:
               && printf '%s' "${tempo_body}" | grep -q '"bpm":170' \
               && printf '%s' "${recovery_probe}" | grep -qi 'x-sonara-job-recovery: sonara-job-recovery-v1' \
               && printf '%s' "${recovery_probe}" | grep -q 'Job SONARA non trovato'; then
-              echo "SONARA Studio Max, world style DNA, world tempo taxonomy and anti-stall recovery verified."
+              echo "SONARA Studio Max 8-step HQ, world style DNA, world tempo taxonomy and anti-stall recovery verified."
               exit 0
             fi
-            echo "SONARA Studio Max propagation pending (${attempt}/15)."
+            echo "SONARA Studio Max 8-step propagation pending (${attempt}/15)."
             sleep 4
           done
-          echo "SONARA Studio Max public production verification failed." >&2
+          echo "SONARA Studio Max 8-step public production verification failed." >&2
           exit 1
