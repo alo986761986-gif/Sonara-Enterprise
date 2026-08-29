@@ -16,6 +16,7 @@ import StudioSectionControl from './components/studio/StudioSectionControl';
 import VideoAISectionControl from './components/video/VideoAISectionControl';
 import DJSectionControl from './components/dj/DJSectionControl';
 import SidebarIconPolish from './components/navigation/SidebarIconPolish';
+import SonaraBrandControl from './components/brand/SonaraBrandControl';
 import './index.css';
 
 const legalPath = window.location.pathname.replace(/\/+$/, '').toLowerCase();
@@ -25,6 +26,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     {legalKind ? <LegalDocumentPage kind={legalKind} /> : (
       <>
+        <SonaraBrandControl />
         <BootAuth>
           <App />
         </BootAuth>
