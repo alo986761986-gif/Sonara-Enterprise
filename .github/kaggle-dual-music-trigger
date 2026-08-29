@@ -1,0 +1,6 @@
+GPU0=https://jumping-const-tubes-mainland.trycloudflare.com
+GPU1=https://little-viking-midwest-limousines.trycloudflare.com
+MODE=MUSIC_DUAL_T4
+ACTION=verify-and-bind-stable-dual-t4
+RUNTIME=float32-pt-cpu-offload
+ROLLBACK=4c076f27b698e8dc719952d6f58aaa3de2545caa
