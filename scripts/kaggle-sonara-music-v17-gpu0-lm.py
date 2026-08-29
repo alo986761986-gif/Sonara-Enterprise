@@ -60,6 +60,26 @@ print(f'GPU0 music worker fermati: {len(stopped)}')
 print('GPU1 Video AI: NON TOCCATA')
 print('Cloudflared   : NON TOCCATO')
 
+# ACE-Step upstream currently forces float16 on pre-Ampere CUDA even when
+# ACESTEP_DTYPE=float32 is requested. Tesla T4 can then produce NaN/Inf latents
+# on a second sequential render. Patch only that dtype decision, idempotently,
+# so the official loader honors SONARA's explicit float32 stability request.
+orchestrator = BASE / 'acestep/core/generation/handler/init_service_orchestrator.py'
+if not orchestrator.exists():
+    raise RuntimeError(f'Loader ACE-Step non trovato: {orchestrator}')
+source = orchestrator.read_text(encoding='utf-8')
+marker = 'SONARA T4 stability override: using float32 via ACESTEP_DTYPE.'
+if marker not in source:
+    old = '''            elif resolved_device == "cuda":\n                if gpu_config.cuda_supports_bfloat16():\n                    self.dtype = torch.bfloat16\n                else:\n                    self.dtype = torch.float16\n                    logger.info(\n                        "[initialize_service] Pre-Ampere CUDA detected: "\n                        "using float16 instead of bfloat16."\n                    )\n'''
+    new = '''            elif resolved_device == "cuda":\n                requested_dtype = os.environ.get("ACESTEP_DTYPE", "").strip().lower()\n                if requested_dtype == "float32":\n                    self.dtype = torch.float32\n                    logger.info(\n                        "[initialize_service] SONARA T4 stability override: using float32 via ACESTEP_DTYPE."\n                    )\n                elif gpu_config.cuda_supports_bfloat16():\n                    self.dtype = torch.bfloat16\n                else:\n                    self.dtype = torch.float16\n                    logger.info(\n                        "[initialize_service] Pre-Ampere CUDA detected: "\n                        "using float16 instead of bfloat16."\n                    )\n'''
+    if old not in source:
+        raise RuntimeError('Patch FP32 SONARA non applicabile: ramo dtype ACE-Step upstream cambiato.')
+    orchestrator.write_text(source.replace(old, new, 1), encoding='utf-8')
+    source = orchestrator.read_text(encoding='utf-8')
+if marker not in source:
+    raise RuntimeError('Patch FP32 SONARA non verificata nel loader ACE-Step.')
+print('Patch T4 FP32 reale: APPLICATA')
+
 # T4-stable profile. Start the REST service in lazy mode first, then call the
 # official local /v1/init endpoint. This prevents startup crashes from hiding
 # the real model initialization error and keeps HTTP generation asynchronous.
@@ -76,8 +96,6 @@ settings = {
     'ACESTEP_OFFLOAD_TO_CPU': 'true',
     'ACESTEP_OFFLOAD_DIT_TO_CPU': 'false',
     'ACESTEP_USE_FLASH_ATTENTION': 'false',
-    # Compile affects speed, not generation quality. Keep it off for the T4
-    # bootstrap to avoid compiler/cache failures; it can be re-enabled later.
     'ACESTEP_COMPILE_MODEL': 'false',
     'ACESTEP_SAVE_MEMORY': '1',
     'ACESTEP_API_WORKERS': '1',
@@ -164,9 +182,6 @@ def server_health_ok():
     except Exception:
         return False
 
-
-# Phase 1: only require the API process to become reachable. Models are still
-# intentionally unloaded at this point.
 server_deadline = time.time() + 180
 while time.time() < server_deadline:
     if proc.poll() is not None:
@@ -182,8 +197,6 @@ else:
 print('API locale: ONLINE')
 print('Carico ora Turbo + 5Hz LM 0.6B tramite /v1/init...')
 
-# Phase 2: official API model initialization. This request is local, so it can
-# safely take several minutes without Cloudflare/HTTP 524 limits.
 init_payload = {
     'model': 'acestep-v15-turbo',
     'slot': 1,
@@ -204,9 +217,13 @@ if init_status != 200 or init_body.get('code') not in (None, 200):
 
 print(f'/v1/init completata in {init_seconds:.1f}s')
 
-# Phase 3: verify the loaded models using the service health and internal
-# inventory endpoints. /v1/models may be claimed by the OpenAI-compatible
-# route and can legitimately return a LIST instead of ACE-Step inventory.
+# Prove the patched loader actually selected FP32, not merely that the source
+# file was edited. This catches stale imports or upstream loader changes.
+log_text = LOG.read_text(errors='ignore') if LOG.exists() else ''
+if marker not in log_text:
+    raise RuntimeError('FP32 T4 non attivo a runtime: marker loader assente.\n' + log_text[-30000:])
+print('DiT runtime dtype : FLOAT32 VERIFICATO')
+
 last_health = {}
 last_inventory = {}
 verify_deadline = time.time() + 120
@@ -254,8 +271,6 @@ else:
         + ' Inventory=' + repr(last_inventory) + '\n' + tail
     )
 
-# Phase 4: prove asynchronous thinking=true queue submission. Official API
-# duration minimum is 10 seconds. The request must return task_id promptly.
 probe = {
     'prompt': 'deep house instrumental production analysis',
     'lyrics': '',
@@ -290,6 +305,7 @@ print()
 print('✅ SONARA MUSIC V17 GPU0 PRONTA')
 print('Server API     : acestep-api DEDICATO / ASINCRONO')
 print('Model          : acestep-v15-turbo')
+print('DiT dtype      : FLOAT32 T4-SAFE')
 print('Inference HQ   : 8-step profile lato Sonara V17')
 print('5Hz LM         : acestep-5Hz-lm-0.6B ATTIVO')
 print('LM backend     : PT / T4-safe offload')
