@@ -15,6 +15,7 @@ jobs:
     timeout-minutes: 20
     env:
       API_ORIGIN: https://api.sonaraenterprise.com
+      WEB_ORIGIN: https://sonaraenterprise.com
       SONARA_INTERNAL_PROXY_SECRET: ${{ secrets.SONARA_INTERNAL_PROXY_SECRET }}
     steps:
       - name: Submit real V18 generation
@@ -33,24 +34,24 @@ jobs:
           if [[ "$http_code" != '202' && "$http_code" != '200' ]]; then exit 1; fi
           node -e "const fs=require('fs');const r=JSON.parse(fs.readFileSync('/tmp/start.json','utf8'));if(!r.jobId)throw new Error('No V18 jobId');if(r.sonaraMusicV18!==true)throw new Error('V18 marker missing');if(r.metadata?.stateTransport!=='job-id-direct-task')throw new Error('Stateless transport missing');console.log('SONARA_V18_JOB_ID='+r.jobId)" >> "$GITHUB_ENV"
 
-      - name: Poll V18 until completion
+      - name: Poll V18 through public website until completion
         shell: bash
         run: |
           set -euo pipefail
           for attempt in {1..100}; do
-            code="$(curl -sS --max-time 45 -o /tmp/job.json -w '%{http_code}' -H 'Cache-Control: no-cache' "$API_ORIGIN/api/music/job/$SONARA_V18_JOB_ID?attempt=$attempt" || true)"
+            code="$(curl -sS --max-time 45 -o /tmp/job.json -w '%{http_code}' -H 'Cache-Control: no-cache' "$WEB_ORIGIN/api/music/job/$SONARA_V18_JOB_ID?attempt=$attempt" || true)"
             echo "--- attempt ${attempt} HTTP ${code} ---"
             cat /tmp/job.json 2>/dev/null || true
             echo
             if [[ "$code" == '200' ]]; then
               status="$(node -e "const fs=require('fs');const r=JSON.parse(fs.readFileSync('/tmp/job.json','utf8'));process.stdout.write(String(r.status||''))" 2>/dev/null || true)"
               if [[ "$status" == 'COMPLETED' ]]; then
-                node -e "const fs=require('fs');const r=JSON.parse(fs.readFileSync('/tmp/job.json','utf8'));if(!r.audioUrl)throw new Error('COMPLETED without audioUrl');if(r.sonaraMusicV18!==true)throw new Error('V18 marker lost');console.log('V18 COMPLETED with audio: '+r.audioUrl)"
+                node -e "const fs=require('fs');const r=JSON.parse(fs.readFileSync('/tmp/job.json','utf8'));if(!r.audioUrl)throw new Error('COMPLETED without audioUrl');if(r.sonaraMusicV18!==true)throw new Error('V18 marker lost');console.log('WEB V18 COMPLETED with audio: '+r.audioUrl)"
                 exit 0
               fi
               if [[ "$status" == 'FAILED' ]]; then exit 1; fi
             fi
             sleep 5
           done
-          echo 'Timed out waiting for V18.' >&2
+          echo 'Timed out waiting for V18 through public web origin.' >&2
           exit 1
