@@ -204,7 +204,10 @@ if init_status != 200 or init_body.get('code') not in (None, 200):
 
 print(f'/v1/init completata in {init_seconds:.1f}s')
 
-# Phase 3: require the current API inventory to prove both models are loaded.
+# Phase 3: verify the loaded models using the service health and internal
+# inventory endpoints. /v1/models may be claimed by the OpenAI-compatible
+# route and can legitimately return a LIST instead of ACE-Step inventory.
+last_health = {}
 last_inventory = {}
 verify_deadline = time.time() + 120
 while time.time() < verify_deadline:
@@ -212,30 +215,44 @@ while time.time() < verify_deadline:
         tail = LOG.read_text(errors='ignore')[-30000:] if LOG.exists() else ''
         raise RuntimeError('acestep-api terminata dopo /v1/init:\n' + tail)
     try:
-        status, payload, _ = request_json('/v1/models', timeout=10)
-        data = payload.get('data') or payload
-        last_inventory = data or last_inventory
-        text = json.dumps(data, ensure_ascii=False)
-        if (
-            status == 200
-            and payload.get('code') in (None, 200)
-            and data.get('llm_initialized') is True
-            and '0.6B' in str(data.get('loaded_lm_model') or '')
-            and 'acestep-v15-turbo' in text
-        ):
-            loaded_turbo = any(
-                str(m.get('name')) == 'acestep-v15-turbo' and m.get('is_loaded') is True
-                for m in (data.get('models') or [])
-                if isinstance(m, dict)
-            )
-            if loaded_turbo:
-                break
+        health_status, health_payload, _ = request_json('/health', timeout=10)
+        health_data = health_payload.get('data') or health_payload
+        last_health = health_data or last_health
+
+        inv_status, inv_payload, _ = request_json('/v1/model_inventory', timeout=10)
+        inv_data = inv_payload.get('data') or inv_payload
+        last_inventory = inv_data or last_inventory
+
+        loaded_turbo = any(
+            str(m.get('name')) == 'acestep-v15-turbo' and m.get('is_loaded') is True
+            for m in (inv_data.get('models') or [])
+            if isinstance(m, dict)
+        )
+        lm_ok = (
+            inv_data.get('llm_initialized') is True
+            and '0.6B' in str(inv_data.get('loaded_lm_model') or '')
+        )
+        health_ok = (
+            health_status == 200
+            and health_payload.get('code') in (None, 200)
+            and str(health_data.get('status') or '').lower() == 'ok'
+            and health_data.get('models_initialized') is True
+            and health_data.get('llm_initialized') is True
+            and 'acestep-v15-turbo' in str(health_data.get('loaded_model') or '')
+            and '0.6B' in str(health_data.get('loaded_lm_model') or '')
+        )
+        inventory_ok = inv_status == 200 and inv_payload.get('code') in (None, 200) and loaded_turbo and lm_ok
+        if health_ok and inventory_ok:
+            break
     except Exception:
         pass
     time.sleep(3)
 else:
     tail = LOG.read_text(errors='ignore')[-30000:] if LOG.exists() else ''
-    raise RuntimeError('Inventory V17 non pronta: ' + repr(last_inventory) + '\n' + tail)
+    raise RuntimeError(
+        'Verifica V17 non pronta. Health=' + repr(last_health)
+        + ' Inventory=' + repr(last_inventory) + '\n' + tail
+    )
 
 # Phase 4: prove asynchronous thinking=true queue submission. Official API
 # duration minimum is 10 seconds. The request must return task_id promptly.
@@ -282,4 +299,4 @@ print(f'Async submit   : OK in {probe_seconds:.2f}s / task {probe_task_id}')
 print('GPU0           : Music AI')
 print('GPU1           : Video AI INVARIATA')
 print()
-print(json.dumps(last_inventory, ensure_ascii=False)[:4000])
+print(json.dumps({'health': last_health, 'inventory': last_inventory}, ensure_ascii=False)[:6000])
