@@ -94,37 +94,38 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cat > /tmp/validate-v17-job.js <<'NODE'
+          const fs = require('fs');
+          const r = JSON.parse(fs.readFileSync('/tmp/job.json','utf8'));
+          const m = r.metadata || {};
+          if (r.sonaraMusicV17 !== true) throw new Error('Completed response lost V17 marker.');
+          if (r.lmComposer !== true || m.lmComposer !== true) throw new Error('Completed response lost LM Composer marker.');
+          if (m.thinking !== true || m.cotCaption !== true || m.cotLanguage !== true || m.constrainedDecoding !== true) {
+            throw new Error(`LM planning metadata incomplete: ${JSON.stringify(m)}`);
+          }
+          if (Number(m.inferenceSteps) !== 8) throw new Error(`Expected 8 steps, got ${m.inferenceSteps}`);
+          if (!Array.isArray(r.candidates) || r.candidates.length !== 2) throw new Error('Expected two completed candidates.');
+          if (!r.candidates.every(c => typeof c.audioUrl === 'string' && c.audioUrl.length > 0)) throw new Error('Candidate audio URL missing.');
+          console.log(JSON.stringify({
+            status: r.status,
+            profile: m.studioQualityProfile,
+            qualityLock: m.qualityLock,
+            lmModel: m.lmModel,
+            thinking: m.thinking,
+            cotCaption: m.cotCaption,
+            cotLanguage: m.cotLanguage,
+            constrainedDecoding: m.constrainedDecoding,
+            inferenceSteps: m.inferenceSteps,
+            candidates: r.candidates.map(c => ({ id: c.id, strategy: c.strategy, hasAudio: Boolean(c.audioUrl) }))
+          }, null, 2));
+          NODE
           for attempt in {1..120}; do
             if curl -fsS --max-time 45 -H 'Cache-Control: no-cache' "$API_ORIGIN/api/music/job/$SONARA_V17_JOB_ID?attempt=$attempt" > /tmp/job.json 2>/dev/null; then
               status="$(node -e "const r=require('/tmp/job.json'); process.stdout.write(String(r.status||''))")"
               stage="$(node -e "const r=require('/tmp/job.json'); process.stdout.write(String(r.metadata?.currentStage||''))")"
               echo "Attempt $attempt: $status - $stage"
               if [[ "$status" == 'COMPLETED' ]]; then
-                node - <<'NODE'
-                const fs = require('fs');
-                const r = JSON.parse(fs.readFileSync('/tmp/job.json','utf8'));
-                const m = r.metadata || {};
-                if (r.sonaraMusicV17 !== true) throw new Error('Completed response lost V17 marker.');
-                if (r.lmComposer !== true || m.lmComposer !== true) throw new Error('Completed response lost LM Composer marker.');
-                if (m.thinking !== true || m.cotCaption !== true || m.cotLanguage !== true || m.constrainedDecoding !== true) {
-                  throw new Error(`LM planning metadata incomplete: ${JSON.stringify(m)}`);
-                }
-                if (Number(m.inferenceSteps) !== 8) throw new Error(`Expected 8 steps, got ${m.inferenceSteps}`);
-                if (!Array.isArray(r.candidates) || r.candidates.length !== 2) throw new Error('Expected two completed candidates.');
-                if (!r.candidates.every(c => typeof c.audioUrl === 'string' && c.audioUrl.length > 0)) throw new Error('Candidate audio URL missing.');
-                console.log(JSON.stringify({
-                  status: r.status,
-                  profile: m.studioQualityProfile,
-                  qualityLock: m.qualityLock,
-                  lmModel: m.lmModel,
-                  thinking: m.thinking,
-                  cotCaption: m.cotCaption,
-                  cotLanguage: m.cotLanguage,
-                  constrainedDecoding: m.constrainedDecoding,
-                  inferenceSteps: m.inferenceSteps,
-                  candidates: r.candidates.map(c => ({ id: c.id, strategy: c.strategy, hasAudio: Boolean(c.audioUrl) }))
-                }, null, 2));
-                NODE
+                node /tmp/validate-v17-job.js
                 exit 0
               fi
               if [[ "$status" == 'FAILED' ]]; then
