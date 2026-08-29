@@ -1,0 +1,5 @@
+SONARA_MOLAB_XL_URL=https://page-elsewhere-system-containers.trycloudflare.com
+MODEL=acestep-v15-xl-turbo
+MODE=MOLAB_XL_KAGGLE_HYBRID
+ACTION=bind-and-deploy
+VERIFY=20260829-2212
