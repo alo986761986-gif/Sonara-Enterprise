@@ -7,6 +7,7 @@ import IntelligentPromptControl from './components/generator/IntelligentPromptCo
 import IntelligentLyricsControl from './components/generator/IntelligentLyricsControl';
 import VocalCharacterControl from './components/generator/VocalCharacterControl';
 import DualTrackGenerationControl from './components/generator/DualTrackGenerationControl';
+import RealMusicIntelligenceBridge from './components/generator/RealMusicIntelligenceBridge';
 import SonaraCreatorSkin from './components/generator/SonaraCreatorSkin';
 import StudioSectionControl from './components/studio/StudioSectionControl';
 import VideoAISectionControl from './components/video/VideoAISectionControl';
@@ -24,6 +25,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <BootAuth>
           <App />
         </BootAuth>
+        <RealMusicIntelligenceBridge />
         <IntelligentPromptControl />
         <IntelligentLyricsControl />
         <VocalCharacterControl />
