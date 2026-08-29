@@ -177,12 +177,12 @@ function jsonGenerationFailure(upstreamStatus, message) {
       'content-type': 'application/json; charset=utf-8',
       'cache-control': 'no-store',
       'x-content-type-options': 'nosniff',
-      'x-sonara-generator-recovery': 'billing-json-v3-v17'
+      'x-sonara-generator-recovery': 'billing-json-v4-v18-fast-hq'
     }
   });
 }
 
-async function forceV17GenerationRequest(request) {
+async function forceV18GenerationRequest(request) {
   try {
     const contentType = String(request.headers.get('content-type') || '').toLowerCase();
     if (!contentType.includes('application/json')) return request;
@@ -191,16 +191,19 @@ async function forceV17GenerationRequest(request) {
 
     const headers = new Headers(request.headers);
     headers.set('content-type', 'application/json');
-    headers.set('x-sonara-music-route', 'v17-dual-master');
+    headers.set('x-sonara-music-route', 'v18-fast-hq-single-master');
 
     return new Request(request.url, {
       method: request.method,
       headers,
       body: JSON.stringify({
         ...payload,
-        dualFast: true,
-        candidateCount: 2,
-        sonaraMusicV17: true
+        dualFast: false,
+        candidateCount: 1,
+        sonaraMusicV17: true,
+        sonaraMusicV18: true,
+        sonaraFastHq: true,
+        speedProfile: 'fast-hq-single-master'
       }),
       redirect: request.redirect
     });
@@ -214,8 +217,8 @@ async function normalizeBillingGenerationResponse(response) {
   if (contentType.includes('application/json')) {
     const headers = new Headers(response.headers);
     headers.set('cache-control', 'no-store');
-    headers.set('x-sonara-generator-recovery', 'billing-json-v3-v17');
-    headers.set('x-sonara-music-route', 'v17-dual-master');
+    headers.set('x-sonara-generator-recovery', 'billing-json-v4-v18-fast-hq');
+    headers.set('x-sonara-music-route', 'v18-fast-hq-single-master');
     return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
@@ -233,14 +236,14 @@ async function normalizeBillingGenerationResponse(response) {
 }
 
 async function generateWithRecovery(request, env, ctx) {
-  const v17Request = await forceV17GenerationRequest(request);
-  const first = await sonaraProxy.fetch(v17Request.clone(), env, ctx);
+  const fastRequest = await forceV18GenerationRequest(request);
+  const first = await sonaraProxy.fetch(fastRequest.clone(), env, ctx);
   if (!RETRYABLE_GENERATION_STATUSES.has(first.status)) {
     return normalizeBillingGenerationResponse(first);
   }
 
   await wait(GENERATION_RETRY_DELAY_MS);
-  const second = await sonaraProxy.fetch(v17Request.clone(), env, ctx);
+  const second = await sonaraProxy.fetch(fastRequest.clone(), env, ctx);
   return normalizeBillingGenerationResponse(second);
 }
 
