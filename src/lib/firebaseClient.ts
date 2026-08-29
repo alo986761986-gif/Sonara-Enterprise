@@ -1,4 +1,4 @@
-// Firebase production configuration is injected by Vercel VITE_FIREBASE_* environment variables.
+// Firebase public web configuration. Vercel values are used when valid; corrupted/redacted placeholders fall back to the real SONARA public config.
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
 import {
   GoogleAuthProvider,
@@ -21,13 +21,54 @@ import { getDownloadURL, getStorage, ref, uploadBytes } from 'firebase/storage';
 
 const env = ((import.meta as any).env || {}) as Record<string, string | undefined>;
 
+const SONARA_FIREBASE_PUBLIC_CONFIG = {
+  apiKey: 'AIzaSyCumTBH88Mf6iJa9PCQy3Y8khbeW0EbppM',
+  authDomain: 'sonara-enterprise.firebaseapp.com',
+  projectId: 'sonara-enterprise',
+  storageBucket: 'sonara-enterprise.firebasestorage.app',
+  messagingSenderId: '1068542444515',
+  appId: '1:1068542444515:web:a790b29a731a4d818216d6'
+} as const;
+
+function validPublicFirebaseValue(value: string | undefined, fallback: string): string {
+  const normalized = String(value || '').trim();
+  if (!normalized) return fallback;
+
+  const placeholder = normalized.toLowerCase();
+  if (
+    placeholder === '[sensitive]' ||
+    placeholder === 'sensitive' ||
+    placeholder === '[redacted]' ||
+    placeholder === 'redacted' ||
+    placeholder === 'undefined' ||
+    placeholder === 'null'
+  ) {
+    return fallback;
+  }
+
+  return normalized;
+}
+
+function validFirebaseAuthDomain(value: string | undefined): string {
+  const candidate = validPublicFirebaseValue(value, SONARA_FIREBASE_PUBLIC_CONFIG.authDomain)
+    .replace(/^https?:\/\//i, '')
+    .split('/')[0]
+    .trim();
+
+  if (!candidate || !candidate.includes('.') || candidate.includes('[') || candidate.includes(']')) {
+    return SONARA_FIREBASE_PUBLIC_CONFIG.authDomain;
+  }
+
+  return candidate;
+}
+
 const firebaseConfig = {
-  apiKey: env.VITE_FIREBASE_API_KEY,
-  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: env.VITE_FIREBASE_APP_ID
+  apiKey: validPublicFirebaseValue(env.VITE_FIREBASE_API_KEY, SONARA_FIREBASE_PUBLIC_CONFIG.apiKey),
+  authDomain: validFirebaseAuthDomain(env.VITE_FIREBASE_AUTH_DOMAIN),
+  projectId: validPublicFirebaseValue(env.VITE_FIREBASE_PROJECT_ID, SONARA_FIREBASE_PUBLIC_CONFIG.projectId),
+  storageBucket: validPublicFirebaseValue(env.VITE_FIREBASE_STORAGE_BUCKET, SONARA_FIREBASE_PUBLIC_CONFIG.storageBucket),
+  messagingSenderId: validPublicFirebaseValue(env.VITE_FIREBASE_MESSAGING_SENDER_ID, SONARA_FIREBASE_PUBLIC_CONFIG.messagingSenderId),
+  appId: validPublicFirebaseValue(env.VITE_FIREBASE_APP_ID, SONARA_FIREBASE_PUBLIC_CONFIG.appId)
 };
 
 export const firebaseConfigured = Boolean(
