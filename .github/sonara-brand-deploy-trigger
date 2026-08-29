@@ -1,6 +1,5 @@
-trigger: 2026-08-29T21:40:00+02:00
-reason: publish SONARA Blackwell batch-2 router with automatic T4 fallback
-source: b25aef96b20ba50f6324701bb9af73dda95f1c72
+trigger: 2026-08-29T21:50:00+02:00
+reason: restore SONARA Instant Dual Kaggle T4 production engine
+source: 64e05adc11f7e16da17248ba56396b9c6397b06a
 GPU0=https://gain-herbs-showcase-archives.trycloudflare.com
 GPU1=https://serve-charter-establish-designs.trycloudflare.com
-BLACKWELL=awaiting-public-endpoint
