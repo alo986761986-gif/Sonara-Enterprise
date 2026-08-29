@@ -9,6 +9,7 @@ on:
       - "cloudflare/sonara-video-api-recovery.mjs"
       - "cloudflare/sonara-video-api-recovery.test.mjs"
       - "cloudflare/sonara-web-v15-router.mjs"
+      - "cloudflare/sonara-engine-v17-lm-composer.mjs"
   workflow_dispatch:
 
 permissions:
