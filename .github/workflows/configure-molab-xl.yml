@@ -37,7 +37,9 @@ jobs:
           url="$(sed -n 's/^SONARA_MOLAB_XL_URL=//p' "${trigger}" | tail -n 1 | tr -d '\r')"
           model="$(sed -n 's/^MODEL=//p' "${trigger}" | tail -n 1 | tr -d '\r')"
           mode="$(sed -n 's/^MODE=//p' "${trigger}" | tail -n 1 | tr -d '\r')"
-          [[ "${url}" =~ ^https://[A-Za-z0-9.-]+\.(trycloudflare\.com|gradio\.live)/?$ ]]
+          if [ "${url%/}" != "https://molab.sonaraenterprise.com" ]; then
+            [[ "${url}" =~ ^https://[A-Za-z0-9.-]+\.(trycloudflare\.com|gradio\.live)/?$ ]]
+          fi
           test "${model}" = "acestep-v15-xl-turbo"
           test "${mode}" = "MOLAB_XL_ONLY"
           echo "MOLAB_XL_URL=${url%/}" >> "${GITHUB_ENV}"
