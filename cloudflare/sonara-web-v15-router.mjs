@@ -24,6 +24,13 @@ const API_ALLOWED_ORIGINS = new Set([
   'https://api.sonaraenterprise.com'
 ]);
 const API_ALLOWED_HEADERS = 'Authorization,Content-Type,Range,Cache-Control,Pragma,X-Sonara-Internal-Secret,X-Sonara-Job-Bridge';
+const SONARA_FAVICON_ASSET = '/sonara-ai-icon.png?v=20260829';
+const SONARA_FAVICON_HTML = [
+  `<link rel="icon" type="image/png" href="${SONARA_FAVICON_ASSET}">`,
+  `<link rel="shortcut icon" type="image/png" href="${SONARA_FAVICON_ASSET}">`,
+  `<link rel="apple-touch-icon" href="${SONARA_FAVICON_ASSET}">`,
+  '<meta name="theme-color" content="#0b0b0e">'
+].join('');
 
 function apiCorsHeaders(request) {
   const origin = request.headers.get('Origin') || '';
@@ -192,9 +199,12 @@ function disableCrossOriginV18Poll(response) {
   headers.delete('content-encoding');
   headers.set('cache-control', 'no-store, max-age=0');
   headers.set('x-sonara-v18-browser-poll', 'same-origin-edge-v2');
+  headers.set('x-sonara-favicon', 'sonara-ai-icon-v1');
   const safe = new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   return new HTMLRewriter().on('head', {
-    element(element) { element.prepend('<script>window.__sonaraV18DirectPollV1=true;</script>', { html: true }); }
+    element(element) {
+      element.prepend(`<script>window.__sonaraV18DirectPollV1=true;</script>${SONARA_FAVICON_HTML}`, { html: true });
+    }
   }).transform(safe);
 }
 
@@ -202,6 +212,9 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.hostname === API_HOST && request.method === 'OPTIONS') return new Response(null, { status: 204, headers: apiCorsHeaders(request) });
+    if (url.hostname !== API_HOST && (url.pathname === '/favicon.ico' || url.pathname === '/apple-touch-icon.png')) {
+      return Response.redirect(new URL(SONARA_FAVICON_ASSET, url.origin).toString(), 302);
+    }
     if (url.hostname !== API_HOST && url.pathname === VIDEO_UI_SCRIPT_PATH) return videoUiScriptResponse();
     if (url.hostname !== API_HOST && isVideoApiRequest(request)) return videoSuspendedResponse(request);
     if (url.hostname !== API_HOST && request.method === 'POST' && url.pathname === BILLING_GENERATE_PATH) return resilientDualGeneration(request, env, ctx);
