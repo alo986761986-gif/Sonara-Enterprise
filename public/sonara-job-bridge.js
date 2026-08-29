@@ -71,9 +71,9 @@
 
     const jobId = decodeURIComponent(jobMatch[1]);
 
-    // V18 is stateless and must use the native /api/music/job route.
-    // Never rewrite d18fast_* jobs to the legacy /api/billing/job endpoint.
-    if (jobId.startsWith('d18fast_')) {
+    // V18 and V19 are served directly by the Cloudflare edge. Keeping d16pair
+    // same-origin avoids the extra Vercel billing bridge hop and reduces poll latency.
+    if (jobId.startsWith('d18fast_') || jobId.startsWith('d16pair_')) {
       return nativeFetch(input, { ...init, cache: 'no-store' });
     }
 

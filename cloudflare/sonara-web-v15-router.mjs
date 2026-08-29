@@ -1,11 +1,14 @@
 import webRuntime from './sonara-web-generator-stability.mjs';
+import sonaraProxy from './sonara-web-dj-proxy.mjs';
 import engineV19 from './sonara-engine-v19-resilient-dual.mjs';
 import { isVideoApiRequest, recoverVideoApi } from './sonara-video-api-recovery.mjs';
 import { injectVideoUiScript, videoUiScriptResponse } from './sonara-video-ui-edge.mjs';
 
 const API_HOST = 'api.sonaraenterprise.com';
 const VIDEO_UI_SCRIPT_PATH = '/sonara-video-ui-edge.js';
+const BILLING_GENERATE_PATH = '/api/billing/generate';
 const MUSIC_JOB_PATH = /^\/api\/music\/job\/(?:d18fast_|d16pair_)[^/]+$/;
+const RETRYABLE_GENERATION_STATUSES = new Set([500, 502, 503, 504, 524]);
 const API_ALLOWED_ORIGINS = new Set([
   'https://sonaraenterprise.com',
   'https://www.sonaraenterprise.com',
@@ -24,6 +27,62 @@ function apiCorsHeaders(request) {
     'Cache-Control': 'no-store',
     Vary: 'Origin'
   };
+}
+
+function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function forceResilientDualGeneration(request) {
+  try {
+    const contentType = String(request.headers.get('content-type') || '').toLowerCase();
+    if (!contentType.includes('application/json')) return request;
+    const payload = await request.clone().json();
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return request;
+
+    const headers = new Headers(request.headers);
+    headers.set('content-type', 'application/json');
+    headers.set('x-sonara-music-route', 'v19-resilient-dual');
+
+    return new Request(request.url, {
+      method: request.method,
+      headers,
+      body: JSON.stringify({
+        ...payload,
+        dualFast: true,
+        candidateCount: 2,
+        sonaraMusicV17: true,
+        sonaraMusicV18: false,
+        sonaraFastHq: false,
+        speedProfile: 'resilient-dual-fast-v19'
+      }),
+      redirect: request.redirect
+    });
+  } catch {
+    return request;
+  }
+}
+
+function decorateGenerationResponse(response) {
+  const headers = new Headers(response.headers);
+  headers.set('cache-control', 'no-store');
+  headers.set('x-sonara-music-route', 'v19-resilient-dual');
+  headers.set('x-sonara-generator-recovery', 'resilient-dual-v19');
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
+}
+
+async function resilientDualGeneration(request, env, ctx) {
+  const dualRequest = await forceResilientDualGeneration(request);
+  let response = await sonaraProxy.fetch(dualRequest.clone(), env, ctx);
+  if (RETRYABLE_GENERATION_STATUSES.has(response.status)) {
+    await wait(900);
+    response = await sonaraProxy.fetch(dualRequest.clone(), env, ctx);
+  }
+  return decorateGenerationResponse(response);
 }
 
 function disableCrossOriginV18Poll(response) {
@@ -63,6 +122,13 @@ export default {
 
     if (url.hostname !== API_HOST && isVideoApiRequest(request)) {
       return recoverVideoApi(request, { env, ctx });
+    }
+
+    // Public Creator generation must never pass through the obsolete V18
+    // single-master rewrite in sonara-web-generator-stability. Force the
+    // authoritative two-track V19 route before that legacy layer can run.
+    if (url.hostname !== API_HOST && request.method === 'POST' && url.pathname === BILLING_GENERATE_PATH) {
+      return resilientDualGeneration(request, env, ctx);
     }
 
     if (request.method === 'GET' && MUSIC_JOB_PATH.test(url.pathname)) {
