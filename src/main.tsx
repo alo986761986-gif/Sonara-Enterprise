@@ -12,6 +12,7 @@ import RealMusicIntelligenceBridge from './components/generator/RealMusicIntelli
 import BpmModeControl from './components/generator/BpmModeControl';
 import SonaraCreatorSkin from './components/generator/SonaraCreatorSkin';
 import SunoStylePromptControl from './components/generator/SunoStylePromptControl';
+import GlobalMusicSuggestionControl from './components/generator/GlobalMusicSuggestionControl';
 import StudioSectionControl from './components/studio/StudioSectionControl';
 import VideoAISectionControl from './components/video/VideoAISectionControl';
 import DJSectionControl from './components/dj/DJSectionControl';
@@ -38,6 +39,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <VocalCharacterControl />
         <DualTrackGenerationControl />
         <SunoStylePromptControl />
+        <GlobalMusicSuggestionControl />
         <SonaraCreatorSkin />
         <StudioSectionControl />
         <VideoAISectionControl />
