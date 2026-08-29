@@ -1,13 +1,11 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "sonara-enterprise",
-  "main": "cloudflare/sonara-molab-kaggle-router.mjs",
+  "main": "cloudflare/sonara-molab-xl-router.mjs",
   "compatibility_date": "2026-08-23",
   "workers_dev": true,
   "keep_vars": true,
-  "vars": {
-    "ACESTEP_WORKER_URLS": "https://gain-herbs-showcase-archives.trycloudflare.com,https://serve-charter-establish-designs.trycloudflare.com"
-  },
+  "vars": {},
   "durable_objects": {
     "bindings": [
       {
