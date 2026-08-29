@@ -79,6 +79,27 @@ function normalize(value: string): string {
     .toLowerCase();
 }
 
+function extractExplicitPromptBpm(prompt: string): number | null {
+  const text = String(prompt || '').trim();
+  if (!text) return null;
+  const match = text.match(/\b(?:at|a|@|tempo\s*[:=]?\s*)?(\d{2,3})\s*bpm\b/i)
+    || text.match(/\bbpm\s*[:=]?\s*(\d{2,3})\b/i);
+  if (!match) return null;
+  const bpm = Number(match[1]);
+  return Number.isFinite(bpm) && bpm >= MIN_BPM && bpm <= MAX_BPM ? clampBpm(bpm) : null;
+}
+
+function tempoSpeedLabel(bpm: number): string {
+  if (bpm >= 180) return 'estremamente veloce';
+  if (bpm >= 160) return 'molto veloce';
+  if (bpm >= 145) return 'veloce';
+  if (bpm >= 130) return 'uptempo';
+  if (bpm >= 110) return 'medio-veloce';
+  if (bpm >= 90) return 'medio';
+  if (bpm >= 70) return 'rilassato';
+  return 'lento';
+}
+
 function initialMode(): BpmMode {
   try {
     return window.localStorage.getItem(BPM_MODE_KEY) === 'auto' ? 'auto' : 'manual';
@@ -111,16 +132,27 @@ function readTempoContext(): TempoContext | null {
 }
 
 function inferAutomaticBpm(context: TempoContext): AutoTempoSelection {
+  const explicitPromptBpm = extractExplicitPromptBpm(context.prompt);
+  if (explicitPromptBpm !== null) {
+    return {
+      bpm: explicitPromptBpm,
+      reason: `Prompt esplicito · ${tempoSpeedLabel(explicitPromptBpm)} · priorità assoluta`
+    };
+  }
+
+  const normalizedPrompt = normalize(context.prompt);
   const taxonomy = `${context.family} ${context.genre} ${context.subgenre}`;
   const normalizedTaxonomy = normalize(taxonomy);
-  const match = TEMPO_RULES.find(rule => rule.pattern.test(normalizedTaxonomy));
+  const promptMatch = TEMPO_RULES.find(rule => rule.pattern.test(normalizedPrompt));
+  const taxonomyMatch = TEMPO_RULES.find(rule => rule.pattern.test(normalizedTaxonomy));
+  const match = promptMatch ?? taxonomyMatch;
   let bpm = match?.bpm ?? 120;
 
   const expression = normalize(`${context.mood} ${context.prompt}`);
   const verySlow = /\b(very slow|molto lento|lentissimo|adagio|largo)\b/.test(expression);
   const slow = /\b(slow|lento|relaxed|rilassato|laid[- ]?back|meditative|meditativo|intimate|intimo)\b/.test(expression);
-  const veryFast = /\b(very fast|molto veloce|velocissimo|relentless|furious|frenetic|frenetico)\b/.test(expression);
-  const fast = /\b(fast|veloce|uptempo|up[- ]tempo|driving|energetic|energico|peak[- ]?time|aggressive|aggressivo)\b/.test(expression);
+  const veryFast = /\b(very fast|molto veloce|velocissimo|relentless|furious|frenetic|frenetico|rapidissimo)\b/.test(expression);
+  const fast = /\b(fast|veloce|uptempo|up[- ]tempo|driving|energetic|energico|peak[- ]?time|aggressive|aggressivo|rapid|rapido)\b/.test(expression);
 
   if (verySlow) bpm -= 12;
   else if (slow) bpm -= 6;
@@ -129,9 +161,10 @@ function inferAutomaticBpm(context: TempoContext): AutoTempoSelection {
   else if (fast) bpm += 6;
 
   bpm = clampBpm(bpm);
+  const source = promptMatch ? 'Prompt' : 'Selezione';
   return {
     bpm,
-    reason: `${match?.label || context.subgenre || context.genre} · ${context.mood || 'Auto'}`
+    reason: `${source}: ${match?.label || context.subgenre || context.genre} · ${tempoSpeedLabel(bpm)}`
   };
 }
 
@@ -187,11 +220,17 @@ export default function BpmModeControl() {
       setNativeInputValue(bpmInput, String(next.bpm));
       window.setTimeout(() => {
         automaticUpdateRef.current = false;
-      }, 40);
+      }, 80);
     }
 
     window.dispatchEvent(new CustomEvent('sonara:bpm-mode', {
-      detail: { mode: 'auto', bpm: next.bpm, reason: next.reason }
+      detail: {
+        mode: 'auto',
+        bpm: next.bpm,
+        reason: next.reason,
+        promptBpmAuthoritative: extractExplicitPromptBpm(context.prompt) !== null,
+        tempoClass: tempoSpeedLabel(next.bpm)
+      }
     }));
   };
 
@@ -239,8 +278,9 @@ export default function BpmModeControl() {
       setSelection(null);
       markMode('manual');
       const bpmInput = document.querySelector('input[aria-label="BPM preferiti"]') as HTMLInputElement | null;
+      const bpm = clampBpm(Number(bpmInput?.value || 124));
       window.dispatchEvent(new CustomEvent('sonara:bpm-mode', {
-        detail: { mode: 'manual', bpm: clampBpm(Number(bpmInput?.value || 124)) }
+        detail: { mode: 'manual', bpm, tempoClass: tempoSpeedLabel(bpm) }
       }));
     }
   }, [mode, mountNode]);
@@ -263,7 +303,7 @@ export default function BpmModeControl() {
       if (!section || !block) return;
 
       const insideModeUi = Boolean(target.closest('[data-sonara-bpm-mode-host]'));
-      const manualBpmInteraction = block.contains(target) && !insideModeUi && (
+      const manualBpmInteraction = event.isTrusted && block.contains(target) && !insideModeUi && (
         target instanceof HTMLInputElement || Boolean(target.closest('button'))
       );
 
