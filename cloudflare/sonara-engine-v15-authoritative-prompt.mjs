@@ -1,7 +1,7 @@
 import engineV9 from './sonara-engine-v9-dual-fast.mjs';
 
 const LOCK_ID = 'v15-authoritative-full-prompt';
-const TEMPO_LOCK_ID = 'v15-authoritative-bpm-v2';
+const TEMPO_LOCK_ID = 'v15-authoritative-bpm-v3-perceptual';
 const MAX_PROMPT_CHARS = 12000;
 const BPM_MIN = 40;
 const BPM_MAX = 220;
@@ -34,7 +34,7 @@ function extractPromptBpm(value) {
 }
 
 function resolveBpm(body = {}) {
-  const creatorPrompt = body?.rawPrompt || body?.creatorPrompt || body?.creator_prompt || '';
+  const creatorPrompt = body?.rawPrompt || body?.creatorPrompt || body?.creator_prompt || body?.musicPrompt || '';
   const creatorBpm = extractPromptBpm(creatorPrompt);
   if (creatorBpm !== null) return creatorBpm;
 
@@ -44,12 +44,12 @@ function resolveBpm(body = {}) {
   const candidates = [
     body?.requestedBpm,
     body?.requested_bpm,
-    body?.bpm,
-    body?.tempo,
     body?.targetBpm,
     body?.target_bpm,
     body?.preferredBpm,
-    body?.preferred_bpm
+    body?.preferred_bpm,
+    body?.bpm,
+    body?.tempo
   ];
   for (const candidate of candidates) {
     const bpm = parseBpm(candidate);
@@ -59,13 +59,60 @@ function resolveBpm(body = {}) {
   return promptBpm;
 }
 
+function tempoProfile(bpm, body = {}) {
+  const styleText = clean(`${body?.rawPrompt || ''} ${body?.creatorPrompt || ''} ${body?.prompt || ''} ${body?.genre || ''} ${body?.subgenre || ''}`).toLowerCase();
+  const halfTimeExplicit = /\bhalf[- ]?time\b|\btempo dimezzato\b|\bmetà tempo\b/i.test(styleText);
+  const fastBassMusic = /\bjungle\b|\bdrum\s*(?:&|and)\s*bass\b|\bdnb\b|\bbreakcore\b|\bhardcore\b/i.test(styleText);
+
+  if (bpm >= 180) return {
+    id: 'extreme-fast',
+    label: 'extremely-fast',
+    instruction: `EXTREME FULL-TIME MOTION: ${bpm} BPM must sound genuinely extremely fast. Use dense eighth/sixteenth-note rhythmic activity, rapid percussion articulation, frequent phrase movement and energetic transitions. ${halfTimeExplicit ? 'Half-time feel is allowed because the creator explicitly requested it.' : 'Do not fall into half-time perception.'}`
+  };
+  if (bpm >= 160) return {
+    id: 'very-fast',
+    label: 'very-fast',
+    instruction: `VERY FAST FULL-TIME MOTION: ${bpm} BPM must be perceived at the full requested speed. ${fastBassMusic ? 'For Jungle/Drum & Bass, keep fast breakbeat subdivision, rolling bass motion, rapid hats/percussion and phrase pacing consistent with full-time DnB/Jungle energy.' : 'Keep drums, bass, percussion and phrase pacing moving at the full-time pulse.'} ${halfTimeExplicit ? 'Half-time accents may be used only as a deliberate requested effect.' : `Never reinterpret ${bpm} BPM as ${Math.round(bpm / 2)} BPM.`}`
+  };
+  if (bpm >= 145) return {
+    id: 'fast',
+    label: 'fast',
+    instruction: `FAST MOTION: preserve an audibly fast groove at ${bpm} BPM with active percussion, bass movement and section pacing. Do not slow the perceived motion through half-time treatment unless explicitly requested.`
+  };
+  if (bpm >= 130) return {
+    id: 'uptempo',
+    label: 'uptempo',
+    instruction: `UPTEMPO MOTION: keep a clearly energetic full-time pulse at ${bpm} BPM. Rhythmic density and transitions must support the requested speed.`
+  };
+  if (bpm >= 110) return {
+    id: 'mid-fast',
+    label: 'mid-fast',
+    instruction: `MEDIUM-FAST MOTION: maintain a steady forward-moving groove at ${bpm} BPM without dragging the phrase pacing.`
+  };
+  if (bpm >= 90) return {
+    id: 'medium',
+    label: 'medium',
+    instruction: `MEDIUM TEMPO MOTION: keep the audible groove, rhythmic phrasing and section pacing anchored to ${bpm} BPM.`
+  };
+  if (bpm >= 70) return {
+    id: 'relaxed',
+    label: 'relaxed',
+    instruction: `RELAXED TEMPO MOTION: preserve the slower ${bpm} BPM pulse with spacious phrasing and genre-authentic subdivision.`
+  };
+  return {
+    id: 'slow',
+    label: 'slow',
+    instruction: `SLOW TEMPO MOTION: the track must genuinely feel slow at ${bpm} BPM with long phrase breathing and no artificial double-time acceleration unless requested.`
+  };
+}
+
 function authoritativePrompt(body) {
   const family = clean(body?.genreFamily || body?.genre_family, 'Music');
   const genre = clean(body?.genre, 'Music');
   const subgenre = clean(body?.subgenre, genre);
   const mood = clean(body?.mood, 'Authentic');
   const original = String(body?.prompt || '').trim();
-  const creatorPrompt = clean(body?.rawPrompt || body?.creatorPrompt || body?.creator_prompt, '');
+  const creatorPrompt = clean(body?.rawPrompt || body?.creatorPrompt || body?.creator_prompt || body?.musicPrompt, '');
   const creatorStylePriority = Boolean(
     creatorPrompt
     || body?.promptGenreAuthoritative === true
@@ -90,14 +137,16 @@ function authoritativePrompt(body) {
         `Atmosphere: ${mood}.`
       ];
 
+  const profile = bpm === null ? null : tempoProfile(bpm, body);
   const tempoLock = bpm === null
     ? []
     : [
         `SONARA AUTHORITATIVE TEMPO LOCK: exactly ${bpm} BPM.`,
         `Treat ${bpm} BPM as the real master clock, quarter-note pulse and bar-grid tempo for the complete rendered audio.`,
-        `Do not halve, double, normalize, reinterpret or replace ${bpm} BPM with a default tempo or a stylistic average.`,
-        `The kick, drums, bass, percussion, comping, rhythmic accents, fills, phrase pacing and section transitions must audibly move at ${bpm} BPM from start to finish.`,
-        `For fast requests such as 170 BPM, preserve the requested fast musical motion rather than producing an 85 BPM half-time feel unless the creator explicitly asks for half-time.`
+        `Tempo class: ${profile.label}.`,
+        profile.instruction,
+        `Do not normalize ${bpm} BPM toward a genre average and do not replace it with a nearby conventional tempo.`,
+        `The kick, drums, bass, percussion, comping, rhythmic accents, fills, phrase pacing and section transitions must audibly reflect ${bpm} BPM from start to finish.`
       ];
 
   const lock = [...styleLock, ...tempoLock].join(' ');
@@ -119,13 +168,23 @@ export async function rewriteGenerationRequest(request) {
   const weirdness = Math.round(clamp(body?.weirdness, 50, 0, 100));
   const styleInfluence = Math.round(clamp(body?.styleInfluence ?? body?.style_influence, 50, 0, 100));
   const bpm = resolveBpm(body);
+  const profile = bpm === null ? null : tempoProfile(bpm, body);
 
   const locked = {
     ...body,
     genreFamily,
     genre,
     subgenre,
-    ...(bpm === null ? {} : { bpm, requestedBpm: bpm, bpmLock: true }),
+    ...(bpm === null ? {} : {
+      bpm,
+      requestedBpm: bpm,
+      targetBpm: bpm,
+      preferredBpm: bpm,
+      bpmLock: true,
+      promptBpmAuthoritative: true,
+      sonaraTempoClass: profile.label,
+      sonaraPerceptualTempoLock: true
+    }),
     prompt: authoritativePrompt({ ...body, genreFamily, genre, subgenre, ...(bpm === null ? {} : { bpm, requestedBpm: bpm }) }),
     weirdness,
     styleInfluence,
@@ -140,7 +199,10 @@ export async function rewriteGenerationRequest(request) {
   headers.delete('content-length');
   headers.set('x-sonara-genre-lock', LOCK_ID);
   headers.set('x-sonara-professional-prompt', 'preserved');
-  if (bpm !== null) headers.set('x-sonara-bpm-lock', `exact-${bpm}`);
+  if (bpm !== null) {
+    headers.set('x-sonara-bpm-lock', `exact-${bpm}`);
+    headers.set('x-sonara-tempo-class', profile.label);
+  }
 
   return new Request(request.url, {
     method: request.method,
@@ -159,12 +221,14 @@ async function decorateHealth(request, response) {
     const data = await response.clone().json();
     return new Response(JSON.stringify({
       ...data,
-      universalGenreLock: 'v15-authoritative-full-prompt',
+      universalGenreLock: LOCK_ID,
       authoritativePromptLock: LOCK_ID,
       authoritativeTempoLock: TEMPO_LOCK_ID,
       bpmRange: `${BPM_MIN}-${BPM_MAX}`,
       promptGenrePriority: true,
       promptBpmPriority: true,
+      perceptualTempoProfile: true,
+      noAutomaticHalfTime: true,
       universalTaxonomyFamilies: 25,
       universalTaxonomyGenres: 86,
       universalTaxonomySubgenres: 720,
@@ -175,10 +239,10 @@ async function decorateHealth(request, response) {
       selectedSubgenreAuthoritative: true,
       creatorPromptStyleAuthoritative: true,
       legacyCaption500Bypassed: true,
-      houseGenreLock: 'v15-authoritative-full-prompt',
-      technoGenreLock: 'v15-authoritative-full-prompt',
-      electronicGenreLock: 'v15-authoritative-full-prompt',
-      electronicTaxonomyLock: 'v15-authoritative-full-prompt',
+      houseGenreLock: LOCK_ID,
+      technoGenreLock: LOCK_ID,
+      electronicGenreLock: LOCK_ID,
+      electronicTaxonomyLock: LOCK_ID,
       existingElectronicLocksPreserved: false
     }), { status: response.status, headers: response.headers });
   } catch {
