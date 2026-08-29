@@ -1,8 +1,8 @@
 GPU0=https://jumping-const-tubes-mainland.trycloudflare.com
 GPU1=https://little-viking-midwest-limousines.trycloudflare.com
 MODE=MUSIC_DUAL_T4
-ACTION=deploy-stable-dual-v20-no-fixed-68
+ACTION=reactivate-dual-t4-for-molab-hybrid
 RUNTIME=float32-render-only-prepared
 ROLLBACK=4c076f27b698e8dc719952d6f58aaa3de2545caa
-VERIFY=20260829-1403
-EDGE=d81844a5dbb29a548c6d82262f89a57f06e3b529
+VERIFY=20260829-2210
+EDGE=molab-xl-kaggle-hybrid
