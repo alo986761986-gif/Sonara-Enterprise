@@ -1,3 +1,3 @@
-trigger: 2026-08-29T19:45:00+02:00
-reason: deploy compact closable contextual help popovers
-source: 9036c5598651b8a2e244a356b3b6982dff395cc4
+trigger: 2026-08-29T19:49:00+02:00
+reason: retry compact closable contextual help popovers after CI validation update
+source: 8d3fbb3d997f77ae812cdc6cd2a3fdaf4d5b2c27
