@@ -25,40 +25,13 @@ jobs:
           if [[ -n "${SONARA_INTERNAL_PROXY_SECRET:-}" ]]; then
             auth=(-H "X-Sonara-Internal-Secret: ${SONARA_INTERNAL_PROXY_SECRET}")
           fi
-          cat > /tmp/request.json <<'JSON'
-          {
-            "title": "SONARA V18 Production Smoke",
-            "genreFamily": "Electronic",
-            "genre": "House",
-            "subgenre": "Deep House",
-            "mood": "Deep, dark, emotional, hypnotic",
-            "prompt": "Professional deep house instrumental, warm analog chords, deep controlled sub bass, tight club kick, subtle percussion, evolving atmospheric textures, polished modern studio mix.",
-            "lyrics": "",
-            "vocalMode": "instrumental",
-            "bpm": 122,
-            "durationSec": 30,
-            "weirdness": 55,
-            "styleInfluence": 88,
-            "sonaraFastHq": true,
-            "speedProfile": "fast-hq-single-master",
-            "candidateCount": 1
-          }
-          JSON
+          printf '%s' '{"title":"SONARA V18 Production Smoke","genreFamily":"Electronic","genre":"House","subgenre":"Deep House","mood":"Deep, dark, emotional, hypnotic","prompt":"Professional deep house instrumental, warm analog chords, deep controlled sub bass, tight club kick, subtle percussion, evolving atmospheric textures, polished modern studio mix.","lyrics":"","vocalMode":"instrumental","bpm":122,"durationSec":30,"weirdness":55,"styleInfluence":88,"sonaraFastHq":true,"speedProfile":"fast-hq-single-master","candidateCount":1}' > /tmp/request.json
           http_code="$(curl -sS --max-time 300 -o /tmp/start.json -w '%{http_code}' -H 'Content-Type: application/json' "${auth[@]}" -X POST "$API_ORIGIN/api/engine/generate" --data-binary @/tmp/request.json || true)"
           echo "V18 submit HTTP ${http_code}"
           cat /tmp/start.json || true
           echo
-          if [[ "$http_code" != '202' && "$http_code" != '200' ]]; then
-            exit 1
-          fi
-          node - <<'NODE' >> "$GITHUB_ENV"
-          const fs = require('fs');
-          const r = JSON.parse(fs.readFileSync('/tmp/start.json','utf8'));
-          if (!r.jobId) throw new Error(`No V18 jobId: ${JSON.stringify(r)}`);
-          if (r.sonaraMusicV18 !== true) throw new Error(`V18 marker missing: ${JSON.stringify(r)}`);
-          if (r.metadata?.stateTransport !== 'job-id-direct-task') throw new Error(`Stateless transport missing: ${JSON.stringify(r)}`);
-          console.log(`SONARA_V18_JOB_ID=${r.jobId}`);
-          NODE
+          if [[ "$http_code" != '202' && "$http_code" != '200' ]]; then exit 1; fi
+          node -e "const fs=require('fs');const r=JSON.parse(fs.readFileSync('/tmp/start.json','utf8'));if(!r.jobId)throw new Error('No V18 jobId');if(r.sonaraMusicV18!==true)throw new Error('V18 marker missing');if(r.metadata?.stateTransport!=='job-id-direct-task')throw new Error('Stateless transport missing');console.log('SONARA_V18_JOB_ID='+r.jobId)" >> "$GITHUB_ENV"
 
       - name: Poll V18 until completion
         shell: bash
@@ -70,20 +43,12 @@ jobs:
             cat /tmp/job.json 2>/dev/null || true
             echo
             if [[ "$code" == '200' ]]; then
-              status="$(node -e "const fs=require('fs'); const r=JSON.parse(fs.readFileSync('/tmp/job.json','utf8')); process.stdout.write(String(r.status||''))" 2>/dev/null || true)"
+              status="$(node -e "const fs=require('fs');const r=JSON.parse(fs.readFileSync('/tmp/job.json','utf8'));process.stdout.write(String(r.status||''))" 2>/dev/null || true)"
               if [[ "$status" == 'COMPLETED' ]]; then
-                node - <<'NODE'
-                const fs = require('fs');
-                const r = JSON.parse(fs.readFileSync('/tmp/job.json','utf8'));
-                if (!r.audioUrl) throw new Error(`COMPLETED without audioUrl: ${JSON.stringify(r)}`);
-                if (r.sonaraMusicV18 !== true) throw new Error(`Completed response lost V18 marker: ${JSON.stringify(r)}`);
-                console.log('V18 COMPLETED with audio:', r.audioUrl);
-                NODE
+                node -e "const fs=require('fs');const r=JSON.parse(fs.readFileSync('/tmp/job.json','utf8'));if(!r.audioUrl)throw new Error('COMPLETED without audioUrl');if(r.sonaraMusicV18!==true)throw new Error('V18 marker lost');console.log('V18 COMPLETED with audio: '+r.audioUrl)"
                 exit 0
               fi
-              if [[ "$status" == 'FAILED' ]]; then
-                exit 1
-              fi
+              if [[ "$status" == 'FAILED' ]]; then exit 1; fi
             fi
             sleep 5
           done
