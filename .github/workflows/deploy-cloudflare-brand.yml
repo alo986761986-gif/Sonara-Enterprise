@@ -58,7 +58,8 @@ jobs:
           set -euo pipefail
           grep -q 'cloudflare/sonara-help-router.mjs' wrangler.jsonc
           grep -q "./sonara-brand-router.mjs" cloudflare/sonara-help-router.mjs
-          grep -q 'sonara-context-help-edge-v1' cloudflare/sonara-help-router.mjs
+          grep -q 'sonara-context-help-edge-v2' cloudflare/sonara-help-router.mjs
+          grep -q 'creator-mini-help-v2' cloudflare/sonara-help-router.mjs
           grep -q 'sonara-brand-icon.svg' cloudflare/sonara-brand-router.mjs
           grep -q 'sonara-header-brand-v5' cloudflare/sonara-brand-router.mjs
           grep -q 'sonara-brand-icon.svg' index.html
@@ -77,8 +78,8 @@ jobs:
             icon_code="$(curl -L -sS -o /tmp/sonara-icon -w '%{http_code}' --max-time 20 "https://sonaraenterprise.com/sonara-brand-icon.svg?brand=${GITHUB_SHA}-${attempt}" || true)"
             site_headers="$(curl -sSI --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?brand=${GITHUB_SHA}-${attempt}" || true)"
             site_html="$(curl -sS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?brand=${GITHUB_SHA}-${attempt}" || true)"
-            if [[ "${icon_code}" == "200" ]] && printf '%s' "${site_headers}" | grep -qi 'x-sonara-brand: sonic-s-v5' && printf '%s' "${site_headers}" | grep -qi 'x-sonara-header-brand: enterprise-logo-v5' && printf '%s' "${site_headers}" | grep -qi 'x-sonara-context-help: creator-inline-help-v1' && printf '%s' "${site_html}" | grep -q 'sonara-header-brand-v5' && printf '%s' "${site_html}" | grep -q 'sonara-context-help-edge-v1'; then
-              echo "SONARA favicon, Enterprise header logo and contextual help verified."
+            if [[ "${icon_code}" == "200" ]] && printf '%s' "${site_headers}" | grep -qi 'x-sonara-brand: sonic-s-v5' && printf '%s' "${site_headers}" | grep -qi 'x-sonara-header-brand: enterprise-logo-v5' && printf '%s' "${site_headers}" | grep -qi 'x-sonara-context-help: creator-mini-help-v2' && printf '%s' "${site_html}" | grep -q 'sonara-header-brand-v5' && printf '%s' "${site_html}" | grep -q 'sonara-context-help-edge-v2'; then
+              echo "SONARA favicon, Enterprise header logo and compact contextual help verified."
               exit 0
             fi
             echo "Brand/help propagation pending (${attempt}/15)."
