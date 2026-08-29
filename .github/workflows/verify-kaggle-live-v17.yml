@@ -1,23 +1,24 @@
-name: Verify SONARA Kaggle Live V17
+name: Diagnose SONARA 68 Percent Stall
 
 on:
   push:
     paths:
       - '.github/workflows/verify-kaggle-live-v17.yml'
       - '.github/kaggle-live-v17-trigger'
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  verify-live-kaggle:
+  diagnose-real-render:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - name: Checkout SONARA
         uses: actions/checkout@v6
 
-      - name: Load Kaggle endpoints
+      - name: Load current production T4 endpoints
         shell: bash
         run: |
           set -euo pipefail
@@ -26,58 +27,38 @@ jobs:
           GPU1="$(sed -n 's/^GPU1=//p' "$f" | tail -n1 | tr -d '\r')"
           test -n "$GPU0"
           test -n "$GPU1"
-          echo "GPU0=$GPU0" >> "$GITHUB_ENV"
-          echo "GPU1=$GPU1" >> "$GITHUB_ENV"
-          echo 'Endpoints caricati dal binding di produzione.'
+          echo "GPU0=${GPU0%/}" >> "$GITHUB_ENV"
+          echo "GPU1=${GPU1%/}" >> "$GITHUB_ENV"
 
-      - name: Verify GPU0 music health
+      - name: Inspect full worker health and model inventory
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS --connect-timeout 10 --max-time 30 "$GPU0/health" | tee /tmp/gpu0-health.json
-          node - <<'NODE'
-          const fs=require('fs');
-          const p=JSON.parse(fs.readFileSync('/tmp/gpu0-health.json','utf8'));
-          const d=p.data||p;
-          const s=String(d.status||p.status||'').toLowerCase();
-          if (!(p.code===200 || ['ok','ready','healthy','online','success'].includes(s))) {
-            throw new Error('GPU0 health non valida: '+JSON.stringify(p));
-          }
-          console.log('GPU0_HEALTH=OK');
-          NODE
+          for pair in "gpu0:$GPU0" "gpu1:$GPU1"; do
+            name="${pair%%:*}"
+            url="${pair#*:}"
+            echo "===== ${name} HEALTH ====="
+            curl -fsS --connect-timeout 10 --max-time 30 "$url/health" | tee "/tmp/${name}-health.json"
+            echo
+            echo "===== ${name} MODELS ====="
+            curl -fsS --connect-timeout 10 --max-time 30 "$url/v1/models" | tee "/tmp/${name}-models.json" || true
+            echo
+          done
 
-      - name: Inspect GPU0 model inventory
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -fsS --connect-timeout 10 --max-time 30 "$GPU0/v1/models" | tee /tmp/gpu0-models.json
-          node - <<'NODE'
-          const fs=require('fs');
-          const p=JSON.parse(fs.readFileSync('/tmp/gpu0-models.json','utf8'));
-          const text=JSON.stringify(p);
-          if (!text.includes('acestep-v15-turbo')) throw new Error('Turbo model non presente.');
-          console.log(JSON.stringify({
-            turbo: true,
-            llm_initialized: (p.data||p).llm_initialized ?? null,
-            loaded_lm_model: (p.data||p).loaded_lm_model ?? null
-          }));
-          NODE
-
-      - name: Verify GPU0 async LM submit
+      - name: Run full ACE-Step render probe on both T4 workers
         shell: bash
         run: |
           set -euo pipefail
           cat > /tmp/probe.json <<'JSON'
           {
-            "prompt":"deep house instrumental production analysis",
+            "prompt":"deep house, 122 BPM, dark warm bass, professional club mix, instrumental",
             "lyrics":"",
             "model":"acestep-v15-turbo",
-            "audio_duration":5,
-            "inference_steps":1,
+            "audio_duration":10,
+            "inference_steps":4,
             "thinking":true,
-            "analysis_only":true,
-            "full_analysis_only":true,
             "use_format":true,
+            "use_cot_metas":false,
             "use_cot_caption":true,
             "use_cot_language":true,
             "constrained_decoding":true,
@@ -86,49 +67,57 @@ jobs:
             "lm_backend":"pt"
           }
           JSON
-          started="$(date +%s)"
-          code="$(curl -sS --connect-timeout 10 --max-time 20 -o /tmp/probe-out.json -w '%{http_code}' -H 'Content-Type: application/json' -X POST "$GPU0/release_task" --data-binary @/tmp/probe.json || true)"
-          ended="$(date +%s)"
-          elapsed="$((ended-started))"
-          echo "HTTP=$code ELAPSED=${elapsed}s"
-          cat /tmp/probe-out.json 2>/dev/null || true
-          echo
-          if [[ "$code" != '200' ]]; then
-            echo 'GPU0 async submit non pronta.' >&2
-            exit 1
-          fi
-          node - <<'NODE'
-          const fs=require('fs');
-          const p=JSON.parse(fs.readFileSync('/tmp/probe-out.json','utf8'));
-          const id=String(p?.data?.task_id||'');
-          if (!id) throw new Error('release_task non ha restituito task_id.');
-          console.log('GPU0_ASYNC_TASK_ID='+id);
-          NODE
-          if (( elapsed > 15 )); then
-            echo "Submit troppo lenta: ${elapsed}s" >&2
-            exit 1
-          fi
-          echo 'GPU0_ASYNC_LM_SUBMIT=OK'
 
-      - name: Verify GPU1 video health
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -fsS --connect-timeout 10 --max-time 30 "$GPU1/health" | tee /tmp/gpu1-health.json
-          node - <<'NODE'
-          const fs=require('fs');
-          const p=JSON.parse(fs.readFileSync('/tmp/gpu1-health.json','utf8'));
-          const d=p.data||p;
-          const s=String(d.status||p.status||'').toLowerCase();
-          if (!(p.code===200 || ['ok','ready','healthy','online','success'].includes(s))) {
-            throw new Error('GPU1 health non valida: '+JSON.stringify(p));
+          probe_worker() {
+            local name="$1"
+            local url="$2"
+            echo "===== ${name} SUBMIT ====="
+            curl -fsS --connect-timeout 10 --max-time 120 \
+              -H 'Content-Type: application/json' \
+              -X POST "$url/release_task" \
+              --data-binary @/tmp/probe.json > "/tmp/${name}-submit.json"
+            cat "/tmp/${name}-submit.json"
+            echo
+            local task_id
+            task_id="$(jq -r '.data.task_id // empty' "/tmp/${name}-submit.json")"
+            test -n "$task_id"
+            echo "${name} TASK_ID=${task_id}"
+
+            for attempt in $(seq 1 48); do
+              curl -fsS --connect-timeout 10 --max-time 30 \
+                -H 'Content-Type: application/json' \
+                -X POST "$url/query_result" \
+                --data "{\"task_id_list\":[\"${task_id}\"]}" > "/tmp/${name}-query.json" || true
+              echo "===== ${name} POLL ${attempt}/48 ====="
+              cat "/tmp/${name}-query.json" 2>/dev/null || true
+              echo
+              status="$(jq -r '.data[0].status // empty' "/tmp/${name}-query.json" 2>/dev/null || true)"
+              if [[ "$status" == "1" ]]; then
+                echo "${name}_FULL_RENDER=SUCCESS"
+                return 0
+              fi
+              if [[ -n "$status" && "$status" != "0" ]]; then
+                echo "${name}_FULL_RENDER=FAILED status=${status}" >&2
+                return 1
+              fi
+              sleep 5
+            done
+            echo "${name}_FULL_RENDER=STUCK_STATUS_0" >&2
+            return 1
           }
-          console.log('GPU1_VIDEO_HEALTH=OK');
-          NODE
+
+          failed=0
+          probe_worker gpu0 "$GPU0" || failed=1
+          probe_worker gpu1 "$GPU1" || failed=1
+          exit "$failed"
 
       - name: Summary
+        if: always()
         shell: bash
         run: |
-          echo '✅ KAGGLE SONARA LIVE CHECK COMPLETATO'
-          echo 'GPU0 Music: health OK, Turbo presente, submit LM asincrona OK'
-          echo 'GPU1 Video: health OK'
+          echo 'SONARA 68% diagnostic completed.'
+          for name in gpu0 gpu1; do
+            echo "===== ${name} LAST QUERY ====="
+            cat "/tmp/${name}-query.json" 2>/dev/null || true
+            echo
+          done
