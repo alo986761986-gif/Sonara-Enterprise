@@ -1,0 +1,111 @@
+name: Configure SONARA RunPod XL
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/runpod-xl-trigger"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonara-runpod-xl-config
+  cancel-in-progress: true
+
+jobs:
+  configure:
+    name: Bind RunPod XL-Turbo to SONARA production
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+
+      - name: Load RunPod XL endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          trigger=".github/runpod-xl-trigger"
+          test -f "${trigger}"
+          url="$(sed -n 's/^SONARA_RUNPOD_XL_URL=//p' "${trigger}" | tail -n 1 | tr -d '\r')"
+          model="$(sed -n 's/^MODEL=//p' "${trigger}" | tail -n 1 | tr -d '\r')"
+          mode="$(sed -n 's/^MODE=//p' "${trigger}" | tail -n 1 | tr -d '\r')"
+          [[ "${url}" =~ ^https://[A-Za-z0-9-]+-8001\.proxy\.runpod\.net/?$ ]]
+          test "${model}" = "acestep-v15-xl-turbo"
+          test "${mode}" = "RUNPOD_XL_ONLY"
+          echo "RUNPOD_XL_URL=${url%/}" >> "${GITHUB_ENV}"
+
+      - name: Verify RunPod ACE-Step XL-Turbo
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 30); do
+            health="$(curl -fsS --connect-timeout 10 --max-time 20 -H 'Cache-Control: no-cache' "${RUNPOD_XL_URL}/health" || true)"
+            if [[ -n "${health}" ]] && printf '%s' "${health}" | jq -e '
+              def d: (.data // .);
+              (((d.status // "") | tostring | ascii_downcase) | IN("ok","ready","healthy")) and
+              ((d.models_initialized // false) == true) and
+              (((d.loaded_model // d.model // "") | tostring) | contains("acestep-v15-xl-turbo"))
+            ' >/dev/null 2>&1; then
+              echo "RunPod XL-Turbo healthy: ${RUNPOD_XL_URL}"
+              printf '%s\n' "${health}" | jq '.' || true
+              exit 0
+            fi
+            echo "RunPod XL health attempt ${attempt}/30 failed"
+            sleep 10
+          done
+          echo "RunPod endpoint is not reporting ACE-Step XL-Turbo ready: ${RUNPOD_XL_URL}" >&2
+          exit 1
+
+      - name: Resolve Cloudflare account
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN}"
+          account_id="${CLOUDFLARE_ACCOUNT_ID}"
+          if [[ -z "${account_id}" ]]; then
+            zone_response="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' 'https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50')"
+            account_id="$(printf '%s' "${zone_response}" | jq -r '.result[] | select(.name == "sonaraenterprise.com") | .account.id' | head -n 1)"
+          fi
+          test -n "${account_id}"
+          echo "::add-mask::${account_id}"
+          echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
+
+      - name: Bind RunPod XL URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Existing router reads SONARA_MOLAB_XL_URL; keep the binding name for
+          # backward compatibility while replacing the actual engine origin.
+          printf '%s' "${RUNPOD_XL_URL}" | npx --yes wrangler@latest secret put SONARA_MOLAB_XL_URL --config wrangler.jsonc
+
+      - name: Deploy SONARA music router
+        run: npx --yes wrangler@latest deploy --config wrangler.jsonc
+
+      - name: Verify SONARA production routing
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 15); do
+            response="$(curl -sS --max-time 30 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/molab/ready?verify=runpod-${GITHUB_SHA}-${attempt}" || true)"
+            if [[ -n "${response}" ]] && printf '%s' "${response}" | jq -e '
+              .model == "acestep-v15-xl-turbo" and
+              .kaggleEnabled == false and
+              .ready == true
+            ' >/dev/null 2>&1; then
+              printf '%s\n' "${response}" | jq '{ready, profile, engine, provider, model, inferenceSteps, maxBatchSize, kaggleEnabled}'
+              echo "SONARA production is now backed by RunPod XL-Turbo."
+              exit 0
+            fi
+            echo "SONARA RunPod production verification attempt ${attempt}/15 failed"
+            sleep 5
+          done
+          echo "SONARA RunPod production router did not verify." >&2
+          exit 1
