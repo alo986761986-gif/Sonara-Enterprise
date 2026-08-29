@@ -1,7 +1,7 @@
 import webRuntime from './sonara-web-generator-stability.mjs';
 import sonaraProxy from './sonara-web-dj-proxy.mjs';
-import engineV19 from './sonara-engine-v19-resilient-dual.mjs';
-export { SonaraJobState } from './sonara-engine-v19-resilient-dual.mjs';
+import engineV20 from './sonara-engine-v20-stable-dual.mjs';
+export { SonaraJobState } from './sonara-engine-v20-stable-dual.mjs';
 import { isVideoApiRequest } from './sonara-video-api-recovery.mjs';
 import { injectVideoUiScript, videoUiScriptResponse } from './sonara-video-ui-edge.mjs';
 
@@ -105,9 +105,7 @@ function resolveRequestedBpm(payload) {
 function applyExactBpmLock(payload) {
   const bpm = resolveRequestedBpm(payload);
   const original = String(payload?.prompt || '').trim();
-  const cleaned = original
-    .replace(/(?:\n\s*)?SONARA HARD TEMPO LOCK:[^\n]*/gi, '')
-    .trim();
+  const cleaned = original.replace(/(?:\n\s*)?SONARA HARD TEMPO LOCK:[^\n]*/gi, '').trim();
   const tempoLock = `SONARA HARD TEMPO LOCK: exactly ${bpm} BPM. Treat ${bpm} BPM as the real quarter-note pulse and bar-grid tempo for the entire track. Do not reinterpret it as half-time or double-time. Keep drums, bass, comping, rhythmic accents, fills and section transitions anchored to ${bpm} BPM while preserving the selected genre and subgenre.`;
   return {
     ...payload,
@@ -128,9 +126,9 @@ async function forceExactBpmRequest(request, forceDual = false) {
     const headers = new Headers(request.headers);
     headers.set('content-type', 'application/json');
     headers.set('x-sonara-bpm-lock', `exact-${bpmLockedPayload.bpm}`);
-    if (forceDual) headers.set('x-sonara-music-route', 'v19-resilient-dual');
+    if (forceDual) headers.set('x-sonara-music-route', 'v20-stable-dual');
     const body = forceDual
-      ? { ...bpmLockedPayload, dualFast: true, candidateCount: 2, sonaraMusicV17: true, sonaraMusicV18: false, sonaraFastHq: false, speedProfile: 'resilient-dual-fast-v19' }
+      ? { ...bpmLockedPayload, dualFast: true, candidateCount: 2, sonaraMusicV17: false, sonaraMusicV18: false, sonaraFastHq: false, speedProfile: 'dual-t4-render-only-v24' }
       : bpmLockedPayload;
     return new Request(request.url, {
       method: request.method,
@@ -148,8 +146,8 @@ async function forceResilientDualGeneration(request) {
 function decorateGenerationResponse(response) {
   const headers = new Headers(response.headers);
   headers.set('cache-control', 'no-store');
-  headers.set('x-sonara-music-route', 'v19-resilient-dual');
-  headers.set('x-sonara-generator-recovery', 'resilient-dual-v19');
+  headers.set('x-sonara-music-route', 'v20-stable-dual');
+  headers.set('x-sonara-generator-recovery', 'stall-watchdog-v20');
   headers.set('x-sonara-bpm-lock', 'hard-user-bpm-v2-visible-control-authoritative');
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
@@ -173,7 +171,7 @@ async function resilientDualGeneration(request, env, ctx) {
 
 async function directEngineGeneration(request, env, ctx) {
   const lockedRequest = await forceExactBpmRequest(request, false);
-  return decorateDirectEngineResponse(await engineV19.fetch(lockedRequest, env, ctx));
+  return decorateDirectEngineResponse(await engineV20.fetch(lockedRequest, env, ctx));
 }
 
 function resilientJobFromLegacyBillingBridge(request, url, env, ctx) {
@@ -182,8 +180,8 @@ function resilientJobFromLegacyBillingBridge(request, url, env, ctx) {
   if (!RESILIENT_JOB_ID.test(jobId)) return null;
   const target = new URL(`/api/music/job/${encodeURIComponent(jobId)}`, url.origin);
   const headers = new Headers(request.headers);
-  headers.set('x-sonara-job-bridge', 'cloudflare-durable-v19');
-  return engineV19.fetch(new Request(target.toString(), { method: 'GET', headers, redirect: 'manual' }), env, ctx);
+  headers.set('x-sonara-job-bridge', 'cloudflare-durable-v20');
+  return engineV20.fetch(new Request(target.toString(), { method: 'GET', headers, redirect: 'manual' }), env, ctx);
 }
 
 function disableCrossOriginV18Poll(response) {
@@ -211,9 +209,9 @@ export default {
       const directJob = resilientJobFromLegacyBillingBridge(request, url, env, ctx);
       if (directJob) return directJob;
     }
-    if (request.method === 'GET' && MUSIC_JOB_PATH.test(url.pathname)) return engineV19.fetch(request, env, ctx);
+    if (request.method === 'GET' && MUSIC_JOB_PATH.test(url.pathname)) return engineV20.fetch(request, env, ctx);
     if (url.hostname === API_HOST && request.method === 'POST' && url.pathname === ENGINE_GENERATE_PATH) return directEngineGeneration(request, env, ctx);
-    if (url.hostname === API_HOST) return engineV19.fetch(request, env, ctx);
+    if (url.hostname === API_HOST) return engineV20.fetch(request, env, ctx);
     const response = await webRuntime.fetch(request, env, ctx);
     if (request.method === 'GET' && url.pathname !== '/api' && !url.pathname.startsWith('/api/')) return injectVideoUiScript(disableCrossOriginV18Poll(response));
     return response;
