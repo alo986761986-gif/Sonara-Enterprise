@@ -11,6 +11,7 @@ on:
       - "cloudflare/sonara-web-v15-router.mjs"
       - "cloudflare/sonara-engine-v17-lm-composer.mjs"
       - "cloudflare/sonara-engine-v18-fast-hq.mjs"
+      - "cloudflare/sonara-engine-v19-resilient-dual.mjs"
       - "cloudflare/sonara-web-generator-stability.mjs"
   workflow_dispatch:
 
@@ -90,6 +91,9 @@ jobs:
             echo "V18 must remain stateless and must not depend on caches.default." >&2
             exit 1
           fi
+          grep -q "real-prompt-dual-v20" cloudflare/sonara-engine-v19-resilient-dual.mjs
+          grep -q "thinking: true" cloudflare/sonara-engine-v19-resilient-dual.mjs
+          grep -q "constrained_decoding: true" cloudflare/sonara-engine-v19-resilient-dual.mjs
 
       - name: Deploy Worker to Cloudflare production
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
@@ -131,5 +135,8 @@ jobs:
           if (!(Number(health.aceStepWorkerCount || workers.length) > 0 && workers.some(item => item?.kind === 'kaggle'))) {
             throw new Error(`Kaggle ACE-Step worker unavailable: ${JSON.stringify(health)}`);
           }
-          console.log('Music Kaggle ACE-Step remains healthy.');
+          if (!(health.realPromptEngine === true && health.realPromptVersion === 'v20-5hz-lm-authoritative' && health.realPromptLmThinking === true)) {
+            throw new Error(`SONARA Real Prompt V20 not active: ${JSON.stringify(health)}`);
+          }
+          console.log('Music Kaggle ACE-Step + Real Prompt V20 healthy.');
           NODE
