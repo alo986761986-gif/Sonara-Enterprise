@@ -5,6 +5,7 @@ import { injectVideoUiScript, videoUiScriptResponse } from './sonara-video-ui-ed
 
 const API_HOST = 'api.sonaraenterprise.com';
 const VIDEO_UI_SCRIPT_PATH = '/sonara-video-ui-edge.js';
+const V18_JOB_PATH = /^\/api\/music\/job\/d18fast_[^/]+$/;
 
 export default {
   async fetch(request, env, ctx) {
@@ -16,6 +17,14 @@ export default {
 
     if (url.hostname !== API_HOST && isVideoApiRequest(request)) {
       return recoverVideoApi(request, { env, ctx });
+    }
+
+    // V18 jobs are created inside the Cloudflare Worker. Poll them at the same
+    // edge directly instead of sending the browser through Vercel and back to
+    // api.sonaraenterprise.com. This removes the stale/404 bridge that left
+    // the Creator UI frozen on the initial 34% response.
+    if (request.method === 'GET' && V18_JOB_PATH.test(url.pathname)) {
+      return engineV18.fetch(request, env, ctx);
     }
 
     if (url.hostname === API_HOST) {
