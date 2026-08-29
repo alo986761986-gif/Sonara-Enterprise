@@ -2,7 +2,7 @@ import webRuntime from './sonara-web-generator-stability.mjs';
 import sonaraProxy from './sonara-web-dj-proxy.mjs';
 import engineV19 from './sonara-engine-v19-resilient-dual.mjs';
 export { SonaraJobState } from './sonara-engine-v19-resilient-dual.mjs';
-import { isVideoApiRequest, recoverVideoApi } from './sonara-video-api-recovery.mjs';
+import { isVideoApiRequest } from './sonara-video-api-recovery.mjs';
 import { injectVideoUiScript, videoUiScriptResponse } from './sonara-video-ui-edge.mjs';
 
 const API_HOST = 'api.sonaraenterprise.com';
@@ -36,6 +36,30 @@ function apiCorsHeaders(request) {
     'Cache-Control': 'no-store',
     Vary: 'Origin'
   };
+}
+
+function videoSuspendedResponse(request) {
+  const origin = request.headers.get('Origin') || '';
+  const allowOrigin = API_ALLOWED_ORIGINS.has(origin) ? origin : 'https://sonaraenterprise.com';
+  return new Response(JSON.stringify({
+    status: 'SUSPENDED',
+    suspended: true,
+    service: 'SONARA Video AI',
+    reason: 'GPU_T4_REALLOCATED_TO_MUSIC',
+    message: 'Video AI e temporaneamente sospeso: entrambe le GPU T4 sono dedicate al motore musicale SONARA per generare i due brani in parallelo.',
+    musicMode: 'dual-t4-parallel',
+    gpuAllocation: { gpu0: 'music-candidate-A', gpu1: 'music-candidate-B' },
+    retryable: false
+  }), {
+    status: 503,
+    headers: {
+      'content-type': 'application/json; charset=UTF-8',
+      'cache-control': 'no-store',
+      'x-sonara-video-state': 'suspended-for-dual-t4-music',
+      'Access-Control-Allow-Origin': allowOrigin,
+      Vary: 'Origin'
+    }
+  });
 }
 
 function wait(ms) {
@@ -181,7 +205,7 @@ export default {
     const url = new URL(request.url);
     if (url.hostname === API_HOST && request.method === 'OPTIONS') return new Response(null, { status: 204, headers: apiCorsHeaders(request) });
     if (url.hostname !== API_HOST && url.pathname === VIDEO_UI_SCRIPT_PATH) return videoUiScriptResponse();
-    if (url.hostname !== API_HOST && isVideoApiRequest(request)) return recoverVideoApi(request, { env, ctx });
+    if (url.hostname !== API_HOST && isVideoApiRequest(request)) return videoSuspendedResponse(request);
     if (url.hostname !== API_HOST && request.method === 'POST' && url.pathname === BILLING_GENERATE_PATH) return resilientDualGeneration(request, env, ctx);
     if (url.hostname !== API_HOST) {
       const directJob = resilientJobFromLegacyBillingBridge(request, url, env, ctx);
