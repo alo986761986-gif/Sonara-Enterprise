@@ -1,0 +1,83 @@
+name: Deploy SONARA Brand to Cloudflare
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/sonara-brand-deploy-trigger"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-sonara-brand-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy SONARA brand edge wrapper
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Resolve Cloudflare account
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN}"
+          account_id="${CLOUDFLARE_ACCOUNT_ID}"
+          if [[ -z "${account_id}" ]]; then
+            zone_response="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json" "https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50")"
+            account_id="$(CF_RESPONSE="${zone_response}" node - <<'NODE'
+          const payload = JSON.parse(process.env.CF_RESPONSE || '{}');
+          const zone = Array.isArray(payload.result) ? payload.result.find(item => item?.name === 'sonaraenterprise.com') : null;
+          process.stdout.write(String(zone?.account?.id || ''));
+          NODE
+            )"
+          fi
+          test -n "${account_id}"
+          echo "::add-mask::${account_id}"
+          echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
+
+      - name: Validate SONARA brand routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'cloudflare/sonara-brand-router.mjs' wrangler.jsonc
+          grep -q 'sonara-brand-icon.svg' cloudflare/sonara-brand-router.mjs
+          grep -q 'sonara-brand-icon.svg' index.html
+          grep -q 'sonara-brand-boot.svg' src/components/brand/SonaraBrandControl.tsx
+          node --check cloudflare/sonara-brand-router.mjs
+
+      - name: Deploy Worker to Cloudflare production
+        run: npx --yes wrangler@latest deploy --config wrangler.jsonc
+
+      - name: Verify public SONARA favicon and site
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..15}; do
+            icon_code="$(curl -L -sS -o /tmp/sonara-icon -w '%{http_code}' --max-time 20 "https://sonaraenterprise.com/favicon.ico?brand=${GITHUB_SHA}-${attempt}" || true)"
+            site_headers="$(curl -sSI --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?brand=${GITHUB_SHA}-${attempt}" || true)"
+            if [[ "${icon_code}" == "200" ]] && printf '%s' "${site_headers}" | grep -qi 'x-sonara-brand: sonic-s-v3'; then
+              echo "SONARA brand favicon and edge wrapper verified."
+              exit 0
+            fi
+            echo "Brand propagation pending (${attempt}/15)."
+            sleep 4
+          done
+          echo "SONARA brand public verification failed." >&2
+          exit 1
