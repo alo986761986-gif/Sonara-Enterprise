@@ -1,3 +1,3 @@
-trigger: 2026-08-29T20:12:00+02:00
-reason: publish dual T4 polling stall recovery and failover fix
-source: 784da308e3ecbfc3a8af3ec292a44095464aef0a
+trigger: 2026-08-29T20:18:00+02:00
+reason: verify public anti-stall recovery route and dual T4 failover
+source: b81bb052df5aee349be2ac557105d0cacbc83860
