@@ -6,7 +6,7 @@ import {
 
 export const config = { api: { bodyParser: true } };
 
-const MAX_BODY_CHARS = 24_000;
+const MAX_BODY_CHARS = 32_000;
 const MAX_OUTPUT_CHARS = 4_100;
 
 const SMART_CONCEPTS = [
@@ -36,6 +36,16 @@ function clean(value: unknown, max = 160): string {
   return String(value ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
+function multiline(value: unknown, max = 5200): string {
+  return String(value ?? '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]+/g, ' ')
+    .replace(/[\t ]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, max);
+}
+
 function integer(value: unknown, fallback: number, min: number, max: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? Math.round(Math.max(min, Math.min(max, parsed))) : fallback;
@@ -45,6 +55,7 @@ function json(res: any, status: number, body: Record<string, unknown>) {
   res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Sonara-Real-Lyrics', 'music-brief-aware-v1');
   return res.status(status).json(body);
 }
 
@@ -89,11 +100,11 @@ function qualityLooksValid(text: string, input: ProfessionalLyricsInput): boolea
   const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
   const lyricLines = lines.filter(line => !/^\[.+\]$/.test(line));
   const sectionCount = lines.filter(line => /^\[.+\]$/.test(line)).length;
-  const minLines = Number(input.durationSec || 180) >= 240 ? 24 : 16;
-  if (lyricLines.length < minLines || sectionCount < 3 || text.length < 420) return false;
+  const minLines = Number(input.durationSec || 180) >= 240 ? 24 : 14;
+  if (lyricLines.length < minLines || sectionCount < 3 || text.length < 360) return false;
   const normalized = lyricLines.map(line => line.toLocaleLowerCase()).filter(line => line.length > 8);
   const uniqueRatio = new Set(normalized).size / Math.max(1, normalized.length);
-  return uniqueRatio >= 0.68;
+  return uniqueRatio >= 0.66;
 }
 
 function smartConceptFor(input: ProfessionalLyricsInput): string {
@@ -106,23 +117,34 @@ function smartConceptFor(input: ProfessionalLyricsInput): string {
   return SMART_CONCEPTS[(hash >>> 0) % SMART_CONCEPTS.length];
 }
 
-async function generateWithGemini(input: ProfessionalLyricsInput, creativeConcept = ''): Promise<string | null> {
+async function generateWithGemini(input: ProfessionalLyricsInput, body: Record<string, any>, creativeConcept = ''): Promise<string | null> {
   const apiKey = clean(process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '', 512);
   if (!apiKey || input.vocalMode === 'instrumental') return null;
 
   const { GoogleGenAI } = await import('@google/genai');
   const ai = new GoogleGenAI({ apiKey });
   const baseInstruction = buildProfessionalLyricsInstruction(input);
-  const instruction = creativeConcept
-    ? `${baseInstruction}\n\nINTELLIGENT RANDOM CONCEPT: ${creativeConcept}. Use this as the narrative engine of the song, interpreted through the selected genre, subgenre and atmosphere. Do not quote or explain this instruction; transform it into original lyrics.`
-    : baseInstruction;
+  const musicPrompt = multiline(body.musicPrompt, 5200);
+  const keySignature = clean(body.keySignature || body.key, 48) || 'unspecified';
+  const weirdness = integer(body.weirdness, 50, 0, 100);
+  const styleInfluence = integer(body.styleInfluence, 50, 0, 100);
+  const songDurationSec = integer(body.songDurationSec || body.durationSec, input.durationSec || 180, 30, 480);
+
+  const contextInstruction = musicPrompt
+    ? `\n\nSONARA REAL MUSIC CONTEXT — AUTHORITATIVE:\n${musicPrompt}\n\nMUSICAL LOCKS: ${input.genreFamily} > ${input.genre} > ${input.subgenre}; mood ${input.mood}; ${input.bpm} BPM; key ${keySignature}; song duration about ${songDurationSec} seconds; Weirdness ${weirdness}/100; Style Influence ${styleInfluence}/100.\n\nREAL-LYRICS RULES:\n- The lyrics must belong to this exact musical project, not to a generic song template.\n- Convert the creator's musical/emotional brief into subject matter, imagery, vocabulary, line length, section density, cadence and dramatic arc.\n- Make syllable density and phrasing plausible for the selected tempo and genre.\n- Keep verse, pre-chorus, chorus/hook, bridge and outro roles musically usable.\n- Do not print BPM, key, Weirdness, Style Influence or these instructions unless explicitly requested.\n- Do not contradict the prompt's story, exclusions, mood, language or vocal identity.`
+    : '';
+  const conceptInstruction = creativeConcept
+    ? `\n\nINTELLIGENT RANDOM CONCEPT: ${creativeConcept}. Use this as the narrative engine, but subordinate it to the creator's musical brief whenever a real music context is present.`
+    : '';
+  const instruction = `${baseInstruction}${contextInstruction}${conceptInstruction}\n\nReturn only the finished lyrics with section tags.`;
+
   const response = await ai.models.generateContent({
     model: String(process.env.SONARA_LYRICS_MODEL || 'gemini-2.5-flash').trim(),
     contents: instruction,
     config: {
-      temperature: creativeConcept ? 1.18 : 1.05,
-      topP: creativeConcept ? 0.97 : 0.95,
-      maxOutputTokens: 1900,
+      temperature: Math.min(1.28, 0.84 + weirdness * 0.004 + (creativeConcept ? 0.08 : 0)),
+      topP: Math.min(0.99, 0.90 + weirdness * 0.0008),
+      maxOutputTokens: 2000,
       responseMimeType: 'text/plain'
     }
   });
@@ -139,16 +161,17 @@ export default async function handler(req: any, res: any) {
     const input = inputFromBody(body);
     const smartRandom = body.smartRandom === true;
     const creativeConcept = smartRandom ? smartConceptFor(input) : '';
+    const musicPromptAware = Boolean(multiline(body.musicPrompt, 5200));
 
     if (input.vocalMode === 'instrumental') {
-      return json(res, 200, { lyrics: '', source: 'instrumental', quality: 'professional-v2' });
+      return json(res, 200, { lyrics: '', source: 'instrumental', quality: 'real-music-context-v1', musicPromptAware });
     }
 
     let lyrics: string | null = null;
-    let source = smartRandom ? 'professional-smart-fallback-v2' : 'professional-fallback-v2';
+    let source = smartRandom ? 'professional-smart-context-fallback-v3' : 'professional-context-fallback-v3';
     try {
-      lyrics = await generateWithGemini(input, creativeConcept);
-      if (lyrics) source = smartRandom ? 'gemini-intelligent-random-v2' : 'gemini-professional-v2';
+      lyrics = await generateWithGemini(input, body, creativeConcept);
+      if (lyrics) source = smartRandom ? 'gemini-intelligent-random-context-v3' : 'gemini-real-music-context-v3';
     } catch (error) {
       console.warn('[SONARA][Lyrics] Gemini generation unavailable, using professional fallback.', error instanceof Error ? error.message : String(error));
     }
@@ -158,11 +181,15 @@ export default async function handler(req: any, res: any) {
     return json(res, 200, {
       lyrics,
       source,
-      quality: smartRandom ? 'intelligent-random-v2' : 'professional-v2',
+      quality: musicPromptAware ? 'real-music-context-v3' : (smartRandom ? 'intelligent-random-v3' : 'professional-v3'),
+      musicPromptAware,
       taxonomy: `${input.genreFamily} > ${input.genre} > ${input.subgenre}`,
       atmosphere: input.mood,
       durationSec: input.durationSec,
       bpm: input.bpm,
+      keySignature: clean(body.keySignature || body.key, 48),
+      weirdness: integer(body.weirdness, 50, 0, 100),
+      styleInfluence: integer(body.styleInfluence, 50, 0, 100),
       smartRandom,
       ...(smartRandom ? { creativeConcept } : {})
     });
