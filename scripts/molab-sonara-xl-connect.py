@@ -1,9 +1,8 @@
+import inspect
 import json
 import os
-import platform
-import re
+import secrets
 import shutil
-import signal
 import subprocess
 import sys
 import time
@@ -182,63 +181,45 @@ def start_existing_acestep_api(base: Path):
     raise RuntimeError(f'XL-Turbo non risulta inizializzato: {json.dumps(last, ensure_ascii=False)[:4000]}')
 
 
-def cloudflared_binary():
-    machine = platform.machine().lower()
-    arch = 'arm64' if machine in {'aarch64', 'arm64'} else 'amd64'
-    target = WORK / 'cloudflared'
-    if not target.exists():
-        url = f'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-{arch}'
-        print(f'Download cloudflared ({arch})...', flush=True)
-        urllib.request.urlretrieve(url, target)
-        target.chmod(0o755)
-    return target
-
-
-def stop_old_tunnel(port: int):
+def ensure_gradio():
     try:
-        rows = subprocess.check_output(['ps', '-eo', 'pid=,args='], text=True)
-    except Exception:
+        import gradio  # noqa: F401
         return
-    for row in rows.splitlines():
-        parts = row.strip().split(maxsplit=1)
-        if len(parts) != 2:
-            continue
-        try:
-            pid = int(parts[0])
-        except ValueError:
-            continue
-        cmd = parts[1].lower()
-        if 'cloudflared' in cmd and (f'127.0.0.1:{port}' in cmd or f'localhost:{port}' in cmd):
-            try:
-                os.kill(pid, signal.SIGTERM)
-            except Exception:
-                pass
-    time.sleep(1)
+    except Exception:
+        print('Gradio non presente: installo solo il client tunnel (XL-Turbo non viene toccato)...', flush=True)
+    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'gradio>=6.10'], check=True)
 
 
-def start_tunnel(port: int):
-    binary = cloudflared_binary()
-    stop_old_tunnel(port)
-    log_path = WORK / 'cloudflared-xl.log'
-    log = open(log_path, 'w', buffering=1)
-    proc = subprocess.Popen(
-        [str(binary), 'tunnel', '--no-autoupdate', '--url', f'http://127.0.0.1:{port}'],
-        stdout=log,
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-    )
-    pattern = re.compile(r'https://[a-z0-9-]+\.trycloudflare\.com', re.I)
-    deadline = time.time() + 120
-    while time.time() < deadline:
-        if proc.poll() is not None:
-            tail = log_path.read_text(errors='ignore')[-8000:] if log_path.exists() else ''
-            raise RuntimeError(f'Cloudflare tunnel terminato:\n{tail}')
-        text = log_path.read_text(errors='ignore') if log_path.exists() else ''
-        match = pattern.search(text)
-        if match:
-            return match.group(0).rstrip('/')
-        time.sleep(1)
-    raise RuntimeError('Timeout creazione URL pubblico Cloudflare.')
+def start_gradio_tunnel(port: int):
+    ensure_gradio()
+    from gradio import networking
+
+    # Chiudi soltanto eventuali vecchi tunnel Gradio sullo stesso port.
+    try:
+        from gradio.tunneling import CURRENT_TUNNELS
+        for tunnel in list(CURRENT_TUNNELS):
+            if int(getattr(tunnel, 'local_port', -1)) == int(port):
+                try:
+                    tunnel.kill()
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    token = secrets.token_urlsafe(32)
+    setup = networking.setup_tunnel
+    params = inspect.signature(setup).parameters
+    print(f'Creo tunnel Gradio pubblico per 127.0.0.1:{port}...', flush=True)
+
+    if 'share_server_tls_certificate' in params:
+        url = setup('127.0.0.1', int(port), token, None, None)
+    else:
+        url = setup('127.0.0.1', int(port), token, None)
+
+    url = str(url).strip().rstrip('/')
+    if not url.startswith('https://') or 'gradio.live' not in url:
+        raise RuntimeError(f'URL Gradio inatteso: {url}')
+    return url
 
 
 def verify_public(base: str):
@@ -258,12 +239,12 @@ def verify_public(base: str):
         except Exception as exc:
             last = repr(exc)
         time.sleep(2)
-    raise RuntimeError(f'Endpoint pubblico non verificato: {last[:4000]}')
+    raise RuntimeError(f'Endpoint pubblico Gradio non verificato: {last[:4000]}')
 
 
 def main():
     print('=' * 76)
-    print(' SONARA - MOLAB RTX PRO 6000 / ACE-STEP 1.5 XL-TURBO BRIDGE ')
+    print(' SONARA - MOLAB RTX PRO 6000 / ACE-STEP 1.5 XL-TURBO BRIDGE V2 ')
     print('=' * 76)
 
     port = detect_live_api()
@@ -277,18 +258,26 @@ def main():
         data = health_data(port) or {}
         model = str(data.get('loaded_model') or '')
         if model and MODEL not in model:
-            print(f'API locale attiva con modello {model}; provo comunque a inizializzare {MODEL}.', flush=True)
+            print(f'API locale attiva con modello {model}; provo a selezionare {MODEL}.', flush=True)
             try:
                 request_json(port, '/v1/init', {'model': MODEL, 'slot': 1, 'init_llm': False}, timeout=900)
             except Exception as exc:
                 print(f'Init XL su API esistente: {exc!r}', flush=True)
 
+    local_health = health_data(port)
+    if not local_health:
+        raise RuntimeError(f'ACE-Step locale non risponde sulla porta {port}.')
+
     print(f'API locale pronta su http://127.0.0.1:{port}', flush=True)
-    public_url = start_tunnel(port)
+    print('Creo un nuovo ponte Gradio (niente Quick Tunnel Cloudflare)...', flush=True)
+    public_url = start_gradio_tunnel(port)
     public_health = verify_public(public_url)
 
     marker = WORK / 'sonara-molab-xl-url.txt'
-    marker.write_text(f'SONARA_MOLAB_XL_URL={public_url}\nMODEL={MODEL}\nPORT={port}\n', encoding='utf-8')
+    marker.write_text(
+        f'SONARA_MOLAB_XL_URL={public_url}\nMODEL={MODEL}\nPORT={port}\nTUNNEL=gradio\n',
+        encoding='utf-8',
+    )
 
     print('\n' + '=' * 76)
     print(' ✅ MOLAB XL-TURBO PRONTO PER SONARA ')
@@ -296,8 +285,10 @@ def main():
     print(f'SONARA_MOLAB_XL_URL={public_url}')
     print(f'MODEL={MODEL}')
     print(f'LOCAL_PORT={port}')
+    print('TUNNEL=gradio')
     print('HEALTH=' + json.dumps(public_health, ensure_ascii=False)[:1500])
     print('=' * 76)
+    print('IMPORTANTE: lascia aperta la sessione MoLab. Il link Gradio resta attivo finché il runtime resta vivo.')
     print('COPIA QUI IN CHAT SOLO LA RIGA SONARA_MOLAB_XL_URL=...')
 
 
