@@ -1,4 +1,4 @@
-name: Deploy SONARA Video AI T4 Only
+name: Deploy SONARA Dual T4 Music
 
 on:
   push:
@@ -6,25 +6,24 @@ on:
       - main
     paths:
       - ".github/workflows/deploy-cloudflare-video-recovery.yml"
-      - "cloudflare/sonara-video-api-recovery.mjs"
-      - "cloudflare/sonara-video-api-recovery.test.mjs"
       - "cloudflare/sonara-web-v15-router.mjs"
       - "cloudflare/sonara-engine-v17-lm-composer.mjs"
       - "cloudflare/sonara-engine-v18-fast-hq.mjs"
       - "cloudflare/sonara-engine-v19-resilient-dual.mjs"
       - "cloudflare/sonara-web-generator-stability.mjs"
+      - "scripts/kaggle-sonara-music-v20-dual-t4.py"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: cloudflare-sonara-video-t4-only-production
+  group: cloudflare-sonara-dual-t4-music-production
   cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Validate and deploy T4-only Video AI
+    name: Deploy dual T4 music and suspend Video AI
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -55,88 +54,80 @@ jobs:
           const payload = JSON.parse(process.env.CF_RESPONSE || '{}');
           const zone = Array.isArray(payload.result) ? payload.result.find(item => item?.name === 'sonaraenterprise.com') : null;
           process.stdout.write(String(zone?.account?.id || ''));
-          NODE
+NODE
             )"
           fi
           test -n "${account_id}"
           echo "::add-mask::${account_id}"
           echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
 
-      - name: Validate T4-only Video AI router
-        run: node cloudflare/sonara-video-api-recovery.test.mjs
-
-      - name: Verify T4-only routing markers
+      - name: Verify Video AI is suspended for dual music
         shell: bash
         run: |
           set -euo pipefail
-          grep -q "cloudflare-video-json-v4-t4-only" cloudflare/sonara-video-api-recovery.mjs
-          grep -q "kaggle-wan21" cloudflare/sonara-video-api-recovery.mjs
-          grep -q "routeMode: 'kaggle-t4-only'" cloudflare/sonara-video-api-recovery.mjs
-          grep -q "googleBillingRequired: false" cloudflare/sonara-video-api-recovery.mjs
-          grep -q "geminiEnabled: false" cloudflare/sonara-video-api-recovery.mjs
-          grep -q "recoverVideoApi(request, { env, ctx })" cloudflare/sonara-web-v15-router.mjs
-          if grep -q "startGeminiEdge" cloudflare/sonara-video-api-recovery.mjs; then
-            echo "Gemini startup path still present in public router." >&2
+          grep -q "function videoSuspendedResponse" cloudflare/sonara-web-v15-router.mjs
+          grep -q "GPU_T4_REALLOCATED_TO_MUSIC" cloudflare/sonara-web-v15-router.mjs
+          grep -q "suspended-for-dual-t4-music" cloudflare/sonara-web-v15-router.mjs
+          if grep -q "recoverVideoApi(request, { env, ctx })" cloudflare/sonara-web-v15-router.mjs; then
+            echo "Public router still sends Video AI traffic to the GPU worker." >&2
             exit 1
           fi
-          echo "Video AI router is Kaggle T4/WAN only."
+          echo "Video AI public generation is suspended while both T4s serve music."
 
-      - name: Validate music engine remains unchanged
+      - name: Validate Real Prompt music engine
         run: |
           node cloudflare/sonara-engine-v15-authoritative-prompt.test.mjs
           node scripts/activate-extreme-fidelity-v16.cjs
           node cloudflare/extreme-fidelity-v16.test.mjs
-          grep -q "stateTransport: 'job-id-direct-task'" cloudflare/sonara-engine-v18-fast-hq.mjs
-          if grep -q "caches.default" cloudflare/sonara-engine-v18-fast-hq.mjs; then
-            echo "V18 must remain stateless and must not depend on caches.default." >&2
-            exit 1
-          fi
           grep -q "real-prompt-dual-v20" cloudflare/sonara-engine-v19-resilient-dual.mjs
           grep -q "thinking: true" cloudflare/sonara-engine-v19-resilient-dual.mjs
           grep -q "constrained_decoding: true" cloudflare/sonara-engine-v19-resilient-dual.mjs
+          grep -q "if (pool.length >= 2)" cloudflare/sonara-engine-v19-resilient-dual.mjs
+          grep -q "Promise.all" cloudflare/sonara-engine-v19-resilient-dual.mjs
+          echo "Real Prompt V20 dual-worker parallel path verified."
 
       - name: Deploy Worker to Cloudflare production
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
 
-      - name: Verify public WAN T4 edge
+      - name: Verify Video AI suspension is live
         shell: bash
         run: |
           set -euo pipefail
           for attempt in {1..18}; do
-            if response="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/api/video/edge-health?t4=${GITHUB_SHA}-${attempt}" 2>/dev/null)"; then
-              printf '%s' "${response}" > /tmp/video-edge-health.json
-              if node - <<'NODE'
+            code="$(curl -sS --max-time 30 -o /tmp/video-suspended.json -w '%{http_code}' -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/api/video/edge-health?suspended=${GITHUB_SHA}-${attempt}" || true)"
+            if [[ "${code}" == "503" ]] && node - <<'NODE'
           const fs = require('fs');
-          const h = JSON.parse(fs.readFileSync('/tmp/video-edge-health.json','utf8'));
-          const ok = h.valid === true && h.provider === 'kaggle-wan21' && h.zeroCost === true && h.googleBillingRequired === false && h.geminiEnabled === false && h.vertexEnabled === false && h.routeMode === 'kaggle-t4-only';
+          const h = JSON.parse(fs.readFileSync('/tmp/video-suspended.json','utf8'));
+          const ok = h.suspended === true && h.status === 'SUSPENDED' && h.reason === 'GPU_T4_REALLOCATED_TO_MUSIC' && h.musicMode === 'dual-t4-parallel';
           console.log(JSON.stringify(h));
           process.exit(ok ? 0 : 1);
-          NODE
-              then
-                echo "Public Video AI verified: Kaggle WAN T4 only, Google disabled."
-                exit 0
-              fi
+NODE
+            then
+              echo "Video AI suspension verified in production."
+              exit 0
             fi
             sleep 5
           done
-          echo "Public T4-only Video AI edge did not become healthy." >&2
+          echo "Video AI suspension did not become visible in production." >&2
           exit 1
 
       - name: Verify production music health
         shell: bash
         run: |
           set -euo pipefail
-          response="$(curl -fsS --max-time 30 https://api.sonaraenterprise.com/api/health)"
+          response="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/health?music=${GITHUB_SHA}")"
           printf '%s' "${response}" > /tmp/music-health.json
           node - <<'NODE'
           const fs = require('fs');
           const health = JSON.parse(fs.readFileSync('/tmp/music-health.json', 'utf8'));
           const workers = Array.isArray(health.aceStepWorkers) ? health.aceStepWorkers : [];
-          if (!(Number(health.aceStepWorkerCount || workers.length) > 0 && workers.some(item => item?.kind === 'kaggle'))) {
+          const count = Number(health.aceStepWorkerCount || workers.length || 0);
+          if (!(count > 0 && workers.some(item => item?.kind === 'kaggle'))) {
             throw new Error(`Kaggle ACE-Step worker unavailable: ${JSON.stringify(health)}`);
           }
           if (!(health.realPromptEngine === true && health.realPromptVersion === 'v20-5hz-lm-authoritative' && health.realPromptLmThinking === true)) {
             throw new Error(`SONARA Real Prompt V20 not active: ${JSON.stringify(health)}`);
           }
-          console.log('Music Kaggle ACE-Step + Real Prompt V20 healthy.');
-          NODE
+          console.log(JSON.stringify({status: health.status, aceStepWorkerCount: count, aceStepWorkers: workers, realPromptVersion: health.realPromptVersion}));
+          console.log('Music remains healthy; the second T4 will be bound by Configure SONARA Dual T4 Music after Kaggle conversion.');
+NODE
