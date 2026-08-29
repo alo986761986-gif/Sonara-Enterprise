@@ -1,5 +1,5 @@
-trigger: 2026-08-29T21:08:00+02:00
-reason: publish SONARA Studio Max 8-step HQ dual T4 render
-source: 574a5d11c3feb753e86fdad2eaf29820e4794ce7
+trigger: 2026-08-29T21:18:00+02:00
+reason: publish SONARA Instant Dual progressive low-latency dual T4 render
+source: 4128ea8605f3fe1af11336883df634f2b862060a
 GPU0=https://gain-herbs-showcase-archives.trycloudflare.com
 GPU1=https://serve-charter-establish-designs.trycloudflare.com
