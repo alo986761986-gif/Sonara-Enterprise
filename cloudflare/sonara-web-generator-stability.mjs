@@ -137,6 +137,48 @@ const CREATOR_UI_HOTFIX_SCRIPT = String.raw`(() => {
   window.addEventListener('pagehide', () => observer.disconnect(), { once: true });
 })();`;
 
+const V18_DIRECT_POLL_SCRIPT = String.raw`(() => {
+  if (window.__sonaraV18DirectPollV1) return;
+  window.__sonaraV18DirectPollV1 = true;
+
+  const API_ORIGIN = 'https://api.sonaraenterprise.com';
+  const JOB_PATH = /^\/api\/music\/job\/d18fast_[A-Za-z0-9_-]+$/;
+  const originalFetch = window.fetch.bind(window);
+
+  window.fetch = (input, init) => {
+    try {
+      const inputUrl = input instanceof Request ? input.url : String(input);
+      const current = new URL(inputUrl, window.location.origin);
+      const method = String(init?.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
+
+      if (method === 'GET' && current.origin === window.location.origin && JOB_PATH.test(current.pathname)) {
+        const target = new URL(current.pathname, API_ORIGIN);
+        for (const [key, value] of current.searchParams.entries()) target.searchParams.append(key, value);
+        target.searchParams.set('_sonara_direct', String(Date.now()));
+
+        const headers = new Headers(input instanceof Request ? input.headers : undefined);
+        if (init?.headers) {
+          for (const [key, value] of new Headers(init.headers).entries()) headers.set(key, value);
+        }
+        headers.set('cache-control', 'no-cache');
+        headers.set('pragma', 'no-cache');
+
+        return originalFetch(target.toString(), {
+          ...init,
+          method: 'GET',
+          headers,
+          cache: 'no-store',
+          credentials: 'omit',
+          mode: 'cors'
+        });
+      }
+    } catch (error) {
+      console.warn('[SONARA][V18 Direct Poll]', error instanceof Error ? error.message : String(error));
+    }
+    return originalFetch(input, init);
+  };
+})();`;
+
 function stripDuplicateGeneratorScripts(html) {
   return BLOCKED_GENERATOR_EDGE_SCRIPTS.reduce((output, scriptName) => {
     const escaped = scriptName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -157,6 +199,12 @@ function injectCreatorUiHotfix(html) {
   const script = `<script>${CREATOR_UI_HOTFIX_SCRIPT}</script>`;
   const withStyle = html.includes('</head>') ? html.replace('</head>', `${style}</head>`) : `${style}${html}`;
   return withStyle.includes('</body>') ? withStyle.replace('</body>', `${script}</body>`) : `${withStyle}${script}`;
+}
+
+function injectV18DirectPoll(html) {
+  if (html.includes('__sonaraV18DirectPollV1')) return html;
+  const script = `<script>${V18_DIRECT_POLL_SCRIPT}</script>`;
+  return html.includes('</head>') ? html.replace('</head>', `${script}</head>`) : `${script}${html}`;
 }
 
 function wait(ms) {
@@ -261,7 +309,7 @@ export default {
       return response;
     }
 
-    const html = injectCreatorUiHotfix(injectAudioGestureUnlock(stripDuplicateGeneratorScripts(await response.text())));
+    const html = injectV18DirectPoll(injectCreatorUiHotfix(injectAudioGestureUnlock(stripDuplicateGeneratorScripts(await response.text()))));
     const headers = new Headers(response.headers);
     headers.delete('content-length');
     headers.delete('content-encoding');
@@ -269,6 +317,7 @@ export default {
     headers.set('x-sonara-generator-stability', 'native-react-controls-v1');
     headers.set('x-sonara-playback-fix', 'direct-user-gesture-v1');
     headers.set('x-sonara-creator-ui-hotfix', 'bpm-workspace-v1');
+    headers.set('x-sonara-v18-browser-poll', 'direct-api-v1');
 
     return new Response(html, {
       status: response.status,
