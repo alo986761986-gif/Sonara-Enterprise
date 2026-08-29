@@ -1,0 +1,3 @@
+ACTION=disable-browser-integrity-check
+HOST=molab.sonaraenterprise.com
+VERIFY=20260830-MOLAB-BIC-FIX
