@@ -1,2 +1,2 @@
-trigger: 2026-08-28T12:15:00+02:00
-reason: restore SONARA audio generation to saved stable v16 behavior; preserve extreme fidelity profile, 12 steps, guidance 1.15, authoritative taxonomy and remove recursive-v17 decoder/progress heartbeat
+trigger: 2026-08-29T17:08:00+02:00
+reason: deploy SONARA favicon and icon metadata at the Cloudflare edge so browsers and search engines receive the Sonara icon instead of the generic globe
