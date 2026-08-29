@@ -5,6 +5,9 @@
   "compatibility_date": "2026-08-23",
   "workers_dev": true,
   "keep_vars": true,
+  "vars": {
+    "ACESTEP_WORKER_URLS": "https://gain-herbs-showcase-archives.trycloudflare.com,https://serve-charter-establish-designs.trycloudflare.com"
+  },
   "durable_objects": {
     "bindings": [
       {
