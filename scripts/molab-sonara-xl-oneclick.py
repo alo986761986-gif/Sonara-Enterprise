@@ -18,10 +18,9 @@ TUNNEL_NAME = 'sonara-molab-xl'
 HOSTNAME = 'molab.sonaraenterprise.com'
 PUBLIC_URL = 'https://' + HOSTNAME
 
-# Pinned immutable revisions so MoLab does not receive a stale cached script.
 BOOTSTRAP_URL = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/4404f7c23ff1812e939d0f42aa1bb56ef53ca27d/scripts/molab-sonara-xl-clean-bootstrap.py'
 REPAIR_URL = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/d5fd7a6c4ad3cc407bba235b9885d9bf0016901d/scripts/molab-sonara-xl-repair-checkpoint.py'
-SUPERVISOR_URL = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/bdbd2f289c3eb33d30bbbd3d7290b4c5b63d5b1b/scripts/molab-sonara-xl-supervisor.py'
+SUPERVISOR_URL = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/49032bda925d4cce067096b33db6305e3c30937d/scripts/molab-sonara-xl-supervisor.py'
 
 
 def fetch(url):
@@ -30,7 +29,7 @@ def fetch(url):
         headers={
             'Cache-Control': 'no-cache, no-store, max-age=0',
             'Pragma': 'no-cache',
-            'User-Agent': 'SONARA-MoLab-OneClick/4.0',
+            'User-Agent': 'SONARA-MoLab-OneClick/5.0',
         },
     )
     return urllib.request.urlopen(req, timeout=120).read().decode('utf-8')
@@ -79,7 +78,7 @@ def public_dns_ready():
     query = urllib.parse.urlencode({'name': HOSTNAME, 'type': 'A'})
     req = urllib.request.Request(
         'https://cloudflare-dns.com/dns-query?' + query,
-        headers={'Accept': 'application/dns-json', 'User-Agent': 'SONARA-MoLab-OneClick/4.0'},
+        headers={'Accept': 'application/dns-json', 'User-Agent': 'SONARA-MoLab-OneClick/5.0'},
     )
     try:
         with urllib.request.urlopen(req, timeout=10) as response:
@@ -120,13 +119,13 @@ def ensure_stable_dns():
 
 def main():
     print('=' * 82)
-    print(' SONARA MOLAB XL - ONE CLICK ON-DEMAND V4 ')
+    print(' SONARA MOLAB XL - ONE CLICK ON-DEMAND V5 ')
     print('=' * 82)
     print('URL STABILE=' + PUBLIC_URL)
     ensure_clean_environment()
     repair_checkpoint()
     ensure_stable_dns()
-    print('🚀 Avvio supervisor ON-DEMAND con Named Tunnel stabile...', flush=True)
+    print('🚀 Avvio supervisor HTTP/2 diagnostico con Named Tunnel stabile...', flush=True)
 
     supervisor = fetch(SUPERVISOR_URL)
     exec(
