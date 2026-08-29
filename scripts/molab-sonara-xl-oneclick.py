@@ -5,11 +5,12 @@ CLEAN_ROOT = Path('/marimo/SONARA-ACE-Step-CLEAN')
 CLEAN_PY = CLEAN_ROOT / '.venv/bin/python'
 MODEL = CLEAN_ROOT / 'checkpoints/acestep-v15-xl-turbo'
 BOOTSTRAP_URL = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/main/scripts/molab-sonara-xl-clean-bootstrap.py'
+REPAIR_URL = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/main/scripts/molab-sonara-xl-repair-checkpoint.py'
 SUPERVISOR_URL = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/main/scripts/molab-sonara-xl-supervisor.py'
 
 
 def fetch(url):
-    return urllib.request.urlopen(url, timeout=60).read().decode('utf-8')
+    return urllib.request.urlopen(url, timeout=120).read().decode('utf-8')
 
 
 def ensure_clean_environment():
@@ -31,11 +32,20 @@ def ensure_clean_environment():
     print('✅ Ambiente CLEAN ricreato.', flush=True)
 
 
+def repair_checkpoint():
+    print('🔧 Controllo e riparo il checkpoint XL-Turbo se necessario...', flush=True)
+    ns = {'__name__': '_sonara_repair_', '__file__': REPAIR_URL}
+    code = fetch(REPAIR_URL)
+    exec(compile(code, REPAIR_URL, 'exec'), ns)
+    ns['repair_model']()
+
+
 def main():
     print('=' * 82)
     print(' SONARA MOLAB XL - ONE CLICK LAUNCHER ')
     print('=' * 82)
     ensure_clean_environment()
+    repair_checkpoint()
     print('🚀 Avvio supervisor auto-riparante...', flush=True)
 
     code = fetch(SUPERVISOR_URL)
