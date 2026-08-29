@@ -101,19 +101,27 @@ def local_inventory():
     print('\n[4/6] Verifica locale V17...', flush=True)
     with urllib.request.urlopen(f'http://127.0.0.1:{PORT}/health', timeout=10) as response:
         health = json.loads(response.read().decode('utf-8'))
-    with urllib.request.urlopen(f'http://127.0.0.1:{PORT}/v1/models', timeout=15) as response:
+    with urllib.request.urlopen(f'http://127.0.0.1:{PORT}/v1/model_inventory', timeout=15) as response:
         models = json.loads(response.read().decode('utf-8'))
+
+    health_data = health.get('data') or health
     data = models.get('data') or models
-    if not data.get('llm_initialized'):
-        raise RuntimeError('5Hz LM non risulta inizializzato: ' + json.dumps(data, ensure_ascii=False)[:2000])
+    loaded_turbo = any(
+        str(m.get('name')) == 'acestep-v15-turbo' and m.get('is_loaded') is True
+        for m in (data.get('models') or [])
+        if isinstance(m, dict)
+    )
+    if health_data.get('models_initialized') is not True or not loaded_turbo:
+        raise RuntimeError('Turbo non risulta caricato: ' + json.dumps({'health': health_data, 'inventory': data}, ensure_ascii=False)[:3000])
+    if data.get('llm_initialized') is not True:
+        raise RuntimeError('5Hz LM non risulta inizializzato: ' + json.dumps(data, ensure_ascii=False)[:3000])
     if '0.6B' not in str(data.get('loaded_lm_model') or ''):
         raise RuntimeError('Modello LM inatteso: ' + repr(data.get('loaded_lm_model')))
-    if 'acestep-v15-turbo' not in json.dumps(data):
-        raise RuntimeError('acestep-v15-turbo non presente nell inventory.')
+
     print('Health locale : OK', flush=True)
-    print('Turbo         : OK', flush=True)
+    print('Turbo         : CARICATO', flush=True)
     print('5Hz LM 0.6B   : ATTIVO', flush=True)
-    return health, data
+    return health_data, data
 
 
 def stop_only_gpu0_tunnels():
@@ -186,9 +194,15 @@ def verify_public(base: str):
                 payload = json.loads(response.read().decode('utf-8'))
                 data = payload.get('data') or payload
                 last = json.dumps(payload, ensure_ascii=False)
-                if response.status == 200 and str(data.get('status') or '').lower() == 'ok':
-                    if data.get('llm_initialized') is True and '0.6B' in str(data.get('loaded_lm_model') or ''):
-                        return payload
+                if (
+                    response.status == 200
+                    and str(data.get('status') or '').lower() == 'ok'
+                    and data.get('models_initialized') is True
+                    and data.get('llm_initialized') is True
+                    and 'acestep-v15-turbo' in str(data.get('loaded_model') or '')
+                    and '0.6B' in str(data.get('loaded_lm_model') or '')
+                ):
+                    return payload
         except Exception as exc:
             last = repr(exc)
         time.sleep(3)
