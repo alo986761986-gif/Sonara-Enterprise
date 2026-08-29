@@ -177,9 +177,36 @@ function jsonGenerationFailure(upstreamStatus, message) {
       'content-type': 'application/json; charset=utf-8',
       'cache-control': 'no-store',
       'x-content-type-options': 'nosniff',
-      'x-sonara-generator-recovery': 'billing-json-v2'
+      'x-sonara-generator-recovery': 'billing-json-v3-v17'
     }
   });
+}
+
+async function forceV17GenerationRequest(request) {
+  try {
+    const contentType = String(request.headers.get('content-type') || '').toLowerCase();
+    if (!contentType.includes('application/json')) return request;
+    const payload = await request.clone().json();
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return request;
+
+    const headers = new Headers(request.headers);
+    headers.set('content-type', 'application/json');
+    headers.set('x-sonara-music-route', 'v17-dual-master');
+
+    return new Request(request.url, {
+      method: request.method,
+      headers,
+      body: JSON.stringify({
+        ...payload,
+        dualFast: true,
+        candidateCount: 2,
+        sonaraMusicV17: true
+      }),
+      redirect: request.redirect
+    });
+  } catch {
+    return request;
+  }
 }
 
 async function normalizeBillingGenerationResponse(response) {
@@ -187,7 +214,8 @@ async function normalizeBillingGenerationResponse(response) {
   if (contentType.includes('application/json')) {
     const headers = new Headers(response.headers);
     headers.set('cache-control', 'no-store');
-    headers.set('x-sonara-generator-recovery', 'billing-json-v2');
+    headers.set('x-sonara-generator-recovery', 'billing-json-v3-v17');
+    headers.set('x-sonara-music-route', 'v17-dual-master');
     return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
@@ -205,13 +233,14 @@ async function normalizeBillingGenerationResponse(response) {
 }
 
 async function generateWithRecovery(request, env, ctx) {
-  const first = await sonaraProxy.fetch(request.clone(), env, ctx);
+  const v17Request = await forceV17GenerationRequest(request);
+  const first = await sonaraProxy.fetch(v17Request.clone(), env, ctx);
   if (!RETRYABLE_GENERATION_STATUSES.has(first.status)) {
     return normalizeBillingGenerationResponse(first);
   }
 
   await wait(GENERATION_RETRY_DELAY_MS);
-  const second = await sonaraProxy.fetch(request.clone(), env, ctx);
+  const second = await sonaraProxy.fetch(v17Request.clone(), env, ctx);
   return normalizeBillingGenerationResponse(second);
 }
 
