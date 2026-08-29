@@ -61,6 +61,26 @@ function setNativeValue(element: HTMLInputElement | HTMLTextAreaElement | HTMLSe
   element.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
+function extractPromptBpm(prompt: string): number | null {
+  const text = String(prompt || '').trim();
+  if (!text) return null;
+
+  const patterns = [
+    /\b(?:at|a|@|tempo[:\s]*)\s*(\d{2,3})\s*bpm\b/i,
+    /\b(\d{2,3})\s*bpm\b/i,
+    /\bbpm\s*[:=]?\s*(\d{2,3})\b/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match) continue;
+    const value = Math.round(Number(match[1]));
+    if (Number.isFinite(value) && value >= 40 && value <= 220) return value;
+  }
+
+  return null;
+}
+
 type LiveContext = {
   prompt: string;
   genreFamily: string;
@@ -95,14 +115,23 @@ function readLiveContext(): LiveContext {
   const lyrics = document.getElementById('sonara-lyrics') as HTMLTextAreaElement | null;
   const language = document.getElementById('sonara-vocal-language') as HTMLSelectElement | null;
   const titleInput = section ? Array.from(section.querySelectorAll('input')).find(input => input.type !== 'number' && input.type !== 'range') as HTMLInputElement | undefined : undefined;
+  const prompt = String(textarea?.value || '').trim();
+  const uiBpm = Math.max(40, Math.min(220, Math.round(Number(bpmInput?.value || 124))));
+  const promptBpm = extractPromptBpm(prompt);
+  const authoritativeBpm = promptBpm ?? uiBpm;
+
+  if (promptBpm && bpmInput && Number(bpmInput.value) !== promptBpm) {
+    setNativeValue(bpmInput, String(promptBpm));
+  }
+
   return {
-    prompt: String(textarea?.value || '').trim(),
+    prompt,
     genreFamily: valueAt(0, 'Electronic / Dance'),
     genre: valueAt(1, 'House'),
     subgenre: valueAt(2, valueAt(1, 'House')),
     mood: valueAt(3, 'Authentic'),
     keySignature: valueAt(4, 'A Minor'),
-    bpm: Math.max(40, Math.min(220, Math.round(Number(bpmInput?.value || 124)))),
+    bpm: authoritativeBpm,
     durationSec: Math.max(30, Math.min(480, Math.round(Number(valueAt(5, '30')) || 30))),
     weirdness: Math.max(0, Math.min(100, Math.round(Number(weirdnessInput?.value || 50)))),
     styleInfluence: Math.max(0, Math.min(100, Math.round(Number(styleInfluenceInput?.value || 50)))),
@@ -118,11 +147,16 @@ function readLiveContext(): LiveContext {
 
 function realExecutionContract(context: LiveContext, creatorIntent: string) {
   const profile = getMusicStyleProfile(context.genreFamily, context.genre, context.subgenre);
+  const promptBpm = extractPromptBpm(creatorIntent);
   return [
     'SONARA REAL MUSIC EXECUTION CONTRACT — AUTHORITATIVE.',
     `Creator musical intent: ${creatorIntent}`,
-    `Exact taxonomy: ${context.genreFamily} > ${context.genre} > ${context.subgenre}. Atmosphere: ${context.mood}.`,
-    `Exact tempo: ${context.bpm} BPM. Exact key: ${context.keySignature}. Target duration: ${context.durationSec} seconds.`,
+    'CREATOR INTENT PRIORITY: if the creator explicitly names a genre, subgenre or musical style in the free-text prompt, that explicit style is authoritative and must take priority over conflicting UI defaults or generic taxonomy fallbacks.',
+    `UI taxonomy context: ${context.genreFamily} > ${context.genre} > ${context.subgenre}. Atmosphere: ${context.mood}. Use it only when it does not conflict with an explicit genre/style written by the creator.`,
+    `Exact tempo lock: ${context.bpm} BPM. Exact key: ${context.keySignature}. Target duration: ${context.durationSec} seconds.`,
+    promptBpm
+      ? `PROMPT BPM PRIORITY: the creator explicitly requested ${promptBpm} BPM. Generate and render the audio at ${promptBpm} BPM; do not reinterpret, halve, double, normalize or replace this tempo with a default.`
+      : `Tempo source: UI-selected BPM ${context.bpm}.`,
     `Audible style identity: ${profile.identity}`,
     `Required instrumentation language: ${profile.instrumentation}`,
     `Required rhythm/groove language: ${profile.rhythm}`,
@@ -152,6 +186,13 @@ export default function RealMusicIntelligenceBridge() {
       canonicalPrompt = String(target.value || '').trim();
       canonicalPromptSet = true;
       target.dataset.sonaraPromptSource = target.dataset.sonaraPromptSource || 'creator-explicit';
+
+      const promptBpm = extractPromptBpm(canonicalPrompt);
+      if (promptBpm) {
+        const section = target.closest('section');
+        const bpmInput = section?.querySelector('input[aria-label="BPM preferiti"]') as HTMLInputElement | null;
+        if (bpmInput && Number(bpmInput.value) !== promptBpm) setNativeValue(bpmInput, String(promptBpm));
+      }
     };
 
     const applyCanonicalPrompt = (value: string, source: string) => {
@@ -215,7 +256,7 @@ export default function RealMusicIntelligenceBridge() {
         `Harmony choice: ${pick(HARMONY_DNA)}.`,
         `Arrangement choice: ${pick(ARRANGEMENT_DNA)}.`,
         `Timbre/performance choice: ${pick(TIMBRE_DNA)}.`,
-        `Keep the user-selected BPM locked at exactly ${context.bpm} BPM while applying the randomized mood, key and creative-control values above.`
+        `Keep the authoritative BPM locked at exactly ${context.bpm} BPM while applying the randomized mood, key and creative-control values above.`
       ].join('\n');
       const nextPrompt = `${base}\n\n${dna}`;
 
@@ -256,6 +297,8 @@ export default function RealMusicIntelligenceBridge() {
             const creatorIntent = canonicalPromptSet
               ? canonicalPrompt
               : (live.prompt || String(originalBody.rawPrompt || originalBody.prompt || '').trim());
+            const explicitPromptBpm = extractPromptBpm(creatorIntent);
+            const authoritativeBpm = explicitPromptBpm ?? live.bpm;
             const headers = new Headers(baseRequest.headers);
             headers.set('content-type', 'application/json');
 
@@ -267,7 +310,8 @@ export default function RealMusicIntelligenceBridge() {
                 keySignature: live.keySignature,
                 weirdness: live.weirdness,
                 styleInfluence: live.styleInfluence,
-                bpm: live.bpm,
+                bpm: authoritativeBpm,
+                requestedBpm: authoritativeBpm,
                 songDurationSec: live.durationSec,
                 sonaraRealLyricsContext: true
               };
@@ -283,7 +327,8 @@ export default function RealMusicIntelligenceBridge() {
               return response;
             }
 
-            const contract = realExecutionContract(live, creatorIntent || live.prompt || 'Create a professional original track.');
+            const executionContext = { ...live, bpm: authoritativeBpm };
+            const contract = realExecutionContract(executionContext, creatorIntent || live.prompt || 'Create a professional original track.');
             const existingFinalPrompt = String(originalBody.prompt || '').trim();
             const nextBody = {
               ...originalBody,
@@ -293,8 +338,9 @@ export default function RealMusicIntelligenceBridge() {
               genre: live.genre,
               subgenre: live.subgenre,
               mood: live.mood,
-              bpm: live.bpm,
-              requestedBpm: live.bpm,
+              bpm: authoritativeBpm,
+              requestedBpm: authoritativeBpm,
+              promptBpmAuthoritative: Boolean(explicitPromptBpm),
               key: live.keySignature,
               durationSec: live.durationSec,
               duration: live.durationSec,
@@ -304,10 +350,11 @@ export default function RealMusicIntelligenceBridge() {
               vocalLanguage: live.vocalLanguageCode,
               lyrics: live.lyrics,
               sonaraRealPrompt: true,
-              sonaraRealPromptVersion: 'v1-live-ui-authoritative',
+              sonaraRealPromptVersion: 'v2-prompt-genre-bpm-authoritative',
               sonaraLyricsAuthoritative: true
             };
-            headers.set('x-sonara-real-prompt', 'v1-live-ui-authoritative');
+            headers.set('x-sonara-real-prompt', 'v2-prompt-genre-bpm-authoritative');
+            headers.set('x-sonara-requested-bpm', String(authoritativeBpm));
             return nativeFetch(new Request(baseRequest.url, {
               method: 'POST',
               headers,
