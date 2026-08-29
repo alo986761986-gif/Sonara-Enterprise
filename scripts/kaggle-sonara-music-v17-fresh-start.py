@@ -18,6 +18,7 @@ V17_URL = f'{REPO_RAW}/scripts/kaggle-sonara-music-v17-gpu0-lm.py'
 CLOUDFLARED_URL = 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64'
 CLOUDFLARED = WORK / 'cloudflared'
 TUNNEL_LOG = WORK / 'sonara_cloudflared_gpu0_v17.log'
+RUNTIME_STDOUT = WORK / 'sonara_v17_runtime_bootstrap.log'
 
 
 def run(cmd, *, cwd=None, env=None):
@@ -58,7 +59,6 @@ def ensure_acestep():
         run([sys.executable, '-m', 'pip', 'install', '-q', '--upgrade', 'uv'])
         uv = shutil.which('uv') or '/usr/local/bin/uv'
 
-    # Fix harmless-but-noisy Kaggle sitecustomize dependency when missing.
     try:
         import wrapt  # noqa: F401
     except Exception:
@@ -76,7 +76,25 @@ def ensure_acestep():
 def start_v17():
     print('\n[3/6] Avvio SONARA Music V17 + 5Hz LM su GPU0...', flush=True)
     download(V17_URL, V17)
-    run([sys.executable, str(V17)])
+    with open(RUNTIME_STDOUT, 'w', buffering=1) as log:
+        result = subprocess.run(
+            [sys.executable, str(V17)],
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            text=True,
+            check=False,
+        )
+    if result.returncode != 0:
+        text = RUNTIME_STDOUT.read_text(errors='ignore') if RUNTIME_STDOUT.exists() else ''
+        tail = text[-30000:]
+        print('\n' + '=' * 82)
+        print('❌ ERRORE INTERNO SONARA V17 - DETTAGLIO AUTOMATICO')
+        print('=' * 82)
+        print(tail)
+        print('=' * 82)
+        raise RuntimeError(f'Runtime V17 terminato con codice {result.returncode}. Vedi dettaglio sopra.')
+    if RUNTIME_STDOUT.exists():
+        print(RUNTIME_STDOUT.read_text(errors='ignore')[-12000:], flush=True)
 
 
 def local_inventory():
@@ -147,14 +165,14 @@ def start_tunnel():
     while time.time() < deadline:
         if proc.poll() is not None:
             tail = TUNNEL_LOG.read_text(errors='ignore')[-6000:] if TUNNEL_LOG.exists() else ''
-            raise RuntimeError('Cloudflare tunnel GPU0 terminato:\n' + tail)
+            raise RuntimeError(f'Tunnel GPU0 terminato: {tail}')
         text = TUNNEL_LOG.read_text(errors='ignore') if TUNNEL_LOG.exists() else ''
         match = pattern.search(text)
         if match:
             return proc, match.group(0).rstrip('/')
         time.sleep(2)
     tail = TUNNEL_LOG.read_text(errors='ignore')[-6000:] if TUNNEL_LOG.exists() else ''
-    raise RuntimeError('Timeout creazione tunnel GPU0:\n' + tail)
+    raise RuntimeError(f'Timeout creazione tunnel GPU0: {tail}')
 
 
 def verify_public(base: str):
