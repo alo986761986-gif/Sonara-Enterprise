@@ -1,3 +1,5 @@
-trigger: 2026-08-29T20:18:00+02:00
-reason: verify public anti-stall recovery route and dual T4 failover
-source: b81bb052df5aee349be2ac557105d0cacbc83860
+trigger: 2026-08-29T20:39:00+02:00
+reason: connect fresh Kaggle dual T4 music workers
+source: 61835aea7a1203d4186843b3e425acb17c09b24e
+GPU0=https://gain-herbs-showcase-archives.trycloudflare.com
+GPU1=https://serve-charter-establish-designs.trycloudflare.com
