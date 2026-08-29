@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">SONARA</title>
+  <desc id="desc">SONARA sonic S logo</desc>
+  <defs>
+    <linearGradient id="sonaraBlue" x1="30" y1="30" x2="225" y2="225" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0b4dff"/>
+      <stop offset="0.42" stop-color="#009dff"/>
+      <stop offset="0.76" stop-color="#12e6ff"/>
+      <stop offset="1" stop-color="#3df6ff"/>
+    </linearGradient>
+    <linearGradient id="sonaraDeep" x1="220" y1="55" x2="40" y2="205" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3cf5ff"/>
+      <stop offset="0.28" stop-color="#0aa8ff"/>
+      <stop offset="0.62" stop-color="#0755ff"/>
+      <stop offset="1" stop-color="#07298f"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="256" height="256" rx="48" fill="#02050b"/>
+  <circle cx="128" cy="128" r="104" fill="#071731" opacity=".28"/>
+  <g filter="url(#glow)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M42 82C61 35 118 22 169 36c24 7 43 20 55 36-30-17-63-23-94-16-31 7-50 27-47 49 2 16 14 28 34 35" stroke="url(#sonaraBlue)" stroke-width="28"/>
+    <path d="M139 124c24 7 39 21 41 39 2 20-11 38-34 48-32 15-74 7-104-17 31 13 64 13 86 0 20-12 28-31 21-47-4-9-11-17-21-23" stroke="url(#sonaraDeep)" stroke-width="28"/>
+  </g>
+  <g filter="url(#glow)" stroke="url(#sonaraBlue)" stroke-width="6" stroke-linecap="round">
+    <line x1="76" y1="125" x2="76" y2="133"/>
+    <line x1="88" y1="118" x2="88" y2="140"/>
+    <line x1="100" y1="108" x2="100" y2="150"/>
+    <line x1="112" y1="96" x2="112" y2="162"/>
+    <line x1="124" y1="78" x2="124" y2="180"/>
+    <line x1="136" y1="92" x2="136" y2="166"/>
+    <line x1="148" y1="105" x2="148" y2="153"/>
+    <line x1="160" y1="114" x2="160" y2="144"/>
+    <line x1="172" y1="121" x2="172" y2="137"/>
+    <line x1="184" y1="126" x2="184" y2="132"/>
+  </g>
+</svg>
