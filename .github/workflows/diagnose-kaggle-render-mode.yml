@@ -1,0 +1,69 @@
+name: Diagnose SONARA T4 Render Mode
+
+on:
+  push:
+    paths:
+      - '.github/workflows/diagnose-kaggle-render-mode.yml'
+      - '.github/kaggle-render-mode-trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compare-render-mode:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v6
+      - name: Load GPU1
+        shell: bash
+        run: |
+          set -euo pipefail
+          GPU1="$(sed -n 's/^GPU1=//p' .github/kaggle-workers-trigger | tail -n1 | tr -d '\r')"
+          test -n "$GPU1"
+          echo "GPU1=${GPU1%/}" >> "$GITHUB_ENV"
+      - name: Probe DiT-only render
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/probe.json <<'JSON'
+          {
+            "prompt":"deep house instrumental, 122 BPM, dark warm bass, professional club mix",
+            "lyrics":"",
+            "model":"acestep-v15-turbo",
+            "audio_duration":5,
+            "inference_steps":1,
+            "thinking":false,
+            "use_format":false,
+            "use_cot_metas":false,
+            "use_cot_caption":false,
+            "use_cot_language":false,
+            "constrained_decoding":false,
+            "allow_lm_batch":false
+          }
+          JSON
+          start="$(date +%s)"
+          curl -fsS --connect-timeout 10 --max-time 60 -H 'Content-Type: application/json' -X POST "$GPU1/release_task" --data-binary @/tmp/probe.json > /tmp/submit.json
+          cat /tmp/submit.json
+          task_id="$(jq -r '.data.task_id // empty' /tmp/submit.json)"
+          test -n "$task_id"
+          for attempt in $(seq 1 36); do
+            curl -fsS --connect-timeout 10 --max-time 20 -H 'Content-Type: application/json' -X POST "$GPU1/query_result" --data "{\"task_id_list\":[\"${task_id}\"]}" > /tmp/query.json || true
+            status="$(jq -r '.data[0].status // empty' /tmp/query.json 2>/dev/null || true)"
+            echo "poll=${attempt} status=${status}"
+            if [[ "$status" == "1" ]]; then
+              end="$(date +%s)"
+              echo "DIT_ONLY_RENDER_SUCCESS_SECONDS=$((end-start))"
+              cat /tmp/query.json
+              exit 0
+            fi
+            if [[ -n "$status" && "$status" != "0" ]]; then
+              cat /tmp/query.json
+              exit 1
+            fi
+            sleep 5
+          done
+          echo 'DIT_ONLY_RENDER_STUCK' >&2
+          cat /tmp/query.json 2>/dev/null || true
+          exit 1
