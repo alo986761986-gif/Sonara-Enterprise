@@ -10,6 +10,7 @@ on:
       - "cloudflare/sonara-video-api-recovery.test.mjs"
       - "cloudflare/sonara-web-v15-router.mjs"
       - "cloudflare/sonara-engine-v17-lm-composer.mjs"
+      - "cloudflare/sonara-web-generator-stability.mjs"
   workflow_dispatch:
 
 permissions:
