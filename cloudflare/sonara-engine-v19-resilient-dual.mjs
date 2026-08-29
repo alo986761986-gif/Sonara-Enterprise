@@ -4,14 +4,14 @@ import { rewriteGenerationRequest } from './sonara-engine-v15-authoritative-prom
 export { SonaraJobState } from './sonara-job-state-do.mjs';
 
 const PUBLIC_API_ORIGIN = 'https://api.sonaraenterprise.com';
-const CACHE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/resilient-dual-v19/';
+const CACHE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/resilient-dual-v20/';
 const CACHE_TTL = 3 * 60 * 60;
-const STEPS = 6;
+const STEPS = 8;
 const HEALTH_TIMEOUT = 4_000;
-const SUBMIT_TIMEOUT = 90_000;
-const QUERY_TIMEOUT = 12_000;
+const SUBMIT_TIMEOUT = 120_000;
+const QUERY_TIMEOUT = 15_000;
 const MAX_ATTEMPTS = 2;
-const PROFILE = 'resilient-dual-fast-v19';
+const PROFILE = 'real-prompt-dual-v20';
 
 const cleanUrl = value => String(value || '').trim().replace(/\/$/, '');
 const workerUrls = env => String(env.ACESTEP_WORKER_URLS || env.ACE_STEP_API_URLS || env.SONARA_ACE_STEP_WORKERS || '')
@@ -31,8 +31,8 @@ function cors(request) {
   return {
     'Access-Control-Allow-Origin': allowed.has(origin) ? origin : 'https://sonaraenterprise.com',
     'Access-Control-Allow-Methods': 'GET,HEAD,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Authorization,Content-Type,Range,Cache-Control,Pragma,X-Sonara-Internal-Secret,X-Sonara-Job-Bridge',
-    'Access-Control-Expose-Headers': 'Content-Length,Content-Range,Accept-Ranges,X-Sonara-Music-Quality,X-Sonara-Speed-Profile',
+    'Access-Control-Allow-Headers': 'Authorization,Content-Type,Range,Cache-Control,Pragma,X-Sonara-Internal-Secret,X-Sonara-Job-Bridge,X-Sonara-Real-Prompt',
+    'Access-Control-Expose-Headers': 'Content-Length,Content-Range,Accept-Ranges,X-Sonara-Music-Quality,X-Sonara-Speed-Profile,X-Sonara-Real-Prompt',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin'
   };
@@ -44,6 +44,7 @@ function json(request, data, status = 200) {
     'cache-control': 'private, no-store',
     'x-sonara-music-quality': PROFILE,
     'x-sonara-speed-profile': PROFILE,
+    'x-sonara-real-prompt': '5hz-lm-authoritative-v20',
     ...cors(request)
   }});
 }
@@ -102,18 +103,26 @@ function items(value) {
 function refsFrom(task, taskRef) {
   const seen = new Set();
   const refs = [];
-  for (const item of items(task?.result)) {
-    for (const source of [item?.file, item?.url]) {
-      if (typeof source !== 'string' || !source) continue;
+  const visit = value => {
+    if (!value) return;
+    if (typeof value === 'string') {
       let path = '';
-      try { path = new URL(source, `${taskRef.baseUrl}/`).searchParams.get('path') || ''; } catch {}
-      if (!path && source.startsWith('/') && !source.startsWith('/v1/audio')) path = source;
-      if (!path) continue;
-      const key = `${taskRef.workerId}:${path}`;
-      if (!seen.has(key)) { seen.add(key); refs.push({ workerId: taskRef.workerId, path }); }
-      break;
+      try { path = new URL(value, `${taskRef.baseUrl}/`).searchParams.get('path') || ''; } catch {}
+      if (!path && value.startsWith('/') && !value.startsWith('/v1/audio')) path = value;
+      if (path) {
+        const key = `${taskRef.workerId}:${path}`;
+        if (!seen.has(key)) { seen.add(key); refs.push({ workerId: taskRef.workerId, path }); }
+      }
+      return;
     }
-  }
+    if (Array.isArray(value)) { value.forEach(visit); return; }
+    if (typeof value === 'object') {
+      for (const key of ['file','url','audio_path','audio_file','path','output','outputs','audio','audios']) {
+        if (key in value) visit(value[key]);
+      }
+    }
+  };
+  items(task?.result).forEach(visit);
   return refs;
 }
 
@@ -149,15 +158,26 @@ async function load(env, jobId) {
   } catch { return null; }
 }
 
-function fastPayload(payload, slot, attempt = 0) {
+function realPayload(payload, slot, attempt = 0) {
   const seed = Math.max(1, Number(payload?.seed) > 0 ? Number(payload.seed) : Math.floor(Date.now() % 2_000_000_000));
-  return { ...payload, inference_steps: STEPS, batch_size: 1, use_random_seed: false, seed: seed + (slot + 1) * 104729 + attempt * 7919,
-    thinking: false, use_format: false, use_cot_caption: false, use_cot_language: false, constrained_decoding: false, allow_lm_batch: false };
-}
-
-function batchPayload(payload) {
-  return { ...fastPayload(payload, 0, 0), batch_size: 2, use_random_seed: true, seed: -1,
-    prompt: `${String(payload.prompt || '')}\n\nSONARA FAST PAIR: genera due alternative professionali realmente differenti mantenendo genere, BPM, testo e identita sonora.`.slice(0, 12000) };
+  const candidateDirection = slot === 0
+    ? 'CANDIDATE A: prioritize composition, groove architecture, hook identity and section development while obeying the full creator brief.'
+    : 'CANDIDATE B: preserve every technical/style lock but create a materially different melodic contour, voicing, performance detail, transitions and sound-palette balance.';
+  return {
+    ...payload,
+    prompt: `${String(payload.prompt || '')}\n\nSONARA REAL-PROMPT V20. ${candidateDirection} Every explicit creator instruction must have an audible musical consequence.`.slice(0, 12000),
+    inference_steps: STEPS,
+    batch_size: 1,
+    use_random_seed: false,
+    seed: seed + (slot + 1) * 104729 + attempt * 7919,
+    thinking: true,
+    use_format: true,
+    use_cot_metas: false,
+    use_cot_caption: true,
+    use_cot_language: true,
+    constrained_decoding: true,
+    allow_lm_batch: false
+  };
 }
 
 function audioUrl(ref) { return `${PUBLIC_API_ORIGIN}/api/modal/audio?sonara_worker=${encodeURIComponent(ref.workerId)}&path=${encodeURIComponent(ref.path)}`; }
@@ -165,12 +185,12 @@ function completed(request, jobId, state) {
   const refs = state.slots.map(slot => slot.audioRef).filter(Boolean).slice(0, 2);
   const urls = refs.map(audioUrl);
   return json(request, { jobId, status: 'COMPLETED', progress: 100, audioUrl: urls[0] || null, audioUrls: urls,
-    candidates: urls.map((url, index) => ({ id: index ? 'B' : 'A', audioUrl: url, audioFormat: 'wav', strategy: index ? 'detail-master' : 'structure-master', inferenceSteps: STEPS })),
-    metadata: { engine: 'SONARA ACE-Step 1.5', candidateCount: urls.length, inferenceSteps: STEPS, speedProfile: PROFILE, automaticMissingTrackRecovery: true, durableJobState: true, currentStage: '2 brani SONARA pronti' } });
+    candidates: urls.map((url, index) => ({ id: index ? 'B' : 'A', audioUrl: url, audioFormat: 'wav', strategy: index ? 'real-detail-master' : 'real-structure-master', inferenceSteps: STEPS })),
+    metadata: { engine: 'SONARA ACE-Step 1.5 + 5Hz LM', candidateCount: urls.length, inferenceSteps: STEPS, speedProfile: PROFILE, realPrompt: true, lmThinking: true, cotCaption: true, constrainedDecoding: true, automaticMissingTrackRecovery: true, durableJobState: true, currentStage: '2 brani SONARA real-prompt pronti' } });
 }
 function processing(request, jobId, state, progress, stage) {
   return json(request, { jobId, status: 'PROCESSING', progress, retryable: true,
-    metadata: { engine: 'SONARA ACE-Step 1.5', candidateCount: 2, readyCount: state.slots.filter(slot => slot.audioRef).length, inferenceSteps: STEPS, speedProfile: PROFILE, automaticMissingTrackRecovery: true, durableJobState: true, currentStage: stage } });
+    metadata: { engine: 'SONARA ACE-Step 1.5 + 5Hz LM', candidateCount: 2, readyCount: state.slots.filter(slot => slot.audioRef).length, inferenceSteps: STEPS, speedProfile: PROFILE, realPrompt: true, lmThinking: true, automaticMissingTrackRecovery: true, durableJobState: true, currentStage: stage } });
 }
 
 async function start(request, env, body) {
@@ -179,29 +199,39 @@ async function start(request, env, body) {
   const seed = Math.max(1, Math.floor(Date.now() % 2_000_000_000));
   const payloads = [buildV17Payload(body, 'structure', seed + 7919), buildV17Payload(body, 'detail', seed + 15838)];
   const jobId = `d16pair_${crypto.randomUUID()}`;
-  const base = { createdAt: Date.now(), updatedAt: Date.now(), payloads, failures: 0, speedProfile: PROFILE };
+  const base = { createdAt: Date.now(), updatedAt: Date.now(), payloads, failures: 0, speedProfile: PROFILE, realPrompt: true, lmThinking: true };
   try {
     if (pool.length >= 2) {
-      const tasks = await Promise.all([submit(pool[0], env, fastPayload(payloads[0], 0)), submit(pool[1], env, fastPayload(payloads[1], 1))]);
+      const tasks = await Promise.all([submit(pool[0], env, realPayload(payloads[0], 0)), submit(pool[1], env, realPayload(payloads[1], 1))]);
       const state = { ...base, mode: 'slots', slots: tasks.map((task, i) => ({ candidate: i ? 'B' : 'A', worker: pool[i], payload: payloads[i], task, audioRef: null, attempts: 1 })) };
       await save(env, jobId, state);
-      return processing(request, jobId, state, 38, 'SONARA Fast: 2 brani in parallelo su 2 T4');
+      return processing(request, jobId, state, 34, 'SONARA Real Prompt: 5Hz LM interpreta 2 brani in parallelo');
     }
-    const task = await submit(pool[0], env, batchPayload(payloads[0]));
-    const state = { ...base, mode: 'batch', batchTask: task, worker: pool[0], slots: [0,1].map(i => ({ candidate: i ? 'B' : 'A', worker: pool[0], payload: payloads[i], task: null, audioRef: null, attempts: 0 })) };
+
+    const firstTask = await submit(pool[0], env, realPayload(payloads[0], 0));
+    const state = {
+      ...base,
+      mode: 'slots',
+      sequentialSingleWorker: true,
+      slots: [
+        { candidate: 'A', worker: pool[0], payload: payloads[0], task: firstTask, audioRef: null, attempts: 1 },
+        { candidate: 'B', worker: pool[0], payload: payloads[1], task: null, audioRef: null, attempts: 0 }
+      ]
+    };
     await save(env, jobId, state);
-    return processing(request, jobId, state, 42, 'SONARA Fast: batch nativo di 2 brani sulla T4');
+    return processing(request, jobId, state, 30, 'SONARA Real Prompt: 5Hz LM compone il primo master sulla T4');
   } catch (error) {
     return json(request, { jobId, status: 'FAILED', progress: 0, retryable: true, error: error instanceof Error ? error.message : String(error) }, 502);
   }
 }
 
 async function launchMissing(state, env) {
-  state.slots = await Promise.all(state.slots.map(async (slot, index) => {
-    if (slot.audioRef || slot.task || slot.attempts >= MAX_ATTEMPTS) return slot;
-    const task = await submit(slot.worker, env, fastPayload(slot.payload, index, slot.attempts + 1));
-    return { ...slot, task, attempts: slot.attempts + 1 };
-  }));
+  if (state.slots.some(slot => slot.task && !slot.audioRef)) return state;
+  const index = state.slots.findIndex(slot => !slot.audioRef && !slot.task && slot.attempts < MAX_ATTEMPTS);
+  if (index < 0) return state;
+  const slot = state.slots[index];
+  const task = await submit(slot.worker, env, realPayload(slot.payload, index, slot.attempts + 1));
+  state.slots[index] = { ...slot, task, attempts: slot.attempts + 1 };
   state.updatedAt = Date.now();
   return state;
 }
@@ -222,44 +252,30 @@ async function pollSlots(request, env, jobId, state) {
   }
   if (state.slots.every(slot => slot.audioRef)) { await save(env, jobId, state); return completed(request, jobId, state); }
   const exhausted = state.slots.find(slot => !slot.audioRef && !slot.task && slot.attempts >= MAX_ATTEMPTS);
-  if (exhausted) return json(request, { jobId, status: 'FAILED', progress: 0, retryable: true, error: exhausted.lastError || `Brano ${exhausted.candidate} non completato dopo il recupero automatico.` });
+  if (exhausted) return json(request, { jobId, status: 'FAILED', progress: 0, retryable: true, error: exhausted.lastError || `Brano ${exhausted.candidate} non completato dopo il recupero automatico.` }, 502);
   if (!pending || state.slots.some(slot => !slot.audioRef && !slot.task)) state = await launchMissing(state, env);
   await save(env, jobId, state);
   const ready = state.slots.filter(slot => slot.audioRef).length;
-  return processing(request, jobId, state, ready ? 92 : 82, ready ? 'SONARA Fast: primo brano pronto, completamento automatico del secondo' : 'SONARA Fast: rendering accelerato dei due brani');
+  return processing(request, jobId, state, ready ? 78 + ready * 10 : 62, ready ? 'SONARA Real Prompt: primo master pronto, 5Hz LM compone il secondo' : 'SONARA Real Prompt: rendering musicale guidato dal prompt');
 }
 
 async function poll(request, env, jobId) {
   let state = await load(env, jobId);
   if (!state) return json(request, { jobId, status: 'FAILED', progress: 0, retryable: true, error: 'Job SONARA non trovato. Avvia una nuova generazione.' }, 404);
   try {
-    if (state.mode === 'batch') {
-      const task = await query(state.batchTask, env);
-      if (!task || Number(task.status) === 0) return processing(request, jobId, state, 76, 'SONARA Fast: rendering batch di 2 brani');
-      if (Number(task.status) === 1) {
-        const refs = refsFrom(task, state.batchTask).slice(0, 2);
-        refs.forEach((ref, i) => { if (state.slots[i]) state.slots[i].audioRef = ref; });
-        if (state.slots.every(slot => slot.audioRef)) { await save(env, jobId, state); return completed(request, jobId, state); }
-      }
-      state.mode = 'slots';
-      state = await launchMissing(state, env);
-      await save(env, jobId, state);
-      return processing(request, jobId, state, state.slots.some(slot => slot.audioRef) ? 89 : 78,
-        state.slots.some(slot => slot.audioRef) ? 'SONARA Fast: batch parziale, rigenerazione automatica del solo brano mancante' : 'SONARA Fast: recupero automatico dei 2 brani');
-    }
     return pollSlots(request, env, jobId, state);
   } catch (error) {
     state.failures = Number(state.failures || 0) + 1;
     await save(env, jobId, state).catch(() => undefined);
-    if (state.failures >= 6) return json(request, { jobId, status: 'FAILED', progress: 0, retryable: true, error: error instanceof Error ? error.message : String(error) });
-    return processing(request, jobId, state, 84, `SONARA Fast: riconnessione T4 (${state.failures}/6)`);
+    if (state.failures >= 6) return json(request, { jobId, status: 'FAILED', progress: 0, retryable: true, error: error instanceof Error ? error.message : String(error) }, 502);
+    return processing(request, jobId, state, 70, `SONARA Real Prompt: riconnessione T4 (${state.failures}/6)`);
   }
 }
 
 async function decorateHealth(request, response, env) {
   try {
     const data = await response.clone().json();
-    return json(request, { ...data, resilientDual: true, resilientDualProfile: PROFILE, resilientDualInferenceSteps: STEPS, resilientDualAutomaticMissingTrackRecovery: true, resilientDualDurableState: Boolean(env?.SONARA_JOB_STATE) }, response.status);
+    return json(request, { ...data, resilientDual: true, resilientDualProfile: PROFILE, resilientDualInferenceSteps: STEPS, resilientDualAutomaticMissingTrackRecovery: true, resilientDualDurableState: Boolean(env?.SONARA_JOB_STATE), realPromptEngine: true, realPromptVersion: 'v20-5hz-lm-authoritative', realPromptLmThinking: true, realPromptCotCaption: true, realPromptConstrainedDecoding: true }, response.status);
   } catch { return response; }
 }
 
