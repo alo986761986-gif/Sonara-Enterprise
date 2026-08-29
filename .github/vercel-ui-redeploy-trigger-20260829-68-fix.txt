@@ -1,0 +1,5 @@
+SONARA production redeploy trigger
+Reason: rollback unstable T4 FP16/vLLM runtime that stalled music generation at 68%
+Stable runtime commit: 4c076f27b698e8dc719952d6f58aaa3de2545caa
+Preserve: BPM manual/automatic, Weirdness, Style Influence, dual-track flow
+Timestamp: 2026-08-29T15:29:00+02:00
