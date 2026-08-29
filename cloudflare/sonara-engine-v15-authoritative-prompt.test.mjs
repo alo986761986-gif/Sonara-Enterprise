@@ -48,6 +48,31 @@ for (const [name, payload] of [['Deep House', deep], ['Tech House', tech], ['Afr
   assert.doesNotMatch(payload.prompt, /caption500/i);
 }
 
+const fastPrompt = await read({
+  ...common,
+  subgenre: 'Deep House',
+  bpm: 124,
+  requestedBpm: 124,
+  rawPrompt: 'Create a professional Jungle / Drum & Bass track at 170 BPM with rapid chopped breakbeats, rolling sub bass, dark rave energy and relentless forward motion.',
+  prompt: 'Create a professional Jungle / Drum & Bass track at 170 BPM with rapid chopped breakbeats, rolling sub bass, dark rave energy and relentless forward motion.',
+  promptGenreAuthoritative: true,
+  promptBpmAuthoritative: true,
+  sonaraRealPrompt: true,
+  sonaraRealPromptVersion: 'v2-prompt-genre-bpm-authoritative'
+});
+
+assert.equal(fastPrompt.bpm, 170);
+assert.equal(fastPrompt.requestedBpm, 170);
+assert.equal(fastPrompt.bpmLock, true);
+assert.equal(fastPrompt.sonaraTempoLock, 'v15-authoritative-bpm-v2');
+assert.equal(fastPrompt.sonaraCreatorStylePriority, true);
+assert.match(fastPrompt.prompt, /creator free-text genre\/style has priority/i);
+assert.match(fastPrompt.prompt, /Jungle \/ Drum & Bass track at 170 BPM/i);
+assert.match(fastPrompt.prompt, /SONARA AUTHORITATIVE TEMPO LOCK: exactly 170 BPM/i);
+assert.match(fastPrompt.prompt, /real master clock, quarter-note pulse and bar-grid tempo/i);
+assert.match(fastPrompt.prompt, /Do not halve, double, normalize, reinterpret or replace 170 BPM/i);
+assert.match(fastPrompt.prompt, /85 BPM half-time feel/i);
+
 assert.match(deep.prompt, /Rhodes 9th chords/i);
 assert.match(tech.prompt, /16th-note shuffle/i);
 assert.match(afro.prompt, /polyrhythmic percussion/i);
@@ -55,4 +80,4 @@ assert.notEqual(deep.prompt, tech.prompt);
 assert.notEqual(deep.prompt, afro.prompt);
 assert.notEqual(tech.prompt, afro.prompt);
 
-console.log('SONARA v15 authoritative prompt test passed: Deep House, Tech House and Afro House remain distinct with full prompts and exact creative controls.');
+console.log('SONARA v15 authoritative prompt test passed: genre remains distinct and creator prompt BPM 170 overrides the UI fallback BPM with a real tempo lock.');
