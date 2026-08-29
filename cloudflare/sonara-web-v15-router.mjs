@@ -12,6 +12,10 @@ const BILLING_JOB_PATH = '/api/billing/job';
 const MUSIC_JOB_PATH = /^\/api\/music\/job\/(?:d18fast_|d16pair_)[^/]+$/;
 const RESILIENT_JOB_ID = /^d16pair_[A-Za-z0-9-]{16,}$/;
 const RETRYABLE_GENERATION_STATUSES = new Set([500, 502, 503, 504, 524]);
+const BPM_MIN = 40;
+const BPM_MAX = 220;
+const BPM_DEFAULT = 124;
+const BPM_TEXT_PATTERN = /\b(\d{2,3})\s*BPM\b/i;
 const API_ALLOWED_ORIGINS = new Set([
   'https://sonaraenterprise.com',
   'https://www.sonaraenterprise.com',
@@ -25,7 +29,7 @@ function apiCorsHeaders(request) {
     'Access-Control-Allow-Origin': API_ALLOWED_ORIGINS.has(origin) ? origin : 'https://sonaraenterprise.com',
     'Access-Control-Allow-Methods': 'GET,HEAD,POST,OPTIONS',
     'Access-Control-Allow-Headers': API_ALLOWED_HEADERS,
-    'Access-Control-Expose-Headers': 'Content-Length,Content-Range,Accept-Ranges,X-Sonara-Music-Quality,X-Sonara-ACE-Worker,X-Sonara-Speed-Profile',
+    'Access-Control-Expose-Headers': 'Content-Length,Content-Range,Accept-Ranges,X-Sonara-Music-Quality,X-Sonara-ACE-Worker,X-Sonara-Speed-Profile,X-Sonara-BPM-Lock',
     'Access-Control-Max-Age': '86400',
     'Cache-Control': 'no-store',
     Vary: 'Origin'
@@ -36,19 +40,67 @@ function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function parseBpm(value) {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return Math.round(Math.max(BPM_MIN, Math.min(BPM_MAX, numeric)));
+  const match = String(value ?? '').match(/\b(\d{2,3})\b/);
+  if (!match) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? Math.round(Math.max(BPM_MIN, Math.min(BPM_MAX, parsed))) : null;
+}
+
+function resolveRequestedBpm(payload) {
+  const candidates = [
+    payload?.bpm,
+    payload?.tempo,
+    payload?.targetBpm,
+    payload?.target_bpm,
+    payload?.preferredBpm,
+    payload?.preferred_bpm,
+    payload?.metadata?.bpm,
+    payload?.metas?.bpm,
+    payload?.user_metadata?.bpm
+  ];
+  for (const candidate of candidates) {
+    const bpm = parseBpm(candidate);
+    if (bpm !== null) return bpm;
+  }
+  const promptMatch = String(payload?.prompt || '').match(BPM_TEXT_PATTERN);
+  const promptBpm = promptMatch ? parseBpm(promptMatch[1]) : null;
+  return promptBpm ?? BPM_DEFAULT;
+}
+
+function applyExactBpmLock(payload) {
+  const bpm = resolveRequestedBpm(payload);
+  const original = String(payload?.prompt || '').trim();
+  const cleaned = original
+    .replace(/(?:\n\s*)?SONARA HARD TEMPO LOCK:[^\n]*/gi, '')
+    .trim();
+  const tempoLock = `SONARA HARD TEMPO LOCK: exactly ${bpm} BPM. Treat ${bpm} BPM as the real quarter-note pulse and bar-grid tempo for the entire track. Do not reinterpret it as half-time or double-time. Keep drums, bass, comping, rhythmic accents, fills and section transitions anchored to ${bpm} BPM while preserving the selected genre and subgenre.`;
+  return {
+    ...payload,
+    bpm,
+    bpmLock: true,
+    requestedBpm: bpm,
+    prompt: [cleaned, tempoLock].filter(Boolean).join('\n\n').slice(0, 12000)
+  };
+}
+
 async function forceResilientDualGeneration(request) {
   try {
     const contentType = String(request.headers.get('content-type') || '').toLowerCase();
     if (!contentType.includes('application/json')) return request;
     const payload = await request.clone().json();
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return request;
+    const bpmLockedPayload = applyExactBpmLock(payload);
     const headers = new Headers(request.headers);
     headers.set('content-type', 'application/json');
     headers.set('x-sonara-music-route', 'v19-resilient-dual');
+    headers.set('x-sonara-bpm-lock', `exact-${bpmLockedPayload.bpm}`);
     return new Request(request.url, {
       method: request.method,
       headers,
-      body: JSON.stringify({ ...payload, dualFast: true, candidateCount: 2, sonaraMusicV17: true, sonaraMusicV18: false, sonaraFastHq: false, speedProfile: 'resilient-dual-fast-v19' }),
+      body: JSON.stringify({ ...bpmLockedPayload, dualFast: true, candidateCount: 2, sonaraMusicV17: true, sonaraMusicV18: false, sonaraFastHq: false, speedProfile: 'resilient-dual-fast-v19' }),
       redirect: request.redirect
     });
   } catch { return request; }
@@ -59,6 +111,7 @@ function decorateGenerationResponse(response) {
   headers.set('cache-control', 'no-store');
   headers.set('x-sonara-music-route', 'v19-resilient-dual');
   headers.set('x-sonara-generator-recovery', 'resilient-dual-v19');
+  headers.set('x-sonara-bpm-lock', 'hard-user-bpm-v1');
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
