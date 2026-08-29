@@ -1,5 +1,5 @@
-trigger: 2026-08-29T21:00:00+02:00
-reason: publish SONARA Studio Max song architecture quality layer
-source: d4af6b4a77c718856ed7839104d12db54986c7d6
+trigger: 2026-08-29T21:08:00+02:00
+reason: publish SONARA Studio Max 8-step HQ dual T4 render
+source: 574a5d11c3feb753e86fdad2eaf29820e4794ce7
 GPU0=https://gain-herbs-showcase-archives.trycloudflare.com
 GPU1=https://serve-charter-establish-designs.trycloudflare.com
