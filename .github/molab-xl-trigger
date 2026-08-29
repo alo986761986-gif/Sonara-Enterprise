@@ -2,4 +2,4 @@ SONARA_MOLAB_XL_URL=https://molab.sonaraenterprise.com
 MODEL=acestep-v15-xl-turbo
 MODE=MOLAB_XL_ONLY
 ACTION=activate-molab-xl-only
-VERIFY=20260830-STABLE-MOLAB-XL
+VERIFY=20260830-STABLE-MOLAB-XL-BROWSER-PROBE
