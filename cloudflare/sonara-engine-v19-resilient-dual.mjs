@@ -1,6 +1,7 @@
 import engineV18 from './sonara-engine-v18-fast-hq.mjs';
 import { buildV17Payload } from './sonara-engine-v17-lm-composer.mjs';
 import { rewriteGenerationRequest } from './sonara-engine-v15-authoritative-prompt.mjs';
+export { SonaraJobState } from './sonara-job-state-do.mjs';
 
 const PUBLIC_API_ORIGIN = 'https://api.sonaraenterprise.com';
 const CACHE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/resilient-dual-v19/';
@@ -12,7 +13,6 @@ const QUERY_TIMEOUT = 12_000;
 const MAX_ATTEMPTS = 2;
 const PROFILE = 'resilient-dual-fast-v19';
 
-const clamp = (n, min, max) => Math.max(min, Math.min(max, Number(n) || min));
 const cleanUrl = value => String(value || '').trim().replace(/\/$/, '');
 const workerUrls = env => String(env.ACESTEP_WORKER_URLS || env.ACE_STEP_API_URLS || env.SONARA_ACE_STEP_WORKERS || '')
   .split(/[\s,;]+/).map(cleanUrl).filter(url => /^https?:\/\//i.test(url)).slice(0, 4);
@@ -118,11 +118,35 @@ function refsFrom(task, taskRef) {
 }
 
 const cacheUrl = jobId => `${CACHE_PREFIX}${encodeURIComponent(jobId)}`;
-async function save(jobId, state) {
-  await caches.default.put(new Request(cacheUrl(jobId)), new Response(JSON.stringify(state), { headers: { 'content-type': 'application/json', 'cache-control': `public, max-age=${CACHE_TTL}` } }));
+function stateStub(env, jobId) {
+  try {
+    if (!env?.SONARA_JOB_STATE) return null;
+    const id = env.SONARA_JOB_STATE.idFromName(jobId);
+    return env.SONARA_JOB_STATE.get(id);
+  } catch { return null; }
 }
-async function load(jobId) {
-  try { const response = await caches.default.match(new Request(cacheUrl(jobId))); return response ? await response.json() : null; } catch { return null; }
+async function save(env, jobId, state) {
+  const stub = stateStub(env, jobId);
+  if (stub) {
+    const response = await stub.fetch('https://sonara.internal/state', {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(state)
+    });
+    if (!response.ok) throw new Error(`SONARA state persistence HTTP ${response.status}`);
+  }
+  await caches.default.put(new Request(cacheUrl(jobId)), new Response(JSON.stringify(state), { headers: { 'content-type': 'application/json', 'cache-control': `public, max-age=${CACHE_TTL}` } })).catch(() => undefined);
+}
+async function load(env, jobId) {
+  const stub = stateStub(env, jobId);
+  if (stub) {
+    try {
+      const response = await stub.fetch('https://sonara.internal/state', { method: 'GET' });
+      if (response.ok) return await response.json();
+    } catch {}
+  }
+  try {
+    const response = await caches.default.match(new Request(cacheUrl(jobId)));
+    return response ? await response.json() : null;
+  } catch { return null; }
 }
 
 function fastPayload(payload, slot, attempt = 0) {
@@ -142,11 +166,11 @@ function completed(request, jobId, state) {
   const urls = refs.map(audioUrl);
   return json(request, { jobId, status: 'COMPLETED', progress: 100, audioUrl: urls[0] || null, audioUrls: urls,
     candidates: urls.map((url, index) => ({ id: index ? 'B' : 'A', audioUrl: url, audioFormat: 'wav', strategy: index ? 'detail-master' : 'structure-master', inferenceSteps: STEPS })),
-    metadata: { engine: 'SONARA ACE-Step 1.5', candidateCount: urls.length, inferenceSteps: STEPS, speedProfile: PROFILE, automaticMissingTrackRecovery: true, currentStage: '2 brani SONARA pronti' } });
+    metadata: { engine: 'SONARA ACE-Step 1.5', candidateCount: urls.length, inferenceSteps: STEPS, speedProfile: PROFILE, automaticMissingTrackRecovery: true, durableJobState: true, currentStage: '2 brani SONARA pronti' } });
 }
 function processing(request, jobId, state, progress, stage) {
   return json(request, { jobId, status: 'PROCESSING', progress, retryable: true,
-    metadata: { engine: 'SONARA ACE-Step 1.5', candidateCount: 2, readyCount: state.slots.filter(slot => slot.audioRef).length, inferenceSteps: STEPS, speedProfile: PROFILE, automaticMissingTrackRecovery: true, currentStage: stage } });
+    metadata: { engine: 'SONARA ACE-Step 1.5', candidateCount: 2, readyCount: state.slots.filter(slot => slot.audioRef).length, inferenceSteps: STEPS, speedProfile: PROFILE, automaticMissingTrackRecovery: true, durableJobState: true, currentStage: stage } });
 }
 
 async function start(request, env, body) {
@@ -160,12 +184,12 @@ async function start(request, env, body) {
     if (pool.length >= 2) {
       const tasks = await Promise.all([submit(pool[0], env, fastPayload(payloads[0], 0)), submit(pool[1], env, fastPayload(payloads[1], 1))]);
       const state = { ...base, mode: 'slots', slots: tasks.map((task, i) => ({ candidate: i ? 'B' : 'A', worker: pool[i], payload: payloads[i], task, audioRef: null, attempts: 1 })) };
-      await save(jobId, state);
+      await save(env, jobId, state);
       return processing(request, jobId, state, 38, 'SONARA Fast: 2 brani in parallelo su 2 T4');
     }
     const task = await submit(pool[0], env, batchPayload(payloads[0]));
     const state = { ...base, mode: 'batch', batchTask: task, worker: pool[0], slots: [0,1].map(i => ({ candidate: i ? 'B' : 'A', worker: pool[0], payload: payloads[i], task: null, audioRef: null, attempts: 0 })) };
-    await save(jobId, state);
+    await save(env, jobId, state);
     return processing(request, jobId, state, 42, 'SONARA Fast: batch nativo di 2 brani sulla T4');
   } catch (error) {
     return json(request, { jobId, status: 'FAILED', progress: 0, retryable: true, error: error instanceof Error ? error.message : String(error) }, 502);
@@ -196,18 +220,18 @@ async function pollSlots(request, env, jobId, state) {
     slot.lastError = String(task?.error || task?.message || `Brano ${slot.candidate} non completato.`);
     slot.task = null;
   }
-  if (state.slots.every(slot => slot.audioRef)) { await save(jobId, state); return completed(request, jobId, state); }
+  if (state.slots.every(slot => slot.audioRef)) { await save(env, jobId, state); return completed(request, jobId, state); }
   const exhausted = state.slots.find(slot => !slot.audioRef && !slot.task && slot.attempts >= MAX_ATTEMPTS);
   if (exhausted) return json(request, { jobId, status: 'FAILED', progress: 0, retryable: true, error: exhausted.lastError || `Brano ${exhausted.candidate} non completato dopo il recupero automatico.` });
   if (!pending || state.slots.some(slot => !slot.audioRef && !slot.task)) state = await launchMissing(state, env);
-  await save(jobId, state);
+  await save(env, jobId, state);
   const ready = state.slots.filter(slot => slot.audioRef).length;
   return processing(request, jobId, state, ready ? 92 : 82, ready ? 'SONARA Fast: primo brano pronto, completamento automatico del secondo' : 'SONARA Fast: rendering accelerato dei due brani');
 }
 
 async function poll(request, env, jobId) {
-  let state = await load(jobId);
-  if (!state) return engineV18.fetch(request, env, {});
+  let state = await load(env, jobId);
+  if (!state) return json(request, { jobId, status: 'FAILED', progress: 0, retryable: true, error: 'Job SONARA non trovato. Avvia una nuova generazione.' }, 404);
   try {
     if (state.mode === 'batch') {
       const task = await query(state.batchTask, env);
@@ -215,27 +239,27 @@ async function poll(request, env, jobId) {
       if (Number(task.status) === 1) {
         const refs = refsFrom(task, state.batchTask).slice(0, 2);
         refs.forEach((ref, i) => { if (state.slots[i]) state.slots[i].audioRef = ref; });
-        if (state.slots.every(slot => slot.audioRef)) { await save(jobId, state); return completed(request, jobId, state); }
+        if (state.slots.every(slot => slot.audioRef)) { await save(env, jobId, state); return completed(request, jobId, state); }
       }
       state.mode = 'slots';
       state = await launchMissing(state, env);
-      await save(jobId, state);
+      await save(env, jobId, state);
       return processing(request, jobId, state, state.slots.some(slot => slot.audioRef) ? 89 : 78,
         state.slots.some(slot => slot.audioRef) ? 'SONARA Fast: batch parziale, rigenerazione automatica del solo brano mancante' : 'SONARA Fast: recupero automatico dei 2 brani');
     }
     return pollSlots(request, env, jobId, state);
   } catch (error) {
     state.failures = Number(state.failures || 0) + 1;
-    await save(jobId, state).catch(() => undefined);
+    await save(env, jobId, state).catch(() => undefined);
     if (state.failures >= 6) return json(request, { jobId, status: 'FAILED', progress: 0, retryable: true, error: error instanceof Error ? error.message : String(error) });
     return processing(request, jobId, state, 84, `SONARA Fast: riconnessione T4 (${state.failures}/6)`);
   }
 }
 
-async function decorateHealth(request, response) {
+async function decorateHealth(request, response, env) {
   try {
     const data = await response.clone().json();
-    return json(request, { ...data, resilientDual: true, resilientDualProfile: PROFILE, resilientDualInferenceSteps: STEPS, resilientDualAutomaticMissingTrackRecovery: true }, response.status);
+    return json(request, { ...data, resilientDual: true, resilientDualProfile: PROFILE, resilientDualInferenceSteps: STEPS, resilientDualAutomaticMissingTrackRecovery: true, resilientDualDurableState: Boolean(env?.SONARA_JOB_STATE) }, response.status);
   } catch { return response; }
 }
 
@@ -254,7 +278,7 @@ export default {
       return engineV18.fetch(authoritative, env, ctx);
     }
     const response = await engineV18.fetch(request, env, ctx);
-    if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/api/health' || url.pathname === '/api/engine/ready')) return decorateHealth(request, response);
+    if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/api/health' || url.pathname === '/api/engine/ready')) return decorateHealth(request, response, env);
     return response;
   }
 };

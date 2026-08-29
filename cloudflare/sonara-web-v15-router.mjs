@@ -1,6 +1,7 @@
 import webRuntime from './sonara-web-generator-stability.mjs';
 import sonaraProxy from './sonara-web-dj-proxy.mjs';
 import engineV19 from './sonara-engine-v19-resilient-dual.mjs';
+export { SonaraJobState } from './sonara-engine-v19-resilient-dual.mjs';
 import { isVideoApiRequest, recoverVideoApi } from './sonara-video-api-recovery.mjs';
 import { injectVideoUiScript, videoUiScriptResponse } from './sonara-video-ui-edge.mjs';
 
@@ -41,28 +42,16 @@ async function forceResilientDualGeneration(request) {
     if (!contentType.includes('application/json')) return request;
     const payload = await request.clone().json();
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return request;
-
     const headers = new Headers(request.headers);
     headers.set('content-type', 'application/json');
     headers.set('x-sonara-music-route', 'v19-resilient-dual');
-
     return new Request(request.url, {
       method: request.method,
       headers,
-      body: JSON.stringify({
-        ...payload,
-        dualFast: true,
-        candidateCount: 2,
-        sonaraMusicV17: true,
-        sonaraMusicV18: false,
-        sonaraFastHq: false,
-        speedProfile: 'resilient-dual-fast-v19'
-      }),
+      body: JSON.stringify({ ...payload, dualFast: true, candidateCount: 2, sonaraMusicV17: true, sonaraMusicV18: false, sonaraFastHq: false, speedProfile: 'resilient-dual-fast-v19' }),
       redirect: request.redirect
     });
-  } catch {
-    return request;
-  }
+  } catch { return request; }
 }
 
 function decorateGenerationResponse(response) {
@@ -70,11 +59,7 @@ function decorateGenerationResponse(response) {
   headers.set('cache-control', 'no-store');
   headers.set('x-sonara-music-route', 'v19-resilient-dual');
   headers.set('x-sonara-generator-recovery', 'resilient-dual-v19');
-  return new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers
-  });
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
 async function resilientDualGeneration(request, env, ctx) {
@@ -91,85 +76,41 @@ function resilientJobFromLegacyBillingBridge(request, url, env, ctx) {
   if (request.method !== 'GET' || url.pathname !== BILLING_JOB_PATH) return null;
   const jobId = String(url.searchParams.get('jobId') || '').trim();
   if (!RESILIENT_JOB_ID.test(jobId)) return null;
-
   const target = new URL(`/api/music/job/${encodeURIComponent(jobId)}`, url.origin);
   const headers = new Headers(request.headers);
-  headers.set('x-sonara-job-bridge', 'cloudflare-same-edge-v19');
-  const direct = new Request(target.toString(), {
-    method: 'GET',
-    headers,
-    redirect: 'manual'
-  });
-  return engineV19.fetch(direct, env, ctx);
+  headers.set('x-sonara-job-bridge', 'cloudflare-durable-v19');
+  return engineV19.fetch(new Request(target.toString(), { method: 'GET', headers, redirect: 'manual' }), env, ctx);
 }
 
 function disableCrossOriginV18Poll(response) {
   const contentType = String(response.headers.get('content-type') || '').toLowerCase();
   if (!contentType.includes('text/html')) return response;
-
   const headers = new Headers(response.headers);
   headers.delete('content-length');
   headers.delete('content-encoding');
   headers.set('cache-control', 'no-store, max-age=0');
   headers.set('x-sonara-v18-browser-poll', 'same-origin-edge-v2');
-
-  const safe = new Response(response.body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers
-  });
-
+  const safe = new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   return new HTMLRewriter().on('head', {
-    element(element) {
-      element.prepend('<script>window.__sonaraV18DirectPollV1=true;</script>', { html: true });
-    }
+    element(element) { element.prepend('<script>window.__sonaraV18DirectPollV1=true;</script>', { html: true }); }
   }).transform(safe);
 }
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-
-    if (url.hostname === API_HOST && request.method === 'OPTIONS') {
-      return new Response(null, { status: 204, headers: apiCorsHeaders(request) });
-    }
-
-    if (url.hostname !== API_HOST && url.pathname === VIDEO_UI_SCRIPT_PATH) {
-      return videoUiScriptResponse();
-    }
-
-    if (url.hostname !== API_HOST && isVideoApiRequest(request)) {
-      return recoverVideoApi(request, { env, ctx });
-    }
-
-    // Public Creator generation must never pass through the obsolete V18
-    // single-master rewrite in sonara-web-generator-stability. Force the
-    // authoritative two-track V19 route before that legacy layer can run.
-    if (url.hostname !== API_HOST && request.method === 'POST' && url.pathname === BILLING_GENERATE_PATH) {
-      return resilientDualGeneration(request, env, ctx);
-    }
-
-    // Older browser bundles rewrite d16pair_* polling to /api/billing/job.
-    // Handle those requests on the same Cloudflare edge instead of sending
-    // them through Vercel and back to a different colo, where Cache API state
-    // would be missing and the Studio session would appear expired.
+    if (url.hostname === API_HOST && request.method === 'OPTIONS') return new Response(null, { status: 204, headers: apiCorsHeaders(request) });
+    if (url.hostname !== API_HOST && url.pathname === VIDEO_UI_SCRIPT_PATH) return videoUiScriptResponse();
+    if (url.hostname !== API_HOST && isVideoApiRequest(request)) return recoverVideoApi(request, { env, ctx });
+    if (url.hostname !== API_HOST && request.method === 'POST' && url.pathname === BILLING_GENERATE_PATH) return resilientDualGeneration(request, env, ctx);
     if (url.hostname !== API_HOST) {
       const directJob = resilientJobFromLegacyBillingBridge(request, url, env, ctx);
       if (directJob) return directJob;
     }
-
-    if (request.method === 'GET' && MUSIC_JOB_PATH.test(url.pathname)) {
-      return engineV19.fetch(request, env, ctx);
-    }
-
-    if (url.hostname === API_HOST) {
-      return engineV19.fetch(request, env, ctx);
-    }
-
+    if (request.method === 'GET' && MUSIC_JOB_PATH.test(url.pathname)) return engineV19.fetch(request, env, ctx);
+    if (url.hostname === API_HOST) return engineV19.fetch(request, env, ctx);
     const response = await webRuntime.fetch(request, env, ctx);
-    if (request.method === 'GET' && url.pathname !== '/api' && !url.pathname.startsWith('/api/')) {
-      return injectVideoUiScript(disableCrossOriginV18Poll(response));
-    }
+    if (request.method === 'GET' && url.pathname !== '/api' && !url.pathname.startsWith('/api/')) return injectVideoUiScript(disableCrossOriginV18Poll(response));
     return response;
   }
 };
