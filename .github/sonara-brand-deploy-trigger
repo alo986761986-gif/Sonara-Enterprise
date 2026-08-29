@@ -1,2 +1,2 @@
-trigger: 2026-08-29T17:45:00+02:00
-reason: deploy SONARA sonic S icon beside SONARA Enterprise header and force public legacy logo redirect
+trigger: 2026-08-29T17:58:00+02:00
+reason: deploy SONARA boot loop guard and guaranteed boot release on public site
