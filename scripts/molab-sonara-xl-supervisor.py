@@ -1,8 +1,6 @@
 import json
 import os
 import platform
-import re
-import shutil
 import signal
 import subprocess
 import time
@@ -16,6 +14,13 @@ PORT = 8001
 WORK = Path('/tmp/sonara-molab-supervisor')
 WORK.mkdir(parents=True, exist_ok=True)
 URL_FILE = Path('/marimo/SONARA_MOLAB_XL_URL.txt')
+
+STABLE_HOSTNAME = 'molab.sonaraenterprise.com'
+STABLE_URL = 'https://' + STABLE_HOSTNAME
+TUNNEL_NAME = 'sonara-molab-xl'
+CF_HOME = Path('/marimo/.cloudflared')
+CF_CONFIG = CF_HOME / 'config.yml'
+PUBLIC_FAILURE_LIMIT = 6
 
 
 def log(msg):
@@ -47,9 +52,7 @@ def local_ready():
         return False
 
 
-def public_ready(url):
-    if not url:
-        return False
+def public_ready(url=STABLE_URL):
     try:
         return health_ready(request_json(url.rstrip('/') + '/health', 10))
     except Exception:
@@ -78,6 +81,18 @@ def kill_matching(predicate):
                 os.kill(pid, signal.SIGTERM)
             except Exception:
                 pass
+
+
+def terminate_process(proc):
+    if proc is None or proc.poll() is not None:
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except Exception:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
 
 
 def api_env():
@@ -134,11 +149,12 @@ def start_api():
 
 
 def cloudflared_binary():
-    for c in [Path('/tmp/cloudflared'), WORK / 'cloudflared']:
+    for c in [CF_HOME / 'cloudflared', Path('/tmp/cloudflared'), WORK / 'cloudflared']:
         if c.exists() and os.access(c, os.X_OK):
             return c
     arch = 'arm64' if platform.machine().lower() in {'arm64', 'aarch64'} else 'amd64'
-    target = WORK / 'cloudflared'
+    CF_HOME.mkdir(parents=True, exist_ok=True)
+    target = CF_HOME / 'cloudflared'
     urllib.request.urlretrieve(
         f'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-{arch}',
         target,
@@ -147,144 +163,130 @@ def cloudflared_binary():
     return target
 
 
-def current_tunnel_from_logs():
-    for p in [WORK / 'cloudflare.log', Path('/tmp/sonara-molab-clean/cloudflare.log')]:
-        if p.exists():
-            m = re.findall(r'https://[a-z0-9-]+\.trycloudflare\.com', p.read_text(errors='ignore'), re.I)
-            if m:
-                return m[-1].rstrip('/')
-    return None
+def stable_tunnel_configured():
+    if not CF_CONFIG.exists():
+        return False
+    text = CF_CONFIG.read_text(errors='ignore')
+    return STABLE_HOSTNAME in text and 'credentials-file:' in text and 'tunnel:' in text
 
 
 def start_tunnel():
-    old = current_tunnel_from_logs()
-    if old and public_ready(old):
-        URL_FILE.write_text(old + '\n', encoding='utf-8')
-        log('Tunnel Cloudflare esistente ancora valido: ' + old)
-        return None, old
+    if not stable_tunnel_configured():
+        raise RuntimeError(
+            'Named Tunnel SONARA non configurato. Esegui prima scripts/molab-sonara-xl-stable-tunnel-setup.py una sola volta.'
+        )
 
-    kill_matching(lambda c: 'cloudflared' in c and '8001' in c)
+    if public_ready(STABLE_URL):
+        URL_FILE.write_text(STABLE_URL + '\n', encoding='utf-8')
+        log('Named Tunnel SONARA gia raggiungibile: ' + STABLE_URL)
+        return None, STABLE_URL
+
+    kill_matching(lambda c: 'cloudflared' in c and ('sonara-molab-xl' in c or str(CF_CONFIG).lower() in c))
     time.sleep(2)
 
     binary = cloudflared_binary()
     log_path = WORK / 'cloudflare.log'
     log_handle = open(log_path, 'w', buffering=1)
     proc = subprocess.Popen(
-        [str(binary), 'tunnel', '--no-autoupdate', '--url', f'http://127.0.0.1:{PORT}'],
+        [str(binary), 'tunnel', '--no-autoupdate', '--config', str(CF_CONFIG), 'run', TUNNEL_NAME],
         stdout=log_handle,
         stderr=subprocess.STDOUT,
         start_new_session=True,
     )
-    log(f'Avvio Cloudflare PID={proc.pid}')
+    log(f'Avvio Named Tunnel Cloudflare PID={proc.pid}')
 
-    pat = re.compile(r'https://[a-z0-9-]+\.trycloudflare\.com', re.I)
     deadline = time.time() + 180
     while time.time() < deadline:
-        text = log_path.read_text(errors='ignore') if log_path.exists() else ''
-        m = pat.search(text)
-        if m:
-            url = m.group(0).rstrip('/')
-            pub_deadline = time.time() + 120
-            while time.time() < pub_deadline:
-                if public_ready(url):
-                    URL_FILE.write_text(url + '\n', encoding='utf-8')
-                    log('Tunnel pubblico PRONTO: ' + url)
-                    return proc, url
-                time.sleep(2)
-            raise RuntimeError('Nuovo tunnel creato ma /health non raggiungibile: ' + url)
+        if public_ready(STABLE_URL):
+            URL_FILE.write_text(STABLE_URL + '\n', encoding='utf-8')
+            log('Named Tunnel pubblico PRONTO: ' + STABLE_URL)
+            return proc, STABLE_URL
         if proc.poll() is not None:
             tail = log_path.read_text(errors='ignore')[-12000:] if log_path.exists() else ''
-            raise RuntimeError('Cloudflare terminato durante avvio:\n' + tail)
-        time.sleep(1)
-    raise RuntimeError('Nessun URL Cloudflare generato')
+            raise RuntimeError('Named Tunnel Cloudflare terminato durante avvio:\n' + tail)
+        time.sleep(2)
+    raise RuntimeError('Named Tunnel avviato ma /health non raggiungibile su ' + STABLE_URL)
 
 
 def banner(url):
     print('\n' + '=' * 82)
-    print(' ✅ SONARA MOLAB XL-TURBO SUPERVISOR ATTIVO ')
+    print(' ✅ SONARA MOLAB XL-TURBO - ON DEMAND ')
     print('=' * 82)
     print('SONARA_MOLAB_XL_URL=' + url)
     print('MODEL=' + MODEL)
     print('LOCAL_PORT=' + str(PORT))
-    print('CLEAN_ROOT=' + str(ROOT))
+    print('TUNNEL_MODE=NAMED_STABLE')
+    print('TUNNEL_NAME=' + TUNNEL_NAME)
+    print('ON_DEMAND=YES')
     print('WATCHDOG=ON')
     print('=' * 82)
-    print('QUESTA CELLA DEVE RESTARE IN ESECUZIONE. Il watchdog riavvia API/tunnel se cadono.', flush=True)
+    print('LASCIA QUESTA CELLA ATTIVA SOLO MENTRE VUOI USARE MOLAB.')
+    print('QUANDO HAI FINITO, FERMA LA CELLA: SONARA MANTERRA LO STESSO URL PER IL PROSSIMO AVVIO.', flush=True)
 
 
 def main():
-    log('SONARA MoLab supervisor avviato.')
+    log('SONARA MoLab supervisor ON-DEMAND avviato.')
     api_proc = None
     tunnel_proc = None
-    public_url = None
+    public_url = STABLE_URL
     local_failures = 0
     public_failures = 0
     last_heartbeat = 0
 
-    while True:
-        try:
-            if not local_ready():
-                local_failures += 1
-            else:
-                local_failures = 0
+    try:
+        while True:
+            try:
+                if not local_ready():
+                    local_failures += 1
+                else:
+                    local_failures = 0
 
-            if api_proc is not None and api_proc.poll() is not None:
-                local_failures = 3
+                if api_proc is not None and api_proc.poll() is not None:
+                    local_failures = 3
 
-            if local_failures >= 3:
-                log('API non sana: riavvio automatico.')
-                try:
+                if local_failures >= 3:
+                    log('API non sana: riavvio automatico.')
                     api_proc = start_api()
                     local_failures = 0
-                except Exception as exc:
-                    log('ERRORE riavvio API: ' + repr(exc))
-                    time.sleep(10)
-                    continue
 
-            if not local_ready():
-                try:
+                if not local_ready():
                     api_proc = start_api()
-                except Exception as exc:
-                    log('API ancora non pronta: ' + repr(exc))
-                    time.sleep(10)
-                    continue
 
-            if not public_url or not public_ready(public_url):
-                public_failures += 1
-            else:
-                public_failures = 0
+                if not public_ready(public_url):
+                    public_failures += 1
+                else:
+                    public_failures = 0
 
-            if tunnel_proc is not None and tunnel_proc.poll() is not None:
-                public_failures = 3
+                if tunnel_proc is not None and tunnel_proc.poll() is not None:
+                    public_failures = PUBLIC_FAILURE_LIMIT
 
-            if not public_url or public_failures >= 3:
-                old_url = public_url
-                log('Tunnel non sano: riavvio automatico.')
-                try:
+                if public_failures >= PUBLIC_FAILURE_LIMIT:
+                    log('Named Tunnel non sano: riavvio sullo STESSO hostname.')
                     tunnel_proc, public_url = start_tunnel()
                     public_failures = 0
                     banner(public_url)
-                    if old_url and old_url != public_url:
-                        print('\n!!! URL CLOUDFLARE CAMBIATO !!!')
-                        print('SONARA_MOLAB_XL_URL_CHANGED=' + public_url)
-                        print('INVIAMI QUESTO NUOVO URL PER RICOLLEGARE SONARA.\n', flush=True)
-                except Exception as exc:
-                    log('ERRORE riavvio tunnel: ' + repr(exc))
-                    time.sleep(10)
-                    continue
 
-            now = time.time()
-            if now - last_heartbeat >= 60:
-                log('HEARTBEAT OK | API=UP | TUNNEL=UP | ' + str(public_url))
-                last_heartbeat = now
+                if tunnel_proc is None and not public_ready(public_url):
+                    tunnel_proc, public_url = start_tunnel()
+                    banner(public_url)
 
-            time.sleep(10)
-        except KeyboardInterrupt:
-            log('Supervisor fermato manualmente.')
-            break
-        except Exception as exc:
-            log('WATCHDOG ha intercettato un errore e continua: ' + repr(exc))
-            time.sleep(10)
+                now = time.time()
+                if now - last_heartbeat >= 60:
+                    api_state = 'UP' if local_ready() else 'DOWN'
+                    tunnel_state = 'UP' if public_ready(public_url) else 'DOWN'
+                    log(f'HEARTBEAT | API={api_state} | TUNNEL={tunnel_state} | {public_url}')
+                    last_heartbeat = now
+
+                time.sleep(10)
+            except Exception as exc:
+                log('WATCHDOG ha intercettato un errore e continua: ' + repr(exc))
+                time.sleep(10)
+    except KeyboardInterrupt:
+        log('Supervisor fermato manualmente.')
+    finally:
+        terminate_process(tunnel_proc)
+        terminate_process(api_proc)
+        log('MoLab ON-DEMAND arrestato. URL stabile conservato: ' + STABLE_URL)
 
 
 if __name__ == '__main__':
