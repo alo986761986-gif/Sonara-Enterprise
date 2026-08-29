@@ -8,6 +8,7 @@ import { injectVideoUiScript, videoUiScriptResponse } from './sonara-video-ui-ed
 const API_HOST = 'api.sonaraenterprise.com';
 const VIDEO_UI_SCRIPT_PATH = '/sonara-video-ui-edge.js';
 const BILLING_GENERATE_PATH = '/api/billing/generate';
+const ENGINE_GENERATE_PATH = '/api/engine/generate';
 const BILLING_JOB_PATH = '/api/billing/job';
 const MUSIC_JOB_PATH = /^\/api\/music\/job\/(?:d18fast_|d16pair_)[^/]+$/;
 const RESILIENT_JOB_ID = /^d16pair_[A-Za-z0-9-]{16,}$/;
@@ -86,7 +87,7 @@ function applyExactBpmLock(payload) {
   };
 }
 
-async function forceResilientDualGeneration(request) {
+async function forceExactBpmRequest(request, forceDual = false) {
   try {
     const contentType = String(request.headers.get('content-type') || '').toLowerCase();
     if (!contentType.includes('application/json')) return request;
@@ -95,15 +96,22 @@ async function forceResilientDualGeneration(request) {
     const bpmLockedPayload = applyExactBpmLock(payload);
     const headers = new Headers(request.headers);
     headers.set('content-type', 'application/json');
-    headers.set('x-sonara-music-route', 'v19-resilient-dual');
     headers.set('x-sonara-bpm-lock', `exact-${bpmLockedPayload.bpm}`);
+    if (forceDual) headers.set('x-sonara-music-route', 'v19-resilient-dual');
+    const body = forceDual
+      ? { ...bpmLockedPayload, dualFast: true, candidateCount: 2, sonaraMusicV17: true, sonaraMusicV18: false, sonaraFastHq: false, speedProfile: 'resilient-dual-fast-v19' }
+      : bpmLockedPayload;
     return new Request(request.url, {
       method: request.method,
       headers,
-      body: JSON.stringify({ ...bpmLockedPayload, dualFast: true, candidateCount: 2, sonaraMusicV17: true, sonaraMusicV18: false, sonaraFastHq: false, speedProfile: 'resilient-dual-fast-v19' }),
+      body: JSON.stringify(body),
       redirect: request.redirect
     });
   } catch { return request; }
+}
+
+async function forceResilientDualGeneration(request) {
+  return forceExactBpmRequest(request, true);
 }
 
 function decorateGenerationResponse(response) {
@@ -111,6 +119,13 @@ function decorateGenerationResponse(response) {
   headers.set('cache-control', 'no-store');
   headers.set('x-sonara-music-route', 'v19-resilient-dual');
   headers.set('x-sonara-generator-recovery', 'resilient-dual-v19');
+  headers.set('x-sonara-bpm-lock', 'hard-user-bpm-v1');
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+function decorateDirectEngineResponse(response) {
+  const headers = new Headers(response.headers);
+  headers.set('cache-control', 'no-store');
   headers.set('x-sonara-bpm-lock', 'hard-user-bpm-v1');
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
@@ -123,6 +138,11 @@ async function resilientDualGeneration(request, env, ctx) {
     response = await sonaraProxy.fetch(dualRequest.clone(), env, ctx);
   }
   return decorateGenerationResponse(response);
+}
+
+async function directEngineGeneration(request, env, ctx) {
+  const lockedRequest = await forceExactBpmRequest(request, false);
+  return decorateDirectEngineResponse(await engineV19.fetch(lockedRequest, env, ctx));
 }
 
 function resilientJobFromLegacyBillingBridge(request, url, env, ctx) {
@@ -161,6 +181,7 @@ export default {
       if (directJob) return directJob;
     }
     if (request.method === 'GET' && MUSIC_JOB_PATH.test(url.pathname)) return engineV19.fetch(request, env, ctx);
+    if (url.hostname === API_HOST && request.method === 'POST' && url.pathname === ENGINE_GENERATE_PATH) return directEngineGeneration(request, env, ctx);
     if (url.hostname === API_HOST) return engineV19.fetch(request, env, ctx);
     const response = await webRuntime.fetch(request, env, ctx);
     if (request.method === 'GET' && url.pathname !== '/api' && !url.pathname.startsWith('/api/')) return injectVideoUiScript(disableCrossOriginV18Poll(response));
