@@ -22,14 +22,25 @@ TUNNEL_NAME = 'sonara-molab-xl'
 CF_HOME = Path('/marimo/.cloudflared')
 CF_CONFIG = CF_HOME / 'config.yml'
 PUBLIC_FAILURE_LIMIT = 6
+BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36'
 
 
 def log(msg):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
+def request_headers():
+    return {
+        'Accept': 'application/json,text/plain,*/*',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'User-Agent': BROWSER_UA,
+        'Accept-Language': 'en-US,en;q=0.9',
+    }
+
+
 def request_json(url, timeout=12):
-    req = urllib.request.Request(url, headers={'Accept': 'application/json', 'Cache-Control': 'no-cache'})
+    req = urllib.request.Request(url, headers=request_headers())
     with urllib.request.urlopen(req, timeout=timeout) as r:
         raw = r.read().decode('utf-8', errors='replace')
         return json.loads(raw) if raw else {}
@@ -55,7 +66,7 @@ def local_ready():
 
 def public_probe(url=STABLE_URL):
     target = url.rstrip('/') + '/health'
-    req = urllib.request.Request(target, headers={'Accept': 'application/json', 'Cache-Control': 'no-cache'})
+    req = urllib.request.Request(target, headers=request_headers())
     try:
         with urllib.request.urlopen(req, timeout=10) as response:
             raw = response.read().decode('utf-8', errors='replace')
@@ -95,8 +106,7 @@ def kill_matching(predicate):
             continue
         if pid == me:
             continue
-        cmd = parts[1]
-        if predicate(cmd.lower()):
+        if predicate(parts[1].lower()):
             try:
                 os.kill(pid, signal.SIGTERM)
             except Exception:
@@ -149,7 +159,6 @@ def start_api():
 
     kill_matching(lambda c: ('acestep.api_server' in c or 'acestep-api' in c) and '8001' in c)
     time.sleep(2)
-
     log_path = WORK / 'api.log'
     log_handle = open(log_path, 'w', buffering=1)
     cmd = [str(PY), '-m', 'acestep.api_server', '--host', '0.0.0.0', '--port', str(PORT), '--download-source', 'huggingface']
@@ -175,10 +184,7 @@ def cloudflared_binary():
     arch = 'arm64' if platform.machine().lower() in {'arm64', 'aarch64'} else 'amd64'
     CF_HOME.mkdir(parents=True, exist_ok=True)
     target = CF_HOME / 'cloudflared'
-    urllib.request.urlretrieve(
-        f'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-{arch}',
-        target,
-    )
+    urllib.request.urlretrieve(f'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-{arch}', target)
     target.chmod(0o755)
     return target
 
@@ -200,9 +206,7 @@ def cloudflare_env():
 
 def start_tunnel():
     if not stable_tunnel_configured():
-        raise RuntimeError(
-            'Named Tunnel SONARA non configurato. Esegui prima scripts/molab-sonara-xl-stable-tunnel-setup.py una sola volta.'
-        )
+        raise RuntimeError('Named Tunnel SONARA non configurato.')
 
     if public_ready(STABLE_URL):
         URL_FILE.write_text(STABLE_URL + '\n', encoding='utf-8')
@@ -216,22 +220,12 @@ def start_tunnel():
     log_path = WORK / 'cloudflare.log'
     log_handle = open(log_path, 'w', buffering=1)
     cmd = [
-        str(binary), 'tunnel',
-        '--no-autoupdate',
-        '--protocol', 'http2',
-        '--edge-ip-version', '4',
-        '--loglevel', 'info',
-        '--config', str(CF_CONFIG),
+        str(binary), 'tunnel', '--no-autoupdate', '--protocol', 'http2',
+        '--edge-ip-version', '4', '--loglevel', 'info', '--config', str(CF_CONFIG),
         'run', TUNNEL_NAME,
     ]
-    proc = subprocess.Popen(
-        cmd,
-        env=cloudflare_env(),
-        stdout=log_handle,
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-    )
-    log(f'Avvio Named Tunnel Cloudflare PID={proc.pid} | protocol=http2 | edge-ip-version=4')
+    proc = subprocess.Popen(cmd, env=cloudflare_env(), stdout=log_handle, stderr=subprocess.STDOUT, start_new_session=True)
+    log(f'Avvio Named Tunnel Cloudflare PID={proc.pid} | protocol=http2 | edge-ip-version=4 | browser-probe=ON')
 
     deadline = time.time() + 240
     last_probe = ''
@@ -247,11 +241,7 @@ def start_tunnel():
         time.sleep(2)
 
     tail = log_path.read_text(errors='ignore')[-16000:] if log_path.exists() else ''
-    raise RuntimeError(
-        'Named Tunnel avviato ma /health non raggiungibile su ' + STABLE_URL
-        + '\nPUBLIC_PROBE=' + last_probe
-        + '\nCLOUDFLARE_LOG:\n' + tail
-    )
+    raise RuntimeError('Named Tunnel avviato ma /health non raggiungibile su ' + STABLE_URL + '\nPUBLIC_PROBE=' + last_probe + '\nCLOUDFLARE_LOG:\n' + tail)
 
 
 def banner(url):
@@ -264,12 +254,10 @@ def banner(url):
     print('TUNNEL_MODE=NAMED_STABLE')
     print('TUNNEL_PROTOCOL=HTTP2')
     print('TUNNEL_EDGE_IP_VERSION=4')
-    print('TUNNEL_NAME=' + TUNNEL_NAME)
+    print('BROWSER_PROBE=ON')
     print('ON_DEMAND=YES')
     print('WATCHDOG=ON')
-    print('=' * 82)
-    print('LASCIA QUESTA CELLA ATTIVA SOLO MENTRE VUOI USARE MOLAB.')
-    print('QUANDO HAI FINITO, FERMA LA CELLA: SONARA MANTERRA LO STESSO URL PER IL PROSSIMO AVVIO.', flush=True)
+    print('=' * 82, flush=True)
 
 
 def main():
@@ -284,36 +272,24 @@ def main():
     try:
         while True:
             try:
-                if not local_ready():
-                    local_failures += 1
-                else:
-                    local_failures = 0
-
+                local_failures = 0 if local_ready() else local_failures + 1
                 if api_proc is not None and api_proc.poll() is not None:
                     local_failures = 3
-
                 if local_failures >= 3:
                     log('API non sana: riavvio automatico.')
                     api_proc = start_api()
                     local_failures = 0
-
                 if not local_ready():
                     api_proc = start_api()
 
-                if not public_ready(public_url):
-                    public_failures += 1
-                else:
-                    public_failures = 0
-
+                public_failures = 0 if public_ready(public_url) else public_failures + 1
                 if tunnel_proc is not None and tunnel_proc.poll() is not None:
                     public_failures = PUBLIC_FAILURE_LIMIT
-
                 if public_failures >= PUBLIC_FAILURE_LIMIT:
                     log('Named Tunnel non sano: riavvio sullo STESSO hostname via HTTP/2.')
                     tunnel_proc, public_url = start_tunnel()
                     public_failures = 0
                     banner(public_url)
-
                 if tunnel_proc is None and not public_ready(public_url):
                     tunnel_proc, public_url = start_tunnel()
                     banner(public_url)
@@ -324,7 +300,6 @@ def main():
                     tunnel_state = 'UP' if public_ready(public_url) else 'DOWN'
                     log(f'HEARTBEAT | API={api_state} | TUNNEL={tunnel_state} | {public_url}')
                     last_heartbeat = now
-
                 time.sleep(10)
             except Exception as exc:
                 log('WATCHDOG ha intercettato un errore e continua: ' + repr(exc))
