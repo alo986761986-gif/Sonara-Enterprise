@@ -1,3 +1,3 @@
-trigger: 2026-08-29T19:18:00+02:00
-reason: deploy Suno-style contextual help for SONARA Create controls
-source: 9e4baea0819dad94c8cb9f76fcaccf27f16bc85c
+trigger: 2026-08-29T19:22:00+02:00
+reason: retry Suno-style contextual help after Cloudflare workflow validation update
+source: e402c1da79534c0ef1859f01fd3436e395dbaec6
