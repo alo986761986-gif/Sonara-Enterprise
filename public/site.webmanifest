@@ -1,17 +1,17 @@
 {
   "name": "Sonara AI",
   "short_name": "Sonara",
-  "description": "Sonara Enterprise creative intelligence, AI music, video and digital tools.",
+  "description": "Sonara AI è l’ecosistema creativo di Sonara Enterprise: musica, video e strumenti professionali con intelligenza artificiale.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#0b0b0e",
-  "theme_color": "#0b0b0e",
+  "background_color": "#02050b",
+  "theme_color": "#02050b",
   "icons": [
     {
-      "src": "/sonara-ai-icon.png",
+      "src": "/sonara-brand-icon.svg?v=20260829-2",
       "sizes": "any",
-      "type": "image/png",
+      "type": "image/svg+xml",
       "purpose": "any maskable"
     }
   ]
