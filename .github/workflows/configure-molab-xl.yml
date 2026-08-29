@@ -1,4 +1,4 @@
-name: Configure SONARA MoLab XL Hybrid
+name: Configure SONARA MoLab XL Only
 
 on:
   push:
@@ -12,12 +12,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: sonara-molab-xl-config
+  group: sonara-molab-xl-only-config
   cancel-in-progress: true
 
 jobs:
   configure:
-    name: Bind MoLab XL-Turbo to SONARA hybrid music router
+    name: Bind MoLab XL-Turbo as the only SONARA music engine
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -39,7 +39,7 @@ jobs:
           mode="$(sed -n 's/^MODE=//p' "${trigger}" | tail -n 1 | tr -d '\r')"
           [[ "${url}" =~ ^https://[A-Za-z0-9.-]+\.(trycloudflare\.com|gradio\.live)/?$ ]]
           test "${model}" = "acestep-v15-xl-turbo"
-          test "${mode}" = "MOLAB_XL_KAGGLE_HYBRID"
+          test "${mode}" = "MOLAB_XL_ONLY"
           echo "MOLAB_XL_URL=${url%/}" >> "${GITHUB_ENV}"
 
       - name: Verify MoLab ACE-Step XL-Turbo
@@ -53,7 +53,7 @@ jobs:
               ((.data.models_initialized // .models_initialized // false) == true) and
               (((.data.loaded_model // .loaded_model // .data.model // .model // "") | tostring) | contains("acestep-v15-xl-turbo"))
             ' >/dev/null 2>&1; then
-              printf '%s\n' "${response}" | jq '{status: (.data.status // .status), models_initialized: (.data.models_initialized // .models_initialized), loaded_model: (.data.loaded_model // .loaded_model // .data.model // .model), llm_initialized: (.data.llm_initialized // .llm_initialized)}'
+              printf '%s\n' "${response}" | jq '{status: (.data.status // .status), models_initialized: (.data.models_initialized // .models_initialized), loaded_model: (.data.loaded_model // .loaded_model // .data.model // .model)}'
               echo "MoLab XL-Turbo healthy: ${MOLAB_XL_URL}"
               exit 0
             fi
@@ -83,26 +83,28 @@ jobs:
           set -euo pipefail
           printf '%s' "${MOLAB_XL_URL}" | npx --yes wrangler@latest secret put SONARA_MOLAB_XL_URL --config wrangler.jsonc
 
-      - name: Deploy MoLab plus Kaggle hybrid router
+      - name: Deploy MoLab-only music router
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
 
-      - name: Verify production hybrid routing
+      - name: Verify production MoLab-only routing
         shell: bash
         run: |
           set -euo pipefail
           for attempt in $(seq 1 12); do
-            response="$(curl -sS --max-time 30 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/hybrid/ready?verify=${GITHUB_SHA}-${attempt}" || true)"
+            response="$(curl -sS --max-time 30 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/molab/ready?verify=${GITHUB_SHA}-${attempt}" || true)"
             if [[ -n "${response}" ]] && printf '%s' "${response}" | jq -e '
-              .profile == "sonara-molab-kaggle-xl-v1" and
-              any(.workers[]?; .id == "molab-xl" and .kind == "molab" and .ok == true) and
-              any(.workers[]?; .id == "kaggle-t4" and .kind == "kaggle")
+              .profile == "sonara-molab-xl-only-v1" and
+              .provider == "molab" and
+              .model == "acestep-v15-xl-turbo" and
+              .kaggleEnabled == false and
+              .ready == true
             ' >/dev/null 2>&1; then
-              printf '%s\n' "${response}" | jq '{ready, profile, engine, workers, fallback}'
-              echo "SONARA MoLab XL + Kaggle hybrid routing verified."
+              printf '%s\n' "${response}" | jq '{ready, profile, engine, provider, model, inferenceSteps, maxBatchSize, kaggleEnabled}'
+              echo "SONARA MoLab XL-only routing verified."
               exit 0
             fi
-            echo "Production hybrid verification attempt ${attempt}/12 failed"
+            echo "Production MoLab-only verification attempt ${attempt}/12 failed"
             sleep 5
           done
-          echo "Production hybrid router did not verify MoLab XL." >&2
+          echo "Production MoLab-only router did not verify." >&2
           exit 1
