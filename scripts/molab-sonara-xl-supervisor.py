@@ -4,6 +4,7 @@ import platform
 import signal
 import subprocess
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -52,11 +53,30 @@ def local_ready():
         return False
 
 
-def public_ready(url=STABLE_URL):
+def public_probe(url=STABLE_URL):
+    target = url.rstrip('/') + '/health'
+    req = urllib.request.Request(target, headers={'Accept': 'application/json', 'Cache-Control': 'no-cache'})
     try:
-        return health_ready(request_json(url.rstrip('/') + '/health', 10))
-    except Exception:
-        return False
+        with urllib.request.urlopen(req, timeout=10) as response:
+            raw = response.read().decode('utf-8', errors='replace')
+            try:
+                body = json.loads(raw) if raw else {}
+            except Exception:
+                body = {'raw': raw[:1200]}
+            return health_ready(body), f'HTTP {response.status}: {str(body)[:1400]}'
+    except urllib.error.HTTPError as exc:
+        try:
+            raw = exc.read().decode('utf-8', errors='replace')
+        except Exception:
+            raw = ''
+        return False, f'HTTP {exc.code}: {raw[:1400]}'
+    except Exception as exc:
+        return False, repr(exc)
+
+
+def public_ready(url=STABLE_URL):
+    ok, _ = public_probe(url)
+    return ok
 
 
 def kill_matching(predicate):
@@ -170,6 +190,14 @@ def stable_tunnel_configured():
     return STABLE_HOSTNAME in text and 'credentials-file:' in text and 'tunnel:' in text
 
 
+def cloudflare_env():
+    env = os.environ.copy()
+    env['HOME'] = '/marimo'
+    env['TUNNEL_TRANSPORT_PROTOCOL'] = 'http2'
+    env['TUNNEL_EDGE_IP_VERSION'] = '4'
+    return env
+
+
 def start_tunnel():
     if not stable_tunnel_configured():
         raise RuntimeError(
@@ -187,25 +215,43 @@ def start_tunnel():
     binary = cloudflared_binary()
     log_path = WORK / 'cloudflare.log'
     log_handle = open(log_path, 'w', buffering=1)
+    cmd = [
+        str(binary), 'tunnel',
+        '--no-autoupdate',
+        '--protocol', 'http2',
+        '--edge-ip-version', '4',
+        '--loglevel', 'info',
+        '--config', str(CF_CONFIG),
+        'run', TUNNEL_NAME,
+    ]
     proc = subprocess.Popen(
-        [str(binary), 'tunnel', '--no-autoupdate', '--config', str(CF_CONFIG), 'run', TUNNEL_NAME],
+        cmd,
+        env=cloudflare_env(),
         stdout=log_handle,
         stderr=subprocess.STDOUT,
         start_new_session=True,
     )
-    log(f'Avvio Named Tunnel Cloudflare PID={proc.pid}')
+    log(f'Avvio Named Tunnel Cloudflare PID={proc.pid} | protocol=http2 | edge-ip-version=4')
 
-    deadline = time.time() + 180
+    deadline = time.time() + 240
+    last_probe = ''
     while time.time() < deadline:
-        if public_ready(STABLE_URL):
+        ok, last_probe = public_probe(STABLE_URL)
+        if ok:
             URL_FILE.write_text(STABLE_URL + '\n', encoding='utf-8')
             log('Named Tunnel pubblico PRONTO: ' + STABLE_URL)
             return proc, STABLE_URL
         if proc.poll() is not None:
-            tail = log_path.read_text(errors='ignore')[-12000:] if log_path.exists() else ''
+            tail = log_path.read_text(errors='ignore')[-16000:] if log_path.exists() else ''
             raise RuntimeError('Named Tunnel Cloudflare terminato durante avvio:\n' + tail)
         time.sleep(2)
-    raise RuntimeError('Named Tunnel avviato ma /health non raggiungibile su ' + STABLE_URL)
+
+    tail = log_path.read_text(errors='ignore')[-16000:] if log_path.exists() else ''
+    raise RuntimeError(
+        'Named Tunnel avviato ma /health non raggiungibile su ' + STABLE_URL
+        + '\nPUBLIC_PROBE=' + last_probe
+        + '\nCLOUDFLARE_LOG:\n' + tail
+    )
 
 
 def banner(url):
@@ -216,6 +262,8 @@ def banner(url):
     print('MODEL=' + MODEL)
     print('LOCAL_PORT=' + str(PORT))
     print('TUNNEL_MODE=NAMED_STABLE')
+    print('TUNNEL_PROTOCOL=HTTP2')
+    print('TUNNEL_EDGE_IP_VERSION=4')
     print('TUNNEL_NAME=' + TUNNEL_NAME)
     print('ON_DEMAND=YES')
     print('WATCHDOG=ON')
@@ -261,7 +309,7 @@ def main():
                     public_failures = PUBLIC_FAILURE_LIMIT
 
                 if public_failures >= PUBLIC_FAILURE_LIMIT:
-                    log('Named Tunnel non sano: riavvio sullo STESSO hostname.')
+                    log('Named Tunnel non sano: riavvio sullo STESSO hostname via HTTP/2.')
                     tunnel_proc, public_url = start_tunnel()
                     public_failures = 0
                     banner(public_url)
