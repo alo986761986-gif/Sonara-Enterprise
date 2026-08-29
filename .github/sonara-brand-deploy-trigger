@@ -1,2 +1,2 @@
-trigger: 2026-08-29T17:30:00+02:00
-reason: deploy professional SONARA sonic S boot animation and favicon/search branding
+trigger: 2026-08-29T17:35:00+02:00
+reason: redeploy professional SONARA sonic S boot animation and favicon/search branding after HEAD verification fix
