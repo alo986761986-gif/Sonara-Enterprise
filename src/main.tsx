@@ -9,6 +9,7 @@ import VocalCharacterControl from './components/generator/VocalCharacterControl'
 import DualTrackGenerationControl from './components/generator/DualTrackGenerationControl';
 import LyricsApiCompatibilityBridge from './components/generator/LyricsApiCompatibilityBridge';
 import RealMusicIntelligenceBridge from './components/generator/RealMusicIntelligenceBridge';
+import BpmModeControl from './components/generator/BpmModeControl';
 import SonaraCreatorSkin from './components/generator/SonaraCreatorSkin';
 import StudioSectionControl from './components/studio/StudioSectionControl';
 import VideoAISectionControl from './components/video/VideoAISectionControl';
@@ -28,6 +29,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         </BootAuth>
         <LyricsApiCompatibilityBridge />
         <RealMusicIntelligenceBridge />
+        <BpmModeControl />
         <IntelligentPromptControl />
         <IntelligentLyricsControl />
         <VocalCharacterControl />
