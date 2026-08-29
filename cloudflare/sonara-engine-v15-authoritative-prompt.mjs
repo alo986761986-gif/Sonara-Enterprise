@@ -25,7 +25,22 @@ function parseBpm(value) {
   return Number.isFinite(parsed) ? Math.round(Math.max(BPM_MIN, Math.min(BPM_MAX, parsed))) : null;
 }
 
+function extractPromptBpm(value) {
+  const prompt = String(value ?? '').trim();
+  if (!prompt) return null;
+  const explicit = prompt.match(/\b(?:at|a|@|tempo[:\s]*)?\s*(\d{2,3})\s*bpm\b/i)
+    || prompt.match(/\bbpm\s*[:=]?\s*(\d{2,3})\b/i);
+  return explicit ? parseBpm(explicit[1]) : null;
+}
+
 function resolveBpm(body = {}) {
+  const creatorPrompt = body?.rawPrompt || body?.creatorPrompt || body?.creator_prompt || '';
+  const creatorBpm = extractPromptBpm(creatorPrompt);
+  if (creatorBpm !== null) return creatorBpm;
+
+  const promptBpm = extractPromptBpm(body?.prompt);
+  if (body?.promptBpmAuthoritative === true && promptBpm !== null) return promptBpm;
+
   const candidates = [
     body?.requestedBpm,
     body?.requested_bpm,
@@ -41,10 +56,7 @@ function resolveBpm(body = {}) {
     if (bpm !== null) return bpm;
   }
 
-  const prompt = `${String(body?.rawPrompt || '')}\n${String(body?.prompt || '')}`;
-  const explicit = prompt.match(/\b(?:at|a|@|tempo[:\s]*)?\s*(\d{2,3})\s*bpm\b/i)
-    || prompt.match(/\bbpm\s*[:=]?\s*(\d{2,3})\b/i);
-  return explicit ? parseBpm(explicit[1]) : null;
+  return promptBpm;
 }
 
 function authoritativePrompt(body) {
@@ -53,7 +65,7 @@ function authoritativePrompt(body) {
   const subgenre = clean(body?.subgenre, genre);
   const mood = clean(body?.mood, 'Authentic');
   const original = String(body?.prompt || '').trim();
-  const creatorPrompt = clean(body?.rawPrompt || body?.creatorPrompt || body?.creator_prompt, '', 12000);
+  const creatorPrompt = clean(body?.rawPrompt || body?.creatorPrompt || body?.creator_prompt, '');
   const creatorStylePriority = Boolean(
     creatorPrompt
     || body?.promptGenreAuthoritative === true
