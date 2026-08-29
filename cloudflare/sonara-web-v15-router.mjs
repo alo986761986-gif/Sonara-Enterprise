@@ -1,11 +1,11 @@
 import webRuntime from './sonara-web-generator-stability.mjs';
-import engineV18 from './sonara-engine-v18-fast-hq.mjs';
+import engineV19 from './sonara-engine-v19-resilient-dual.mjs';
 import { isVideoApiRequest, recoverVideoApi } from './sonara-video-api-recovery.mjs';
 import { injectVideoUiScript, videoUiScriptResponse } from './sonara-video-ui-edge.mjs';
 
 const API_HOST = 'api.sonaraenterprise.com';
 const VIDEO_UI_SCRIPT_PATH = '/sonara-video-ui-edge.js';
-const V18_JOB_PATH = /^\/api\/music\/job\/d18fast_[^/]+$/;
+const MUSIC_JOB_PATH = /^\/api\/music\/job\/(?:d18fast_|d16pair_)[^/]+$/;
 const API_ALLOWED_ORIGINS = new Set([
   'https://sonaraenterprise.com',
   'https://www.sonaraenterprise.com',
@@ -44,9 +44,6 @@ function disableCrossOriginV18Poll(response) {
 
   return new HTMLRewriter().on('head', {
     element(element) {
-      // sonara-web-generator-stability still contains an old browser hotfix that
-      // rewrites V18 polling to api.sonaraenterprise.com. Disable it before it
-      // executes so all polling stays same-origin on sonaraenterprise.com.
       element.prepend('<script>window.__sonaraV18DirectPollV1=true;</script>', { html: true });
     }
   }).transform(safe);
@@ -57,10 +54,7 @@ export default {
     const url = new URL(request.url);
 
     if (url.hostname === API_HOST && request.method === 'OPTIONS') {
-      return new Response(null, {
-        status: 204,
-        headers: apiCorsHeaders(request)
-      });
+      return new Response(null, { status: 204, headers: apiCorsHeaders(request) });
     }
 
     if (url.hostname !== API_HOST && url.pathname === VIDEO_UI_SCRIPT_PATH) {
@@ -71,14 +65,12 @@ export default {
       return recoverVideoApi(request, { env, ctx });
     }
 
-    // V18 polling is served directly at the Cloudflare edge for BOTH the public
-    // web origin and API origin. The browser no longer needs a cross-origin hop.
-    if (request.method === 'GET' && V18_JOB_PATH.test(url.pathname)) {
-      return engineV18.fetch(request, env, ctx);
+    if (request.method === 'GET' && MUSIC_JOB_PATH.test(url.pathname)) {
+      return engineV19.fetch(request, env, ctx);
     }
 
     if (url.hostname === API_HOST) {
-      return engineV18.fetch(request, env, ctx);
+      return engineV19.fetch(request, env, ctx);
     }
 
     const response = await webRuntime.fetch(request, env, ctx);
