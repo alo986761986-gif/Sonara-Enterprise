@@ -6,7 +6,7 @@
   "workers_dev": true,
   "keep_vars": true,
   "vars": {
-    "SONARA_YUE_WORKER_URL": "https://blind-wealth-sentence-handmade.trycloudflare.com"
+    "SONARA_YUE_WORKER_URL": "https://departmental-peace-such-hang.trycloudflare.com"
   },
   "durable_objects": {
     "bindings": [
