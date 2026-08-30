@@ -3,3 +3,4 @@ Includes Studio durations up to 120 seconds, multi-scene rendering, Transcoder a
 Production redeploy retriggered 2026-08-28 00:34 UTC for source commit f6349e8.
 Production redeploy retriggered 2026-08-28 for Video AI media v2 commit bc03bb0f: visible CARICATO state, previews, file metadata and audio uploads.
 Production redeploy retriggered 2026-08-29 for music BPM mode integration: Manual / Automatic BPM, Intelligent Prompt BPM awareness, source commit ffd901730b1262f15d95c62046d3c2b5a7ee35df.
+Production redeploy retriggered 2026-08-30 for MUSIC TAXONOMY-FIRST frontend bridge: Family > Genre > Subgenre > Atmosphere authoritative, source commit 2c3aa9a234a8690e1fd8e49ea9392b1b79fa9bdb.
