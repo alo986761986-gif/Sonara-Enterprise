@@ -1,5 +1,6 @@
 const STATE_KEY = 'state';
-const TTL_MS = 6 * 60 * 60 * 1000;
+const JOB_TTL_MS = 6 * 60 * 60 * 1000;
+const PERSISTENT_TTL_MS = 180 * 24 * 60 * 60 * 1000;
 
 export class SonaraJobState {
   constructor(ctx, env) {
@@ -11,7 +12,8 @@ export class SonaraJobState {
     if (request.method === 'PUT') {
       const state = await request.json();
       await this.ctx.storage.put(STATE_KEY, state);
-      await this.ctx.storage.setAlarm(Date.now() + TTL_MS);
+      const ttl = state?.persistent === true ? PERSISTENT_TTL_MS : JOB_TTL_MS;
+      await this.ctx.storage.setAlarm(Date.now() + ttl);
       return new Response(null, { status: 204 });
     }
 
