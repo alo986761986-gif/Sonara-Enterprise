@@ -71,9 +71,14 @@
 
     const jobId = decodeURIComponent(jobMatch[1]);
 
-    // V18 and V19 are served directly by the Cloudflare edge. Keeping d16pair
-    // same-origin avoids the extra Vercel billing bridge hop and reduces poll latency.
-    if (jobId.startsWith('d18fast_') || jobId.startsWith('d16pair_')) {
+    // These jobs live directly on the Cloudflare generation edge. Keeping them
+    // on /api/music/job avoids the legacy /api/billing/job bridge returning an
+    // HTML page for a job family it does not know about.
+    if (
+      jobId.startsWith('d18fast_') ||
+      jobId.startsWith('d16pair_') ||
+      jobId.startsWith('yue_')
+    ) {
       return nativeFetch(input, { ...init, cache: 'no-store' });
     }
 
