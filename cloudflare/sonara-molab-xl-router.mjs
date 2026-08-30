@@ -4,17 +4,16 @@ import { rewriteGenerationRequest } from './sonara-engine-v15-authoritative-prom
 export { SonaraJobState } from './sonara-instant-speed-router.mjs';
 
 const VERSION = 'sonara-molab-xl-only-v1';
-const FIDELITY_PROFILE = 'sonara-fidelity-v2-lm4b';
+const FIDELITY_PROFILE = 'sonara-fidelity-v2-stable8';
 const MODEL = 'acestep-v15-xl-turbo';
-const LM_MODEL = 'acestep-5Hz-lm-4B';
-const LM_BACKEND = 'vllm';
 const PUBLIC_API_ORIGIN = 'https://api.sonaraenterprise.com';
 const CACHE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/molab-xl-only-v1/';
 const CACHE_TTL = 3 * 60 * 60;
-const QUERY_TIMEOUT = 8_000;
+const QUERY_TIMEOUT = 12_000;
 const SUBMIT_TIMEOUT = 120_000;
 const AUDIO_TIMEOUT = 120_000;
 const INFERENCE_STEPS = 8;
+const STALL_TIMEOUT = 12 * 60 * 1000;
 
 const cleanUrl = value => String(value || '').trim().replace(/\/$/, '');
 const molabUrl = env => cleanUrl(env.SONARA_MOLAB_XL_URL || env.MOLAB_ACESTEP_URL || '');
@@ -81,15 +80,9 @@ function creatorIntent(body = {}) {
 }
 
 function qualityControls(body = {}) {
-  const weirdness = Math.round(clamp(body.weirdness, 50, 0, 100));
-  const styleInfluence = Math.round(clamp(body.styleInfluence ?? body.style_influence, 50, 0, 100));
   return {
-    weirdness,
-    styleInfluence,
-    lmTemperature: Number((0.60 + weirdness * 0.005).toFixed(2)),
-    lmCfgScale: Number((1.90 + styleInfluence * 0.017).toFixed(2)),
-    lmTopK: Math.round(40 + weirdness * 0.60),
-    lmTopP: Number((0.84 + weirdness * 0.0012).toFixed(3))
+    weirdness: Math.round(clamp(body.weirdness, 50, 0, 100)),
+    styleInfluence: Math.round(clamp(body.styleInfluence ?? body.style_influence, 50, 0, 100))
   };
 }
 
@@ -136,51 +129,45 @@ export function buildMolabPayload(body, count) {
     body.sonaraStudioMaxProductionContract
   ].filter(Boolean).join(' ');
 
-  // IMPORTANT: do not use base.prompt as the final prompt. buildStudioPayload can
-  // re-assert UI taxonomy after the creator prompt. The rewritten authoritative
-  // body.prompt is the source of truth; the final fidelity instruction is placed
-  // after it so the creator request cannot be overwritten by stale UI defaults.
-  const authoritativePrompt = String(body.prompt || '').trim().slice(0, 7200);
-  const finalInstruction = fidelityInstruction(body, controls).slice(0, 4200);
+  const authoritativePrompt = String(body.prompt || '').trim().slice(0, 7600);
+  const finalInstruction = fidelityInstruction(body, controls).slice(0, 4000);
   const candidateDirection = count === 2
-    ? 'Generate two candidates with the SAME creator style/BPM/key/lyrics locks. Candidate A prioritizes hook and groove. Candidate B varies melody, voicing, transitions and timbral balance without changing genre identity.'
-    : 'Generate one highly faithful professional master with strong hook, groove, coherent structure and production detail.';
+    ? 'Render two candidates in one GPU batch. Both MUST preserve the same creator style, BPM, key, lyrics and vocal-language locks. Candidate A prioritizes hook and groove. Candidate B changes melody, voicing, transitions and timbral balance without changing genre identity.'
+    : 'Render one highly faithful professional master with strong hook, groove, coherent structure and production detail.';
 
   const prompt = [
     authoritativePrompt,
-    'SONARA MOLAB RTX PRO 6000 — HIGH FIDELITY MODE.',
+    'SONARA MOLAB RTX PRO 6000 — STABLE HIGH-FIDELITY MODE.',
     finalInstruction,
     locks,
     `Weirdness=${controls.weirdness}/100 controls creativity INSIDE the requested style. Style Influence=${controls.styleInfluence}/100 controls adherence to the creator style.`,
     candidateDirection
   ].filter(Boolean).join('\n\n').slice(0, 12000);
 
-  return {
+  const payload = {
     ...base,
     model: MODEL,
     prompt,
     inference_steps: INFERENCE_STEPS,
-    guidance_scale: 7.0,
+    guidance_scale: 1.15,
     batch_size: count,
-    thinking: true,
-    use_format: true,
-    use_cot_caption: true,
+    thinking: false,
+    use_format: false,
+    use_cot_metas: false,
+    use_cot_caption: false,
     use_cot_language: false,
-    constrained_decoding: true,
+    constrained_decoding: false,
     constrained_decoding_debug: false,
-    allow_lm_batch: true,
-    lm_model_path: LM_MODEL,
-    lm_backend: LM_BACKEND,
-    lm_temperature: controls.lmTemperature,
-    lm_cfg_scale: controls.lmCfgScale,
-    lm_top_k: controls.lmTopK,
-    lm_top_p: controls.lmTopP,
-    lm_repetition_penalty: 1.03,
-    lm_negative_prompt: 'genre drift, wrong genre, wrong tempo, wrong key, incoherent structure, bland default arrangement, muddy mix, clipping, malformed ending, unwanted vocals, wrong vocal language',
-    instruction: finalInstruction,
+    allow_lm_batch: false,
     infer_method: 'ode',
     use_random_seed: true
   };
+
+  // Never send stale LM parameters inherited from an older payload/profile.
+  for (const key of Object.keys(payload)) {
+    if (key.startsWith('lm_')) delete payload[key];
+  }
+  return payload;
 }
 
 async function submit(baseUrl, env, payload) {
@@ -217,6 +204,15 @@ async function query(baseUrl, env, taskId) {
     throw new Error(String(data?.error?.message || data?.error || data?.message || `MoLab XL query HTTP ${response.status}`));
   }
   return data?.data?.[0] || null;
+}
+
+function taskStatus(task) {
+  const raw = task?.status;
+  if (typeof raw === 'number') return raw;
+  const text = String(raw ?? '').trim().toLowerCase();
+  if (['1', 'success', 'succeeded', 'completed', 'complete', 'done', 'finished'].includes(text)) return 1;
+  if (['0', 'pending', 'queued', 'running', 'processing', 'in_progress', 'in-progress'].includes(text) || !text) return 0;
+  return -1;
 }
 
 function resultItems(value) {
@@ -324,14 +320,12 @@ function candidatesFrom(refs) {
 
 function qualityMetadata(count) {
   return {
-    engine: 'SONARA MoLab RTX PRO 6000 XL-Turbo + 4B Music Brain',
+    engine: 'SONARA MoLab RTX PRO 6000 XL-Turbo Fidelity',
     provider: 'molab',
     model: MODEL,
-    lmModel: LM_MODEL,
-    lmBackend: LM_BACKEND,
-    thinking: true,
-    formatEnhancement: true,
-    constrainedDecoding: true,
+    thinking: false,
+    formatEnhancement: false,
+    constrainedDecoding: false,
     fidelityProfile: FIDELITY_PROFILE,
     speedProfile: VERSION,
     inferenceSteps: INFERENCE_STEPS,
@@ -375,14 +369,14 @@ async function startMolab(request, env) {
     return json(request, {
       jobId,
       status: 'PROCESSING',
-      progress: 18,
+      progress: 22,
       retryable: true,
       audioUrl: null,
       audioUrls: [],
       candidates: [],
       metadata: {
         ...qualityMetadata(count),
-        currentStage: count === 2 ? 'MoLab Fidelity: 2 brani con Music Brain 4B avviati' : 'MoLab Fidelity: generazione con Music Brain 4B avviata'
+        currentStage: count === 2 ? 'MoLab Fidelity: batch RTX avviato' : 'MoLab Fidelity: inferenza RTX avviata'
       }
     }, 202);
   } catch (error) {
@@ -405,7 +399,7 @@ async function pollMolab(request, env, jobId) {
 
   try {
     const task = await query(state.baseUrl, env, state.taskId);
-    const status = Number(task?.status ?? 0);
+    const status = taskStatus(task);
     const info = resultInfo(task);
     const expectedCount = Math.max(1, Math.min(2, Number(state.expectedCount || 2)));
 
@@ -436,15 +430,26 @@ async function pollMolab(request, env, jobId) {
       });
     }
 
-    if (status !== 0) {
+    if (status < 0) {
       return json(request, {
         jobId,
         status: 'FAILED',
         progress: 0,
         retryable: true,
-        error: String(task?.error || task?.message || 'Generazione MoLab XL-Turbo fallita.'),
+        error: String(task?.error || task?.message || `Generazione MoLab XL-Turbo fallita (status=${String(task?.status)}).`),
         metadata: { ...qualityMetadata(expectedCount), currentStage: 'Generazione MoLab Fidelity fallita' }
       }, 502);
+    }
+
+    if (Date.now() - Number(state.createdAt || Date.now()) > STALL_TIMEOUT && info.progress <= 0) {
+      return json(request, {
+        jobId,
+        status: 'FAILED',
+        progress: 0,
+        retryable: true,
+        error: 'MoLab non ha iniziato inferenza entro il tempo previsto. Riprova: il job bloccato è stato scartato.',
+        metadata: { ...qualityMetadata(expectedCount), currentStage: 'Job MoLab bloccato rilevato' }
+      }, 504);
     }
 
     state.updatedAt = Date.now();
@@ -452,14 +457,14 @@ async function pollMolab(request, env, jobId) {
     return json(request, {
       jobId,
       status: 'PROCESSING',
-      progress: Math.max(24, Math.min(94, Math.round(info.progress || 55))),
+      progress: Math.max(24, Math.min(94, Math.round(info.progress || 32))),
       retryable: true,
       audioUrl: null,
       audioUrls: [],
       candidates: [],
       metadata: {
         ...qualityMetadata(expectedCount),
-        currentStage: info.stage || 'MoLab Fidelity + Music Brain 4B sta generando'
+        currentStage: info.stage || 'MoLab XL-Turbo sta generando sulla RTX PRO 6000'
       }
     });
   } catch (error) {
@@ -467,7 +472,7 @@ async function pollMolab(request, env, jobId) {
     return json(request, {
       jobId,
       status: 'PROCESSING',
-      progress: 55,
+      progress: 30,
       retryable: true,
       error: error instanceof Error ? error.message : String(error),
       metadata: {
@@ -522,10 +527,9 @@ async function readiness(request, env) {
       ready: false,
       profile: VERSION,
       fidelityProfile: FIDELITY_PROFILE,
-      engine: 'SONARA MoLab RTX PRO 6000 XL-Turbo + 4B Music Brain',
+      engine: 'SONARA MoLab RTX PRO 6000 XL-Turbo Fidelity',
       provider: 'molab',
       model: MODEL,
-      lmModel: LM_MODEL,
       kaggleEnabled: false,
       reason: 'SONARA_MOLAB_XL_URL non configurato.'
     }, 503);
@@ -540,21 +544,18 @@ async function readiness(request, env) {
     const health = data?.data || data;
     const loadedModel = String(health?.loaded_model || health?.model || '');
     const status = String(health?.status || '').toLowerCase();
-    const availableLmModels = Array.isArray(health?.available_lm_models) ? health.available_lm_models : [];
     const ready = response.ok && health?.models_initialized === true && (!loadedModel || loadedModel.includes(MODEL)) && (Number(data?.code || 200) === 200 || ['ok', 'ready', 'healthy', 'online', 'success'].includes(status));
     return json(request, {
       ready,
       profile: VERSION,
       fidelityProfile: FIDELITY_PROFILE,
-      engine: 'SONARA MoLab RTX PRO 6000 XL-Turbo + 4B Music Brain',
+      engine: 'SONARA MoLab RTX PRO 6000 XL-Turbo Fidelity',
       provider: 'molab',
       model: MODEL,
       loadedModel,
-      lmModel: LM_MODEL,
-      availableLmModels,
-      thinking: true,
-      formatEnhancement: true,
-      constrainedDecoding: true,
+      thinking: false,
+      formatEnhancement: false,
+      constrainedDecoding: false,
       inferenceSteps: INFERENCE_STEPS,
       maxBatchSize: 2,
       kaggleEnabled: false
@@ -564,10 +565,9 @@ async function readiness(request, env) {
       ready: false,
       profile: VERSION,
       fidelityProfile: FIDELITY_PROFILE,
-      engine: 'SONARA MoLab RTX PRO 6000 XL-Turbo + 4B Music Brain',
+      engine: 'SONARA MoLab RTX PRO 6000 XL-Turbo Fidelity',
       provider: 'molab',
       model: MODEL,
-      lmModel: LM_MODEL,
       kaggleEnabled: false,
       error: error instanceof Error ? error.message : String(error)
     }, 503);
