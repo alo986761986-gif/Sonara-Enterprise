@@ -1,0 +1,126 @@
+{
+  "Ambient Electronic": [
+    {"name":"Ambient","subgenres":["Ambient","Dark Ambient","Space Ambient"]},
+    {"name":"Drone","subgenres":["Drone"]},
+    {"name":"Chillout","subgenres":["Chillout"]},
+    {"name":"Downtempo","subgenres":["Downtempo"]},
+    {"name":"Psybient","subgenres":["Psybient"]},
+    {"name":"Illbient","subgenres":["Illbient"]},
+    {"name":"New Age Electronic","subgenres":["New Age Electronic"]}
+  ],
+  "Hard Dance": [
+    {"name":"Hardstyle","subgenres":["Hardstyle","Rawstyle","Euphoric Hardstyle"]},
+    {"name":"Hardcore","subgenres":["Hardcore","Gabber","Frenchcore","Uptempo Hardcore","Happy Hardcore"]},
+    {"name":"Hard Dance","subgenres":["Hard Dance"]},
+    {"name":"Makina","subgenres":["Makina"]}
+  ],
+  "Electro": [
+    {"name":"Electro","subgenres":["Electro","Electro Funk","Nu Electro"]},
+    {"name":"Electroclash","subgenres":["Electroclash"]},
+    {"name":"Miami Bass","subgenres":["Miami Bass"]},
+    {"name":"Freestyle","subgenres":["Freestyle"]}
+  ],
+  "Modern Pop": [
+    {"name":"Hyperpop","subgenres":["Hyperpop","Bubblegum Bass","PC Music"]},
+    {"name":"Bedroom Pop","subgenres":["Bedroom Pop"]},
+    {"name":"Alt-Pop","subgenres":["Alt-Pop"]},
+    {"name":"Dark Pop","subgenres":["Dark Pop"]},
+    {"name":"Experimental Pop","subgenres":["Experimental Pop"]},
+    {"name":"Future Pop","subgenres":["Future Pop"]}
+  ],
+  "Rock & Roll": [
+    {"name":"Rock & Roll","subgenres":["Rock and Roll","Rockabilly"]},
+    {"name":"Surf Rock","subgenres":["Surf Rock"]},
+    {"name":"Beat Music","subgenres":["Beat Music"]},
+    {"name":"Pub Rock","subgenres":["Pub Rock"]}
+  ],
+  "Extreme Metal": [
+    {"name":"Thrash Metal","subgenres":["Thrash Metal"]},
+    {"name":"Death Metal","subgenres":["Death Metal","Melodic Death Metal","Technical Death Metal","Brutal Death Metal"]},
+    {"name":"Black Metal","subgenres":["Black Metal","Atmospheric Black Metal","Blackgaze"]},
+    {"name":"Doom Metal","subgenres":["Doom Metal","Funeral Doom"]},
+    {"name":"Sludge Metal","subgenres":["Sludge Metal"]}
+  ],
+  "Modern Metal": [
+    {"name":"Metalcore","subgenres":["Metalcore","Mathcore"]},
+    {"name":"Deathcore","subgenres":["Deathcore"]},
+    {"name":"Djent","subgenres":["Djent"]},
+    {"name":"Nu Metal","subgenres":["Nu Metal"]},
+    {"name":"Industrial Metal","subgenres":["Industrial Metal"]},
+    {"name":"Alternative Metal","subgenres":["Alternative Metal"]},
+    {"name":"Post-Metal","subgenres":["Post-Metal"]}
+  ],
+  "Jazz": [
+    {"name":"Jazz","subgenres":["Traditional Jazz","Dixieland","Swing","Big Band","Bebop","Hard Bop","Cool Jazz","Modal Jazz","Free Jazz","Avant-Garde Jazz","Post-Bop","Spiritual Jazz"]},
+    {"name":"Jazz Fusion","subgenres":["Jazz Fusion"]}
+  ],
+  "Jazz Fusion": [
+    {"name":"Jazz Fusion","subgenres":["Jazz Fusion"]},
+    {"name":"Jazz-Funk","subgenres":["Jazz-Funk"]},
+    {"name":"Acid Jazz","subgenres":["Acid Jazz"]},
+    {"name":"Nu Jazz","subgenres":["Nu Jazz"]},
+    {"name":"Electro Jazz","subgenres":["Electro Jazz"]},
+    {"name":"Smooth Jazz","subgenres":["Smooth Jazz"]},
+    {"name":"Latin Jazz","subgenres":["Latin Jazz","Afro-Cuban Jazz"]},
+    {"name":"Ethio-Jazz","subgenres":["Ethio-Jazz"]}
+  ],
+  "Vocal Jazz": [
+    {"name":"Vocal Jazz","subgenres":["Vocal Jazz","Jazz Standards","Scat"]},
+    {"name":"Crooner","subgenres":["Crooner"]}
+  ],
+  "Blues": [
+    {"name":"Blues","subgenres":["Delta Blues","Chicago Blues","Texas Blues","Piedmont Blues","Country Blues","Electric Blues","Jump Blues","Swamp Blues","Soul Blues","Modern Blues"]},
+    {"name":"Blues Rock","subgenres":["Blues Rock"]}
+  ],
+  "Reggae": [
+    {"name":"Reggae","subgenres":["Roots Reggae","Lovers Rock","Rockers","Steppers","Reggae Fusion","Modern Reggae"]},
+    {"name":"Dub","subgenres":["Dub"]}
+  ],
+  "Ska": [
+    {"name":"Ska","subgenres":["First Wave Ska","2 Tone","Third Wave Ska","Ska Punk"]},
+    {"name":"Rocksteady","subgenres":["Rocksteady"]}
+  ],
+  "Indian Classical": [
+    {"name":"Hindustani Classical","subgenres":["Hindustani Classical","Dhrupad","Khayal","Thumri"]},
+    {"name":"Carnatic Classical","subgenres":["Carnatic Classical"]}
+  ],
+  "Mongolian": [
+    {"name":"Mongolian Folk","subgenres":["Mongolian Folk"]},
+    {"name":"Mongolian Throat Singing","subgenres":["Mongolian Throat Singing"]},
+    {"name":"Mongolian Rock","subgenres":["Mongolian Rock"]}
+  ],
+  "Americana": [
+    {"name":"Americana","subgenres":["Americana","Roots"]},
+    {"name":"Bluegrass","subgenres":["Bluegrass"]},
+    {"name":"Old-Time","subgenres":["Old-Time","Appalachian Folk"]},
+    {"name":"Southern Gothic","subgenres":["Southern Gothic"]},
+    {"name":"Gospel Country","subgenres":["Gospel Country"]}
+  ],
+  "Contemporary Folk": [
+    {"name":"Singer-Songwriter","subgenres":["Singer-Songwriter"]},
+    {"name":"Indie Folk","subgenres":["Indie Folk"]},
+    {"name":"Folk Rock","subgenres":["Folk Rock"]},
+    {"name":"Neo-Folk","subgenres":["Neo-Folk"]},
+    {"name":"Progressive Folk","subgenres":["Progressive Folk"]},
+    {"name":"Freak Folk","subgenres":["Freak Folk"]},
+    {"name":"Anti-Folk","subgenres":["Anti-Folk"]}
+  ],
+  "Game Music": [
+    {"name":"Video Game Soundtrack","subgenres":["Video Game Soundtrack","JRPG Soundtrack","Ambient Game Score","Action Game Score"]},
+    {"name":"Chiptune","subgenres":["Chiptune","8-Bit","16-Bit"]}
+  ],
+  "Easy Listening": [
+    {"name":"Easy Listening","subgenres":["Easy Listening"]},
+    {"name":"Lounge","subgenres":["Lounge"]},
+    {"name":"Exotica","subgenres":["Exotica"]},
+    {"name":"Space Age Pop","subgenres":["Space Age Pop"]},
+    {"name":"Bossa Lounge","subgenres":["Bossa Lounge"]},
+    {"name":"Cocktail Jazz","subgenres":["Cocktail Jazz"]},
+    {"name":"Muzak","subgenres":["Muzak"]}
+  ],
+  "Children": [
+    {"name":"Children's Music","subgenres":["Children Music","Educational Songs"]},
+    {"name":"Nursery Rhymes","subgenres":["Nursery Rhymes"]},
+    {"name":"Lullaby","subgenres":["Lullaby"]}
+  ]
+}

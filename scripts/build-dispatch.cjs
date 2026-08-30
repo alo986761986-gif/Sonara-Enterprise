@@ -56,6 +56,9 @@ runCommand(node, ['scripts/activate-universal-genres.cjs']);
 console.log('[SONARA] Activating professional family > genre > subgenre > atmosphere hierarchy.');
 runCommand(node, ['scripts/activate-professional-music-taxonomy.cjs']);
 
+console.log('[SONARA] Activating canonical real-genre taxonomy v4.');
+runCommand(node, ['scripts/activate-real-music-taxonomy-v4.cjs']);
+
 console.log('[SONARA] Activating authoritative selected-style engine v3.');
 runCommand(node, ['scripts/activate-authoritative-genre-engine-v3.cjs']);
 
@@ -64,6 +67,9 @@ runCommand(node, ['scripts/activate-authoritative-style-precedence-v3.cjs']);
 
 console.log('[SONARA] Validating professional music taxonomy.');
 run(['tsx', 'src/musicStyleIntelligence.professional.test.ts']);
+
+console.log('[SONARA] Validating canonical real family > genre > subgenre taxonomy v4.');
+run(['tsx', 'src/data/realMusicTaxonomyV4.test.ts']);
 
 console.log('[SONARA] Validating Prompt Director and Suno-style prompt intelligence.');
 run(['tsx', 'src/services/promptDirector.test.ts']);
