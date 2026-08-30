@@ -2,8 +2,11 @@ import runtime, { SonaraJobState } from './sonara-molab-xl-router.mjs';
 
 export { SonaraJobState };
 
-const TAXONOMY_LOCK_ID = 'sonara-musical-dna-v1';
-const MAX_MASTER_BRIEF_CHARS = 1800;
+const TAXONOMY_LOCK_ID = 'sonara-musical-dna-v2-hard-authority';
+const PROMPT_VERSION = 'sonara-taxonomy-first-prompt-v2';
+const MAX_CREATOR_CHARS = 3200;
+const MAX_STYLE_TAIL_CHARS = 5200;
+const MAX_CANONICAL_PROMPT_CHARS = 9200;
 
 function clean(value, fallback = '') {
   const text = String(value ?? '')
@@ -26,29 +29,70 @@ function selectedMusicalDna(body = {}) {
   return { family, genre, subgenre, atmosphere };
 }
 
+function originalCreatorBrief(body = {}) {
+  return clean(
+    body.sonaraOriginalCreatorBrief ||
+    body.rawPrompt ||
+    body.creatorPrompt ||
+    body.creator_prompt ||
+    body.musicPrompt ||
+    '',
+    ''
+  ).slice(0, MAX_CREATOR_CHARS);
+}
+
+function selectedStyleTail(body = {}) {
+  const source = String(body.prompt || '');
+  if (!source) return '';
+
+  const marker = 'AUTHORITATIVE MUSICAL IDENTITY:';
+  const index = source.indexOf(marker);
+  if (index < 0) return '';
+
+  return source
+    .slice(index)
+    .replace(/CREATOR BRIEF\s+—\s+VERBATIM:[\s\S]*?>>>/gi, '')
+    .replace(/Priority rule:[^\n]*/gi, '')
+    .replace(/Concrete creator details take precedence over generic defaults[^\n]*/gi, '')
+    .trim()
+    .slice(0, MAX_STYLE_TAIL_CHARS);
+}
+
 function effectiveStyleInfluence(body = {}) {
   const requested = Math.round(clamp(body.styleInfluence ?? body.style_influence, 50, 0, 100));
-  // The control changes how strongly conventions are expressed, never whether the
-  // selected genre/subgenre is respected. Map 0..100 to a safe 70..100 fidelity band.
-  const effective = 70 + Math.round(requested * 0.30);
+  // Style Influence changes how intensely the exact selected subgenre is expressed.
+  // It never grants permission to leave the selected taxonomy.
+  const effective = 88 + Math.round(requested * 0.12);
   return { requested, effective };
 }
 
-function masterTaxonomyBrief(body = {}) {
+function technicalLine(body = {}) {
+  const bpm = Math.round(clamp(body.bpm ?? body.requestedBpm, 124, 40, 220));
+  const key = clean(body.key || body.key_scale, 'A Minor');
+  const duration = Math.round(clamp(body.durationSec ?? body.duration, 30, 30, 480));
+  const vocalMode = clean(body.vocalMode || body.vocal_mode, body.lyrics ? 'vocal' : 'instrumental');
+  return `TECHNICAL LOCK: ${bpm} BPM; key ${key}; duration approximately ${duration} seconds; vocal mode ${vocalMode}. Keep these parameters stable for the whole composition.`;
+}
+
+function canonicalTaxonomyPrompt(body = {}) {
   const { family, genre, subgenre, atmosphere } = selectedMusicalDna(body);
-  return [
-    `SONARA MUSICAL DNA LOCK ${TAXONOMY_LOCK_ID}.`,
-    `Family: ${family}.`,
-    `Genre: ${genre}.`,
-    `Subgenre: ${subgenre}.`,
-    `Atmosphere: ${atmosphere}.`,
-    `${subgenre} is the exact musical identity and must remain unmistakable from the opening bars to the final cadence.`,
-    `The hierarchy Family > Genre > Subgenre is authoritative. Never replace ${subgenre} with the parent genre, a neighboring subgenre, generic EDM, generic pop, generic house or another default style.`,
-    `Atmosphere is an emotional and production-color modifier INSIDE ${subgenre}; it must never change the genre, groove family, rhythmic grammar, instrumentation identity or cultural style.`,
-    'Weirdness may create originality only inside the locked musical DNA. Style Influence controls the amount of authentic stylistic detail, not permission to leave the selected genre.',
-    'Any conflicting genre/style wording from personalization, old prompts, defaults or taste preferences is subordinate to this selected musical DNA. Preserve non-conflicting creator instructions for instruments, arrangement, lyrics, vocals, dynamics, transitions and production.',
-    'Generate music, not an explanation.'
-  ].join(' ').slice(0, MAX_MASTER_BRIEF_CHARS);
+  const creator = originalCreatorBrief(body);
+  const styleTail = selectedStyleTail(body);
+
+  const sections = [
+    `SONARA MUSICAL DNA ${TAXONOMY_LOCK_ID}. THIS TAXONOMY IS THE PRIMARY MUSIC SPECIFICATION.`,
+    `PRIMARY IDENTITY: FAMILY = ${family}; GENRE = ${genre}; SUBGENRE = ${subgenre}; ATMOSPHERE = ${atmosphere}.`,
+    `HARD STYLE ORDER: ${family} > ${genre} > ${subgenre}. The exact subgenre ${subgenre} is non-negotiable and must be immediately recognizable in groove, drum language, bass behavior, instrumentation, harmony, melody, arrangement, transitions, sound design, mix and mastering character.`,
+    `DO NOT substitute ${subgenre} with its parent ${genre}, a neighboring subgenre, generic EDM, generic pop, generic house, generic techno, soundtrack music, cinematic filler or any other default. Do not blend into another genre unless that blend is already part of the selected subgenre's authentic vocabulary.`,
+    `ATMOSPHERE LOCK: ${atmosphere} changes emotion, energy, density, brightness/darkness, tension, space and performance character INSIDE ${subgenre}. Atmosphere must never replace or weaken the selected genre/subgenre.`,
+    'WEIRDNESS RULE: creativity is allowed only inside the selected musical DNA. STYLE INFLUENCE RULE: the control changes the intensity of authentic subgenre conventions, never the identity of the genre.',
+    technicalLine(body),
+    creator ? `CREATOR DETAILS — SUBORDINATE TO THE SELECTED MUSICAL DNA: ${creator} Preserve compatible requests for instruments, lyrics, vocals, structure, dynamics and production. If any creator wording conflicts with Family/Genre/Subgenre/Atmosphere, the selected taxonomy above wins.` : '',
+    styleTail ? `SONARA CURATED SUBGENRE PROFILE — USE THIS TO REALIZE THE SELECTED STYLE:\n${styleTail}` : '',
+    `FINAL CHECK BEFORE RENDERING: the result must sound specifically like ${subgenre}, inside ${genre} and ${family}, with a clearly audible ${atmosphere} atmosphere. If the result could be mistaken for a neighboring genre, revise the musical decisions toward ${subgenre}. Generate finished music audio, not prose.`
+  ].filter(Boolean);
+
+  return sections.join('\n\n').slice(0, MAX_CANONICAL_PROMPT_CHARS);
 }
 
 export async function lockMusicTaxonomyRequest(request) {
@@ -62,12 +106,11 @@ export async function lockMusicTaxonomyRequest(request) {
     return request;
   }
 
-  const originalCreatorBrief = clean(
-    body.rawPrompt || body.creatorPrompt || body.creator_prompt || body.musicPrompt || '',
-    ''
-  );
   const dna = selectedMusicalDna(body);
   const style = effectiveStyleInfluence(body);
+  const creator = originalCreatorBrief(body);
+  const canonicalPrompt = canonicalTaxonomyPrompt(body);
+
   const locked = {
     ...body,
     genreFamily: dna.family,
@@ -76,26 +119,35 @@ export async function lockMusicTaxonomyRequest(request) {
     subgenre: dna.subgenre,
     mood: dna.atmosphere,
     atmosphere: dna.atmosphere,
-    rawPrompt: masterTaxonomyBrief(body),
+
+    // Critical fix: MoLab/ACE-Step consumes body.prompt. The taxonomy-first prompt
+    // must therefore replace the actual model prompt, not only rawPrompt metadata.
+    prompt: canonicalPrompt,
+    rawPrompt: canonicalPrompt,
     creatorPrompt: '',
     creator_prompt: '',
     musicPrompt: '',
+
     styleInfluence: style.effective,
     style_influence: style.effective,
     sonaraRequestedStyleInfluence: style.requested,
     sonaraEffectiveStyleInfluence: style.effective,
     sonaraTaxonomyLock: TAXONOMY_LOCK_ID,
     sonaraTaxonomyAuthoritative: true,
+    sonaraPromptTaxonomyFirst: true,
+    sonaraPromptVersion: PROMPT_VERSION,
     sonaraAtmosphereRole: 'emotional-modifier-inside-subgenre',
-    sonaraOriginalCreatorBrief: originalCreatorBrief.slice(0, 4600),
+    sonaraOriginalCreatorBrief: creator,
+    sonaraCreatorStylePriority: false,
     promptGenreAuthoritative: true,
     sonaraRealPrompt: true,
-    sonaraRealPromptVersion: TAXONOMY_LOCK_ID
+    sonaraRealPromptVersion: PROMPT_VERSION
   };
 
   const headers = new Headers(request.headers);
   headers.delete('content-length');
   headers.set('x-sonara-musical-dna-lock', TAXONOMY_LOCK_ID);
+  headers.set('x-sonara-prompt-version', PROMPT_VERSION);
   headers.set('x-sonara-family', dna.family);
   headers.set('x-sonara-genre', dna.genre);
   headers.set('x-sonara-subgenre', dna.subgenre);
@@ -117,16 +169,20 @@ async function decorateHealth(request, response) {
     const headers = new Headers(response.headers);
     headers.set('content-type', 'application/json; charset=UTF-8');
     headers.set('x-sonara-musical-dna-lock', TAXONOMY_LOCK_ID);
+    headers.set('x-sonara-prompt-version', PROMPT_VERSION);
     return new Response(JSON.stringify({
       ...data,
       musicalDnaLock: TAXONOMY_LOCK_ID,
+      promptVersion: PROMPT_VERSION,
+      actualModelPromptTaxonomyFirst: true,
+      creatorPromptCannotOverrideTaxonomy: true,
       familyAuthoritative: true,
       genreAuthoritative: true,
       subgenreAuthoritative: true,
       atmosphereScopedToSubgenre: true,
       weirdnessCannotChangeGenre: true,
       styleInfluenceCannotChangeGenre: true,
-      styleInfluenceFidelityFloor: 70
+      styleInfluenceFidelityFloor: 88
     }), { status: response.status, statusText: response.statusText, headers });
   } catch {
     return response;
