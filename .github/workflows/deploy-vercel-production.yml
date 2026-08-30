@@ -1,10 +1,15 @@
 name: Deploy SONARA Web to Vercel Production
 
 # Production deployment is normally handled by Vercel's native Git integration.
-# Keep this workflow manual-only as an emergency/retry path so each push does not
-# create a second production deployment and exhaust Vercel's daily deployment quota.
+# This workflow stays manual by default and also accepts one explicit release-trigger file.
+# Ordinary pushes do not run a second production deployment.
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/vercel-release-trigger
 
 permissions:
   contents: read
