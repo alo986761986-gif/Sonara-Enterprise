@@ -41,7 +41,7 @@ jobs:
           grep -q 'SONARA_YUE_WORKER_URL' wrangler.jsonc
           node --check cloudflare/sonara-yue-router.mjs
           node --check cloudflare/sonara-yue-primary-edge.mjs
-          curl -fsS --max-time 20 'https://departmental-peace-such-hang.trycloudflare.com/health' >/tmp/yue-health.json
+          curl -fsS --max-time 20 'https://permanent-again-textbook-argued.trycloudflare.com/health' >/tmp/yue-health.json
           cat /tmp/yue-health.json
           grep -q 'SONARA YuE RTX PRO 6000' /tmp/yue-health.json
 
@@ -53,7 +53,7 @@ jobs:
             -X POST \
             -H 'Content-Type: application/json' \
             --data-binary '{' \
-            'https://departmental-peace-such-hang.trycloudflare.com/release_task')"
+            'https://permanent-again-textbook-argued.trycloudflare.com/release_task')"
           echo "YuE /release_task malformed-JSON probe HTTP=${status}"
           cat /tmp/yue-post-probe.json || true
           test "${status}" = "400"
@@ -85,7 +85,7 @@ jobs:
         run: |
           set -euo pipefail
           curl -fsS --max-time 30 'https://api.sonaraenterprise.com/api/health?yue=production' >/tmp/sonara-health.json
-          curl -fsS --max-time 20 'https://departmental-peace-such-hang.trycloudflare.com/health' >/tmp/yue-health-after.json
+          curl -fsS --max-time 20 'https://permanent-again-textbook-argued.trycloudflare.com/health' >/tmp/yue-health-after.json
           cat /tmp/yue-health-after.json
           grep -q 'SONARA YuE RTX PRO 6000' /tmp/yue-health-after.json
           echo 'SONARA production endpoint and YuE GPU worker are both online.'
