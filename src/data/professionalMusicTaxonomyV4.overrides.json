@@ -50,10 +50,6 @@
     {"name":"Alternative Metal","subgenres":["Alternative Metal"]},
     {"name":"Post-Metal","subgenres":["Post-Metal"]}
   ],
-  "Jazz": [
-    {"name":"Jazz","subgenres":["Traditional Jazz","Dixieland","Swing","Big Band","Bebop","Hard Bop","Cool Jazz","Modal Jazz","Free Jazz","Avant-Garde Jazz","Post-Bop","Spiritual Jazz"]},
-    {"name":"Jazz Fusion","subgenres":["Jazz Fusion"]}
-  ],
   "Jazz Fusion": [
     {"name":"Jazz Fusion","subgenres":["Jazz Fusion"]},
     {"name":"Jazz-Funk","subgenres":["Jazz-Funk"]},
@@ -84,10 +80,9 @@
     {"name":"Hindustani Classical","subgenres":["Hindustani Classical","Dhrupad","Khayal","Thumri"]},
     {"name":"Carnatic Classical","subgenres":["Carnatic Classical"]}
   ],
-  "Mongolian": [
+  "Mongolian Folk": [
     {"name":"Mongolian Folk","subgenres":["Mongolian Folk"]},
-    {"name":"Mongolian Throat Singing","subgenres":["Mongolian Throat Singing"]},
-    {"name":"Mongolian Rock","subgenres":["Mongolian Rock"]}
+    {"name":"Mongolian Throat Singing","subgenres":["Mongolian Throat Singing"]}
   ],
   "Americana": [
     {"name":"Americana","subgenres":["Americana","Roots"]},
