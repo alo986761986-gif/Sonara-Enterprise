@@ -14,6 +14,15 @@ type GeminiLoadedReference = { bytesBase64Encoded: string; mimeType: string };
 type GeminiMediaCacheEntry = { expiresAt: number; value: Promise<GeminiLoadedReference> };
 type VertexAccessTokenCache = { accessToken: string; expiresAt: number };
 
+// Video AI routes historically require FIREBASE_SERVICE_ACCOUNT_JSON for
+// Firestore billing/job state. Reuse the already configured server-only
+// Vertex service account when a dedicated Firebase credential is absent.
+// This happens at module load, before status/generate/job initialize Admin.
+if (!String(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '').trim()) {
+  const sharedServiceAccount = String(process.env.SONARA_VERTEX_SERVICE_ACCOUNT_JSON || '').trim();
+  if (sharedServiceAccount) process.env.FIREBASE_SERVICE_ACCOUNT_JSON = sharedServiceAccount;
+}
+
 const geminiMediaCache = new Map<string, GeminiMediaCacheEntry>();
 let vertexTokenCache: VertexAccessTokenCache | null = null;
 
