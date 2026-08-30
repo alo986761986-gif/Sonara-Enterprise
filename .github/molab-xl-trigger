@@ -1,5 +1,5 @@
 SONARA_MOLAB_XL_URL=https://molab.sonaraenterprise.com
 MODEL=acestep-v15-xl-turbo
 MODE=MOLAB_XL_ONLY
-ACTION=activate-sonara-studio-intelligence-autopilot-v1
-VERIFY=20260830-MY-TASTE-AUDIO-MIDI-AUTO-REPAIR-STUDIO-V1
+ACTION=activate-sonara-studio-pro-v1
+VERIFY=20260830-EDITABLE-POLYPHONIC-MIDI-VOICE-PERSONA-BATCH-QA
