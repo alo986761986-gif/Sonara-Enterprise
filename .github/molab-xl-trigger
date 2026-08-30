@@ -1,5 +1,5 @@
 SONARA_MOLAB_XL_URL=https://molab.sonaraenterprise.com
 MODEL=acestep-v15-xl-turbo
 MODE=MOLAB_XL_ONLY
-ACTION=activate-sonara-fidelity-v2
-VERIFY=20260830-FIDELITY-V2-LM4B-8STEP
+ACTION=activate-sonara-fidelity-v2-stable8
+VERIFY=20260830-FIDELITY-V2-STABLE8-NO-LM-STALL
