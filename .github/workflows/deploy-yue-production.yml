@@ -41,7 +41,7 @@ jobs:
           grep -q 'SONARA_YUE_WORKER_URL' wrangler.jsonc
           grep -q 'sonara-yue-router.mjs' cloudflare/sonara-music-taxonomy-lock-router.mjs
           node --check cloudflare/sonara-yue-router.mjs
-          curl -fsS --max-time 20 'https://regarded-connector-resulting-cartridges.trycloudflare.com/health' >/tmp/yue-health.json
+          curl -fsS --max-time 20 'https://dvd-compression-operate-below.trycloudflare.com/health' >/tmp/yue-health.json
           cat /tmp/yue-health.json
           grep -q 'SONARA YuE RTX PRO 6000' /tmp/yue-health.json
 
@@ -72,7 +72,7 @@ jobs:
         run: |
           set -euo pipefail
           curl -fsS --max-time 30 'https://api.sonaraenterprise.com/api/health?yue=production' >/tmp/sonara-health.json
-          curl -fsS --max-time 20 'https://regarded-connector-resulting-cartridges.trycloudflare.com/health' >/tmp/yue-health-after.json
+          curl -fsS --max-time 20 'https://dvd-compression-operate-below.trycloudflare.com/health' >/tmp/yue-health-after.json
           cat /tmp/yue-health-after.json
           grep -q 'SONARA YuE RTX PRO 6000' /tmp/yue-health-after.json
           echo 'SONARA production endpoint and YuE GPU worker are both online.'
