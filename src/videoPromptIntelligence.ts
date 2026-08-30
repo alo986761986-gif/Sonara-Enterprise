@@ -74,17 +74,23 @@ export function buildRandomVideoPrompt(context: VideoPromptContext): string {
   ].join('\n\n');
 }
 
+function extractCreatorIntent(currentPrompt: string) {
+  const text = String(currentPrompt || '').trim();
+  const existingIntent = text.match(/^(?:CREATOR CONTENT LOCK|CREATOR INTENT — PRESERVE AS AUTHORITATIVE):\s*([\s\S]*?)(?:\n\n(?:ABSOLUTE FIDELITY LOCK|SONARA INTELLIGENT VIDEO DIRECTION):|$)/)?.[1];
+  return String(existingIntent || text).replace(/\s+/g, ' ').trim();
+}
+
 export function buildIntelligentVideoPrompt(currentPrompt: string, context: VideoPromptContext): string {
-  const existingIntent = currentPrompt.match(/^CREATOR INTENT — PRESERVE AS AUTHORITATIVE:\s*([\s\S]*?)(?:\n\nSONARA INTELLIGENT VIDEO DIRECTION:|$)/)?.[1];
-  const intent = String(existingIntent || currentPrompt).replace(/\s+/g, ' ').trim() || choose(SUBJECTS, context.variant, 7);
-  const { variant, aspectRatio, durationSeconds } = context;
+  const intent = extractCreatorIntent(currentPrompt) || choose(SUBJECTS, context.variant, 7);
+  const { aspectRatio, durationSeconds } = context;
+
   return [
-    `CREATOR INTENT — PRESERVE AS AUTHORITATIVE:\n${intent}`,
-    `SONARA INTELLIGENT VIDEO DIRECTION:\nTransform the creator intent into an original ${formatDuration(durationSeconds)} music video with ${choose(VISUAL_LANGUAGES, variant, 8)}.`,
-    `MUSIC-TO-PICTURE LANGUAGE:\nUse ${choose(MUSIC_DIRECTIONS, variant, 9)}. Synchronize visual energy to musical sections rather than cutting mechanically on every beat: establish atmosphere in the intro, build movement through verses, expand scale on hooks or drops, and reserve the strongest image for the climax.`,
-    `CINEMATOGRAPHY:\n${choose(CAMERAS, variant, 10)}. Maintain intentional eyelines, screen direction, lens logic, depth and physically believable camera motion.`,
-    `LIGHT / COLOR / DESIGN:\n${choose(LIGHTING, variant, 11)}. Use coherent wardrobe, locations, props, texture and production design with premium realistic detail.`,
-    `FORMAT AND CONTINUITY LOCK:\nCompose every shot specifically for ${aspectRatio}. Target ${formatDuration(durationSeconds)}. ${durationSeconds > 8 ? 'Create a clear opening, development, escalation, climax and resolved final image; preserve character identity, wardrobe, geography, lighting logic and color science across every generated scene.' : 'Make the short clip feel complete, legible and memorable from its first frame.'}`,
-    'ORIGINALITY AND QUALITY LOCK:\nUse broad cinematic and musical craft knowledge without copying any identifiable existing work. No named artists, copyrighted characters, logos, watermarks, subtitles, random text, malformed hands or faces, duplicate people, temporal flicker, jumpy motion or continuity breaks.'
+    `CREATOR CONTENT LOCK:\n${intent}`,
+    'ABSOLUTE FIDELITY LOCK:\nThe creator content above is the single source of truth. Preserve exactly the requested subject, people, objects, animals, vehicles, location, action, story, era, weather, clothing, visual style, camera request, lighting request, colors, mood, music genre, BPM and any other explicit detail. Do not replace, remove or invent content that changes the creator request. If any enhancement conflicts with the creator request, the creator request always wins.',
+    'SONARA INTELLIGENT ENHANCEMENT:\nImprove only technical execution: coherent composition, realistic textures, stable identity and anatomy, physically believable motion, clean temporal consistency, professional depth, intentional focus and premium production detail. Infer the visual treatment from the creator request instead of imposing an unrelated preset.',
+    'CAMERA / LIGHT / COLOR:\nRespect every camera, lens, movement, lighting and color instruction already present in the creator request. When those details are not specified, use restrained professional cinematic choices that support the requested scene without changing its content or aesthetic identity.',
+    'MUSIC / RHYTHM LOCK:\nIf the creator specifies music, genre, BPM, tempo, instruments, vocals, mood or an uploaded audio reference, preserve those instructions exactly. Do not invent a different music genre or BPM. Synchronize motion and editing to the requested musical energy only when relevant.',
+    `FORMAT / CONTINUITY LOCK:\nCompose natively for ${aspectRatio} and target ${formatDuration(durationSeconds)}. ${durationSeconds > 8 ? 'Across every scene, continue the same requested event while preserving subject identity, wardrobe, location, props, geography, lighting logic, visual style and color science. New shots may change framing or moment in time, but must not introduce a different concept.' : 'Make the requested scene complete and visually clear while staying faithful to the creator content from first frame to last.'}`,
+    'QUALITY LOCK:\nNo random text, logos, watermarks, malformed hands or faces, duplicate people, temporal flicker, accidental morphing, jumpy motion or continuity breaks.'
   ].join('\n\n').slice(0, 5000);
 }
