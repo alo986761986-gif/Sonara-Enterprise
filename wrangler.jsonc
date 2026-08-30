@@ -6,7 +6,7 @@
   "workers_dev": true,
   "keep_vars": true,
   "vars": {
-    "SONARA_YUE_WORKER_URL": "https://departmental-peace-such-hang.trycloudflare.com"
+    "SONARA_YUE_WORKER_URL": "https://permanent-again-textbook-argued.trycloudflare.com"
   },
   "durable_objects": {
     "bindings": [
