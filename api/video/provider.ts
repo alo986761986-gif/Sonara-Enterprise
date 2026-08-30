@@ -3,7 +3,7 @@ import { cert, type App } from 'firebase-admin/app';
 import { getStorage } from 'firebase-admin/storage';
 import { SONARA_PLANS, type SonaraPlanId, type SonaraVideoResolution } from '../../src/billing/plans';
 
-export type SonaraVideoProvider = 'gemini' | 'vertex';
+export type SonaraVideoProvider = 'molab' | 'gemini' | 'vertex';
 
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const VERTEX_LOCATION = 'us-central1';
@@ -19,6 +19,30 @@ let vertexTokenCache: VertexAccessTokenCache | null = null;
 
 function geminiApiKey() {
   return String(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '').trim();
+}
+
+function molabBaseUrl() {
+  return String(process.env.SONARA_MOLAB_VIDEO_URL || '').trim().replace(/\/+$/, '');
+}
+
+function molabToken() {
+  return String(process.env.SONARA_MOLAB_VIDEO_TOKEN || '').trim();
+}
+
+function molabConfigured() {
+  const url = molabBaseUrl();
+  return /^https?:\/\//i.test(url) && Boolean(molabToken());
+}
+
+function molabFrames() {
+  const raw = Number(process.env.SONARA_MOLAB_VIDEO_FRAMES || 49);
+  const clamped = Math.max(17, Math.min(121, Number.isFinite(raw) ? Math.round(raw) : 49));
+  return Math.max(17, Math.floor((clamped - 1) / 4) * 4 + 1);
+}
+
+function molabSteps() {
+  const raw = Number(process.env.SONARA_MOLAB_VIDEO_STEPS || 20);
+  return Math.max(10, Math.min(50, Number.isFinite(raw) ? Math.round(raw) : 20));
 }
 
 function projectId(app: App) {
@@ -64,6 +88,7 @@ function vertexModelOverride() {
 }
 
 export function videoProviderMode(app: App, bucketName: string): SonaraVideoProvider | null {
+  if (molabConfigured()) return 'molab';
   if (!bucketName) return null;
   if (geminiApiKey()) return 'gemini';
   if (projectId(app) && hasVertexCredential(app)) return 'vertex';
@@ -75,6 +100,7 @@ export function videoProviderReady(app: App, bucketName: string) {
 }
 
 export function videoModelForPlan(planId: SonaraPlanId, provider: SonaraVideoProvider) {
+  if (provider === 'molab') return String(process.env.SONARA_MOLAB_VIDEO_MODEL || 'wan2.2-ti2v-5b').trim() || 'wan2.2-ti2v-5b';
   const override = String(process.env.SONARA_VIDEO_MODEL || '').trim();
   if (override) return override;
   if (provider === 'vertex') return vertexModelOverride() || 'veo-3.1-fast-generate-001';
@@ -150,6 +176,26 @@ export async function startVideoProvider(input: StartVideoProviderInput): Promis
   const model = videoModelForPlan(input.planId, provider);
   const negativePrompt = String(input.negativePrompt || '').trim();
 
+  if (provider === 'molab') {
+    const response = await fetch(`${molabBaseUrl()}/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-sonara-token': molabToken() },
+      body: JSON.stringify({
+        prompt: input.prompt,
+        ...(negativePrompt ? { negativePrompt } : {}),
+        aspectRatio: input.aspectRatio,
+        frames: molabFrames(),
+        steps: molabSteps()
+      }),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(20_000)
+    });
+    const payload = await providerJson(response, 'MoLab Video AI');
+    const jobId = String(payload?.jobId || '').trim();
+    if (!response.ok || !jobId) throw new Error(String(payload?.detail || payload?.error || `MoLab Video AI HTTP ${response.status}`));
+    return { provider, model, operationName: jobId };
+  }
+
   if (provider === 'gemini') {
     const media = await geminiMedia(input);
     const response = await fetch(`${GEMINI_BASE_URL}/models/${encodeURIComponent(model)}:predictLongRunning`, {
@@ -202,6 +248,23 @@ function completedWithoutVideoMessage(operation: any) {
 }
 
 export async function pollVideoProvider(input: PollVideoProviderInput): Promise<PolledVideoProviderJob> {
+  if (input.provider === 'molab') {
+    const response = await fetch(`${molabBaseUrl()}/job/${encodeURIComponent(input.operationName)}`, {
+      headers: { 'x-sonara-token': molabToken() },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(12_000)
+    });
+    const operation = await providerJson(response, 'MoLab Video job');
+    if (!response.ok) throw new Error(String(operation?.detail || operation?.error || `MoLab Video job HTTP ${response.status}`));
+    const status = String(operation?.status || '').trim().toUpperCase();
+    if (status === 'FAILED') return { done: true, error: String(operation?.error || 'Generazione Wan 2.2 fallita su MoLab.') };
+    if (status === 'COMPLETED') {
+      const uri = String(operation?.uri || '').trim();
+      return uri ? { done: true, uri } : { done: true, error: 'MoLab ha completato il job senza restituire il file video.' };
+    }
+    return { done: false };
+  }
+
   let response: Response;
   if (input.provider === 'gemini') {
     response = await fetch(`${GEMINI_BASE_URL}/${input.operationName}`, { headers: { 'x-goog-api-key': geminiApiKey() }, cache: 'no-store', signal: AbortSignal.timeout(12_000) });
@@ -224,6 +287,35 @@ export async function pollVideoProvider(input: PollVideoProviderInput): Promise<
 }
 
 export async function persistProviderVideo(app: App, bucketName: string, userId: string, jobId: string, uri: string, finalPathOverride?: string) {
+  const base = molabBaseUrl();
+  const isMolabUri = Boolean(base && uri.startsWith(`${base}/`));
+
+  if (isMolabUri) {
+    if (!bucketName) return uri;
+    try {
+      const response = await fetch(uri, {
+        headers: { 'x-sonara-token': molabToken() },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(120_000)
+      });
+      if (!response.ok) throw new Error(`Download video MoLab HTTP ${response.status}`);
+      const bytes = Buffer.from(await response.arrayBuffer());
+      const token = randomUUID();
+      const finalPath = finalPathOverride || `generated-videos/${userId}/${jobId}.mp4`;
+      const bucket = getStorage(app).bucket(bucketName);
+      await bucket.file(finalPath).save(bytes, {
+        resumable: false,
+        contentType: 'video/mp4',
+        metadata: { cacheControl: 'private,max-age=3600', metadata: { firebaseStorageDownloadTokens: token } }
+      });
+      return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucketName)}/o/${encodeURIComponent(finalPath)}?alt=media&token=${encodeURIComponent(token)}`;
+    } catch (cause) {
+      console.warn('[SONARA VIDEO] Firebase persistence unavailable for MoLab result; using direct MoLab URL.', cause);
+      return uri;
+    }
+  }
+
+  if (!bucketName) throw new Error('Firebase Storage non configurato per salvare il video.');
   const token = randomUUID();
   const bucket = getStorage(app).bucket(bucketName);
   const finalPath = finalPathOverride || `generated-videos/${userId}/${jobId}.mp4`;
