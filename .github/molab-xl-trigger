@@ -1,5 +1,5 @@
 SONARA_MOLAB_XL_URL=https://molab.sonaraenterprise.com
 MODEL=acestep-v15-xl-turbo
 MODE=MOLAB_XL_ONLY
-ACTION=activate-sonara-musical-dna-v4-clean-realism
-VERIFY=20260830-CLEAN-PROMPT-REALISM-EXACT-BPM-V4
+ACTION=activate-sonara-audio-quality-judge-v1
+VERIFY=20260830-REAL-WAV-BPM-QUALITY-JUDGE-V1
