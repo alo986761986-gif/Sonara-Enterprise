@@ -5,7 +5,9 @@
   "compatibility_date": "2026-08-23",
   "workers_dev": true,
   "keep_vars": true,
-  "vars": {},
+  "vars": {
+    "SONARA_YUE_WORKER_URL": "https://dvd-compression-operate-below.trycloudflare.com"
+  },
   "durable_objects": {
     "bindings": [
       {
