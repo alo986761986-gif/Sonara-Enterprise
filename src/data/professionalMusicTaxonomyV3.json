@@ -1,4 +1,13 @@
 {
+  "IDM / Experimental Electronic": [
+    {"name":"IDM","subgenres":["IDM","Braindance","Wonky"]},
+    {"name":"Glitch","subgenres":["Glitch"]},
+    {"name":"Glitch Hop","subgenres":["Glitch Hop"]},
+    {"name":"Microsound","subgenres":["Microsound"]},
+    {"name":"Deconstructed Club","subgenres":["Deconstructed Club"]},
+    {"name":"Vaporwave","subgenres":["Vaporwave","Mallsoft"]},
+    {"name":"Future Funk","subgenres":["Future Funk"]}
+  ],
   "Regional Rap": [
     {"name":"West Coast Rap","subgenres":["West Coast Rap","G-Funk","Bay Area Hyphy"]},
     {"name":"East Coast Rap","subgenres":["East Coast Rap","Philly Rap"]},
@@ -6,69 +15,109 @@
     {"name":"Midwest Rap","subgenres":["Midwest Rap"]}
   ],
   "Global Rap": [
-    {"name":"UK Rap","subgenres":["Grime"]},
-    {"name":"Afro Rap","subgenres":["Afro Trap"]},
-    {"name":"European Rap","subgenres":["French Rap","Italian Rap","German Rap","Spanish Rap"]},
-    {"name":"Asian Hip-Hop","subgenres":["Korean Hip-Hop","Japanese Hip-Hop"]},
+    {"name":"Grime","subgenres":["Grime"]},
+    {"name":"Afro Trap","subgenres":["Afro Trap"]},
+    {"name":"French Rap","subgenres":["French Rap"]},
+    {"name":"Italian Rap","subgenres":["Italian Rap"]},
+    {"name":"German Rap","subgenres":["German Rap"]},
+    {"name":"Spanish Rap","subgenres":["Spanish Rap"]},
+    {"name":"Korean Hip-Hop","subgenres":["Korean Hip-Hop"]},
+    {"name":"Japanese Hip-Hop","subgenres":["Japanese Hip-Hop"]},
     {"name":"Arabic Hip-Hop","subgenres":["Arabic Hip-Hop"]},
     {"name":"Brazilian Rap","subgenres":["Brazilian Rap"]}
   ],
   "Asian Pop": [
     {"name":"K-Pop","subgenres":["K-Pop"]},
     {"name":"J-Pop","subgenres":["J-Pop"]},
-    {"name":"Chinese Pop","subgenres":["C-Pop","Mandopop","Cantopop"]},
-    {"name":"Southeast Asian Pop","subgenres":["Thai Pop","V-Pop","P-Pop","Indo Pop"]}
+    {"name":"C-Pop","subgenres":["C-Pop"]},
+    {"name":"Mandopop","subgenres":["Mandopop"]},
+    {"name":"Cantopop","subgenres":["Cantopop"]},
+    {"name":"Thai Pop","subgenres":["Thai Pop"]},
+    {"name":"V-Pop","subgenres":["V-Pop"]},
+    {"name":"P-Pop","subgenres":["P-Pop"]},
+    {"name":"Indo Pop","subgenres":["Indo Pop"]}
   ],
   "European Pop": [
-    {"name":"Europop","subgenres":["Europop","Italo Pop","French Pop","Nordic Pop","Balkan Pop"]},
-    {"name":"Schlager","subgenres":["Schlager"]}
+    {"name":"Europop","subgenres":["Europop"]},
+    {"name":"Italo Pop","subgenres":["Italo Pop"]},
+    {"name":"French Pop","subgenres":["French Pop"]},
+    {"name":"Schlager","subgenres":["Schlager"]},
+    {"name":"Nordic Pop","subgenres":["Nordic Pop"]},
+    {"name":"Balkan Pop","subgenres":["Balkan Pop"]}
+  ],
+  "Jazz": [
+    {"name":"Jazz","subgenres":["Traditional Jazz","Dixieland","Swing","Big Band","Bebop","Hard Bop","Cool Jazz","Modal Jazz","Free Jazz","Avant-Garde Jazz","Post-Bop","Spiritual Jazz"]},
+    {"name":"Jazz Fusion","subgenres":["Jazz Fusion"]}
   ],
   "Brazilian": [
     {"name":"Samba","subgenres":["Samba","Pagode"]},
     {"name":"Bossa Nova","subgenres":["Bossa Nova"]},
-    {"name":"MPB / Tropicália","subgenres":["MPB","Tropicália"]},
-    {"name":"Forró / Baião","subgenres":["Forro","Baiao"]},
+    {"name":"MPB","subgenres":["MPB"]},
+    {"name":"Tropicália","subgenres":["Tropicália"]},
+    {"name":"Forró","subgenres":["Forro"]},
+    {"name":"Baião","subgenres":["Baiao"]},
     {"name":"Sertanejo","subgenres":["Sertanejo"]},
     {"name":"Choro","subgenres":["Choro"]},
     {"name":"Axé","subgenres":["Axé"]},
-    {"name":"Brazilian Funk / Bass","subgenres":["Funk Carioca","Brazilian Bass"]}
+    {"name":"Funk Carioca","subgenres":["Funk Carioca"]},
+    {"name":"Brazilian Bass","subgenres":["Brazilian Bass"]}
   ],
   "Caribbean Latin": [
     {"name":"Bachata","subgenres":["Bachata"]},
     {"name":"Merengue","subgenres":["Merengue"]},
-    {"name":"Cuban Dance","subgenres":["Mambo","Cha-Cha-Cha","Son Cubano","Guaracha"]},
-    {"name":"Bolero","subgenres":["Bolero"]}
+    {"name":"Mambo","subgenres":["Mambo"]},
+    {"name":"Cha-Cha-Cha","subgenres":["Cha-Cha-Cha"]},
+    {"name":"Bolero","subgenres":["Bolero"]},
+    {"name":"Son Cubano","subgenres":["Son Cubano"]},
+    {"name":"Guaracha","subgenres":["Guaracha"]}
   ],
   "Mexican / Regional": [
-    {"name":"Mariachi / Ranchera","subgenres":["Mariachi","Ranchera"]},
-    {"name":"Norteño / Banda","subgenres":["Norteño","Banda","Duranguense"]},
+    {"name":"Mariachi","subgenres":["Mariachi"]},
+    {"name":"Ranchera","subgenres":["Ranchera"]},
+    {"name":"Norteño","subgenres":["Norteño"]},
+    {"name":"Banda","subgenres":["Banda"]},
     {"name":"Corridos","subgenres":["Corridos","Corridos Tumbados"]},
-    {"name":"Tejano","subgenres":["Tejano"]}
+    {"name":"Tejano","subgenres":["Tejano"]},
+    {"name":"Duranguense","subgenres":["Duranguense"]}
   ],
   "South American": [
-    {"name":"Tango","subgenres":["Tango","Milonga"]},
-    {"name":"Andean Folk","subgenres":["Andean Folk","Huayno"]},
-    {"name":"Nueva Canción / Cueca","subgenres":["Cueca","Nueva Canción"]},
+    {"name":"Tango","subgenres":["Tango"]},
+    {"name":"Milonga","subgenres":["Milonga"]},
+    {"name":"Andean Folk","subgenres":["Andean Folk"]},
+    {"name":"Huayno","subgenres":["Huayno"]},
+    {"name":"Cueca","subgenres":["Cueca"]},
+    {"name":"Nueva Canción","subgenres":["Nueva Canción"]},
     {"name":"Vallenato","subgenres":["Vallenato"]},
     {"name":"Joropo","subgenres":["Joropo"]}
   ],
   "West African": [
-    {"name":"Afrobeat / Afrobeats","subgenres":["Afrobeat","Afrobeats"]},
-    {"name":"Highlife","subgenres":["Highlife","Hiplife","Palm-Wine"]},
-    {"name":"Yoruba Popular","subgenres":["Jùjú","Fuji"]},
-    {"name":"Mande Traditions","subgenres":["Mande","Wassoulou","Griot Music"]}
+    {"name":"Afrobeat","subgenres":["Afrobeat"]},
+    {"name":"Afrobeats","subgenres":["Afrobeats"]},
+    {"name":"Highlife","subgenres":["Highlife"]},
+    {"name":"Hiplife","subgenres":["Hiplife"]},
+    {"name":"Palm-Wine","subgenres":["Palm-Wine"]},
+    {"name":"Jùjú","subgenres":["Jùjú"]},
+    {"name":"Fuji","subgenres":["Fuji"]},
+    {"name":"Mande","subgenres":["Mande"]},
+    {"name":"Wassoulou","subgenres":["Wassoulou"]},
+    {"name":"Griot Music","subgenres":["Griot Music"]}
   ],
   "Southern African": [
     {"name":"Amapiano","subgenres":["Amapiano","3-Step"]},
     {"name":"Gqom","subgenres":["Gqom"]},
-    {"name":"Kwaito","subgenres":["Kwaito","Bubblegum"]},
+    {"name":"Kwaito","subgenres":["Kwaito"]},
+    {"name":"Bubblegum","subgenres":["Bubblegum"]},
     {"name":"Afro House","subgenres":["Afro House"]},
-    {"name":"South African Roots","subgenres":["Maskandi","Mbaqanga"]}
+    {"name":"Maskandi","subgenres":["Maskandi"]},
+    {"name":"Mbaqanga","subgenres":["Mbaqanga"]}
   ],
   "Central / East African": [
-    {"name":"Congolese Rumba","subgenres":["Soukous","Ndombolo","Rumba Congolaise"]},
-    {"name":"East African Popular","subgenres":["Benga","Kidandali","Gengetone"]},
+    {"name":"Rumba Congolaise","subgenres":["Rumba Congolaise"]},
+    {"name":"Soukous","subgenres":["Soukous","Ndombolo"]},
+    {"name":"Benga","subgenres":["Benga"]},
     {"name":"Taarab","subgenres":["Taarab"]},
+    {"name":"Kidandali","subgenres":["Kidandali"]},
+    {"name":"Gengetone","subgenres":["Gengetone"]},
     {"name":"Singeli","subgenres":["Singeli"]}
   ],
   "North African": [
@@ -80,85 +129,151 @@
     {"name":"Mahraganat","subgenres":["Mahraganat"]}
   ],
   "Horn of Africa": [
-    {"name":"Ethiopian Music","subgenres":["Ethio-Jazz","Ethiopian Pop","Tizita"]},
-    {"name":"Somali / Eritrean Music","subgenres":["Somali Music","Eritrean Music"]}
+    {"name":"Ethio-Jazz","subgenres":["Ethio-Jazz"]},
+    {"name":"Ethiopian Pop","subgenres":["Ethiopian Pop"]},
+    {"name":"Tizita","subgenres":["Tizita"]},
+    {"name":"Somali Music","subgenres":["Somali Music"]},
+    {"name":"Eritrean Music","subgenres":["Eritrean Music"]}
   ],
   "Francophone African": [
     {"name":"Mbalax","subgenres":["Mbalax"]},
-    {"name":"Ivorian Urban","subgenres":["Zouglou","Coupé-Décalé"]},
-    {"name":"Cameroonian Popular","subgenres":["Makossa","Bikutsi"]}
+    {"name":"Zouglou","subgenres":["Zouglou"]},
+    {"name":"Coupé-Décalé","subgenres":["Coupé-Décalé"]},
+    {"name":"Makossa","subgenres":["Makossa"]},
+    {"name":"Bikutsi","subgenres":["Bikutsi"]}
   ],
   "Caribbean": [
-    {"name":"Calypso / Soca","subgenres":["Calypso","Soca"]},
+    {"name":"Calypso","subgenres":["Calypso"]},
+    {"name":"Soca","subgenres":["Soca"]},
     {"name":"Chutney","subgenres":["Chutney","Chutney Soca"]},
-    {"name":"Kompa / Zouk","subgenres":["Kompa","Zouk","Cadence-Lypso"]},
-    {"name":"Eastern Caribbean","subgenres":["Bouyon","Spouge"]},
-    {"name":"Rake-and-Scrape","subgenres":["Rake-and-Scrape"]}
+    {"name":"Kompa","subgenres":["Kompa"]},
+    {"name":"Zouk","subgenres":["Zouk"]},
+    {"name":"Cadence-Lypso","subgenres":["Cadence-Lypso"]},
+    {"name":"Bouyon","subgenres":["Bouyon"]},
+    {"name":"Rake-and-Scrape","subgenres":["Rake-and-Scrape"]},
+    {"name":"Spouge","subgenres":["Spouge"]}
   ],
   "Arabic Music": [
     {"name":"Arabic Pop","subgenres":["Arabic Pop","Levantine Pop","Egyptian Pop"]},
-    {"name":"Tarab / Maqam","subgenres":["Tarab","Maqam"]},
+    {"name":"Tarab","subgenres":["Tarab"]},
+    {"name":"Maqam","subgenres":["Maqam"]},
     {"name":"Dabke","subgenres":["Dabke"]},
     {"name":"Khaliji","subgenres":["Khaliji"]},
-    {"name":"Shaabi / Mahraganat","subgenres":["Shaabi","Mahraganat"]}
+    {"name":"Shaabi","subgenres":["Shaabi"]},
+    {"name":"Mahraganat","subgenres":["Mahraganat"]}
+  ],
+  "Persian Music": [
+    {"name":"Persian Classical","subgenres":["Persian Classical"]},
+    {"name":"Persian Pop","subgenres":["Persian Pop"]},
+    {"name":"Bandari","subgenres":["Bandari"]},
+    {"name":"Iranian Rock","subgenres":["Iranian Rock"]},
+    {"name":"Persian Electronic","subgenres":["Persian Electronic"]}
+  ],
+  "Turkish Music": [
+    {"name":"Turkish Pop","subgenres":["Turkish Pop"]},
+    {"name":"Arabesque","subgenres":["Arabesque"]},
+    {"name":"Anatolian Rock","subgenres":["Anatolian Rock"]},
+    {"name":"Turkish Folk","subgenres":["Turkish Folk"]},
+    {"name":"Fasil","subgenres":["Fasil"]},
+    {"name":"Turkish Classical","subgenres":["Turkish Classical"]}
+  ],
+  "Israeli / Hebrew": [
+    {"name":"Mizrahi","subgenres":["Mizrahi"]},
+    {"name":"Israeli Pop","subgenres":["Israeli Pop"]},
+    {"name":"Hebrew Folk","subgenres":["Hebrew Folk"]},
+    {"name":"Mediterranean Pop","subgenres":["Mediterranean Pop"]}
   ],
   "Indian Popular": [
-    {"name":"Bollywood / Indian Pop","subgenres":["Bollywood","Indi-Pop","Desi Pop","Punjabi Pop"]},
+    {"name":"Bollywood","subgenres":["Bollywood"]},
+    {"name":"Indi-Pop","subgenres":["Indi-Pop"]},
+    {"name":"Desi Pop","subgenres":["Desi Pop"]},
+    {"name":"Punjabi Pop","subgenres":["Punjabi Pop"]},
     {"name":"Bhangra","subgenres":["Bhangra"]},
     {"name":"Desi Hip-Hop","subgenres":["Desi Hip-Hop"]},
     {"name":"Indian Electronic","subgenres":["Indian Electronic"]}
   ],
   "South Asian Folk": [
-    {"name":"Sufi / Ghazal","subgenres":["Qawwali","Ghazal"]},
-    {"name":"Bengali Folk","subgenres":["Baul","Bengali Folk"]},
-    {"name":"North Indian Folk","subgenres":["Bhojpuri","Rajasthani Folk"]},
-    {"name":"Western Indian Folk & Dance","subgenres":["Lavani","Garba","Dandiya"]}
+    {"name":"Qawwali","subgenres":["Qawwali"]},
+    {"name":"Ghazal","subgenres":["Ghazal"]},
+    {"name":"Baul","subgenres":["Baul"]},
+    {"name":"Bengali Folk","subgenres":["Bengali Folk"]},
+    {"name":"Bhojpuri","subgenres":["Bhojpuri"]},
+    {"name":"Rajasthani Folk","subgenres":["Rajasthani Folk"]},
+    {"name":"Lavani","subgenres":["Lavani"]},
+    {"name":"Garba","subgenres":["Garba"]},
+    {"name":"Dandiya","subgenres":["Dandiya"]}
   ],
   "Pakistan / Bangladesh / Sri Lanka": [
-    {"name":"Pakistani Pop / Rock","subgenres":["Pakistani Pop","Pakistani Rock"]},
-    {"name":"Bangla Pop / Rock","subgenres":["Bangla Pop","Bangla Rock"]},
-    {"name":"Sri Lankan Popular","subgenres":["Sinhala Pop","Baila"]}
+    {"name":"Pakistani Pop","subgenres":["Pakistani Pop"]},
+    {"name":"Pakistani Rock","subgenres":["Pakistani Rock"]},
+    {"name":"Bangla Pop","subgenres":["Bangla Pop"]},
+    {"name":"Bangla Rock","subgenres":["Bangla Rock"]},
+    {"name":"Sinhala Pop","subgenres":["Sinhala Pop"]},
+    {"name":"Baila","subgenres":["Baila"]}
   ],
   "Japanese": [
-    {"name":"J-Pop","subgenres":["J-Pop","City Pop","Shibuya-kei","Kayokyoku"]},
-    {"name":"J-Rock","subgenres":["J-Rock","Visual Kei"]},
+    {"name":"J-Pop","subgenres":["J-Pop"]},
+    {"name":"J-Rock","subgenres":["J-Rock"]},
+    {"name":"City Pop","subgenres":["City Pop"]},
+    {"name":"Visual Kei","subgenres":["Visual Kei"]},
+    {"name":"Shibuya-kei","subgenres":["Shibuya-kei"]},
     {"name":"Enka","subgenres":["Enka"]},
+    {"name":"Kayokyoku","subgenres":["Kayokyoku"]},
     {"name":"Japanese Jazz","subgenres":["Japanese Jazz"]},
-    {"name":"Anime / Vocaloid","subgenres":["Anime Music","Vocaloid"]}
+    {"name":"Anime Music","subgenres":["Anime Music"]},
+    {"name":"Vocaloid","subgenres":["Vocaloid"]}
   ],
   "Korean": [
     {"name":"K-Pop","subgenres":["K-Pop"]},
-    {"name":"K-R&B / Hip-Hop","subgenres":["K-R&B","K-Hip-Hop"]},
-    {"name":"K-Rock / Indie","subgenres":["K-Rock","K-Indie"]},
-    {"name":"Trot","subgenres":["Trot"]}
+    {"name":"K-R&B","subgenres":["K-R&B"]},
+    {"name":"K-Hip-Hop","subgenres":["K-Hip-Hop"]},
+    {"name":"K-Rock","subgenres":["K-Rock"]},
+    {"name":"Trot","subgenres":["Trot"]},
+    {"name":"K-Indie","subgenres":["K-Indie"]}
   ],
   "Chinese": [
-    {"name":"Chinese Pop","subgenres":["Mandopop","Cantopop","Taiwanese Pop"]},
-    {"name":"Chinese Rock / Hip-Hop","subgenres":["C-Rock","Chinese Hip-Hop"]},
-    {"name":"Guofeng / Traditional","subgenres":["Guofeng","Chinese Traditional"]}
+    {"name":"Mandopop","subgenres":["Mandopop"]},
+    {"name":"Cantopop","subgenres":["Cantopop"]},
+    {"name":"C-Rock","subgenres":["C-Rock"]},
+    {"name":"Chinese Hip-Hop","subgenres":["Chinese Hip-Hop"]},
+    {"name":"Guofeng","subgenres":["Guofeng"]},
+    {"name":"Chinese Traditional","subgenres":["Chinese Traditional"]},
+    {"name":"Taiwanese Pop","subgenres":["Taiwanese Pop"]}
   ],
   "Mongolian": [
     {"name":"Mongolian Folk","subgenres":["Mongolian Folk","Mongolian Throat Singing"]},
     {"name":"Mongolian Rock","subgenres":["Mongolian Rock"]}
   ],
   "Southeast Asian Popular": [
-    {"name":"Thai Popular","subgenres":["Thai Pop","Thai Rock","Luk Thung","Mor Lam"]},
-    {"name":"Vietnamese Popular","subgenres":["V-Pop","Vietnamese Bolero"]},
-    {"name":"Indonesian Popular","subgenres":["Indo Pop","Dangdut","Keroncong"]},
+    {"name":"Thai Pop","subgenres":["Thai Pop"]},
+    {"name":"Thai Rock","subgenres":["Thai Rock"]},
+    {"name":"Luk Thung","subgenres":["Luk Thung"]},
+    {"name":"Mor Lam","subgenres":["Mor Lam"]},
+    {"name":"V-Pop","subgenres":["V-Pop"]},
+    {"name":"Vietnamese Bolero","subgenres":["Vietnamese Bolero"]},
+    {"name":"Indo Pop","subgenres":["Indo Pop"]},
+    {"name":"Dangdut","subgenres":["Dangdut"]},
+    {"name":"Keroncong","subgenres":["Keroncong"]},
     {"name":"Malay Pop","subgenres":["Malay Pop"]},
-    {"name":"Philippine Pop / OPM","subgenres":["P-Pop","OPM"]}
+    {"name":"P-Pop","subgenres":["P-Pop"]},
+    {"name":"OPM","subgenres":["OPM"]}
   ],
   "Traditional Southeast Asia": [
-    {"name":"Indonesian Traditional","subgenres":["Gamelan","Kecak"]},
-    {"name":"Khmer Classical","subgenres":["Pinpeat","Khmer Classical"]},
+    {"name":"Gamelan","subgenres":["Gamelan"]},
+    {"name":"Kecak","subgenres":["Kecak"]},
+    {"name":"Pinpeat","subgenres":["Pinpeat"]},
+    {"name":"Khmer Classical","subgenres":["Khmer Classical"]},
     {"name":"Lao Folk","subgenres":["Lao Folk"]},
     {"name":"Burmese Classical","subgenres":["Burmese Classical"]}
   ],
   "European Folk": [
-    {"name":"Celtic Folk","subgenres":["Celtic Folk","Irish Traditional","Scottish Folk"]},
+    {"name":"Celtic Folk","subgenres":["Celtic Folk"]},
+    {"name":"Irish Traditional","subgenres":["Irish Traditional"]},
+    {"name":"Scottish Folk","subgenres":["Scottish Folk"]},
     {"name":"English Folk","subgenres":["English Folk"]},
     {"name":"Nordic Folk","subgenres":["Nordic Folk"]},
-    {"name":"Balkan / Slavic Folk","subgenres":["Balkan Folk","Slavic Folk"]},
+    {"name":"Balkan Folk","subgenres":["Balkan Folk"]},
+    {"name":"Slavic Folk","subgenres":["Slavic Folk"]},
     {"name":"Romani Music","subgenres":["Romani Music"]},
     {"name":"Klezmer","subgenres":["Klezmer"]},
     {"name":"Flamenco","subgenres":["Flamenco"]},
@@ -167,5 +282,34 @@
     {"name":"Italian Folk","subgenres":["Italian Folk"]},
     {"name":"Neapolitan Song","subgenres":["Neapolitan Song"]},
     {"name":"Alpine Folk","subgenres":["Alpine Folk"]}
+  ],
+  "Orchestral / Chamber": [
+    {"name":"Symphony","subgenres":["Symphony"]},
+    {"name":"Concerto","subgenres":["Concerto"]},
+    {"name":"Chamber Music","subgenres":["Chamber Music","String Quartet"]},
+    {"name":"Piano Solo","subgenres":["Piano Solo"]},
+    {"name":"Choral","subgenres":["Choral"]},
+    {"name":"Sacred Classical","subgenres":["Sacred Classical"]}
+  ],
+  "Spiritual / Devotional": [
+    {"name":"Spiritual","subgenres":["Spiritual"]},
+    {"name":"Christian Contemporary","subgenres":["Christian Contemporary"]},
+    {"name":"Worship","subgenres":["Worship"]},
+    {"name":"Nasheed","subgenres":["Nasheed"]},
+    {"name":"Bhajan","subgenres":["Bhajan"]},
+    {"name":"Kirtan","subgenres":["Kirtan"]},
+    {"name":"Sufi Devotional","subgenres":["Sufi Devotional"]}
+  ],
+  "Anime / Media": [
+    {"name":"Anime Music","subgenres":["Anime Opening","Anime Ending","Anime Score"]},
+    {"name":"Kawaii Future Bass","subgenres":["Kawaii Future Bass"]},
+    {"name":"Idol Music","subgenres":["Idol Music"]}
+  ],
+  "Spoken / Novelty": [
+    {"name":"Spoken Word","subgenres":["Spoken Word"]},
+    {"name":"Poetry","subgenres":["Poetry"]},
+    {"name":"Comedy Music","subgenres":["Comedy Music"]},
+    {"name":"Novelty Song","subgenres":["Novelty Song"]},
+    {"name":"Audio Drama","subgenres":["Audio Drama"]}
   ]
 }
