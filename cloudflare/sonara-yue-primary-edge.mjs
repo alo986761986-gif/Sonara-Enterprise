@@ -3,7 +3,7 @@ import yueRuntime from './sonara-yue-router.mjs';
 
 export { SonaraJobState };
 
-const VERSION = 'sonara-yue-direct-bypass-v4-visible-failures';
+const VERSION = 'sonara-yue-direct-dual-v5-visible-failures';
 const BILLING_GENERATE_PATH = '/api/billing/generate';
 const ENGINE_GENERATE_PATH = '/api/engine/generate';
 const YUE_JOB_PATH = /^\/api\/music\/job\/yue_[^/]+$/;
@@ -26,16 +26,16 @@ async function forceYueRequest(request) {
     forceAceStep: false,
     provider: 'yue',
     engineProvider: 'yue',
-    dualFast: false,
-    candidateCount: 1,
-    candidate_count: 1,
-    stage2_batch_size: 4
+    dualFast: true,
+    candidateCount: 2,
+    candidate_count: 2,
+    stage2_batch_size: 16
   };
 
   const headers = new Headers(request.headers);
   headers.delete('content-length');
   headers.set('content-type', 'application/json');
-  headers.set('x-sonara-generation-profile', 'yue-direct-single-v4');
+  headers.set('x-sonara-generation-profile', 'yue-direct-dual-v5');
   headers.set('x-sonara-yue-primary', VERSION);
 
   return new Request(request.url, {
