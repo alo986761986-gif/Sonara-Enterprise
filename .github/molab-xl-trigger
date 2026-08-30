@@ -1,5 +1,5 @@
 SONARA_MOLAB_XL_URL=https://molab.sonaraenterprise.com
 MODEL=acestep-v15-xl-turbo
 MODE=MOLAB_XL_ONLY
-ACTION=activate-sonara-musical-families-v2.1-exact-categories-safe
-VERIFY=20260830-STOP-TAXONOMY-MUTATION-LOOP-V21
+ACTION=activate-sonara-release-quality-gate-v2
+VERIFY=20260830-SUNO-LEVEL-CORE-QUALITY-GATE-V2
