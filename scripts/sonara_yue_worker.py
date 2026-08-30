@@ -53,8 +53,15 @@ def patch_runtime() -> None:
     source = INFER.read_text(encoding="utf-8")
     original = source
 
-    # SDPA is the stable fallback used by the current SONARA notebook image.
+    # Stable attention path for the current SONARA notebook image.
     source = source.replace('attn_implementation="flash_attention_2"', 'attn_implementation="sdpa"')
+
+    # torch.compile on Stage 2 can spend a very long time compiling the first
+    # teacher-forcing batch. Keep Stage 2 eager for predictable production runs.
+    source = source.replace(
+        "model_stage2 = torch.compile(model_stage2)",
+        "model_stage2 = model_stage2  # SONARA: eager Stage 2 for stability",
+    )
 
     # Avoid filesystem errors caused by long prompts and genres containing '/'.
     filename_anchor = "vocal_save_path = os.path.join(stage1_output_dir,"
@@ -67,7 +74,10 @@ def patch_runtime() -> None:
         source = source.replace("genres.replace(' ', '-')", "safe_genres")
 
     # Keep output WAV-only so the API can stream it reliably.
-    source = source.replace('os.path.splitext(os.path.basename(npy))[0] + ".mp3"', 'os.path.splitext(os.path.basename(npy))[0] + ".wav"')
+    source = source.replace(
+        'os.path.splitext(os.path.basename(npy))[0] + ".mp3"',
+        'os.path.splitext(os.path.basename(npy))[0] + ".wav"',
+    )
     source = source.replace("'itrack.mp3'", "'itrack.wav'")
     source = source.replace("'vtrack.mp3'", "'vtrack.wav'")
 
@@ -94,16 +104,16 @@ def patch_runtime() -> None:
         if path.name == "vocoder.py":
             text = text.replace(
                 "path = str(Path(path).with_suffix('.mp3'))\n    torchaudio.save(path, wav, sample_rate=sample_rate)",
-                "path = str(Path(path).with_suffix('.wav'))\n    wav_np = wav.detach().cpu().float().numpy()\n    if wav_np.ndim == 2:\n        wav_np = wav_np.T\n    sf.write(path, wav_np, sample_rate, subtype='PCM_16')"
+                "path = str(Path(path).with_suffix('.wav'))\n    wav_np = wav.detach().cpu().float().numpy()\n    if wav_np.ndim == 2:\n        wav_np = wav_np.T\n    sf.write(path, wav_np, sample_rate, subtype='PCM_16')",
             )
         else:
             text = text.replace(
                 "wave_a, sr_a = torchaudio.load(a_file)\n    wave_b, sr_b = torchaudio.load(b_file)",
-                "audio_a, sr_a = sf.read(a_file, always_2d=True, dtype='float32')\n    audio_b, sr_b = sf.read(b_file, always_2d=True, dtype='float32')\n    wave_a = torch.from_numpy(audio_a.T.copy())\n    wave_b = torch.from_numpy(audio_b.T.copy())"
+                "audio_a, sr_a = sf.read(a_file, always_2d=True, dtype='float32')\n    audio_b, sr_b = sf.read(b_file, always_2d=True, dtype='float32')\n    wave_a = torch.from_numpy(audio_a.T.copy())\n    wave_b = torch.from_numpy(audio_b.T.copy())",
             )
             text = text.replace(
                 "torchaudio.save(c_file, wave_combined, sample_rate=sr_b)",
-                "output_np = wave_combined.detach().cpu().float().numpy()\n    if output_np.ndim == 2:\n        output_np = output_np.T\n    sf.write(c_file, output_np, sr_b, subtype='PCM_16')"
+                "output_np = wave_combined.detach().cpu().float().numpy()\n    if output_np.ndim == 2:\n        output_np = output_np.T\n    sf.write(c_file, output_np, sr_b, subtype='PCM_16')",
             )
         if text != before:
             backup = path.with_suffix(path.suffix + ".sonara_worker_backup")
@@ -151,8 +161,6 @@ def choose_final_audio(output_dir: Path) -> Path | None:
 
 
 def progress_from_log(log_text: str, elapsed: float, duration: int) -> tuple[int, str]:
-    # Time fallback never freezes even if tqdm output is buffered.
-    # It is deliberately conservative and capped below completion.
     expected = max(240.0, float(duration) * 10.0)
     time_progress = min(84, 6 + int((elapsed / expected) * 78))
     progress = max(6, time_progress)
@@ -162,7 +170,10 @@ def progress_from_log(log_text: str, elapsed: float, duration: int) -> tuple[int
     if stage1_matches:
         pct = max(0, min(100, int(stage1_matches[-1])))
         progress = max(progress, 6 + int(pct * 0.56))
-        stage = f"YuE Stage 1 · segmento/token {pct}%"
+        if pct >= 100 and "Stage 2 inference" not in log_text:
+            stage = "YuE Stage 1 completato · libero VRAM e carico Stage 2"
+        else:
+            stage = f"YuE Stage 1 · segmento/token {pct}%"
 
     if "Stage 2 inference" in log_text:
         progress = max(progress, 64)
@@ -203,25 +214,38 @@ def run_candidate(task_id: str, body: dict, candidate_index: int) -> Path:
         f"{int(clamp(body.get('bpm'), 124, 40, 220))} BPM",
         safe_text(body.get("key")),
         safe_text(body.get("vocal_mode"), "vocal"),
-        safe_text(body.get("language"), "auto")
+        safe_text(body.get("language"), "auto"),
     ]
     genre_file.write_text(", ".join(x for x in genre_parts if x), encoding="utf-8")
     lyrics_file.write_text(ensure_lyrics_sections(safe_text(body.get("lyrics")), segments), encoding="utf-8")
 
+    # IMPORTANT: do NOT pass --disable_offload_model. YuE's official transition
+    # frees Stage 1 before Stage 2, which prevents the Stage 1 -> Stage 2 stall.
     command = [
-        PYTHON, "infer.py",
-        "--stage1_model", "m-a-p/YuE-s1-7B-anneal-en-cot",
-        "--stage2_model", "m-a-p/YuE-s2-1B-general",
-        "--genre_txt", str(genre_file),
-        "--lyrics_txt", str(lyrics_file),
-        "--run_n_segments", str(segments),
-        "--stage2_batch_size", str(int(clamp(body.get("stage2_batch_size"), 8, 1, 16))),
-        "--output_dir", str(task_dir),
-        "--cuda_idx", "0",
-        "--max_new_tokens", str(int(clamp(body.get("max_new_tokens"), 3000, 1000, 6000))),
-        "--repetition_penalty", str(clamp(body.get("repetition_penalty"), 1.1, 1.0, 1.5)),
-        "--seed", str(seed),
-        "--disable_offload_model"
+        PYTHON,
+        "infer.py",
+        "--stage1_model",
+        "m-a-p/YuE-s1-7B-anneal-en-cot",
+        "--stage2_model",
+        "m-a-p/YuE-s2-1B-general",
+        "--genre_txt",
+        str(genre_file),
+        "--lyrics_txt",
+        str(lyrics_file),
+        "--run_n_segments",
+        str(segments),
+        "--stage2_batch_size",
+        str(int(clamp(body.get("stage2_batch_size"), 4, 1, 4))),
+        "--output_dir",
+        str(task_dir),
+        "--cuda_idx",
+        "0",
+        "--max_new_tokens",
+        str(int(clamp(body.get("max_new_tokens"), 3000, 1000, 6000))),
+        "--repetition_penalty",
+        str(clamp(body.get("repetition_penalty"), 1.1, 1.0, 1.5)),
+        "--seed",
+        str(seed),
     ]
 
     env = os.environ.copy()
@@ -245,7 +269,7 @@ def run_candidate(task_id: str, body: dict, candidate_index: int) -> Path:
             elapsed = time.time() - started
             try:
                 log.flush()
-                log_text = log_path.read_text(encoding="utf-8", errors="ignore")[-12000:]
+                log_text = log_path.read_text(encoding="utf-8", errors="ignore")[-16000:]
             except Exception:
                 log_text = ""
             progress, stage = progress_from_log(log_text, elapsed, duration)
@@ -260,6 +284,7 @@ def run_candidate(task_id: str, body: dict, candidate_index: int) -> Path:
                 candidate=candidate_index + 1,
                 segments=segments,
                 infer_pid=process.pid,
+                stage2_batch_size=4,
             )
 
         result_code = process.returncode
@@ -267,10 +292,10 @@ def run_candidate(task_id: str, body: dict, candidate_index: int) -> Path:
     if result_code != 0:
         tail = ""
         try:
-            tail = "\n".join(log_path.read_text(encoding="utf-8", errors="ignore").splitlines()[-40:])
+            tail = "\n".join(log_path.read_text(encoding="utf-8", errors="ignore").splitlines()[-50:])
         except Exception:
             pass
-        raise RuntimeError(f"YuE infer.py exit={result_code}. {tail[-6000:]}")
+        raise RuntimeError(f"YuE infer.py exit={result_code}. {tail[-8000:]}")
 
     final = choose_final_audio(task_dir)
     if final is None:
@@ -296,7 +321,7 @@ def run_job(task_id: str, body: dict) -> None:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "SONARA-YuE/2.0"
+    server_version = "SONARA-YuE/3.0"
 
     def log_message(self, fmt, *args):
         print("[YuE API]", fmt % args)
@@ -335,15 +360,20 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path in ("/", "/health"):
             with JOBS_LOCK:
                 active = sum(1 for item in JOBS.values() if int(item.get("status", 0)) == 0)
-            return self.json_response({
-                "ok": True,
-                "service": "SONARA YuE RTX PRO 6000",
-                "version": "2.0-live-progress",
-                "root": str(ROOT),
-                "max_duration_sec": MAX_DURATION,
-                "jobs": len(JOBS),
-                "active_jobs": active,
-            })
+            return self.json_response(
+                {
+                    "ok": True,
+                    "service": "SONARA YuE RTX PRO 6000",
+                    "version": "3.0-stage2-stable",
+                    "root": str(ROOT),
+                    "max_duration_sec": MAX_DURATION,
+                    "jobs": len(JOBS),
+                    "active_jobs": active,
+                    "stage2_batch_size": 4,
+                    "stage1_offload": True,
+                    "stage2_compile": False,
+                }
+            )
         if parsed.path == "/v1/audio":
             return self.serve_audio(parsed, head=False)
         return self.json_response({"error": "Not found"}, 404)
@@ -435,7 +465,14 @@ class Handler(BaseHTTPRequestHandler):
                     if job:
                         data.append(dict(job))
                     else:
-                        data.append({"task_id": str(task_id), "status": 2, "progress": 0, "error": "task non trovato"})
+                        data.append(
+                            {
+                                "task_id": str(task_id),
+                                "status": 2,
+                                "progress": 0,
+                                "error": "task non trovato",
+                            }
+                        )
             return self.json_response({"code": 200, "data": data})
 
         return self.json_response({"error": "Not found"}, 404)
@@ -445,11 +482,13 @@ def main() -> None:
     patch_runtime()
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
     print("=" * 72)
-    print("SONARA YuE PRODUCTION WORKER v2 LIVE PROGRESS")
+    print("SONARA YuE PRODUCTION WORKER v3 STAGE2 STABLE")
     print(f"YuE root: {ROOT}")
     print(f"Python:   {PYTHON}")
     print(f"Port:     {PORT}")
     print(f"Max song: {MAX_DURATION}s")
+    print("Stage1:   offload ON")
+    print("Stage2:   batch=4 | torch.compile OFF")
     print("API:      /release_task | /query_result | /v1/audio | /health")
     print("=" * 72)
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
