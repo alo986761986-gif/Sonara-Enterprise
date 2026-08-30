@@ -2,11 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, Music2, Drum } from 'lucide-react';
 import {
-  ALL_GLOBAL_INSTRUMENT_SUGGESTIONS,
   ALL_GLOBAL_MUSIC_SUGGESTIONS,
-  GLOBAL_INSTRUMENT_SUGGESTIONS,
   GLOBAL_MUSIC_SUGGESTIONS
 } from './globalMusicSuggestions';
+import {
+  ALL_REAL_MUSICAL_INSTRUMENTS,
+  REAL_INSTRUMENT_SUGGESTIONS,
+  matchesRealInstrumentSearch
+} from '../../data/realMusicalInstruments';
 
 type Mode = 'music' | 'instruments';
 
@@ -77,8 +80,8 @@ export default function GlobalMusicSuggestionControl() {
     return () => observer.disconnect();
   }, []);
 
-  const activeGroups = mode === 'music' ? GLOBAL_MUSIC_SUGGESTIONS : GLOBAL_INSTRUMENT_SUGGESTIONS;
-  const totalCount = mode === 'music' ? ALL_GLOBAL_MUSIC_SUGGESTIONS.length : ALL_GLOBAL_INSTRUMENT_SUGGESTIONS.length;
+  const activeGroups = mode === 'music' ? GLOBAL_MUSIC_SUGGESTIONS : REAL_INSTRUMENT_SUGGESTIONS;
+  const totalCount = mode === 'music' ? ALL_GLOBAL_MUSIC_SUGGESTIONS.length : ALL_REAL_MUSICAL_INSTRUMENTS.length;
   const normalizedQuery = query.trim().toLocaleLowerCase();
 
   const visibleGroups = useMemo(() => {
@@ -86,10 +89,12 @@ export default function GlobalMusicSuggestionControl() {
     return activeGroups
       .map(group => ({
         ...group,
-        items: group.items.filter(item => item.toLocaleLowerCase().includes(normalizedQuery))
+        items: group.items.filter(item => mode === 'instruments'
+          ? matchesRealInstrumentSearch(item, normalizedQuery)
+          : item.toLocaleLowerCase().includes(normalizedQuery))
       }))
       .filter(group => group.items.length > 0);
-  }, [activeGroups, normalizedQuery]);
+  }, [activeGroups, mode, normalizedQuery]);
 
   if (!host || !textarea) return null;
 
@@ -103,7 +108,7 @@ export default function GlobalMusicSuggestionControl() {
       >
         <Music2 />
         <span>Musica & Strumenti dal mondo</span>
-        <small>{ALL_GLOBAL_MUSIC_SUGGESTIONS.length} stili · {ALL_GLOBAL_INSTRUMENT_SUGGESTIONS.length} strumenti</small>
+        <small>{ALL_GLOBAL_MUSIC_SUGGESTIONS.length} stili · {ALL_REAL_MUSICAL_INSTRUMENTS.length} strumenti reali</small>
       </button>
 
       {open && (
@@ -113,7 +118,7 @@ export default function GlobalMusicSuggestionControl() {
               <Music2 /> Generi & Stili
             </button>
             <button type="button" data-active={mode === 'instruments'} onClick={() => setMode('instruments')}>
-              <Drum /> Strumenti
+              <Drum /> Strumenti Reali
             </button>
           </div>
 
@@ -122,8 +127,8 @@ export default function GlobalMusicSuggestionControl() {
             <input
               value={query}
               onChange={event => setQuery(event.target.value)}
-              placeholder={mode === 'music' ? 'Cerca qualsiasi genere, stile o tradizione musicale…' : 'Cerca qualsiasi strumento musicale…'}
-              aria-label={mode === 'music' ? 'Cerca generi musicali' : 'Cerca strumenti musicali'}
+              placeholder={mode === 'music' ? 'Cerca qualsiasi genere, stile o tradizione musicale…' : 'Cerca strumento, famiglia o alias reale…'}
+              aria-label={mode === 'music' ? 'Cerca generi musicali' : 'Cerca strumenti musicali reali'}
             />
           </label>
 
@@ -144,7 +149,7 @@ export default function GlobalMusicSuggestionControl() {
                         type="button"
                         data-active={active}
                         onClick={() => togglePromptTag(textarea, item)}
-                        title={active ? `Rimuovi ${item}` : `Aggiungi ${item} al prompt`}
+                        title={active ? `Rimuovi ${item}` : `Aggiungi ${item} al prompt come strumento autorevole`}
                       >
                         {item}
                       </button>
@@ -153,7 +158,7 @@ export default function GlobalMusicSuggestionControl() {
                 </div>
               </section>
             ))}
-            {visibleGroups.length === 0 && <p className="sonara-global-suggestions-empty">Nessun risultato. Prova un altro nome o una tradizione musicale diversa.</p>}
+            {visibleGroups.length === 0 && <p className="sonara-global-suggestions-empty">Nessun risultato. Prova un nome, un alias o una famiglia strumentale diversa.</p>}
           </div>
         </div>
       )}
