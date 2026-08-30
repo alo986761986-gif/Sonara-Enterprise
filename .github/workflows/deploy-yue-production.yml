@@ -37,12 +37,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q 'cloudflare/sonara-billing-edge-router.mjs' wrangler.jsonc
-          grep -q 'sonara-musical-family-router.mjs' cloudflare/sonara-billing-edge-router.mjs
+          grep -q 'cloudflare/sonara-yue-primary-edge.mjs' wrangler.jsonc
           grep -q 'SONARA_YUE_WORKER_URL' wrangler.jsonc
-          grep -q 'sonara-yue-router.mjs' cloudflare/sonara-music-taxonomy-lock-router.mjs
           node --check cloudflare/sonara-yue-router.mjs
-          curl -fsS --max-time 20 'https://advertisement-analyses-goals-pockets.trycloudflare.com/health' >/tmp/yue-health.json
+          node --check cloudflare/sonara-yue-primary-edge.mjs
+          curl -fsS --max-time 20 'https://blind-wealth-sentence-handmade.trycloudflare.com/health' >/tmp/yue-health.json
           cat /tmp/yue-health.json
           grep -q 'SONARA YuE RTX PRO 6000' /tmp/yue-health.json
 
@@ -54,7 +53,7 @@ jobs:
             -X POST \
             -H 'Content-Type: application/json' \
             --data-binary '{' \
-            'https://advertisement-analyses-goals-pockets.trycloudflare.com/release_task')"
+            'https://blind-wealth-sentence-handmade.trycloudflare.com/release_task')"
           echo "YuE /release_task malformed-JSON probe HTTP=${status}"
           cat /tmp/yue-post-probe.json || true
           test "${status}" = "400"
@@ -86,7 +85,7 @@ jobs:
         run: |
           set -euo pipefail
           curl -fsS --max-time 30 'https://api.sonaraenterprise.com/api/health?yue=production' >/tmp/sonara-health.json
-          curl -fsS --max-time 20 'https://advertisement-analyses-goals-pockets.trycloudflare.com/health' >/tmp/yue-health-after.json
+          curl -fsS --max-time 20 'https://blind-wealth-sentence-handmade.trycloudflare.com/health' >/tmp/yue-health-after.json
           cat /tmp/yue-health-after.json
           grep -q 'SONARA YuE RTX PRO 6000' /tmp/yue-health-after.json
           echo 'SONARA production endpoint and YuE GPU worker are both online.'
