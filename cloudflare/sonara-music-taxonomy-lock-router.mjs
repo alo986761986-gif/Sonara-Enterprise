@@ -2,11 +2,112 @@ import runtime, { SonaraJobState } from './sonara-molab-xl-router.mjs';
 
 export { SonaraJobState };
 
-const TAXONOMY_LOCK_ID = 'sonara-musical-dna-v2-hard-authority';
-const PROMPT_VERSION = 'sonara-taxonomy-first-prompt-v2';
+const TAXONOMY_LOCK_ID = 'sonara-musical-dna-v3-edge-authority';
+const PROMPT_VERSION = 'sonara-taxonomy-first-prompt-v3-edge';
 const MAX_CREATOR_CHARS = 3200;
 const MAX_STYLE_TAIL_CHARS = 5200;
 const MAX_CANONICAL_PROMPT_CHARS = 9200;
+const GENERATE_PATHS = new Set(['/api/billing/generate', '/api/engine/generate']);
+
+const FRONTEND_TAXONOMY_HOTFIX = String.raw`(() => {
+  if (window.__sonaraTaxonomyFrontendV3) return;
+  window.__sonaraTaxonomyFrontendV3 = true;
+
+  let explicitCreatorText = '';
+  let creatorWasEdited = false;
+
+  const promptEl = () => document.getElementById('sonara-prompt');
+  const sectionEl = () => promptEl()?.closest('section') || null;
+  const selects = () => sectionEl() ? Array.from(sectionEl().querySelectorAll('select')) : [];
+  const valueAt = (index, fallback) => selects()[index]?.value || fallback;
+  const bpmInput = () => sectionEl()?.querySelector('input[aria-label="BPM preferiti"]') || null;
+
+  const readContext = () => ({
+    family: valueAt(0, 'Electronic / Dance'),
+    genre: valueAt(1, 'House'),
+    subgenre: valueAt(2, valueAt(1, 'House')),
+    atmosphere: valueAt(3, 'Authentic'),
+    key: valueAt(4, 'A Minor'),
+    duration: Math.max(30, Math.min(480, Math.round(Number(valueAt(5, '30')) || 30))),
+    bpm: Math.max(40, Math.min(220, Math.round(Number(bpmInput()?.value || 124))))
+  });
+
+  const setTextarea = (textarea, value) => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+    if (setter) setter.call(textarea, value);
+    else textarea.value = value;
+    textarea.dataset.sonaraPromptSource = 'taxonomy-first-edge-v3';
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    textarea.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+
+  const buildPrompt = () => {
+    const c = readContext();
+    const creator = creatorWasEdited ? String(explicitCreatorText || '').trim().slice(0, 1800) : '';
+    const lines = [
+      'SONARA MUSICAL DNA — TAXONOMY FIRST — AUTHORITATIVE',
+      'FAMILY: ' + c.family,
+      'GENRE: ' + c.genre,
+      'SUBGENRE: ' + c.subgenre,
+      'ATMOSPHERE: ' + c.atmosphere,
+      '',
+      'HARD PRIORITY: ' + c.family + ' > ' + c.genre + ' > ' + c.subgenre + '. The selected subgenre is non-negotiable and must be immediately recognizable in groove, drums, bass, instrumentation, harmony, melody, arrangement, transitions and production.',
+      'ATMOSPHERE LOCK: ' + c.atmosphere + ' changes emotion, energy, tension, space, density and production color only INSIDE ' + c.subgenre + '. It must never replace or weaken the selected genre or subgenre.',
+      'TECHNICAL LOCK: exactly ' + c.bpm + ' BPM; key ' + c.key + '; approximately ' + c.duration + ' seconds.',
+      creator ? '' : null,
+      creator ? 'CREATOR DETAILS — SECONDARY TO THE SELECTED MUSICAL DNA:' : null,
+      creator || null,
+      creator ? 'If any creator wording conflicts with Family, Genre, Subgenre or Atmosphere, the selected taxonomy wins.' : null,
+      '',
+      'FINAL CHECK: the result must sound specifically like ' + c.subgenre + ', inside ' + c.genre + ' and ' + c.family + ', with a clearly audible ' + c.atmosphere + ' atmosphere.'
+    ].filter(v => v !== null);
+    return lines.join('\n').trim();
+  };
+
+  const refresh = () => {
+    const textarea = promptEl();
+    if (!(textarea instanceof HTMLTextAreaElement)) return;
+    setTextarea(textarea, buildPrompt());
+  };
+
+  document.addEventListener('input', event => {
+    const target = event.target;
+    if (target instanceof HTMLTextAreaElement && target.id === 'sonara-prompt' && event.isTrusted) {
+      creatorWasEdited = true;
+      explicitCreatorText = String(target.value || '');
+    }
+  }, true);
+
+  document.addEventListener('change', event => {
+    const target = event.target;
+    const section = sectionEl();
+    if (!section || !(target instanceof HTMLSelectElement) || !section.contains(target)) return;
+    const list = selects();
+    const index = list.indexOf(target);
+    if (index >= 0 && index <= 5) setTimeout(refresh, 0);
+  }, true);
+
+  document.addEventListener('click', event => {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const button = target.closest('button');
+    if (!(button instanceof HTMLButtonElement)) return;
+    const title = String(button.getAttribute('title') || '');
+    const label = String(button.getAttribute('aria-label') || '');
+    if (title === 'Prompt Intelligente SONARA' || label.includes('Prompt Intelligente SONARA')) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+      refresh();
+      promptEl()?.focus();
+    }
+  }, true);
+
+  [0, 120, 500, 1200].forEach(ms => setTimeout(() => {
+    const textarea = promptEl();
+    if (textarea instanceof HTMLTextAreaElement && !String(textarea.value || '').includes('SONARA MUSICAL DNA — TAXONOMY FIRST — AUTHORITATIVE')) refresh();
+  }, ms));
+})();`;
 
 function clean(value, fallback = '') {
   const text = String(value ?? '')
@@ -22,10 +123,10 @@ function clamp(value, fallback, min, max) {
 }
 
 function selectedMusicalDna(body = {}) {
-  const family = clean(body.genreFamily || body.genre_family, 'Music');
-  const genre = clean(body.genre, 'Music');
-  const subgenre = clean(body.subgenre, genre);
-  const atmosphere = clean(body.mood || body.atmosphere, 'Authentic');
+  const family = clean(body.sonaraSelectedFamily || body.genreFamily || body.genre_family, 'Music');
+  const genre = clean(body.sonaraSelectedGenre || body.genre, 'Music');
+  const subgenre = clean(body.sonaraSelectedSubgenre || body.subgenre, genre);
+  const atmosphere = clean(body.sonaraSelectedMood || body.mood || body.atmosphere, 'Authentic');
   return { family, genre, subgenre, atmosphere };
 }
 
@@ -60,8 +161,6 @@ function selectedStyleTail(body = {}) {
 
 function effectiveStyleInfluence(body = {}) {
   const requested = Math.round(clamp(body.styleInfluence ?? body.style_influence, 50, 0, 100));
-  // Style Influence changes how intensely the exact selected subgenre is expressed.
-  // It never grants permission to leave the selected taxonomy.
   const effective = 88 + Math.round(requested * 0.12);
   return { requested, effective };
 }
@@ -97,7 +196,8 @@ function canonicalTaxonomyPrompt(body = {}) {
 
 export async function lockMusicTaxonomyRequest(request) {
   const url = new URL(request.url);
-  if (request.method !== 'POST' || url.pathname !== '/api/engine/generate') return request;
+  if (request.method !== 'POST' || !GENERATE_PATHS.has(url.pathname)) return request;
+  if (!String(request.headers.get('content-type') || '').toLowerCase().includes('application/json')) return request;
 
   let body;
   try {
@@ -119,15 +219,15 @@ export async function lockMusicTaxonomyRequest(request) {
     subgenre: dna.subgenre,
     mood: dna.atmosphere,
     atmosphere: dna.atmosphere,
-
-    // Critical fix: MoLab/ACE-Step consumes body.prompt. The taxonomy-first prompt
-    // must therefore replace the actual model prompt, not only rawPrompt metadata.
+    sonaraSelectedFamily: dna.family,
+    sonaraSelectedGenre: dna.genre,
+    sonaraSelectedSubgenre: dna.subgenre,
+    sonaraSelectedMood: dna.atmosphere,
     prompt: canonicalPrompt,
     rawPrompt: canonicalPrompt,
     creatorPrompt: '',
     creator_prompt: '',
     musicPrompt: '',
-
     styleInfluence: style.effective,
     style_influence: style.effective,
     sonaraRequestedStyleInfluence: style.requested,
@@ -146,6 +246,7 @@ export async function lockMusicTaxonomyRequest(request) {
 
   const headers = new Headers(request.headers);
   headers.delete('content-length');
+  headers.set('content-type', 'application/json');
   headers.set('x-sonara-musical-dna-lock', TAXONOMY_LOCK_ID);
   headers.set('x-sonara-prompt-version', PROMPT_VERSION);
   headers.set('x-sonara-family', dna.family);
@@ -159,6 +260,31 @@ export async function lockMusicTaxonomyRequest(request) {
     body: JSON.stringify(locked),
     redirect: request.redirect
   });
+}
+
+async function injectFrontendTaxonomyHotfix(request, response) {
+  if (request.method === 'HEAD') return response;
+  const url = new URL(request.url);
+  if (!['sonaraenterprise.com', 'www.sonaraenterprise.com'].includes(url.hostname)) return response;
+  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+  if (!contentType.includes('text/html')) return response;
+
+  try {
+    const html = await response.text();
+    if (html.includes('__sonaraTaxonomyFrontendV3')) {
+      return new Response(html, { status: response.status, statusText: response.statusText, headers: response.headers });
+    }
+    const script = `<script id="sonara-taxonomy-frontend-v3">${FRONTEND_TAXONOMY_HOTFIX}</script>`;
+    const output = html.includes('</body>') ? html.replace('</body>', `${script}</body>`) : `${html}${script}`;
+    const headers = new Headers(response.headers);
+    headers.delete('content-length');
+    headers.delete('content-encoding');
+    headers.set('cache-control', 'no-store, max-age=0');
+    headers.set('x-sonara-taxonomy-frontend', 'v3-edge');
+    return new Response(output, { status: response.status, statusText: response.statusText, headers });
+  } catch {
+    return response;
+  }
 }
 
 async function decorateHealth(request, response) {
@@ -180,6 +306,8 @@ async function decorateHealth(request, response) {
       genreAuthoritative: true,
       subgenreAuthoritative: true,
       atmosphereScopedToSubgenre: true,
+      billingGenerateTaxonomyFirst: true,
+      frontendTaxonomyHotfix: 'v3-edge',
       weirdnessCannotChangeGenre: true,
       styleInfluenceCannotChangeGenre: true,
       styleInfluenceFidelityFloor: 88
@@ -192,7 +320,8 @@ async function decorateHealth(request, response) {
 export default {
   async fetch(request, env, ctx) {
     const lockedRequest = await lockMusicTaxonomyRequest(request);
-    const response = await runtime.fetch(lockedRequest, env, ctx);
+    let response = await runtime.fetch(lockedRequest, env, ctx);
+    response = await injectFrontendTaxonomyHotfix(request, response);
     return decorateHealth(request, response);
   }
 };
