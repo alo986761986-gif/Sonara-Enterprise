@@ -43,15 +43,21 @@ jobs:
           node --check cloudflare/sonara-yue-primary-edge.mjs
 
           YUE_URL='https://yue.sonaraenterprise.com'
+          UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/151.0.0.0 Safari/537.36'
           : >/tmp/yue-health.json
           ready=0
           for attempt in $(seq 1 24); do
-            status="$(curl -sS --max-time 15 -o /tmp/yue-health.json -w '%{http_code}' "${YUE_URL}/health" || true)"
+            status="$(curl -sS --max-time 15 -A "${UA}" -o /tmp/yue-health.json -w '%{http_code}' "${YUE_URL}/health" || true)"
             echo "YuE health attempt ${attempt}/24 HTTP=${status}"
             if [ "${status}" = "200" ] && grep -q 'SONARA YuE RTX PRO 6000' /tmp/yue-health.json; then
               ready=1
               cat /tmp/yue-health.json
               break
+            fi
+            if [ "${status}" = "403" ]; then
+              echo '--- 403 response body ---'
+              head -c 4000 /tmp/yue-health.json || true
+              echo
             fi
             sleep 5
           done
@@ -62,7 +68,8 @@ jobs:
         run: |
           set -euo pipefail
           YUE_URL='https://yue.sonaraenterprise.com'
-          status="$(curl -sS --max-time 20 -o /tmp/yue-post-probe.json -w '%{http_code}' \
+          UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/151.0.0.0 Safari/537.36'
+          status="$(curl -sS --max-time 20 -A "${UA}" -o /tmp/yue-post-probe.json -w '%{http_code}' \
             -X POST \
             -H 'Content-Type: application/json' \
             --data-binary '{' \
@@ -100,9 +107,10 @@ jobs:
           curl -fsS --max-time 30 'https://api.sonaraenterprise.com/api/health?yue=production' >/tmp/sonara-health.json
 
           YUE_URL='https://yue.sonaraenterprise.com'
+          UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/151.0.0.0 Safari/537.36'
           ready=0
           for attempt in $(seq 1 12); do
-            status="$(curl -sS --max-time 15 -o /tmp/yue-health-after.json -w '%{http_code}' "${YUE_URL}/health" || true)"
+            status="$(curl -sS --max-time 15 -A "${UA}" -o /tmp/yue-health-after.json -w '%{http_code}' "${YUE_URL}/health" || true)"
             echo "YuE post-deploy health attempt ${attempt}/12 HTTP=${status}"
             if [ "${status}" = "200" ] && grep -q 'SONARA YuE RTX PRO 6000' /tmp/yue-health-after.json; then
               ready=1
