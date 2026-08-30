@@ -2,7 +2,7 @@ import molabRuntime, { SonaraJobState } from './sonara-molab-xl-router.mjs';
 
 export { SonaraJobState };
 
-const VERSION = 'sonara-yue-fullsong-v1';
+const VERSION = 'sonara-yue-fullsong-v2-live-progress';
 const PUBLIC_API_ORIGIN = 'https://api.sonaraenterprise.com';
 const CACHE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/yue-v1/';
 const CACHE_TTL = 12 * 60 * 60;
@@ -77,8 +77,6 @@ function shouldUseYue(body = {}) {
   const lyrics = text(body.lyrics);
   const vocalMode = text(body.vocalMode || body.vocal_mode).toLowerCase();
   const instrumental = /instrumental|senza voce|no vocals/.test(vocalMode) && !lyrics;
-  // YuE is the primary SONARA full-song/vocal engine. Keep the current MoLab
-  // path as a safe fallback for purely instrumental or short utility renders.
   return !instrumental && Boolean(lyrics) && requestedDuration(body) >= 60;
 }
 
@@ -106,7 +104,7 @@ function buildYuePayload(body = {}) {
     seed: Math.max(1, Number(body.seed) > 0 ? Math.floor(Number(body.seed)) : Math.floor(Date.now() % 2_000_000_000)),
     weirdness: Math.round(clamp(body.weirdness, 50, 0, 100)),
     style_influence: Math.round(clamp(body.styleInfluence ?? body.style_influence, 50, 0, 100)),
-    stage2_batch_size: 4,
+    stage2_batch_size: 8,
     max_new_tokens: 3000,
     repetition_penalty: 1.1,
     sonara_contract: {
@@ -240,6 +238,16 @@ function publicAudioUrl(path) {
   return `${PUBLIC_API_ORIGIN}/api/yue/audio?path=${encodeURIComponent(path)}`;
 }
 
+function estimatedProgress(state, task) {
+  const reported = Math.round(clamp(task?.progress, 5, 1, 98));
+  const createdAt = Number(state?.createdAt || Date.now());
+  const elapsedMs = Math.max(0, Date.now() - createdAt);
+  const durationSec = Math.max(30, Number(state?.payload?.duration_sec || 180));
+  const expectedMs = Math.max(180_000, durationSec * 1500);
+  const estimated = Math.min(92, 8 + Math.floor((elapsedMs / expectedMs) * 84));
+  return Math.max(reported, estimated);
+}
+
 async function startYue(request, env) {
   if (!authorized(request, env)) return json(request, { error: 'Unauthorized SONARA generation proxy.' }, 401);
   const baseUrl = yueUrl(env);
@@ -317,8 +325,9 @@ async function pollYue(request, env, ctx, jobId) {
       throw new Error(String(task?.error || task?.message || 'Generazione YuE fallita.'));
     }
 
-    const progress = Math.round(clamp(task?.progress, 25, 1, 98));
-    const stage = text(task?.stage || task?.progress_text, 'YuE sta generando il brano completo');
+    const progress = estimatedProgress(state, task);
+    const elapsedSec = Math.max(0, Math.floor((Date.now() - Number(state?.createdAt || Date.now())) / 1000));
+    const stage = text(task?.stage || task?.progress_text, `YuE sta generando il brano completo (${elapsedSec}s)`);
     state.updatedAt = Date.now();
     await saveState(env, jobId, state);
     return json(request, {
@@ -335,7 +344,8 @@ async function pollYue(request, env, ctx, jobId) {
         speedProfile: VERSION,
         candidateCount: state?.payload?.candidate_count || 1,
         requestedDurationSec: state?.payload?.duration_sec,
-        currentStage: stage
+        currentStage: stage,
+        elapsedSec
       }
     });
   } catch (error) {
@@ -406,8 +416,6 @@ export default {
         const response = await startYue(request, env);
         if (response) return response;
       } catch {
-        // Production safety: if the YuE worker cannot accept the job, keep
-        // SONARA usable by falling through to the proven MoLab engine.
       }
     }
 
