@@ -42,7 +42,7 @@ jobs:
           node --check cloudflare/sonara-yue-router.mjs
           node --check cloudflare/sonara-yue-primary-edge.mjs
 
-          YUE_URL='https://permanent-again-textbook-argued.trycloudflare.com'
+          YUE_URL='https://yue.sonaraenterprise.com'
           : >/tmp/yue-health.json
           ready=0
           for attempt in $(seq 1 24); do
@@ -61,7 +61,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          YUE_URL='https://permanent-again-textbook-argued.trycloudflare.com'
+          YUE_URL='https://yue.sonaraenterprise.com'
           status="$(curl -sS --max-time 20 -o /tmp/yue-post-probe.json -w '%{http_code}' \
             -X POST \
             -H 'Content-Type: application/json' \
@@ -99,7 +99,7 @@ jobs:
           set -euo pipefail
           curl -fsS --max-time 30 'https://api.sonaraenterprise.com/api/health?yue=production' >/tmp/sonara-health.json
 
-          YUE_URL='https://permanent-again-textbook-argued.trycloudflare.com'
+          YUE_URL='https://yue.sonaraenterprise.com'
           ready=0
           for attempt in $(seq 1 12); do
             status="$(curl -sS --max-time 15 -o /tmp/yue-health-after.json -w '%{http_code}' "${YUE_URL}/health" || true)"
