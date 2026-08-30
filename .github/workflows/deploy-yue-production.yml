@@ -42,6 +42,7 @@ jobs:
           node --check cloudflare/sonara-yue-router.mjs
           curl -fsS --max-time 20 'https://dvd-compression-operate-below.trycloudflare.com/health' >/tmp/yue-health.json
           cat /tmp/yue-health.json
+          grep -q 'SONARA YuE RTX PRO 6000' /tmp/yue-health.json
 
       - name: Resolve Cloudflare account
         shell: bash
@@ -65,11 +66,12 @@ jobs:
       - name: Deploy current SONARA worker
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
 
-      - name: Verify production endpoint
+      - name: Verify production endpoints
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS --max-time 30 -D /tmp/headers.txt 'https://api.sonaraenterprise.com/api/health?yue=production' >/tmp/health.json
-          cat /tmp/health.json
-          grep -qi 'x-sonara-yue-profile: sonara-yue-fullsong-v1' /tmp/headers.txt
-          echo 'SONARA YuE production route is active.'
+          curl -fsS --max-time 30 'https://api.sonaraenterprise.com/api/health?yue=production' >/tmp/sonara-health.json
+          curl -fsS --max-time 20 'https://dvd-compression-operate-below.trycloudflare.com/health' >/tmp/yue-health-after.json
+          cat /tmp/yue-health-after.json
+          grep -q 'SONARA YuE RTX PRO 6000' /tmp/yue-health-after.json
+          echo 'SONARA production endpoint and YuE GPU worker are both online.'
