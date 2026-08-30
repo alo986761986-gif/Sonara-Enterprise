@@ -65,6 +65,9 @@ runCommand(node, ['scripts/activate-authoritative-style-precedence-v3.cjs']);
 console.log('[SONARA] Validating professional music taxonomy.');
 run(['tsx', 'src/musicStyleIntelligence.professional.test.ts']);
 
+console.log('[SONARA] Validating Prompt Director and Suno-style prompt intelligence.');
+run(['tsx', 'src/services/promptDirector.test.ts']);
+
 console.log('[SONARA] Validating authoritative backend genre lock.');
 run(['tsx', 'backend/test/genre_lock_authoritative_v3.test.ts']);
 
