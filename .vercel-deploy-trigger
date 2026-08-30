@@ -1,3 +1,3 @@
-Deploy trigger for authoritative prompt BPM/genre update.
-Commit source: 1d97da0b745838facfe770e5803eb2bb8c510b38
-Retry publish: 2026-08-29T18:00:00+02:00
+Deploy trigger for SONARA MoLab Video AI Firebase Admin fix.
+Target source commit: 5cb94ca1fda9bce1bb4af0d3fe91eff70384cfe1
+Force publish: 2026-08-30T02:20:00+02:00
