@@ -2,7 +2,7 @@ import runtime, { SonaraJobState } from './sonara-billing-edge-router.mjs';
 
 export { SonaraJobState };
 
-const VERSION = 'sonara-yue-primary-edge-v1';
+const VERSION = 'sonara-yue-primary-edge-v2-fast-single';
 const GENERATE_PATHS = new Set(['/api/billing/generate', '/api/engine/generate']);
 
 async function forceYue(request) {
@@ -17,14 +17,18 @@ async function forceYue(request) {
     return request;
   }
 
+  // FAST production profile: YuE currently generates candidates sequentially
+  // under one GPU lock. Forcing two candidates doubles the wall-clock time and
+  // makes long full-song jobs appear stalled. Generate one candidate per job;
+  // a second variation can be requested as a separate generation.
   const nextBody = {
     ...body,
     forceYue: true,
     provider: 'yue',
     engineProvider: 'yue',
-    dualFast: true,
-    candidateCount: 2,
-    candidate_count: 2
+    dualFast: false,
+    candidateCount: 1,
+    candidate_count: 1
   };
 
   const headers = new Headers(request.headers);
