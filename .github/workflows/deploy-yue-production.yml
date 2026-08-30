@@ -36,7 +36,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q 'cloudflare/sonara-musical-family-router.mjs' wrangler.jsonc
+          grep -q 'cloudflare/sonara-billing-edge-router.mjs' wrangler.jsonc
+          grep -q 'sonara-musical-family-router.mjs' cloudflare/sonara-billing-edge-router.mjs
           grep -q 'SONARA_YUE_WORKER_URL' wrangler.jsonc
           grep -q 'sonara-yue-router.mjs' cloudflare/sonara-music-taxonomy-lock-router.mjs
           node --check cloudflare/sonara-yue-router.mjs
