@@ -1,4 +1,4 @@
-import runtime, { SonaraJobState } from './sonara-molab-xl-router.mjs';
+import runtime, { SonaraJobState } from './sonara-yue-router.mjs';
 import { getMusicStyleProfile, getMusicTaxonomyAudit } from '../src/musicStyleIntelligence.ts';
 
 export { SonaraJobState };
@@ -192,17 +192,7 @@ function parseBpm(value) {
 }
 
 function exactRequestedBpm(body = {}) {
-  const candidates = [
-    body.sonaraExactRequestedBpm,
-    body.requestedBpm,
-    body.requested_bpm,
-    body.targetBpm,
-    body.target_bpm,
-    body.preferredBpm,
-    body.preferred_bpm,
-    body.bpm,
-    body.tempo
-  ];
+  const candidates = [body.sonaraExactRequestedBpm, body.requestedBpm, body.requested_bpm, body.targetBpm, body.target_bpm, body.preferredBpm, body.preferred_bpm, body.bpm, body.tempo];
   for (const candidate of candidates) {
     const bpm = parseBpm(candidate);
     if (bpm !== null) return bpm;
@@ -219,18 +209,8 @@ function selectedMusicalDna(body = {}) {
 }
 
 function originalCreatorBrief(body = {}) {
-  if (body.sonaraCleanPromptV4 === true) {
-    return clean(body.sonaraOriginalCreatorBrief, '').slice(0, MAX_CREATOR_CHARS);
-  }
-  return clean(
-    body.sonaraOriginalCreatorBrief ||
-    body.rawPrompt ||
-    body.creatorPrompt ||
-    body.creator_prompt ||
-    body.musicPrompt ||
-    '',
-    ''
-  ).slice(0, MAX_CREATOR_CHARS);
+  if (body.sonaraCleanPromptV4 === true) return clean(body.sonaraOriginalCreatorBrief, '').slice(0, MAX_CREATOR_CHARS);
+  return clean(body.sonaraOriginalCreatorBrief || body.rawPrompt || body.creatorPrompt || body.creator_prompt || body.musicPrompt || '', '').slice(0, MAX_CREATOR_CHARS);
 }
 
 function effectiveStyleInfluence(body = {}) {
@@ -293,13 +273,8 @@ export async function lockMusicTaxonomyRequest(request) {
   const url = new URL(request.url);
   if (request.method !== 'POST' || !GENERATE_PATHS.has(url.pathname)) return request;
   if (!String(request.headers.get('content-type') || '').toLowerCase().includes('application/json')) return request;
-
   let body;
-  try {
-    body = await request.clone().json();
-  } catch {
-    return request;
-  }
+  try { body = await request.clone().json(); } catch { return request; }
 
   const dna = selectedMusicalDna(body);
   const style = effectiveStyleInfluence(body);
@@ -326,44 +301,28 @@ export async function lockMusicTaxonomyRequest(request) {
     target_bpm: bpm,
     preferredBpm: bpm,
     preferred_bpm: bpm,
-    bpmLock: true,
-    promptBpmAuthoritative: true,
     sonaraExactRequestedBpm: bpm,
-    prompt: canonicalPrompt,
-    rawPrompt: canonicalPrompt,
-    creatorPrompt: '',
-    creator_prompt: '',
-    musicPrompt: '',
+    promptBpmAuthoritative: true,
+    bpmLock: true,
     styleInfluence: style.effective,
     style_influence: style.effective,
     sonaraRequestedStyleInfluence: style.requested,
-    sonaraEffectiveStyleInfluence: style.effective,
     sonaraTaxonomyLock: TAXONOMY_LOCK_ID,
-    sonaraTaxonomyAuthoritative: true,
-    sonaraPromptTaxonomyFirst: true,
     sonaraPromptVersion: PROMPT_VERSION,
     sonaraRealismVersion: REALISM_VERSION,
-    sonaraInstrumentRealism: true,
-    sonaraVocalRealism: true,
-    sonaraAtmosphereRole: 'emotional-modifier-inside-subgenre',
     sonaraOriginalCreatorBrief: creator,
-    sonaraCreatorStylePriority: false,
-    promptGenreAuthoritative: true,
-    sonaraRealPrompt: true,
-    sonaraRealPromptVersion: PROMPT_VERSION
+    prompt: canonicalPrompt,
+    rawPrompt: creator,
+    creatorPrompt: creator,
+    creator_prompt: creator,
+    musicPrompt: creator
   };
 
   const headers = new Headers(request.headers);
   headers.delete('content-length');
   headers.set('content-type', 'application/json');
-  headers.set('x-sonara-musical-dna-lock', TAXONOMY_LOCK_ID);
-  headers.set('x-sonara-prompt-version', PROMPT_VERSION);
-  headers.set('x-sonara-realism', REALISM_VERSION);
+  headers.set('x-sonara-taxonomy-lock', TAXONOMY_LOCK_ID);
   headers.set('x-sonara-requested-bpm', String(bpm));
-  headers.set('x-sonara-family', dna.family);
-  headers.set('x-sonara-genre', dna.genre);
-  headers.set('x-sonara-subgenre', dna.subgenre);
-  headers.set('x-sonara-atmosphere', dna.atmosphere);
 
   return new Request(request.url, {
     method: request.method,
@@ -373,75 +332,22 @@ export async function lockMusicTaxonomyRequest(request) {
   });
 }
 
-async function injectFrontendTaxonomyHotfix(request, response) {
-  if (request.method === 'HEAD') return response;
-  const url = new URL(request.url);
-  if (!['sonaraenterprise.com', 'www.sonaraenterprise.com'].includes(url.hostname)) return response;
-  const contentType = String(response.headers.get('content-type') || '').toLowerCase();
-  if (!contentType.includes('text/html')) return response;
-
-  try {
-    const html = await response.text();
-    if (html.includes('__sonaraTaxonomyFrontendV4')) {
-      return new Response(html, { status: response.status, statusText: response.statusText, headers: response.headers });
-    }
-    const script = `<script id="sonara-taxonomy-frontend-v4">${FRONTEND_TAXONOMY_HOTFIX}</script>`;
-    const output = html.includes('</body>') ? html.replace('</body>', `${script}</body>`) : `${html}${script}`;
-    const headers = new Headers(response.headers);
-    headers.delete('content-length');
-    headers.delete('content-encoding');
-    headers.set('cache-control', 'no-store, max-age=0');
-    headers.set('x-sonara-taxonomy-frontend', 'v4-clean-suno');
-    return new Response(output, { status: response.status, statusText: response.statusText, headers });
-  } catch {
-    return response;
-  }
-}
-
-async function decorateHealth(request, response) {
-  const url = new URL(request.url);
-  if (!response.ok || !['/api/health', '/api/engine/ready', '/api/molab/ready'].includes(url.pathname)) return response;
-  try {
-    const data = await response.clone().json();
-    const headers = new Headers(response.headers);
-    headers.set('content-type', 'application/json; charset=UTF-8');
-    headers.set('x-sonara-musical-dna-lock', TAXONOMY_LOCK_ID);
-    headers.set('x-sonara-prompt-version', PROMPT_VERSION);
-    headers.set('x-sonara-realism', REALISM_VERSION);
-    return new Response(JSON.stringify({
-      ...data,
-      musicalDnaLock: TAXONOMY_LOCK_ID,
-      promptVersion: PROMPT_VERSION,
-      frontendPromptMode: 'clean-suno-style',
-      hiddenBackendDna: true,
-      backendCuratedStyleProfile: true,
-      actualModelPromptTaxonomyFirst: true,
-      creatorPromptCannotOverrideTaxonomy: true,
-      familyAuthoritative: true,
-      genreAuthoritative: true,
-      subgenreAuthoritative: true,
-      atmosphereScopedToSubgenre: true,
-      billingGenerateTaxonomyFirst: true,
-      frontendTaxonomyHotfix: 'v4-clean-suno',
-      realismVersion: REALISM_VERSION,
-      instrumentPerformanceRealism: true,
-      humanVocalRealism: true,
-      exactBpmMetadataLock: true,
-      bpmRange: `${BPM_MIN}-${BPM_MAX}`,
-      weirdnessCannotChangeGenre: true,
-      styleInfluenceCannotChangeGenre: true,
-      styleInfluenceFidelityFloor: 90
-    }), { status: response.status, statusText: response.statusText, headers });
-  } catch {
-    return response;
-  }
+function injectFrontend(html) {
+  if (!html || html.includes('window.__sonaraTaxonomyFrontendV4')) return html;
+  const script = `<script>${FRONTEND_TAXONOMY_HOTFIX}</script>`;
+  return html.includes('</body>') ? html.replace('</body>', `${script}</body>`) : `${html}${script}`;
 }
 
 export default {
   async fetch(request, env, ctx) {
     const lockedRequest = await lockMusicTaxonomyRequest(request);
-    let response = await runtime.fetch(lockedRequest, env, ctx);
-    response = await injectFrontendTaxonomyHotfix(request, response);
-    return decorateHealth(request, response);
+    const response = await runtime.fetch(lockedRequest, env, ctx);
+    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+    if (!contentType.includes('text/html')) return response;
+    const html = await response.text();
+    const headers = new Headers(response.headers);
+    headers.delete('content-length');
+    headers.set('x-sonara-taxonomy-lock', TAXONOMY_LOCK_ID);
+    return new Response(injectFrontend(html), { status: response.status, statusText: response.statusText, headers });
   }
 };
