@@ -1,4 +1,6 @@
 SONARA YuE production deploy
 Worker: https://yue.sonaraenterprise.com
 Activated: 2026-08-30
-Verification: production-v17-yue-watchdog-visible-failures
+Verification: production-v18-yue-dual-candidate-v5
+Router commit: d71f75678259fb41f9fde6e9598d0728d9fdc3a7
+Candidates: 2
