@@ -5,6 +5,7 @@ import { analyzeCreatorBrief } from '../../generationPrompt';
 import { getMusicStyleProfile } from '../../musicStyleIntelligence';
 import { AssistantServiceInstance } from '../../services/AssistantService';
 import { stripVocalLanguageForInstrumental } from '../../services/promptDirector';
+import { extractRealInstrumentsFromText } from '../../data/realMusicalInstruments';
 
 type BpmMode = 'manual' | 'auto';
 
@@ -70,6 +71,10 @@ function buildIntelligentBrief(currentPrompt: string, context: CreatorContext): 
   const profile = getMusicStyleProfile(context.family, context.genre, context.subgenre);
   const creatorIntent = compact(analysis.normalized || fallback, analysis.detailed ? 1900 : 1200);
   const exclusions = analysis.exclusions.length ? `CREATOR EXCLUSIONS — STRICT: ${analysis.exclusions.join(' | ')}` : '';
+  const selectedInstruments = extractRealInstrumentsFromText(sanitizedPrompt);
+  const instrumentLock = selectedInstruments.length
+    ? `CREATOR INSTRUMENT LOCK — AUTHORITATIVE:\n${selectedInstruments.join(' · ')}. These exact instruments were explicitly selected by the creator. Preserve them in the arrangement. Genre intelligence may add supporting instruments only when compatible, but must never remove, replace or contradict these selected instruments.`
+    : '';
   const tempoInstruction = context.bpmMode === 'auto'
     ? `SONARA AUTO BPM selected ${context.bpm} BPM from the live musical context${context.bpmReason ? ` (${context.bpmReason})` : ''}. Treat this as the intelligent tempo choice for this creation and keep it coherent with genre, subgenre, mood and groove.`
     : `Manual BPM lock: exactly ${context.bpm} BPM. The creator chose this tempo explicitly; do not change it.`;
@@ -77,8 +82,9 @@ function buildIntelligentBrief(currentPrompt: string, context: CreatorContext): 
 
   const sections = [
     `CREATOR INTENT — PRESERVE AS AUTHORITATIVE:\n${creatorIntent}`,
+    instrumentLock,
     `SONARA INTELLIGENT STYLE INTERPRETATION — ${context.subgenre}:\n${compact(profile.identity, 620)}`,
-    `AUTHENTIC INSTRUMENTATION:\n${compact(profile.instrumentation, analysis.detailed ? 420 : 620)}`,
+    `AUTHENTIC INSTRUMENTATION:\n${compact(profile.instrumentation, analysis.detailed ? 420 : 620)}${selectedInstruments.length ? '\nUse this style instrumentation only as supporting context around the creator-locked instruments above.' : ''}`,
     `RHYTHM AND GROOVE:\n${compact(profile.rhythm, analysis.detailed ? 420 : 620)}`,
     `HARMONY / MUSICAL LANGUAGE:\n${compact(profile.harmony, analysis.detailed ? 360 : 520)}`,
     `ARRANGEMENT DIRECTION:\n${compact(profile.arrangement, analysis.detailed ? 360 : 520)}`,
@@ -88,7 +94,7 @@ function buildIntelligentBrief(currentPrompt: string, context: CreatorContext): 
     `CREATIVITY CONTROLS:\n${creativityInstruction}`,
     `TECHNICAL LOCKS:\n${context.family} → ${context.genre} → ${context.subgenre}; atmosphere ${context.mood}; active tempo ${context.bpm} BPM; key ${context.keySignature}; approximately ${context.durationSec} seconds with a complete musical-bar ending.`,
     exclusions,
-    'INTELLIGENT PRIORITY RULE: explicit interface selections are authoritative. Never replace, weaken or contradict creator instructions, manual BPM, vocal mode, taxonomy or creative-control values. Use the selected style DNA only to complete details the creator did not specify. Keep the result original, musically performed, evolving and release-ready.'
+    'INTELLIGENT PRIORITY RULE: explicit interface selections are authoritative. Never replace, weaken or contradict creator instructions, creator-selected instruments, manual BPM, vocal mode, taxonomy or creative-control values. Use the selected style DNA only to complete details the creator did not specify. Keep the result original, musically performed, evolving and release-ready.'
   ].filter(Boolean);
 
   return sections.join('\n\n').slice(0, MAX_INTELLIGENT_BRIEF_CHARS).trim();
