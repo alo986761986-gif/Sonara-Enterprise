@@ -71,6 +71,9 @@ run(['tsx', 'src/musicStyleIntelligence.professional.test.ts']);
 console.log('[SONARA] Validating canonical real family > genre > subgenre taxonomy v4.');
 run(['tsx', 'src/data/realMusicTaxonomyV4.test.ts']);
 
+console.log('[SONARA] Validating authoritative real musical instruments.');
+run(['tsx', 'src/data/realMusicalInstruments.test.ts']);
+
 console.log('[SONARA] Validating Prompt Director and Suno-style prompt intelligence.');
 run(['tsx', 'src/services/promptDirector.test.ts']);
 
