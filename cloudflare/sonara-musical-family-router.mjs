@@ -1,98 +1,143 @@
 import runtime from './sonara-studio-pro-router.mjs';
 export { SonaraJobState } from './sonara-studio-pro-router.mjs';
 
-const VERSION = 'sonara-musical-families-v1';
+const VERSION = 'sonara-musical-families-v2-exact-categories';
 const GENERATE_PATHS = new Set(['/api/billing/generate', '/api/engine/generate']);
 
 export const MUSICAL_FAMILY_MAP = Object.freeze({
-  'Electronic / Dance': 'Electronic Music',
+  'Electronic / Dance': 'Electronic / Dance',
   'Hip-Hop / Rap': 'Hip-Hop / Rap',
   'Pop': 'Pop',
-  'Rock': 'Rock / Alternative / Punk',
+  'Rock': 'Rock',
   'Metal': 'Metal',
   'R&B / Soul / Funk': 'R&B / Soul / Funk',
   'Jazz': 'Jazz',
   'Blues': 'Blues',
-  'Reggae / Jamaican': 'Reggae / Ska / Dancehall',
-  'Latin America': 'Latin Music',
-  'Africa': 'African Music',
-  'Caribbean': 'Caribbean Music',
-  'Middle East / North Africa': 'Middle Eastern / North African Music',
-  'South Asia': 'South Asian Music',
-  'East Asia': 'East Asian Music',
-  'Southeast Asia': 'Southeast Asian Music',
+  'Reggae / Jamaican': 'Reggae / Jamaican',
+  'Latin America': 'Latin America',
+  'Africa': 'Africa',
+  'Caribbean': 'Caribbean',
+  'Middle East / North Africa': 'Middle East / North Africa',
+  'South Asia': 'South Asia',
+  'East Asia': 'East Asia',
+  'Southeast Asia': 'Southeast Asia',
   'Country / Americana': 'Country / Americana',
-  'Folk / Traditional Europe': 'European Folk / Traditional Music',
-  'Neomelodica Napoletana': 'Neapolitan Popular Music',
+  'Folk / Traditional Europe': 'Folk / Traditional Europe',
+  'Neomelodica Napoletana': 'Neomelodica Napoletana',
   'Classical / Art Music': 'Classical / Art Music',
-  'Gospel / Spiritual': 'Sacred / Devotional Music',
-  'Cinematic / Media': 'Soundtrack / Media Music',
+  'Gospel / Spiritual': 'Gospel / Spiritual',
+  'Cinematic / Media': 'Cinematic / Media',
   'Experimental / Avant-Garde': 'Experimental / Avant-Garde',
   'Easy Listening / Lounge': 'Easy Listening / Lounge',
-  'Children / Novelty / Spoken': "Children's / Spoken / Novelty"
+  'Children / Novelty / Spoken': 'Children / Novelty / Spoken'
 });
 
-export const MUSICAL_FAMILIES = Object.entries(MUSICAL_FAMILY_MAP).map(([internalKey, name]) => ({
-  internalKey,
+const LEGACY_FAMILY_ALIASES = Object.freeze({
+  'Electronic Music': 'Electronic / Dance',
+  'Rock / Alternative / Punk': 'Rock',
+  'Reggae / Ska / Dancehall': 'Reggae / Jamaican',
+  'Latin Music': 'Latin America',
+  'African Music': 'Africa',
+  'Caribbean Music': 'Caribbean',
+  'Middle Eastern / North African Music': 'Middle East / North Africa',
+  'South Asian Music': 'South Asia',
+  'East Asian Music': 'East Asia',
+  'Southeast Asian Music': 'Southeast Asia',
+  'European Folk / Traditional Music': 'Folk / Traditional Europe',
+  'Neapolitan Popular Music': 'Neomelodica Napoletana',
+  'Sacred / Devotional Music': 'Gospel / Spiritual',
+  'Soundtrack / Media Music': 'Cinematic / Media',
+  "Children's / Spoken / Novelty": 'Children / Novelty / Spoken'
+});
+
+export const MUSICAL_FAMILIES = Object.keys(MUSICAL_FAMILY_MAP).map(name => ({
+  internalKey: name,
   name,
   type: 'musical-family'
 }));
 
 const clean = value => String(value ?? '').trim();
-const canonicalFamily = value => MUSICAL_FAMILY_MAP[clean(value)] || clean(value) || 'Music';
+const canonicalFamily = value => {
+  const raw = clean(value);
+  const exact = LEGACY_FAMILY_ALIASES[raw] || raw;
+  return MUSICAL_FAMILY_MAP[exact] || exact || 'Music';
+};
 
 const FAMILY_UI = String.raw`(() => {
-  if (window.__sonaraMusicalFamiliesV1) return;
-  window.__sonaraMusicalFamiliesV1 = true;
+  if (window.__sonaraMusicalFamiliesV2ExactCategories) return;
+  window.__sonaraMusicalFamiliesV2ExactCategories = true;
 
   const MAP = ${JSON.stringify({
-    'Electronic / Dance': 'Electronic Music',
+    'Electronic / Dance': 'Electronic / Dance',
     'Hip-Hop / Rap': 'Hip-Hop / Rap',
     'Pop': 'Pop',
-    'Rock': 'Rock / Alternative / Punk',
+    'Rock': 'Rock',
     'Metal': 'Metal',
     'R&B / Soul / Funk': 'R&B / Soul / Funk',
     'Jazz': 'Jazz',
     'Blues': 'Blues',
-    'Reggae / Jamaican': 'Reggae / Ska / Dancehall',
-    'Latin America': 'Latin Music',
-    'Africa': 'African Music',
-    'Caribbean': 'Caribbean Music',
-    'Middle East / North Africa': 'Middle Eastern / North African Music',
-    'South Asia': 'South Asian Music',
-    'East Asia': 'East Asian Music',
-    'Southeast Asia': 'Southeast Asian Music',
+    'Reggae / Jamaican': 'Reggae / Jamaican',
+    'Latin America': 'Latin America',
+    'Africa': 'Africa',
+    'Caribbean': 'Caribbean',
+    'Middle East / North Africa': 'Middle East / North Africa',
+    'South Asia': 'South Asia',
+    'East Asia': 'East Asia',
+    'Southeast Asia': 'Southeast Asia',
     'Country / Americana': 'Country / Americana',
-    'Folk / Traditional Europe': 'European Folk / Traditional Music',
-    'Neomelodica Napoletana': 'Neapolitan Popular Music',
+    'Folk / Traditional Europe': 'Folk / Traditional Europe',
+    'Neomelodica Napoletana': 'Neomelodica Napoletana',
     'Classical / Art Music': 'Classical / Art Music',
-    'Gospel / Spiritual': 'Sacred / Devotional Music',
-    'Cinematic / Media': 'Soundtrack / Media Music',
+    'Gospel / Spiritual': 'Gospel / Spiritual',
+    'Cinematic / Media': 'Cinematic / Media',
     'Experimental / Avant-Garde': 'Experimental / Avant-Garde',
     'Easy Listening / Lounge': 'Easy Listening / Lounge',
-    'Children / Novelty / Spoken': "Children's / Spoken / Novelty"
+    'Children / Novelty / Spoken': 'Children / Novelty / Spoken'
+  })};
+
+  const LEGACY = ${JSON.stringify({
+    'Electronic Music': 'Electronic / Dance',
+    'Rock / Alternative / Punk': 'Rock',
+    'Reggae / Ska / Dancehall': 'Reggae / Jamaican',
+    'Latin Music': 'Latin America',
+    'African Music': 'Africa',
+    'Caribbean Music': 'Caribbean',
+    'Middle Eastern / North African Music': 'Middle East / North Africa',
+    'South Asian Music': 'South Asia',
+    'East Asian Music': 'East Asia',
+    'Southeast Asian Music': 'Southeast Asia',
+    'European Folk / Traditional Music': 'Folk / Traditional Europe',
+    'Neapolitan Popular Music': 'Neomelodica Napoletana',
+    'Sacred / Devotional Music': 'Gospel / Spiritual',
+    'Soundtrack / Media Music': 'Cinematic / Media',
+    "Children's / Spoken / Novelty": 'Children / Novelty / Spoken'
   })};
 
   const upstreamFetch = window.fetch.bind(window);
   const prompt = () => document.getElementById('sonara-prompt');
   const section = () => prompt()?.closest('section') || null;
   const familySelect = () => section()?.querySelector('select') || null;
-  const canonical = value => MAP[String(value || '').trim()] || String(value || '').trim();
+  const canonical = value => {
+    const raw = String(value || '').trim();
+    const exact = LEGACY[raw] || raw;
+    return MAP[exact] || exact;
+  };
 
   function relabel() {
     const select = familySelect();
     if (!(select instanceof HTMLSelectElement)) return;
     Array.from(select.options).forEach(option => {
-      const internal = String(option.value || option.textContent || '').trim();
-      const label = canonical(internal);
+      const rawValue = String(option.value || '').trim();
+      const rawText = String(option.textContent || '').trim();
+      const label = canonical(rawValue || rawText);
       if (!label) return;
       option.textContent = label;
       option.label = label;
-      option.dataset.sonaraFamilyInternalKey = internal;
+      option.dataset.sonaraFamilyInternalKey = label;
       option.dataset.sonaraMusicalFamily = label;
     });
-    select.dataset.sonaraMusicalFamilyTaxonomy = 'v1';
-    select.setAttribute('aria-label', 'Musical Family');
+    select.dataset.sonaraMusicalFamilyTaxonomy = 'v2-exact-categories';
+    select.setAttribute('aria-label', 'Genre Category');
   }
 
   const observer = new MutationObserver(() => relabel());
@@ -117,16 +162,16 @@ const FAMILY_UI = String.raw`(() => {
 
     try {
       const body = await request.clone().json();
-      const internal = String(familySelect()?.value || body.sonaraSelectedFamily || body.genreFamily || body.genre_family || '').trim();
-      const family = canonical(internal);
+      const raw = String(familySelect()?.value || body.sonaraMusicalFamilyInternalKey || body.sonaraSelectedFamily || body.genreFamily || body.genre_family || body.sonaraCanonicalMusicalFamily || '').trim();
+      const family = canonical(raw);
       body.sonaraCanonicalMusicalFamily = family;
-      body.sonaraMusicalFamilyInternalKey = internal;
-      body.sonaraMusicalFamilyTaxonomyVersion = 'v1';
+      body.sonaraMusicalFamilyInternalKey = family;
+      body.sonaraMusicalFamilyTaxonomyVersion = 'v2-exact-categories';
       const headers = new Headers(request.headers);
       headers.delete('content-length');
       headers.set('content-type', 'application/json');
       headers.set('x-sonara-musical-family', family);
-      headers.set('x-sonara-musical-family-taxonomy', 'v1');
+      headers.set('x-sonara-musical-family-taxonomy', 'v2-exact-categories');
       return upstreamFetch(new Request(request.url, {
         method: request.method,
         headers,
@@ -150,12 +195,18 @@ async function rewriteGenerateRequest(request) {
   try { body = await request.clone().json(); }
   catch { return request; }
 
-  const internal = clean(body.sonaraMusicalFamilyInternalKey || body.sonaraSelectedFamily || body.genreFamily || body.genre_family);
-  const family = canonicalFamily(body.sonaraCanonicalMusicalFamily || internal);
+  const raw = clean(
+    body.sonaraMusicalFamilyInternalKey ||
+    body.sonaraSelectedFamily ||
+    body.genreFamily ||
+    body.genre_family ||
+    body.sonaraCanonicalMusicalFamily
+  );
+  const family = canonicalFamily(raw);
   const next = {
     ...body,
     sonaraCanonicalMusicalFamily: family,
-    sonaraMusicalFamilyInternalKey: internal,
+    sonaraMusicalFamilyInternalKey: family,
     sonaraMusicalFamilyTaxonomyVersion: VERSION
   };
   const headers = new Headers(request.headers);
@@ -191,8 +242,8 @@ async function inject(request, response) {
   if (!['sonaraenterprise.com', 'www.sonaraenterprise.com'].includes(url.hostname)) return response;
   if (!clean(response.headers.get('content-type')).toLowerCase().includes('text/html')) return response;
   const html = await response.text();
-  if (html.includes('sonara-musical-families-v1')) return new Response(html, response);
-  const injection = `<script id="sonara-musical-families-v1">${FAMILY_UI.replace(/<\/script/gi, '<\\/script')}</script>`;
+  if (html.includes('sonara-musical-families-v2-exact-categories')) return new Response(html, response);
+  const injection = `<script id="sonara-musical-families-v2-exact-categories">${FAMILY_UI.replace(/<\/script/gi, '<\\/script')}</script>`;
   const next = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${injection}</body>`) : `${html}${injection}`;
   const headers = new Headers(response.headers);
   headers.delete('content-length');
@@ -209,8 +260,8 @@ export default {
       return json({
         status: 'success',
         version: VERSION,
-        hierarchy: 'Musical Family > Genre > Subgenre > Atmosphere',
-        internalKeysPreservedForCompatibility: true,
+        hierarchy: 'Genre Category > Genre > Subgenre > Atmosphere',
+        exactCategoryLabels: true,
         count: MUSICAL_FAMILIES.length,
         families: MUSICAL_FAMILIES
       });
@@ -232,7 +283,8 @@ export default {
             ...data,
             musicalFamilyTaxonomy: {
               version: VERSION,
-              hierarchy: 'Musical Family > Genre > Subgenre > Atmosphere',
+              hierarchy: 'Genre Category > Genre > Subgenre > Atmosphere',
+              exactCategoryLabels: true,
               canonicalFamilyCount: MUSICAL_FAMILIES.length,
               internalKeysPreservedForCompatibility: true,
               canonicalLabels: MUSICAL_FAMILIES.map(item => item.name)
