@@ -55,10 +55,19 @@ const ATMOSPHERES = ['Authentic', 'Dark', 'Emotional', 'Uplifting', 'Cinematic',
 const DURATIONS = [60, 90, 120, 180, 240, 300, 360, 480];
 const VOCALS: SonaraMusicBenchmarkCase['vocalMode'][] = ['instrumental', 'female', 'male', 'duet'];
 
-function flattenStyles() {
-  return WORLD_MUSIC_GENRES.flatMap(family => family.genres.flatMap(genre =>
+type BenchmarkStyle = { family: string; genre: string; subgenre: string };
+
+function stylesByFamily(): BenchmarkStyle[][] {
+  return WORLD_MUSIC_GENRES.map(family => family.genres.flatMap(genre =>
     genre.subgenres.map(subgenre => ({ family: family.family, genre: genre.name, subgenre }))
-  ));
+  )).filter(styles => styles.length > 0);
+}
+
+function styleForIndex(families: BenchmarkStyle[][], index: number): BenchmarkStyle {
+  const familyIndex = index % families.length;
+  const familyStyles = families[familyIndex];
+  const round = Math.floor(index / families.length);
+  return familyStyles[round % familyStyles.length];
 }
 
 function deterministicBpm(family: string, index: number): number {
@@ -76,12 +85,12 @@ function instrumentsFor(index: number): string[] {
 }
 
 export function buildSonaraMusicBenchmarkCases(count = SONARA_MUSIC_BENCHMARK_SIZE): SonaraMusicBenchmarkCase[] {
-  const styles = flattenStyles();
-  if (!styles.length) throw new Error('SONARA benchmark cannot run without music taxonomy styles.');
+  const families = stylesByFamily();
+  if (!families.length) throw new Error('SONARA benchmark cannot run without music taxonomy styles.');
   const cases: SonaraMusicBenchmarkCase[] = [];
 
   for (let index = 0; index < count; index += 1) {
-    const style = styles[index % styles.length];
+    const style = styleForIndex(families, index);
     const bpm = deterministicBpm(style.family, index);
     const durationSec = DURATIONS[index % DURATIONS.length];
     const vocalMode = VOCALS[index % VOCALS.length];
