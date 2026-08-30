@@ -82,7 +82,11 @@ for (const family of WORLD_MUSIC_GENRES) {
 
 assert.equal(familyCount, 25, 'all 25 music families must remain available');
 assert.ok(genreCount > 140, `professional hierarchy must expose real genres instead of legacy buckets (found ${genreCount})`);
-assert.equal(subgenreCount, 720, 'all 720 selectable musical styles must remain available');
+// The legacy catalog contained 720 menu positions, but Jazz Fusion appeared twice:
+// once incorrectly under Jazz and once under its real Jazz Fusion parent. Exact-parent
+// normalization intentionally deduplicates that single legacy duplicate, leaving 719
+// real selectable taxonomy paths without removing any unique musical style.
+assert.equal(subgenreCount, 719, 'all 719 exact selectable musical styles must remain available after Jazz Fusion deduplication');
 assert.equal(allFingerprints.size, subgenreCount, 'every taxonomy path must produce a distinct professional fingerprint');
 
 function family(name: string) {
@@ -107,6 +111,7 @@ assertChildren('Hip-Hop / Rap', 'Southern Rap', ['Dirty South', 'Memphis Rap', '
 assertChildren('Hip-Hop / Rap', 'French Rap', ['French Rap']);
 assertChildren('Pop', 'Mandopop', ['Mandopop']);
 assertChildren('Jazz', 'Jazz Fusion', ['Jazz Fusion']);
+assert.ok(!genre('Jazz', 'Jazz').subgenres.includes('Jazz Fusion'), 'Jazz Fusion must not remain duplicated under the generic Jazz parent');
 assertChildren('Latin America', 'Samba', ['Samba', 'Pagode']);
 assertChildren('Latin America', 'MPB', ['MPB']);
 assertChildren('Latin America', 'Tropicália', ['Tropicália']);
