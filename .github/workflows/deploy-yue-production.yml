@@ -41,19 +41,32 @@ jobs:
           grep -q 'SONARA_YUE_WORKER_URL' wrangler.jsonc
           node --check cloudflare/sonara-yue-router.mjs
           node --check cloudflare/sonara-yue-primary-edge.mjs
-          curl -fsS --max-time 20 'https://permanent-again-textbook-argued.trycloudflare.com/health' >/tmp/yue-health.json
-          cat /tmp/yue-health.json
-          grep -q 'SONARA YuE RTX PRO 6000' /tmp/yue-health.json
+
+          YUE_URL='https://permanent-again-textbook-argued.trycloudflare.com'
+          : >/tmp/yue-health.json
+          ready=0
+          for attempt in $(seq 1 24); do
+            status="$(curl -sS --max-time 15 -o /tmp/yue-health.json -w '%{http_code}' "${YUE_URL}/health" || true)"
+            echo "YuE health attempt ${attempt}/24 HTTP=${status}"
+            if [ "${status}" = "200" ] && grep -q 'SONARA YuE RTX PRO 6000' /tmp/yue-health.json; then
+              ready=1
+              cat /tmp/yue-health.json
+              break
+            fi
+            sleep 5
+          done
+          test "${ready}" = "1"
 
       - name: Probe YuE POST without starting generation
         shell: bash
         run: |
           set -euo pipefail
+          YUE_URL='https://permanent-again-textbook-argued.trycloudflare.com'
           status="$(curl -sS --max-time 20 -o /tmp/yue-post-probe.json -w '%{http_code}' \
             -X POST \
             -H 'Content-Type: application/json' \
             --data-binary '{' \
-            'https://permanent-again-textbook-argued.trycloudflare.com/release_task')"
+            "${YUE_URL}/release_task" || true)"
           echo "YuE /release_task malformed-JSON probe HTTP=${status}"
           cat /tmp/yue-post-probe.json || true
           test "${status}" = "400"
@@ -85,7 +98,18 @@ jobs:
         run: |
           set -euo pipefail
           curl -fsS --max-time 30 'https://api.sonaraenterprise.com/api/health?yue=production' >/tmp/sonara-health.json
-          curl -fsS --max-time 20 'https://permanent-again-textbook-argued.trycloudflare.com/health' >/tmp/yue-health-after.json
-          cat /tmp/yue-health-after.json
-          grep -q 'SONARA YuE RTX PRO 6000' /tmp/yue-health-after.json
+
+          YUE_URL='https://permanent-again-textbook-argued.trycloudflare.com'
+          ready=0
+          for attempt in $(seq 1 12); do
+            status="$(curl -sS --max-time 15 -o /tmp/yue-health-after.json -w '%{http_code}' "${YUE_URL}/health" || true)"
+            echo "YuE post-deploy health attempt ${attempt}/12 HTTP=${status}"
+            if [ "${status}" = "200" ] && grep -q 'SONARA YuE RTX PRO 6000' /tmp/yue-health-after.json; then
+              ready=1
+              cat /tmp/yue-health-after.json
+              break
+            fi
+            sleep 5
+          done
+          test "${ready}" = "1"
           echo 'SONARA production endpoint and YuE GPU worker are both online.'
