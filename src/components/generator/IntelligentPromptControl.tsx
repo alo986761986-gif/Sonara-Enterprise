@@ -4,6 +4,7 @@ import { Sparkles } from 'lucide-react';
 import { analyzeCreatorBrief } from '../../generationPrompt';
 import { getMusicStyleProfile } from '../../musicStyleIntelligence';
 import { AssistantServiceInstance } from '../../services/AssistantService';
+import { stripVocalLanguageForInstrumental } from '../../services/promptDirector';
 
 type BpmMode = 'manual' | 'auto';
 
@@ -17,6 +18,9 @@ type CreatorContext = {
   bpmMode: BpmMode;
   bpmReason: string;
   durationSec: number;
+  vocalMode: string;
+  weirdness: number;
+  styleInfluence: number;
 };
 
 const MAX_INTELLIGENT_BRIEF_CHARS = 4300;
@@ -31,7 +35,10 @@ function readCreatorContext(textarea: HTMLTextAreaElement): CreatorContext {
   const selects = card ? Array.from(card.querySelectorAll('select')) : [];
   const valueAt = (index: number, fallback: string) => (selects[index] as HTMLSelectElement | undefined)?.value || fallback;
   const bpmInput = card?.querySelector('input[aria-label="BPM preferiti"]') as HTMLInputElement | null;
-  const bpmMode = bpmInput?.dataset.sonaraBpmMode === 'auto' || card?.dataset.sonaraBpmMode === 'auto' ? 'auto' : 'manual';
+  const weirdnessInput = card?.querySelector('#sonara-weirdness') as HTMLInputElement | null;
+  const styleInfluenceInput = card?.querySelector('#sonara-style-influence') as HTMLInputElement | null;
+  const vocalButton = card?.querySelector('button[data-sonara-vocal-mode][aria-pressed="true"]') as HTMLButtonElement | null;
+  const bpmMode = bpmInput?.dataset.sonaraBpmMode === 'auto' || (card as HTMLElement | null)?.dataset.sonaraBpmMode === 'auto' ? 'auto' : 'manual';
 
   return {
     family: valueAt(0, 'Electronic / Dance'),
@@ -42,21 +49,31 @@ function readCreatorContext(textarea: HTMLTextAreaElement): CreatorContext {
     bpm: Number(bpmInput?.value || 124),
     bpmMode,
     bpmReason: bpmInput?.dataset.sonaraAutoBpmReason || '',
-    durationSec: Number(valueAt(5, '30'))
+    durationSec: Number(valueAt(5, '30')),
+    vocalMode: vocalButton?.dataset.sonaraVocalMode || 'instrumental',
+    weirdness: Number(weirdnessInput?.value ?? 50),
+    styleInfluence: Number(styleInfluenceInput?.value ?? 50)
   };
+}
+
+function vocalInstruction(mode: string): string {
+  if (mode === 'male') return 'Male lead vocal is locked. Keep timbre, phrasing and range coherent with the selected style and atmosphere.';
+  if (mode === 'female') return 'Female lead vocal is locked. Keep timbre, phrasing and range coherent with the selected style and atmosphere.';
+  if (mode === 'duet') return 'Male/female duet is locked. Use complementary parts or purposeful call-and-response.';
+  return 'INSTRUMENTAL LOCK: no sung vocals, no singer and no lyrics. Vocal-like textures may only be non-lexical instruments if musically appropriate.';
 }
 
 function buildIntelligentBrief(currentPrompt: string, context: CreatorContext): string {
   const fallback = `Create an original, professional ${context.subgenre} track.`;
-  const analysis = analyzeCreatorBrief(currentPrompt, fallback);
+  const sanitizedPrompt = context.vocalMode === 'instrumental' ? stripVocalLanguageForInstrumental(currentPrompt) : currentPrompt;
+  const analysis = analyzeCreatorBrief(sanitizedPrompt, fallback);
   const profile = getMusicStyleProfile(context.family, context.genre, context.subgenre);
   const creatorIntent = compact(analysis.normalized || fallback, analysis.detailed ? 1900 : 1200);
-  const exclusions = analysis.exclusions.length
-    ? `CREATOR EXCLUSIONS — STRICT: ${analysis.exclusions.join(' | ')}`
-    : '';
+  const exclusions = analysis.exclusions.length ? `CREATOR EXCLUSIONS — STRICT: ${analysis.exclusions.join(' | ')}` : '';
   const tempoInstruction = context.bpmMode === 'auto'
     ? `SONARA AUTO BPM selected ${context.bpm} BPM from the live musical context${context.bpmReason ? ` (${context.bpmReason})` : ''}. Treat this as the intelligent tempo choice for this creation and keep it coherent with genre, subgenre, mood and groove.`
     : `Manual BPM lock: exactly ${context.bpm} BPM. The creator chose this tempo explicitly; do not change it.`;
+  const creativityInstruction = `Weirdness ${Math.round(context.weirdness)}% controls novelty and experimental deviation. Style Influence ${Math.round(context.styleInfluence)}% controls adherence to the selected genre/subgenre DNA. These controls must shape interpretation without overriding explicit creator instructions or the selected taxonomy.`;
 
   const sections = [
     `CREATOR INTENT — PRESERVE AS AUTHORITATIVE:\n${creatorIntent}`,
@@ -67,9 +84,11 @@ function buildIntelligentBrief(currentPrompt: string, context: CreatorContext): 
     `ARRANGEMENT DIRECTION:\n${compact(profile.arrangement, analysis.detailed ? 360 : 520)}`,
     `PRODUCTION DIRECTION:\n${compact(profile.production, analysis.detailed ? 420 : 620)}`,
     `TEMPO INTELLIGENCE:\n${tempoInstruction}`,
+    `VOCAL / INSTRUMENTAL LOCK:\n${vocalInstruction(context.vocalMode)}`,
+    `CREATIVITY CONTROLS:\n${creativityInstruction}`,
     `TECHNICAL LOCKS:\n${context.family} → ${context.genre} → ${context.subgenre}; atmosphere ${context.mood}; active tempo ${context.bpm} BPM; key ${context.keySignature}; approximately ${context.durationSec} seconds with a complete musical-bar ending.`,
     exclusions,
-    'INTELLIGENT PRIORITY RULE: never replace, weaken or contradict explicit creator instructions. Use the selected style DNA only to complete details the creator did not specify. Keep the result original, musically performed, evolving and release-ready.'
+    'INTELLIGENT PRIORITY RULE: explicit interface selections are authoritative. Never replace, weaken or contradict creator instructions, manual BPM, vocal mode, taxonomy or creative-control values. Use the selected style DNA only to complete details the creator did not specify. Keep the result original, musically performed, evolving and release-ready.'
   ].filter(Boolean);
 
   return sections.join('\n\n').slice(0, MAX_INTELLIGENT_BRIEF_CHARS).trim();
@@ -87,23 +106,14 @@ export default function IntelligentPromptControl() {
   const [mountNode, setMountNode] = useState<HTMLElement | null>(null);
   const [disabled, setDisabled] = useState(false);
   const [optimized, setOptimized] = useState(false);
-  const enabled = useMemo(
-    () => AssistantServiceInstance.getActions().some(action => action.id === 'improve_prompt' && action.enabled),
-    []
-  );
+  const enabled = useMemo(() => AssistantServiceInstance.getActions().some(action => action.id === 'improve_prompt' && action.enabled), []);
 
   useEffect(() => {
     if (!enabled) return;
-
     const connect = () => {
       const textarea = document.getElementById('sonara-prompt') as HTMLTextAreaElement | null;
       const toolbar = textarea?.previousElementSibling?.lastElementChild as HTMLElement | null;
-      if (!textarea || !toolbar) {
-        setMountNode(null);
-        setDisabled(false);
-        return;
-      }
-
+      if (!textarea || !toolbar) { setMountNode(null); setDisabled(false); return; }
       let host = toolbar.querySelector('[data-sonara-intelligent-prompt-host]') as HTMLElement | null;
       if (!host) {
         host = document.createElement('span');
@@ -111,12 +121,10 @@ export default function IntelligentPromptControl() {
         host.className = 'inline-flex';
         toolbar.prepend(host);
       }
-
       const randomButton = toolbar.querySelector('button[title="Random prompt"]') as HTMLButtonElement | null;
       setDisabled(Boolean(randomButton?.disabled));
       setMountNode(host);
     };
-
     connect();
     const observer = new MutationObserver(connect);
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled'] });
@@ -129,7 +137,6 @@ export default function IntelligentPromptControl() {
     if (disabled) return;
     const textarea = document.getElementById('sonara-prompt') as HTMLTextAreaElement | null;
     if (!textarea) return;
-
     const context = readCreatorContext(textarea);
     const intelligentBrief = buildIntelligentBrief(textarea.value, context);
     setControlledTextareaValue(textarea, intelligentBrief);
@@ -139,16 +146,8 @@ export default function IntelligentPromptControl() {
   };
 
   return createPortal(
-    <button
-      type="button"
-      onClick={improvePrompt}
-      disabled={disabled}
-      className="inline-flex items-center gap-2 rounded-lg border border-cyan-400/35 bg-cyan-400/10 px-3 py-2 text-[11px] font-black tracking-wider text-cyan-200 transition hover:border-cyan-300/60 hover:bg-cyan-400/20 disabled:opacity-50"
-      title="Prompt Intelligente SONARA"
-      aria-label="Migliora il prompt con Prompt Intelligente SONARA"
-    >
-      <Sparkles className="h-3.5 w-3.5" />
-      {optimized ? 'OTTIMIZZATO' : 'PROMPT INTELLIGENTE'}
+    <button type="button" onClick={improvePrompt} disabled={disabled} className="inline-flex items-center gap-2 rounded-lg border border-cyan-400/35 bg-cyan-400/10 px-3 py-2 text-[11px] font-black tracking-wider text-cyan-200 transition hover:border-cyan-300/60 hover:bg-cyan-400/20 disabled:opacity-50" title="Prompt Intelligente SONARA" aria-label="Migliora il prompt con Prompt Intelligente SONARA">
+      <Sparkles className="h-3.5 w-3.5" />{optimized ? 'OTTIMIZZATO' : 'PROMPT INTELLIGENTE'}
     </button>,
     mountNode
   );
