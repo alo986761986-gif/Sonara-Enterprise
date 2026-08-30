@@ -4,14 +4,17 @@ import { rewriteGenerationRequest } from './sonara-engine-v15-authoritative-prom
 export { SonaraJobState } from './sonara-instant-speed-router.mjs';
 
 const VERSION = 'sonara-molab-xl-only-v1';
+const FIDELITY_PROFILE = 'sonara-fidelity-v2-lm4b';
 const MODEL = 'acestep-v15-xl-turbo';
+const LM_MODEL = 'acestep-5Hz-lm-4B';
+const LM_BACKEND = 'vllm';
 const PUBLIC_API_ORIGIN = 'https://api.sonaraenterprise.com';
 const CACHE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/molab-xl-only-v1/';
 const CACHE_TTL = 3 * 60 * 60;
 const QUERY_TIMEOUT = 8_000;
-const SUBMIT_TIMEOUT = 45_000;
+const SUBMIT_TIMEOUT = 120_000;
 const AUDIO_TIMEOUT = 120_000;
-const INFERENCE_STEPS = 4;
+const INFERENCE_STEPS = 8;
 
 const cleanUrl = value => String(value || '').trim().replace(/\/$/, '');
 const molabUrl = env => cleanUrl(env.SONARA_MOLAB_XL_URL || env.MOLAB_ACESTEP_URL || '');
@@ -22,8 +25,8 @@ function cors(request) {
   return {
     'Access-Control-Allow-Origin': allowed.has(origin) ? origin : 'https://sonaraenterprise.com',
     'Access-Control-Allow-Methods': 'GET,HEAD,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Authorization,Content-Type,Range,Cache-Control,Pragma,X-Sonara-Internal-Secret,X-Sonara-Job-Bridge,X-Sonara-Real-Prompt',
-    'Access-Control-Expose-Headers': 'Content-Length,Content-Range,Accept-Ranges,X-Sonara-MoLab-Profile,X-Sonara-ACE-Worker',
+    'Access-Control-Allow-Headers': 'Authorization,Content-Type,Range,Cache-Control,Pragma,X-Sonara-Internal-Secret,X-Sonara-Job-Bridge,X-Sonara-Real-Prompt,X-Sonara-Requested-Bpm',
+    'Access-Control-Expose-Headers': 'Content-Length,Content-Range,Accept-Ranges,X-Sonara-MoLab-Profile,X-Sonara-Fidelity-Profile,X-Sonara-ACE-Worker',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin'
   };
@@ -36,6 +39,7 @@ function json(request, data, status = 200) {
       'content-type': 'application/json; charset=UTF-8',
       'cache-control': 'private, no-store',
       'x-sonara-molab-profile': VERSION,
+      'x-sonara-fidelity-profile': FIDELITY_PROFILE,
       ...cors(request)
     }
   });
@@ -66,11 +70,64 @@ function candidateCount(body = {}) {
   return Math.round(clamp(body?.candidateCount, 2, 1, 2));
 }
 
-function molabPayload(body, count) {
-  const seed = Math.max(1, Number(body?.seed) > 0 ? Number(body.seed) : Math.floor(Date.now() % 2_000_000_000));
-  const base = buildStudioPayload(body, 'structure', seed + 104729);
+function creatorIntent(body = {}) {
+  return String(
+    body?.rawPrompt ||
+    body?.creatorPrompt ||
+    body?.creator_prompt ||
+    body?.musicPrompt ||
+    ''
+  ).trim();
+}
+
+function qualityControls(body = {}) {
   const weirdness = Math.round(clamp(body.weirdness, 50, 0, 100));
   const styleInfluence = Math.round(clamp(body.styleInfluence ?? body.style_influence, 50, 0, 100));
+  return {
+    weirdness,
+    styleInfluence,
+    lmTemperature: Number((0.60 + weirdness * 0.005).toFixed(2)),
+    lmCfgScale: Number((1.90 + styleInfluence * 0.017).toFixed(2)),
+    lmTopK: Math.round(40 + weirdness * 0.60),
+    lmTopP: Number((0.84 + weirdness * 0.0012).toFixed(3))
+  };
+}
+
+function fidelityInstruction(body = {}, controls = qualityControls(body)) {
+  const requested = creatorIntent(body);
+  const taxonomy = [body.genreFamily || body.genre_family, body.genre, body.subgenre].filter(Boolean).join(' > ');
+  const styleLock = controls.styleInfluence >= 80
+    ? 'STRICT STYLE LOCK: reproduce the creator-requested genre language, groove, instrumentation, arrangement and production identity with very high fidelity.'
+    : controls.styleInfluence >= 55
+      ? 'STRONG STYLE LOCK: keep the creator-requested genre unmistakable while allowing only compatible musical variation.'
+      : 'STYLE LOCK: keep the creator-requested genre clearly recognizable while allowing tasteful variation inside that genre.';
+  const creativity = controls.weirdness >= 75
+    ? 'Use bold creativity in melody, harmony, sound design and transitions, but NEVER cross the requested genre boundary or alter the requested BPM.'
+    : controls.weirdness >= 45
+      ? 'Use controlled originality and musical variation while preserving the requested style identity and song coherence.'
+      : 'Favor conservative, highly coherent songwriting and genre-authentic choices over experimentation.';
+
+  return [
+    'SONARA FIDELITY ENGINE V2 — AUTHORITATIVE EXECUTION INSTRUCTION.',
+    'Generate finished music audio immediately; do not answer with analysis or prose.',
+    'The creator free-text prompt is the master musical specification. If it conflicts with UI genre defaults, THE CREATOR FREE-TEXT PROMPT ALWAYS WINS.',
+    requested ? `AUTHORITATIVE CREATOR BRIEF: ${requested.slice(0, 3500)}` : '',
+    taxonomy ? `UI taxonomy is fallback context only: ${taxonomy}. It may fill unspecified details but must never replace an explicitly requested style.` : '',
+    `Exact BPM=${body.bpm ?? body.requestedBpm ?? 'as supplied'}, key=${body.key ?? body.key_scale ?? 'as supplied'}, duration=${body.durationSec ?? body.duration ?? 'as supplied'} seconds. Preserve these controls throughout the rendered song.`,
+    styleLock,
+    creativity,
+    'Do not collapse the result into generic EDM, generic pop, generic house, or any neighboring genre unless the creator explicitly asked for it.',
+    'Use genre-authentic drums, bass language, instrumentation, harmonic vocabulary, melodic phrasing, transitions, mix balance and mastering character.',
+    'For vocals, preserve supplied lyrics, requested language and singer intent. For instrumental requests, do not invent lead vocals.',
+    'Create a memorable hook or motif, meaningful section development, professional transitions, a deliberate climax and a composed ending. Avoid copy-paste looping.',
+    'Prioritize clean transients, controlled low end, intelligible mids, non-harsh highs, stereo depth, dynamics and a release-ready master.'
+  ].filter(Boolean).join('\n');
+}
+
+export function buildMolabPayload(body, count) {
+  const seed = Math.max(1, Number(body?.seed) > 0 ? Number(body.seed) : Math.floor(Date.now() % 2_000_000_000));
+  const base = buildStudioPayload(body, 'structure', seed + 104729);
+  const controls = qualityControls(body);
   const locks = [
     body.sonaraStudioMaxHookContract,
     body.sonaraStudioMaxVocalContract,
@@ -79,27 +136,51 @@ function molabPayload(body, count) {
     body.sonaraStudioMaxProductionContract
   ].filter(Boolean).join(' ');
 
-  const prompt = `${String(base.prompt || body.prompt || '')}\n\nSONARA MOLAB XL-TURBO ONLY. Render ${count} professional candidate${count === 2 ? 's' : ''} in one RTX Pro 6000 batch. Preserve exact BPM, duration, key, lyrics, vocal language, genre and subgenre. ${locks} Weirdness=${weirdness}/100. Style Influence=${styleInfluence}/100. ${count === 2 ? 'Candidate 1 prioritizes hook, groove and immediate structure. Candidate 2 preserves all creator locks but uses a clearly different melody, voicing, transition language and timbral balance.' : 'Prioritize hook, groove, coherent structure and professional production.'} Do not return analysis text; render audio immediately.`.slice(0, 12000);
+  // IMPORTANT: do not use base.prompt as the final prompt. buildStudioPayload can
+  // re-assert UI taxonomy after the creator prompt. The rewritten authoritative
+  // body.prompt is the source of truth; the final fidelity instruction is placed
+  // after it so the creator request cannot be overwritten by stale UI defaults.
+  const authoritativePrompt = String(body.prompt || '').trim().slice(0, 7200);
+  const finalInstruction = fidelityInstruction(body, controls).slice(0, 4200);
+  const candidateDirection = count === 2
+    ? 'Generate two candidates with the SAME creator style/BPM/key/lyrics locks. Candidate A prioritizes hook and groove. Candidate B varies melody, voicing, transitions and timbral balance without changing genre identity.'
+    : 'Generate one highly faithful professional master with strong hook, groove, coherent structure and production detail.';
 
-  const payload = {
+  const prompt = [
+    authoritativePrompt,
+    'SONARA MOLAB RTX PRO 6000 — HIGH FIDELITY MODE.',
+    finalInstruction,
+    locks,
+    `Weirdness=${controls.weirdness}/100 controls creativity INSIDE the requested style. Style Influence=${controls.styleInfluence}/100 controls adherence to the creator style.`,
+    candidateDirection
+  ].filter(Boolean).join('\n\n').slice(0, 12000);
+
+  return {
     ...base,
     model: MODEL,
     prompt,
     inference_steps: INFERENCE_STEPS,
+    guidance_scale: 7.0,
     batch_size: count,
-    thinking: false,
-    use_format: false,
-    use_cot_metas: false,
-    use_cot_caption: false,
+    thinking: true,
+    use_format: true,
+    use_cot_caption: true,
     use_cot_language: false,
-    constrained_decoding: false,
+    constrained_decoding: true,
     constrained_decoding_debug: false,
-    allow_lm_batch: false,
+    allow_lm_batch: true,
+    lm_model_path: LM_MODEL,
+    lm_backend: LM_BACKEND,
+    lm_temperature: controls.lmTemperature,
+    lm_cfg_scale: controls.lmCfgScale,
+    lm_top_k: controls.lmTopK,
+    lm_top_p: controls.lmTopP,
+    lm_repetition_penalty: 1.03,
+    lm_negative_prompt: 'genre drift, wrong genre, wrong tempo, wrong key, incoherent structure, bland default arrangement, muddy mix, clipping, malformed ending, unwanted vocals, wrong vocal language',
+    instruction: finalInstruction,
     infer_method: 'ode',
     use_random_seed: true
   };
-  for (const key of Object.keys(payload)) if (key.startsWith('lm_')) delete payload[key];
-  return payload;
 }
 
 async function submit(baseUrl, env, payload) {
@@ -176,7 +257,7 @@ function refsFrom(task, baseUrl) {
     }
     if (Array.isArray(value)) return value.forEach(visit);
     if (typeof value === 'object') {
-      for (const key of ['file','url','audio_path','audio_file','path','output','outputs','audio','audios','wave']) {
+      for (const key of ['file', 'url', 'audio_path', 'audio_file', 'path', 'output', 'outputs', 'audio', 'audios', 'wave']) {
         if (key in value) visit(value[key]);
       }
     }
@@ -186,10 +267,12 @@ function refsFrom(task, baseUrl) {
 }
 
 const cacheUrl = jobId => `${CACHE_PREFIX}${encodeURIComponent(jobId)}`;
+
 function stateStub(env, jobId) {
   try { return env?.SONARA_JOB_STATE ? env.SONARA_JOB_STATE.get(env.SONARA_JOB_STATE.idFromName(jobId)) : null; }
   catch { return null; }
 }
+
 async function saveState(env, jobId, state) {
   const stub = stateStub(env, jobId);
   if (stub) {
@@ -207,6 +290,7 @@ async function saveState(env, jobId, state) {
     })
   ).catch(() => undefined);
 }
+
 async function loadState(env, jobId) {
   const stub = stateStub(env, jobId);
   if (stub) {
@@ -233,8 +317,28 @@ function candidatesFrom(refs) {
     provider: 'molab',
     model: MODEL,
     inferenceSteps: INFERENCE_STEPS,
-    strategy: index === 0 ? 'molab-xl-batch-hook' : 'molab-xl-batch-variation'
+    fidelityProfile: FIDELITY_PROFILE,
+    strategy: index === 0 ? 'molab-xl-fidelity-hook' : 'molab-xl-fidelity-variation'
   }));
+}
+
+function qualityMetadata(count) {
+  return {
+    engine: 'SONARA MoLab RTX PRO 6000 XL-Turbo + 4B Music Brain',
+    provider: 'molab',
+    model: MODEL,
+    lmModel: LM_MODEL,
+    lmBackend: LM_BACKEND,
+    thinking: true,
+    formatEnhancement: true,
+    constrainedDecoding: true,
+    fidelityProfile: FIDELITY_PROFILE,
+    speedProfile: VERSION,
+    inferenceSteps: INFERENCE_STEPS,
+    batchSize: count,
+    candidateCount: count,
+    kaggleEnabled: false
+  };
 }
 
 async function startMolab(request, env) {
@@ -255,7 +359,7 @@ async function startMolab(request, env) {
   catch { return json(request, { error: 'Invalid JSON request body.' }, 400); }
 
   const count = candidateCount(body);
-  const payload = molabPayload(body, count);
+  const payload = buildMolabPayload(body, count);
   const jobId = `mxl_${crypto.randomUUID()}`;
   try {
     const taskId = await submit(baseUrl, env, payload);
@@ -277,15 +381,8 @@ async function startMolab(request, env) {
       audioUrls: [],
       candidates: [],
       metadata: {
-        engine: 'SONARA MoLab RTX Pro 6000 XL-Turbo',
-        provider: 'molab',
-        model: MODEL,
-        speedProfile: VERSION,
-        inferenceSteps: INFERENCE_STEPS,
-        batchSize: count,
-        candidateCount: count,
-        kaggleEnabled: false,
-        currentStage: count === 2 ? 'MoLab XL-Turbo: batch di 2 brani avviato' : 'MoLab XL-Turbo: generazione avviata'
+        ...qualityMetadata(count),
+        currentStage: count === 2 ? 'MoLab Fidelity: 2 brani con Music Brain 4B avviati' : 'MoLab Fidelity: generazione con Music Brain 4B avviata'
       }
     }, 202);
   } catch (error) {
@@ -295,7 +392,7 @@ async function startMolab(request, env) {
       progress: 0,
       retryable: true,
       error: error instanceof Error ? error.message : String(error),
-      metadata: { provider: 'molab', kaggleEnabled: false }
+      metadata: { ...qualityMetadata(count), currentStage: 'Avvio MoLab Fidelity fallito' }
     }, 502);
   }
 }
@@ -310,9 +407,9 @@ async function pollMolab(request, env, jobId) {
     const task = await query(state.baseUrl, env, state.taskId);
     const status = Number(task?.status ?? 0);
     const info = resultInfo(task);
+    const expectedCount = Math.max(1, Math.min(2, Number(state.expectedCount || 2)));
 
     if (status === 1) {
-      const expectedCount = Math.max(1, Math.min(2, Number(state.expectedCount || 2)));
       const refs = refsFrom(task, state.baseUrl).slice(0, expectedCount);
       if (refs.length < expectedCount) {
         return json(request, {
@@ -332,15 +429,9 @@ async function pollMolab(request, env, jobId) {
         audioUrls: candidates.map(candidate => candidate.audioUrl),
         candidates,
         metadata: {
-          engine: 'SONARA MoLab RTX Pro 6000 XL-Turbo',
-          provider: 'molab',
-          model: MODEL,
-          speedProfile: VERSION,
-          inferenceSteps: INFERENCE_STEPS,
-          batchSize: expectedCount,
+          ...qualityMetadata(expectedCount),
           candidateCount: candidates.length,
-          kaggleEnabled: false,
-          currentStage: candidates.length === 2 ? '2 brani MoLab XL-Turbo pronti' : 'Brano MoLab XL-Turbo pronto'
+          currentStage: candidates.length === 2 ? '2 master MoLab Fidelity pronti' : 'Master MoLab Fidelity pronto'
         }
       });
     }
@@ -352,7 +443,7 @@ async function pollMolab(request, env, jobId) {
         progress: 0,
         retryable: true,
         error: String(task?.error || task?.message || 'Generazione MoLab XL-Turbo fallita.'),
-        metadata: { provider: 'molab', kaggleEnabled: false }
+        metadata: { ...qualityMetadata(expectedCount), currentStage: 'Generazione MoLab Fidelity fallita' }
       }, 502);
     }
 
@@ -367,18 +458,12 @@ async function pollMolab(request, env, jobId) {
       audioUrls: [],
       candidates: [],
       metadata: {
-        engine: 'SONARA MoLab RTX Pro 6000 XL-Turbo',
-        provider: 'molab',
-        model: MODEL,
-        speedProfile: VERSION,
-        inferenceSteps: INFERENCE_STEPS,
-        batchSize: Number(state.expectedCount || 2),
-        candidateCount: Number(state.expectedCount || 2),
-        kaggleEnabled: false,
-        currentStage: info.stage || 'MoLab XL-Turbo sta generando'
+        ...qualityMetadata(expectedCount),
+        currentStage: info.stage || 'MoLab Fidelity + Music Brain 4B sta generando'
       }
     });
   } catch (error) {
+    const expectedCount = Math.max(1, Math.min(2, Number(state.expectedCount || 2)));
     return json(request, {
       jobId,
       status: 'PROCESSING',
@@ -386,8 +471,7 @@ async function pollMolab(request, env, jobId) {
       retryable: true,
       error: error instanceof Error ? error.message : String(error),
       metadata: {
-        provider: 'molab',
-        kaggleEnabled: false,
+        ...qualityMetadata(expectedCount),
         currentStage: 'Riconnessione a MoLab XL-Turbo'
       }
     });
@@ -422,6 +506,7 @@ async function proxyAudio(request, env) {
   Object.entries(cors(request)).forEach(([key, value]) => out.set(key, value));
   out.set('cache-control', 'private, no-store');
   out.set('x-sonara-molab-profile', VERSION);
+  out.set('x-sonara-fidelity-profile', FIDELITY_PROFILE);
   out.set('x-sonara-ace-worker', 'molab-xl');
   return new Response(request.method === 'HEAD' ? null : upstream.body, {
     status: upstream.status,
@@ -436,9 +521,11 @@ async function readiness(request, env) {
     return json(request, {
       ready: false,
       profile: VERSION,
-      engine: 'SONARA MoLab RTX Pro 6000 XL-Turbo',
+      fidelityProfile: FIDELITY_PROFILE,
+      engine: 'SONARA MoLab RTX PRO 6000 XL-Turbo + 4B Music Brain',
       provider: 'molab',
       model: MODEL,
+      lmModel: LM_MODEL,
       kaggleEnabled: false,
       reason: 'SONARA_MOLAB_XL_URL non configurato.'
     }, 503);
@@ -453,14 +540,21 @@ async function readiness(request, env) {
     const health = data?.data || data;
     const loadedModel = String(health?.loaded_model || health?.model || '');
     const status = String(health?.status || '').toLowerCase();
-    const ready = response.ok && health?.models_initialized === true && (!loadedModel || loadedModel.includes(MODEL)) && (Number(data?.code || 200) === 200 || ['ok','ready','healthy','online','success'].includes(status));
+    const availableLmModels = Array.isArray(health?.available_lm_models) ? health.available_lm_models : [];
+    const ready = response.ok && health?.models_initialized === true && (!loadedModel || loadedModel.includes(MODEL)) && (Number(data?.code || 200) === 200 || ['ok', 'ready', 'healthy', 'online', 'success'].includes(status));
     return json(request, {
       ready,
       profile: VERSION,
-      engine: 'SONARA MoLab RTX Pro 6000 XL-Turbo',
+      fidelityProfile: FIDELITY_PROFILE,
+      engine: 'SONARA MoLab RTX PRO 6000 XL-Turbo + 4B Music Brain',
       provider: 'molab',
       model: MODEL,
       loadedModel,
+      lmModel: LM_MODEL,
+      availableLmModels,
+      thinking: true,
+      formatEnhancement: true,
+      constrainedDecoding: true,
       inferenceSteps: INFERENCE_STEPS,
       maxBatchSize: 2,
       kaggleEnabled: false
@@ -469,9 +563,11 @@ async function readiness(request, env) {
     return json(request, {
       ready: false,
       profile: VERSION,
-      engine: 'SONARA MoLab RTX Pro 6000 XL-Turbo',
+      fidelityProfile: FIDELITY_PROFILE,
+      engine: 'SONARA MoLab RTX PRO 6000 XL-Turbo + 4B Music Brain',
       provider: 'molab',
       model: MODEL,
+      lmModel: LM_MODEL,
       kaggleEnabled: false,
       error: error instanceof Error ? error.message : String(error)
     }, 503);
@@ -481,6 +577,7 @@ async function readiness(request, env) {
 function withHeaders(response) {
   const headers = new Headers(response.headers);
   headers.set('x-sonara-molab-profile', VERSION);
+  headers.set('x-sonara-fidelity-profile', FIDELITY_PROFILE);
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
