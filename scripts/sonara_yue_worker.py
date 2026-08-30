@@ -67,6 +67,19 @@ def patch_runtime() -> None:
     text = text.replace("'itrack.mp3'", "'itrack.wav'")
     text = text.replace("'vtrack.mp3'", "'vtrack.wav'")
 
+    # YuE derives its stage-1 filenames from the complete genre prompt. Values
+    # such as "Electronic / Dance" would otherwise create accidental nested
+    # paths, while long prompts can exceed the filesystem filename limit.
+    filename_anchor = "vocal_save_path = os.path.join(stage1_output_dir,"
+    safe_filename_line = (
+        "safe_genres = ''.join(char if char.isalnum() or char in '-_.' "
+        "else '-' for char in genres)[:120].strip('-') or 'music'"
+    )
+    if filename_anchor in text and safe_filename_line not in text:
+        text = text.replace(filename_anchor, f"{safe_filename_line}\n{filename_anchor}", 1)
+        text = text.replace("genres.replace(' ', '-')", "safe_genres")
+        changed = True
+
     if changed:
         backup = INFER.with_suffix(".py.sonara_worker_backup")
         if not backup.exists():
