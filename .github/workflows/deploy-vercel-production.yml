@@ -112,7 +112,7 @@ jobs:
           const data = JSON.parse(fs.readFileSync('/tmp/lyrics-smart.json', 'utf8'));
           if (data.smartRandom !== true) throw new Error('smartRandom flag missing from deployed API');
           if (!String(data.lyrics || '').trim()) throw new Error('deployed intelligent lyrics are empty');
-          if (!String(data.quality || '').includes('intelligent-random-v2')) throw new Error(`unexpected quality marker: ${data.quality}`);
+          if (!String(data.quality || '').includes('intelligent-random-v3')) throw new Error(`unexpected quality marker: ${data.quality}`);
           console.log(`Intelligent lyrics API verified: ${data.source}`);
           NODE
 
