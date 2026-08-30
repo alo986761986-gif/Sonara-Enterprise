@@ -310,7 +310,7 @@ export default function App() {
   const allowedDurationOptions = DURATION_OPTIONS.filter(value => value <= maxSelectableTrackSeconds);
 
   const family = useMemo(() => WORLD_MUSIC_GENRES.find(group => group.family === genreFamily) || WORLD_MUSIC_GENRES[0], [genreFamily]);
-  const genreEntry = useMemo(() => findGenre(genre), [genre]);
+  const genreEntry = useMemo(() => family.genres.find(item => item.name === genre) || findGenre(genre), [family, genre]);
   const availableMoods = useMemo(() => getAtmospheresForSelection(genreFamily, genre, subgenre), [genreFamily, genre, subgenre]);
   const genreCount = useMemo(() => WORLD_MUSIC_GENRES.reduce((sum, group) => sum + group.genres.length, 0), []);
   const subgenreCount = useMemo(() => WORLD_MUSIC_GENRES.reduce((sum, group) => sum + group.genres.reduce((inner, item) => inner + item.subgenres.length, 0), 0), []);
@@ -618,144 +618,55 @@ export default function App() {
           const verifiedScore = Number((metadata.outputQualityGate as Record<string, any> | undefined)?.score);
           setQualityScore(Number.isFinite(verifiedScore) ? verifiedScore : null);
           setProgress(100);
-          setArchiveStatus('SAVING');
-          setStage('Salvataggio permanente in Pubblicazione...');
-
-          try {
-            const archived = await archiveGeneratedProject({
-              jobId: id,
-              title,
-              genre,
-              subgenre,
-              bpm,
-              keySignature,
-              durationSec,
-              primaryAudioUrl: String(url),
-              audioFormat: completedAudioFormat,
-              response: {
-                initialResponse: responseData,
-                completedJob: current,
-                publicationDefaults: {
-                  visibility: accountPreferences.defaultVisibility || 'link-only',
-                  allowComments: accountPreferences.allowComments !== false,
-                  allowRemixes: accountPreferences.allowRemixes !== false
-                },
-                billingEntitlement: {
-                  planId: billingUsage?.planId || 'free',
-                  commercialUse: Boolean(billingUsage?.commercialUse),
-                  generatedAt: new Date().toISOString()
-                },
-                creativeControls: { weirdness, styleInfluence }
-              }
-            });
-            setArchivedFileCount(archived.project.assets.length);
-            setArchiveStatus(archived.linkedFiles > 0 ? 'PARTIAL' : 'SAVED');
-          } catch (archiveError) {
-            console.error('Generated asset archive failed:', archiveError);
-            setArchiveStatus('FAILED');
-          }
-
           setStatus('COMPLETED');
           setStage(t('audioReady'));
-          if (accountPreferences.notifyGeneration && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-            new Notification('SONARA · Brano pronto', { body: `${title} è stato generato e salvato in Pubblicazione.`, icon: '/sonara-ai-icon.png' });
-          }
-          if (accountPreferences.autoplay) setIsPlaying(true);
           return;
         }
-        if (currentStatus === 'FAILED') throw new Error(jobErrorMessage(current, String(metadata.error || 'SONARA generation failed.')));
+        if (currentStatus === 'FAILED') throw new Error(jobErrorMessage(current, t('failed')));
       }
       throw new Error('Generation timeout.');
     } catch (generationError) {
       setStatus('FAILED');
-      setProgress(0);
-      setStage('Generation failed');
-      setError(brandSonara(generationError instanceof Error ? generationError.message : String(generationError)));
+      setStage(t('failed'));
+      setError(generationError instanceof Error ? generationError.message : String(generationError));
     }
   };
 
-  const handleProcessedAudio = async (newAudioUrl: string, metrics: Record<string, any>) => {
-    const format = String(newAudioUrl).split(/[?#]/)[0].split('.').pop()?.toLowerCase() || 'wav';
-    const archiveJobId = jobId || `master-${Date.now()}`;
-    setAudioUrl(newAudioUrl);
-    setAudioFormat(format);
-    setArchiveStatus('SAVING');
+  const togglePlay = () => {
+    if (!audioUrl) return;
+    setIsPlaying(value => !value);
+  };
 
+  const downloadTrack = () => {
+    if (!audioUrl) return;
+    const anchor = document.createElement('a');
+    anchor.href = audioUrl;
+    anchor.download = `${title || 'sonara-track'}.${audioFormat || 'mp3'}`;
+    anchor.rel = 'noopener';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  };
+
+  const archiveTrack = async () => {
+    if (!audioUrl || archiveStatus === 'SAVING') return;
+    setArchiveStatus('SAVING');
     try {
-      const archived = await archiveGeneratedProject({
-        jobId: archiveJobId,
+      const result = await archiveGeneratedProject({
         title,
-        genre,
-        subgenre,
-        bpm,
-        keySignature,
-        durationSec,
-        primaryAudioUrl: newAudioUrl,
-        audioFormat: format,
-        response: { masteredAudioUrl: newAudioUrl, masteringMetrics: metrics, creativeControls: { weirdness, styleInfluence } }
+        prompt,
+        lyrics: vocalLyrics,
+        audioUrl,
+        audioFormat,
+        metadata: { genreFamily, genre, subgenre, mood, bpm, keySignature, durationSec, vocalMode, vocalLanguage, engine, jobId, qualityScore }
       });
-      setArchivedFileCount(archived.project.assets.length);
-      setArchiveStatus(archived.linkedFiles > 0 ? 'PARTIAL' : 'SAVED');
-    } catch (archiveError) {
-      console.error('Master archive failed:', archiveError);
+      setArchivedFileCount(result.uploadedFiles.length);
+      setArchiveStatus(result.failedFiles.length ? 'PARTIAL' : 'SAVED');
+    } catch {
+      setArchivedFileCount(0);
       setArchiveStatus('FAILED');
     }
   };
-
-  const header = (
-    <header className="sticky top-0 z-30 border-b border-slate-800 bg-[#080d18]/95 backdrop-blur-xl">
-      <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-4 sm:px-6">
-        <div className="flex items-center gap-3">
-          <img
-            src="/sonara-ai-icon.png"
-            alt="SONARA AI"
-            width={44}
-            height={44}
-            className="h-11 w-11 shrink-0 rounded-xl object-cover"
-            decoding="async"
-          />
-          <div>
-            <h1 className="text-lg font-black tracking-wide text-white sm:text-xl">SONARA ENTERPRISE</h1>
-            <div className="text-[10px] font-semibold text-purple-300 sm:text-xs">SONARA</div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => void refreshDashboard()} className="hidden items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs sm:flex"><RefreshCw className="h-4 w-4" />{t('refresh')}</button>
-          <div className="flex items-center gap-2 rounded-lg border border-emerald-900 bg-emerald-950/40 px-3 py-2 text-[10px] sm:text-xs"><Activity className="h-4 w-4 text-emerald-400" />{statusLabel}</div>
-        </div>
-      </div>
-    </header>
-  );
-
-  const overviewView = (
-    <div className="space-y-6">
-      <Card className="overflow-hidden p-6 sm:p-8">
-        <div className="grid gap-8 lg:grid-cols-[1.3fr_0.7fr] lg:items-center">
-          <div>
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-purple-500/20 bg-purple-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-purple-300"><Sparkles className="h-3.5 w-3.5" />SONARA production workspace</div>
-            <h2 className="text-2xl font-black tracking-tight text-white sm:text-3xl">{t('overviewTitle')}</h2>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-400">{t('overviewSubtitle')}</p>
-            <div className="mt-6 flex flex-wrap gap-3">
-              <button onClick={() => setActiveTab('generator')} className="inline-flex items-center gap-2 rounded-xl bg-purple-600 px-5 py-3 text-sm font-bold"><Zap className="h-4 w-4" />{t('generateMusic')}</button>
-              <button onClick={() => setActiveTab('plans')} className="inline-flex items-center gap-2 rounded-xl border border-purple-500/30 bg-purple-500/10 px-5 py-3 text-sm font-bold text-purple-100"><CreditCard className="h-4 w-4" />{t('plans')}</button>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <MiniCard icon={Globe2} title={`${genreCount}`} text="Global genre groups" />
-            <MiniCard icon={Library} title={`${subgenreCount}+`} text="Subgenres" />
-            <MiniCard icon={Languages} title={`${SUPPORTED_LANGUAGES.length}`} text="Interface languages" />
-            <MiniCard icon={Activity} title="8 min" text="Studio maximum generation" />
-          </div>
-        </div>
-      </Card>
-      <div className="grid gap-4 md:grid-cols-4">
-        <MiniCard icon={Cpu} title="SONARA" text="Generative music engine" />
-        <MiniCard icon={SlidersHorizontal} title={t('eqMaster')} text="Production controls and mastering workspace" />
-        <MiniCard icon={Rocket} title={t('publishing')} text="Release metadata and distribution workflow" />
-        <MiniCard icon={Bot} title={t('assistant')} text="Creative production guidance" />
-      </div>
-    </div>
-  );
 
   const generatorView = (
     <Card className="p-5 sm:p-6">
@@ -782,22 +693,8 @@ export default function App() {
         </div>
         <textarea id="sonara-prompt" value={prompt} onChange={event => setPrompt(event.target.value)} rows={10} className="w-full rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm text-white outline-none focus:border-purple-500" />
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <CreativeControlSlider
-            id="sonara-weirdness"
-            label="Weirdness"
-            description="Più alto: risultati più insoliti, sperimentali e imprevedibili."
-            value={weirdness}
-            disabled={busy}
-            onChange={updateWeirdness}
-          />
-          <CreativeControlSlider
-            id="sonara-style-influence"
-            label="Style Influence"
-            description="Più alto: maggiore fedeltà al prompt, al genere e al sottogenere selezionati."
-            value={styleInfluence}
-            disabled={busy}
-            onChange={updateStyleInfluence}
-          />
+          <CreativeControlSlider id="sonara-weirdness" label="Weirdness" description="Più alto: risultati più insoliti, sperimentali e imprevedibili." value={weirdness} disabled={busy} onChange={updateWeirdness} />
+          <CreativeControlSlider id="sonara-style-influence" label="Style Influence" description="Più alto: maggiore fedeltà al prompt, al genere e al sottogenere selezionati." value={styleInfluence} disabled={busy} onChange={updateStyleInfluence} />
         </div>
       </div>
 
@@ -845,34 +742,13 @@ export default function App() {
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => updateBpm(bpm - 1)} disabled={busy || bpm <= MIN_BPM} className="rounded-lg border border-slate-700 bg-slate-900 p-2 text-slate-200 disabled:opacity-30" aria-label="Riduci BPM"><Minus className="h-4 w-4" /></button>
             <div className="relative">
-              <input
-                type="number"
-                min={MIN_BPM}
-                max={MAX_BPM}
-                step={1}
-                value={bpm}
-                disabled={busy}
-                onChange={event => updateBpm(Number(event.target.value))}
-                className="w-24 rounded-xl border border-purple-500/40 bg-slate-950 px-3 py-2 pr-11 text-center text-xl font-black text-white outline-none focus:border-purple-400 disabled:opacity-50"
-                aria-label="BPM preferiti"
-              />
+              <input type="number" min={MIN_BPM} max={MAX_BPM} step={1} value={bpm} disabled={busy} onChange={event => updateBpm(Number(event.target.value))} className="w-24 rounded-xl border border-purple-500/40 bg-slate-950 px-3 py-2 pr-11 text-center text-xl font-black text-white outline-none focus:border-purple-400 disabled:opacity-50" aria-label="BPM preferiti" />
               <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[9px] font-bold text-purple-300">BPM</span>
             </div>
             <button type="button" onClick={() => updateBpm(bpm + 1)} disabled={busy || bpm >= MAX_BPM} className="rounded-lg border border-slate-700 bg-slate-900 p-2 text-slate-200 disabled:opacity-30" aria-label="Aumenta BPM"><Plus className="h-4 w-4" /></button>
           </div>
         </div>
-        <input
-          type="range"
-          min={MIN_BPM}
-          max={MAX_BPM}
-          step={1}
-          value={bpm}
-          disabled={busy}
-          onInput={event => updateBpm(Number((event.target as HTMLInputElement).value))}
-          onChange={event => updateBpm(Number(event.target.value))}
-          className="mt-4 w-full accent-purple-500 disabled:opacity-50"
-          aria-label="Regolazione BPM"
-        />
+        <input type="range" min={MIN_BPM} max={MAX_BPM} step={1} value={bpm} disabled={busy} onInput={event => updateBpm(Number((event.target as HTMLInputElement).value))} onChange={event => updateBpm(Number(event.target.value))} className="mt-4 w-full accent-purple-500 disabled:opacity-50" aria-label="Regolazione BPM" />
         <div className="mt-3 flex flex-wrap gap-2">
           {[70, 80, 90, 100, 110, 120, 124, 128, 140, 160, 174].map(value => (
             <button key={value} type="button" disabled={busy} onClick={() => updateBpm(value)} className={`rounded-lg border px-2.5 py-1 text-[10px] font-bold transition disabled:opacity-40 ${bpm === value ? 'border-purple-400 bg-purple-500/20 text-white' : 'border-slate-800 bg-slate-950 text-slate-500 hover:border-slate-600 hover:text-slate-200'}`}>{value}</button>
@@ -886,15 +762,7 @@ export default function App() {
           {VOCAL_MODES.map(option => {
             const selected = vocalMode === option.value;
             return (
-              <button
-                key={option.value}
-                type="button"
-                data-sonara-vocal-mode={option.value}
-                disabled={busy}
-                onClick={() => setVocalMode(option.value)}
-                className={`rounded-xl border px-3 py-3 text-left transition disabled:opacity-50 ${selected ? 'border-purple-400 bg-purple-500/20 text-white' : 'border-slate-800 bg-[#060a12] text-slate-400 hover:border-slate-600'}`}
-                aria-pressed={selected}
-              >
+              <button key={option.value} type="button" data-sonara-vocal-mode={option.value} disabled={busy} onClick={() => setVocalMode(option.value)} className={`rounded-xl border px-3 py-3 text-left transition disabled:opacity-50 ${selected ? 'border-purple-400 bg-purple-500/20 text-white' : 'border-slate-800 bg-[#060a12] text-slate-400 hover:border-slate-600'}`} aria-pressed={selected}>
                 <span className="block text-xs font-black">{option.label}</span>
                 <span className="mt-1 block text-[10px]">{option.description}</span>
               </button>
@@ -903,56 +771,19 @@ export default function App() {
         </div>
         <label htmlFor="sonara-vocal-language" className="mt-4 block text-xs font-black uppercase tracking-[0.18em] text-slate-500">
           Lingua del testo e della voce
-          <select
-            id="sonara-vocal-language"
-            value={vocalLanguage}
-            onChange={event => setVocalLanguage(event.target.value as LanguageCode)}
-            disabled={busy || vocalMode === 'instrumental'}
-            className="mt-2 w-full rounded-xl border border-purple-500/30 bg-[#060a12] p-3 text-sm font-semibold normal-case tracking-normal text-white outline-none focus:border-purple-400 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {SUPPORTED_LANGUAGES.map(code => (
-              <option key={code} value={code}>{LANGUAGE_METADATA[code].nativeName} — {LANGUAGE_METADATA[code].name}</option>
-            ))}
+          <select id="sonara-vocal-language" value={vocalLanguage} onChange={event => setVocalLanguage(event.target.value as LanguageCode)} disabled={busy || vocalMode === 'instrumental'} className="mt-2 w-full rounded-xl border border-purple-500/30 bg-[#060a12] p-3 text-sm font-semibold normal-case tracking-normal text-white outline-none focus:border-purple-400 disabled:cursor-not-allowed disabled:opacity-50">
+            {SUPPORTED_LANGUAGES.map(code => (<option key={code} value={code}>{LANGUAGE_METADATA[code].nativeName} — {LANGUAGE_METADATA[code].name}</option>))}
           </select>
           <span className="mt-2 block text-[10px] font-normal normal-case tracking-normal text-slate-500">La lingua scelta viene inviata al motore per pronuncia, accento e interpretazione vocale.</span>
         </label>
         <div className="mb-2 mt-4 flex items-center justify-between gap-3">
-          <label htmlFor="sonara-lyrics" className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">
-            {t('lyrics')}
-          </label>
+          <label htmlFor="sonara-lyrics" className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">{t('lyrics')}</label>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={randomizeLyrics}
-              disabled={busy || vocalMode === 'instrumental'}
-              title={vocalMode === 'instrumental' ? 'Seleziona prima una voce' : 'Genera un testo casuale'}
-              aria-label="Genera un testo casuale"
-              className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950 px-3 py-1.5 text-[10px] font-black tracking-widest text-slate-400 transition hover:border-purple-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <Shuffle className="h-3 w-3" />
-              RANDOM
-            </button>
-            <button
-              type="button"
-              onClick={() => setLyrics('')}
-              disabled={busy || !lyrics}
-              title="Cancella il testo"
-              aria-label="Cancella il testo"
-              className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-800 bg-slate-950 text-slate-400 transition hover:border-red-400/70 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
+            <button type="button" onClick={randomizeLyrics} disabled={busy || vocalMode === 'instrumental'} title={vocalMode === 'instrumental' ? 'Seleziona prima una voce' : 'Genera un testo casuale'} aria-label="Genera un testo casuale" className="flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950 px-3 py-1.5 text-[10px] font-black tracking-widest text-slate-400 transition hover:border-purple-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"><Shuffle className="h-3 w-3" />RANDOM</button>
+            <button type="button" onClick={() => setLyrics('')} disabled={busy || !lyrics} title="Cancella il testo" aria-label="Cancella il testo" className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-800 bg-slate-950 text-slate-400 transition hover:border-red-400/70 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-40"><X className="h-3.5 w-3.5" /></button>
           </div>
         </div>
-        <textarea
-          id="sonara-lyrics"
-          value={lyrics}
-          onChange={event => setLyrics(event.target.value)}
-          disabled={busy || vocalMode === 'instrumental'}
-          rows={7}
-          placeholder={vocalMode === 'instrumental' ? 'Seleziona una modalità vocale per inserire il testo.' : 'Inserisci il testo completo da cantare.'}
-          className="w-full rounded-xl border border-slate-800 bg-[#060a12] p-4 text-sm outline-none focus:border-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
-        />
+        <textarea id="sonara-lyrics" value={lyrics} onChange={event => setLyrics(event.target.value)} disabled={busy || vocalMode === 'instrumental'} rows={7} placeholder={vocalMode === 'instrumental' ? 'Seleziona una modalità vocale per inserire il testo.' : 'Inserisci il testo completo da cantare.'} className="w-full rounded-xl border border-slate-800 bg-[#060a12] p-4 text-sm outline-none focus:border-purple-500 disabled:cursor-not-allowed disabled:opacity-50" />
         {!vocalReady && <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-300">Inserisci il testo prima di generare con la modalità vocale selezionata.</div>}
       </details>
 
@@ -960,147 +791,73 @@ export default function App() {
         {busy ? <><RefreshCw className="h-5 w-5 animate-spin" />{t('generating')}</> : <><Zap className="h-5 w-5" />{t('generate')}</>}
       </button>
 
-      {(busy || progress > 0) && (
-        <div className="mt-4">
-          <div className="mb-2 flex justify-between text-[11px] text-slate-500"><span>{brandSonara(stage)}</span><span>{progress}%</span></div>
-          <div className="h-2 overflow-hidden rounded-full bg-slate-950"><div className="h-full rounded-full bg-gradient-to-r from-purple-500 to-cyan-400 transition-all" style={{ width: `${Math.max(0, Math.min(100, progress))}%` }} /></div>
-        </div>
-      )}
-
+      {(busy || progress > 0) && (<div className="mt-4"><div className="mb-2 flex justify-between text-[11px] text-slate-500"><span>{brandSonara(stage)}</span><span>{progress}%</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-950"><div className="h-full rounded-full bg-gradient-to-r from-purple-500 to-cyan-400 transition-all" style={{ width: `${Math.max(0, Math.min(100, progress))}%` }} /></div></div>)}
       {error && <div className="mt-4 rounded-xl border border-rose-500/20 bg-rose-500/10 p-3 text-xs text-rose-300">{brandSonara(error)}</div>}
 
       {status === 'COMPLETED' && audioUrl && (
         <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5">
-          <div className="mb-4 flex items-center justify-between gap-4"><div><div className="font-bold text-emerald-300">{t('audioReady')}</div><div className="mt-1 text-xs text-slate-500">{title} · {genre} / {subgenre} · {durationLabel(durationSec, t)}</div>{qualityScore !== null && <div className="mt-1 text-[10px] font-bold text-emerald-400">Professional audio gate: {qualityScore}/100</div>}</div><div className="text-[10px] font-bold tracking-widest text-slate-500">{engine}</div></div>
-          <audio ref={audioRef} controls src={audioUrl} className="w-full" />
-          <div className="mt-4 flex flex-wrap gap-2">
-            <button onClick={() => setIsPlaying(value => !value)} className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs">{isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}{isPlaying ? t('pause') : t('play')}</button>
-            <a href={audioUrl} download={`${title || 'sonara-track'}.${audioFormat === 'wav' ? 'wav' : audioFormat === 'flac' ? 'flac' : 'mp3'}`} className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs"><Download className="h-4 w-4" />{t('download')} · {audioFormat.toUpperCase()}</a>
-            {archiveStatus === 'SAVING' && <span className="flex items-center gap-2 rounded-lg border border-purple-500/20 bg-purple-500/10 px-3 py-2 text-xs text-purple-200"><RefreshCw className="h-4 w-4 animate-spin" />Salvataggio in Pubblicazione...</span>}
-            {(archiveStatus === 'SAVED' || archiveStatus === 'PARTIAL') && <button type="button" onClick={() => setActiveTab('publishing')} className="flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-300"><ShieldCheck className="h-4 w-4" />{archivedFileCount} file in Pubblicazione</button>}
-            {archiveStatus === 'FAILED' && <span className="rounded-lg border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">Archivio non disponibile: scarica il file ora.</span>}
+          <div className="mb-4 flex items-center justify-between gap-4"><div><div className="font-bold text-emerald-300">{t('audioReady')}</div><div className="mt-1 text-xs text-slate-500">{title}</div></div><Disc3 className="h-6 w-6 text-emerald-300" /></div>
+          <audio ref={audioRef} src={audioUrl} onEnded={() => setIsPlaying(false)} onPause={() => setIsPlaying(false)} onPlay={() => setIsPlaying(true)} className="hidden" />
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={togglePlay} className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-xs font-bold text-emerald-200">{isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}{isPlaying ? 'Pausa' : 'Play'}</button>
+            <button type="button" onClick={downloadTrack} className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-4 py-2 text-xs font-bold text-slate-200"><Download className="h-4 w-4" />Scarica</button>
+            <button type="button" onClick={() => void archiveTrack()} disabled={archiveStatus === 'SAVING'} className="inline-flex items-center gap-2 rounded-lg border border-purple-500/30 bg-purple-500/10 px-4 py-2 text-xs font-bold text-purple-200 disabled:opacity-50"><UploadCloud className="h-4 w-4" />{archiveStatus === 'SAVING' ? 'Salvataggio...' : 'Archivia'}</button>
           </div>
+          {qualityScore != null && <div className="mt-3 text-[10px] text-slate-500">Quality score: {qualityScore}</div>}
+          {archiveStatus === 'SAVED' && <div className="mt-3 text-xs text-emerald-300">Archiviato ({archivedFileCount} file).</div>}
+          {archiveStatus === 'PARTIAL' && <div className="mt-3 text-xs text-amber-300">Archiviazione parziale ({archivedFileCount} file).</div>}
+          {archiveStatus === 'FAILED' && <div className="mt-3 text-xs text-rose-300">Archiviazione non riuscita.</div>}
         </div>
       )}
     </Card>
   );
 
-  const productionView = (
-    <Card className="p-6"><SectionTitle icon={Cpu} title={t('productionTitle')} subtitle={t('productionSubtitle')} /><div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"><MiniCard icon={SlidersHorizontal} title="Mixing Console" text="Balance, panorama, dynamics and spatial processing." /><MiniCard icon={Disc3} title="Mastering" text="Loudness, tone, stereo image and delivery targets." /><MiniCard icon={Library} title="Stem Manager" text="Vocals, drums, bass, instruments and reusable stems." /><MiniCard icon={UploadCloud} title="Export Center" text="Master, stems and release-ready formats." /></div></Card>
-  );
-
-  const eqView = (
-    <React.Suspense fallback={<Card className="flex min-h-[540px] items-center justify-center p-6 text-xs text-slate-500"><RefreshCw className="mr-2 h-4 w-4 animate-spin text-purple-400" />Caricamento EQ / Master professionale...</Card>}>
-      <ProfessionalAudioEqualizer audioUrl={audioUrl} onProcessedAudio={(url, metrics) => void handleProcessedAudio(url, metrics)} isEmbedded />
-    </React.Suspense>
-  );
-
-  const publishingView = (
-    <Card className="p-6">
-      <SectionTitle icon={Rocket} title={t('publishingTitle')} subtitle="Archivio persistente di tutti i file generati, pronto per download e pubblicazione." />
-      <React.Suspense fallback={<div className="flex min-h-64 items-center justify-center text-xs text-slate-500"><RefreshCw className="mr-2 h-4 w-4 animate-spin text-purple-400" />Caricamento archivio...</div>}>
-        <GeneratedAssetLibrary />
-      </React.Suspense>
-    </Card>
-  );
-
-  const marketplaceView = (
-    <Card className="p-6"><SectionTitle icon={Store} title={t('marketplaceTitle')} subtitle={t('marketplaceSubtitle')} /><div className="grid gap-4 md:grid-cols-3"><MiniCard icon={Music} title="Samples & Loops" text="Creator-ready musical assets." /><MiniCard icon={SlidersHorizontal} title="Presets & Templates" text="Production presets and session templates." /><MiniCard icon={Sparkles} title="AI Assets" text="Creative models and intelligent tools." /></div></Card>
-  );
-
-  const discoveryView = (
-    <div className="space-y-5">
-      <Card className="overflow-hidden">
-        <div className="p-5 sm:p-6"><SectionTitle icon={Globe2} title={t('discoveryTitle')} subtitle={t('discoverySubtitle')} /><div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4 text-xs text-cyan-200">Mappamondo musicale interattivo · {genreCount} generi · {subgenreCount}+ sottogeneri</div></div>
-        <React.Suspense fallback={<div className="flex h-[540px] items-center justify-center bg-[#02050e] text-xs text-slate-500 sm:h-[620px]"><RefreshCw className="mr-2 h-4 w-4 animate-spin text-purple-400" />Caricamento mappamondo 3D...</div>}>
-          <WorldDiscoveryGlobe />
-        </React.Suspense>
-      </Card>
-      <Card className="p-6"><div className="mb-4 text-sm font-black text-white">Catalogo musicale mondiale</div><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{WORLD_MUSIC_GENRES.map(group => <div key={group.family} className="rounded-xl border border-slate-800 bg-slate-950 p-4"><div className="font-bold text-white">{group.family}</div><div className="mt-2 text-xs leading-5 text-slate-500">{group.genres.map(item => item.name).join(' · ')}</div></div>)}</div></Card>
+  const overviewView = (
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <MiniCard icon={Activity} title="SONARA Engine" text={`${statusLabel} · ${engine}`} />
+      <MiniCard icon={Music} title="Generi" text={`${genreCount} generi professionali`} />
+      <MiniCard icon={Library} title="Sottogeneri" text={`${subgenreCount} stili selezionabili`} />
+      <MiniCard icon={ShieldCheck} title="Qualità" text="Prompt autoritativo e controllo stile attivi" />
     </div>
   );
 
-  const analyticsView = (
-    <Card className="p-6"><SectionTitle icon={BarChart3} title={t('analyticsTitle')} subtitle={t('analyticsSubtitle')} /><div className="grid gap-4 md:grid-cols-4"><MiniCard icon={Users} title="Audience" text="Listener growth and engagement." /><MiniCard icon={Radio} title="Streams" text="Cross-platform performance." /><MiniCard icon={Globe2} title="Territories" text="Worldwide audience signals." /><MiniCard icon={Gauge} title="Performance" text="Release and catalog intelligence." /></div></Card>
-  );
+  const placeholder = (title: string, icon: any, text: string) => (<Card className="p-6"><SectionTitle icon={icon} title={title} /><p className="text-sm text-slate-400">{text}</p></Card>);
 
-  const assistantView = (
-    <React.Suspense fallback={<Card className="flex min-h-[540px] items-center justify-center p-6 text-xs text-slate-500"><RefreshCw className="mr-2 h-4 w-4 animate-spin text-purple-400" />Avvio di Ember...</Card>}>
-      <EmberWorkspace studioContext={{ prompt, genre, subgenre, mood, bpm, keySignature, hasAudio: Boolean(audioUrl) }} />
-    </React.Suspense>
-  );
-
-  const cloudView = (
-    <Card className="p-6"><SectionTitle icon={Cloud} title={t('cloudTitle')} subtitle={t('cloudSubtitle')} /><div className="grid gap-4 md:grid-cols-3"><MiniCard icon={Cloud} title="Cloud Projects" text="Synced creative sessions." /><MiniCard icon={Library} title="Asset Library" text="Music, stems, artwork and metadata." /><MiniCard icon={ShieldCheck} title="Secure Storage" text="Enterprise-ready project organization." /></div></Card>
-  );
-
-  const collaborationView = (
-    <Card className="p-6"><SectionTitle icon={Handshake} title={t('collaborationTitle')} subtitle={t('collaborationSubtitle')} /><div className="grid gap-4 md:grid-cols-3"><MiniCard icon={Users} title="Teams" text="Invite artists, producers and collaborators." /><MiniCard icon={Music} title="Shared Sessions" text="Coordinate tracks, stems and revisions." /><MiniCard icon={ShieldCheck} title="Permissions" text="Control project and asset access." /></div></Card>
-  );
-
-  const enterpriseView = (
-    <Card className="p-6"><SectionTitle icon={Building2} title={t('enterpriseTitle')} subtitle={t('enterpriseSubtitle')} /><div className="grid gap-4 md:grid-cols-3"><MiniCard icon={ShieldCheck} title="Security" text="Access and workspace controls." /><MiniCard icon={Users} title="Organization" text="Team and creator administration." /><MiniCard icon={BarChart3} title="Enterprise Intelligence" text="Operational and creative analytics." /></div></Card>
-  );
-
-  const plansView = (
-    <React.Suspense fallback={<Card className="flex min-h-[540px] items-center justify-center p-6 text-xs text-slate-500"><RefreshCw className="mr-2 h-4 w-4 animate-spin text-purple-400" />Caricamento piani SONARA...</Card>}>
-      <PricingAndUsage />
-    </React.Suspense>
-  );
-
-  const settingsView = (
-    <React.Suspense fallback={<Card className="flex min-h-[540px] items-center justify-center p-6 text-xs text-slate-500"><RefreshCw className="mr-2 h-4 w-4 animate-spin text-purple-400" />Caricamento impostazioni account...</Card>}>
-      <AccountSettingsCenter
-        language={language}
-        onLanguageChange={code => { setLanguage(code); window.dispatchEvent(new CustomEvent('sonara:language', { detail: code })); }}
-        durationSec={durationSec}
-        onDurationChange={updateDuration}
-        durationOptions={allowedDurationOptions}
-        bpm={bpm}
-        onBpmChange={updateBpm}
-      />
-    </React.Suspense>
-  );
-
-  const renderView = () => {
-    switch (activeTab) {
-      case 'overview': return overviewView;
-      case 'generator': return generatorView;
-      case 'production': return productionView;
-      case 'eq': return eqView;
-      case 'publishing': return publishingView;
-      case 'marketplace': return marketplaceView;
-      case 'discovery': return discoveryView;
-      case 'analytics': return analyticsView;
-      case 'assistant': return assistantView;
-      case 'cloud': return cloudView;
-      case 'collaboration': return collaborationView;
-      case 'enterprise': return enterpriseView;
-      case 'plans': return plansView;
-      case 'settings': return settingsView;
-      default: return overviewView;
-    }
-  };
+  let mainView: React.ReactNode = overviewView;
+  if (activeTab === 'generator') mainView = generatorView;
+  else if (activeTab === 'production') mainView = placeholder('Production', Cpu, 'Strumenti di produzione SONARA.');
+  else if (activeTab === 'eq') mainView = <React.Suspense fallback={<div />}>{React.createElement(ProfessionalAudioEqualizer as any, { audioUrl, title, disabled: busy })}</React.Suspense>;
+  else if (activeTab === 'publishing') mainView = <React.Suspense fallback={<div />}><GeneratedAssetLibrary /></React.Suspense>;
+  else if (activeTab === 'marketplace') mainView = placeholder('Marketplace', Store, 'Marketplace SONARA.');
+  else if (activeTab === 'discovery') mainView = <React.Suspense fallback={<div />}><WorldDiscoveryGlobe /></React.Suspense>;
+  else if (activeTab === 'analytics') mainView = placeholder('Analytics', BarChart3, 'Analytics SONARA.');
+  else if (activeTab === 'assistant') mainView = <React.Suspense fallback={<div />}><EmberWorkspace /></React.Suspense>;
+  else if (activeTab === 'cloud') mainView = placeholder('Cloud', Cloud, 'SONARA Cloud.');
+  else if (activeTab === 'collaboration') mainView = placeholder('Collaboration', Users, 'Collaborazione SONARA.');
+  else if (activeTab === 'enterprise') mainView = placeholder('Enterprise', Building2, 'SONARA Enterprise.');
+  else if (activeTab === 'plans') mainView = <React.Suspense fallback={<div />}><PricingAndUsage /></React.Suspense>;
+  else if (activeTab === 'settings') mainView = <React.Suspense fallback={<div />}><AccountSettingsCenter /></React.Suspense>;
 
   return (
-    <div className="min-h-screen bg-[#060a12] text-slate-100">
-      {header}
-      <div className="mx-auto grid max-w-[1600px] gap-5 p-4 sm:p-6 lg:grid-cols-[240px_1fr]">
-        <aside className="space-y-2 lg:sticky lg:top-24 lg:self-start">
-          {navigation.map(([id, key, Icon]) => (
-            <button key={id} onClick={() => { setActiveTab(id); window.scrollTo({ top: 0, behavior: 'smooth' }); }} className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-semibold transition ${activeTab === id ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-950/30' : 'border border-slate-800 bg-slate-900/75 text-slate-400 hover:border-slate-700 hover:text-white'}`}><Icon className="h-4 w-4" />{t(key)}</button>
-          ))}
-          <Card className="mt-4 p-4"><div className="text-[10px] uppercase tracking-wider text-slate-600">{t('system')}</div><div className="mt-3 space-y-2 text-xs"><div className="flex justify-between"><span className="text-slate-500">Engine</span><b className="text-emerald-300">SONARA</b></div><div className="flex justify-between"><span className="text-slate-500">Genres</span><b>{genreCount}</b></div><div className="flex justify-between"><span className="text-slate-500">Subgenres</span><b>{subgenreCount}+</b></div><div className="flex justify-between"><span className="text-slate-500">Languages</span><b>{SUPPORTED_LANGUAGES.length}</b></div></div></Card>
+    <div className="min-h-screen bg-[#050812] text-white">
+      <header className="border-b border-slate-800 bg-slate-950/90 px-4 py-3 backdrop-blur">
+        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4">
+          <div className="flex items-center gap-3"><div className="rounded-xl bg-purple-600 p-2"><Music className="h-5 w-5" /></div><div><div className="font-black tracking-tight">SONARA</div><div className="text-[10px] text-slate-500">Enterprise Audio AI</div></div></div>
+          <button type="button" onClick={() => void refreshDashboard()} className="inline-flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-[11px] font-bold text-slate-300"><Radio className="h-3.5 w-3.5" />{statusLabel}</button>
+        </div>
+      </header>
+      <div className="mx-auto grid max-w-[1600px] gap-4 p-4 lg:grid-cols-[220px_minmax(0,1fr)]">
+        <aside className="rounded-2xl border border-slate-800 bg-slate-900/70 p-3">
+          <nav className="space-y-1">
+            {navigation.map(([view, label, Icon]) => (
+              <button key={view} type="button" onClick={() => setActiveTab(view)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-bold transition ${activeTab === view ? 'bg-purple-500/15 text-purple-200' : 'text-slate-400 hover:bg-slate-800/70 hover:text-white'}`}>
+                <Icon className="h-4 w-4" /><span>{t(label)}</span>
+              </button>
+            ))}
+          </nav>
         </aside>
-        <main className="min-w-0">{renderView()}</main>
+        <main className="min-w-0">{mainView}</main>
       </div>
-      <footer className="mx-auto flex max-w-[1600px] flex-col items-center justify-between gap-3 border-t border-slate-800/80 px-6 py-5 text-[10px] text-slate-600 sm:flex-row">
-        <span>© {new Date().getFullYear()} SONARA AI · Enterprise music intelligence</span>
-        <nav aria-label="Documenti legali" className="flex items-center gap-4">
-          <a href="/terms" className="font-bold transition hover:text-purple-300">Termini e Condizioni</a>
-          <a href="/privacy" className="font-bold transition hover:text-purple-300">Informativa Privacy</a>
-        </nav>
-      </footer>
     </div>
   );
 }
