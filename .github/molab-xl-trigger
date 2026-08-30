@@ -1,5 +1,5 @@
 SONARA_MOLAB_XL_URL=https://molab.sonaraenterprise.com
 MODEL=acestep-v15-xl-turbo
 MODE=MOLAB_XL_ONLY
-ACTION=activate-sonara-musical-dna-v1
-VERIFY=20260830-MUSICAL-DNA-V1-TAXONOMY-LOCK
+ACTION=activate-sonara-musical-dna-v2-hard-authority
+VERIFY=20260830-MUSICAL-DNA-V2-TAXONOMY-FIRST
