@@ -1,7 +1,7 @@
 import runtime from './sonara-studio-pro-router.mjs';
 export { SonaraJobState } from './sonara-studio-pro-router.mjs';
 
-const VERSION = 'sonara-musical-families-v2-exact-categories';
+const VERSION = 'sonara-musical-families-v2.1-exact-categories-safe';
 const GENERATE_PATHS = new Set(['/api/billing/generate', '/api/engine/generate']);
 
 export const MUSICAL_FAMILY_MAP = Object.freeze({
@@ -64,8 +64,8 @@ const canonicalFamily = value => {
 };
 
 const FAMILY_UI = String.raw`(() => {
-  if (window.__sonaraMusicalFamiliesV2ExactCategories) return;
-  window.__sonaraMusicalFamiliesV2ExactCategories = true;
+  if (window.__sonaraMusicalFamiliesV21ExactCategoriesSafe) return;
+  window.__sonaraMusicalFamiliesV21ExactCategoriesSafe = true;
 
   const MAP = ${JSON.stringify({
     'Electronic / Dance': 'Electronic / Dance',
@@ -123,24 +123,53 @@ const FAMILY_UI = String.raw`(() => {
     return MAP[exact] || exact;
   };
 
+  let relabeling = false;
   function relabel() {
+    if (relabeling) return;
     const select = familySelect();
     if (!(select instanceof HTMLSelectElement)) return;
-    Array.from(select.options).forEach(option => {
-      const rawValue = String(option.value || '').trim();
-      const rawText = String(option.textContent || '').trim();
-      const label = canonical(rawValue || rawText);
-      if (!label) return;
-      option.textContent = label;
-      option.label = label;
-      option.dataset.sonaraFamilyInternalKey = label;
-      option.dataset.sonaraMusicalFamily = label;
-    });
-    select.dataset.sonaraMusicalFamilyTaxonomy = 'v2-exact-categories';
-    select.setAttribute('aria-label', 'Genre Category');
+    relabeling = true;
+    try {
+      Array.from(select.options).forEach(option => {
+        const rawValue = String(option.value || '').trim();
+        const rawText = String(option.textContent || '').trim();
+        const label = canonical(rawValue || rawText);
+        if (!label) return;
+        if (rawText !== label) option.textContent = label;
+        if (option.label !== label) option.label = label;
+        if (option.dataset.sonaraFamilyInternalKey !== label) option.dataset.sonaraFamilyInternalKey = label;
+        if (option.dataset.sonaraMusicalFamily !== label) option.dataset.sonaraMusicalFamily = label;
+      });
+      if (select.dataset.sonaraMusicalFamilyTaxonomy !== 'v2.1-exact-categories-safe') {
+        select.dataset.sonaraMusicalFamilyTaxonomy = 'v2.1-exact-categories-safe';
+      }
+      if (select.getAttribute('aria-label') !== 'Genre Category') {
+        select.setAttribute('aria-label', 'Genre Category');
+      }
+    } finally {
+      relabeling = false;
+    }
   }
 
-  const observer = new MutationObserver(() => relabel());
+  let relabelQueued = false;
+  const queueRelabel = () => {
+    if (relabelQueued) return;
+    relabelQueued = true;
+    queueMicrotask(() => {
+      relabelQueued = false;
+      relabel();
+    });
+  };
+
+  const observer = new MutationObserver(mutations => {
+    if (relabeling) return;
+    const relevant = mutations.some(mutation =>
+      Array.from(mutation.addedNodes || []).some(node =>
+        node instanceof HTMLElement && (node.matches?.('select, option') || node.querySelector?.('select, option'))
+      )
+    );
+    if (relevant) queueRelabel();
+  });
   observer.observe(document.documentElement, { childList: true, subtree: true });
   [0, 50, 150, 400, 900, 1800].forEach(ms => setTimeout(relabel, ms));
   document.addEventListener('change', event => {
@@ -166,12 +195,12 @@ const FAMILY_UI = String.raw`(() => {
       const family = canonical(raw);
       body.sonaraCanonicalMusicalFamily = family;
       body.sonaraMusicalFamilyInternalKey = family;
-      body.sonaraMusicalFamilyTaxonomyVersion = 'v2-exact-categories';
+      body.sonaraMusicalFamilyTaxonomyVersion = 'v2.1-exact-categories-safe';
       const headers = new Headers(request.headers);
       headers.delete('content-length');
       headers.set('content-type', 'application/json');
       headers.set('x-sonara-musical-family', family);
-      headers.set('x-sonara-musical-family-taxonomy', 'v2-exact-categories');
+      headers.set('x-sonara-musical-family-taxonomy', 'v2.1-exact-categories-safe');
       return upstreamFetch(new Request(request.url, {
         method: request.method,
         headers,
@@ -242,8 +271,8 @@ async function inject(request, response) {
   if (!['sonaraenterprise.com', 'www.sonaraenterprise.com'].includes(url.hostname)) return response;
   if (!clean(response.headers.get('content-type')).toLowerCase().includes('text/html')) return response;
   const html = await response.text();
-  if (html.includes('sonara-musical-families-v2-exact-categories')) return new Response(html, response);
-  const injection = `<script id="sonara-musical-families-v2-exact-categories">${FAMILY_UI.replace(/<\/script/gi, '<\\/script')}</script>`;
+  if (html.includes('sonara-musical-families-v2-1-exact-categories-safe')) return new Response(html, response);
+  const injection = `<script id="sonara-musical-families-v2-1-exact-categories-safe">${FAMILY_UI.replace(/<\/script/gi, '<\\/script')}</script>`;
   const next = /<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${injection}</body>`) : `${html}${injection}`;
   const headers = new Headers(response.headers);
   headers.delete('content-length');
