@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "sonara-enterprise",
-  "main": "cloudflare/sonara-musical-family-router.mjs",
+  "main": "cloudflare/sonara-billing-edge-router.mjs",
   "compatibility_date": "2026-08-23",
   "workers_dev": true,
   "keep_vars": true,
