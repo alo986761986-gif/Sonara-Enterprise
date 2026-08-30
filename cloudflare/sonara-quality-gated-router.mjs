@@ -2,7 +2,9 @@ import runtime from './sonara-music-taxonomy-lock-router.mjs';
 import { analyzeAudioCandidate, rankQualityReports } from './sonara-audio-quality-engine.mjs';
 export { SonaraJobState } from './sonara-music-taxonomy-lock-router.mjs';
 
-const VERSION = 'sonara-quality-gate-v1';
+const VERSION = 'sonara-quality-gate-v2';
+const RELEASE_STANDARD = 'sonara-release-standard-v1';
+const MIN_RELEASE_SCORE = 82;
 const CONTEXT_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/quality-context/';
 const REPORT_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/quality-report/';
 const TTL = 3 * 60 * 60;
@@ -50,6 +52,7 @@ async function requestContext(request) {
       subgenre: clean(body.sonaraSelectedSubgenre || body.subgenre),
       atmosphere: clean(body.sonaraSelectedMood || body.mood || body.atmosphere),
       vocalMode: clean(body.vocalMode || body.vocal_mode),
+      selectedInstruments: Array.isArray(body.selectedInstruments) ? body.selectedInstruments.map(clean).filter(Boolean) : [],
       requestedAt: Date.now()
     };
   } catch {
@@ -58,15 +61,7 @@ async function requestContext(request) {
 }
 
 function extractJobId(data) {
-  const candidates = [
-    data?.jobId,
-    data?.job_id,
-    data?.id,
-    data?.data?.jobId,
-    data?.data?.job_id,
-    data?.data?.id,
-    data?.metadata?.jobId
-  ];
+  const candidates = [data?.jobId, data?.job_id, data?.id, data?.data?.jobId, data?.data?.job_id, data?.data?.id, data?.metadata?.jobId];
   return clean(candidates.find(Boolean));
 }
 
@@ -91,29 +86,59 @@ function audioUrl(candidate) {
   return '';
 }
 
+function releaseDecision(report) {
+  const reasons = [];
+  if (!report) reasons.push('missing-quality-report');
+  if (report && report.measuredFromRealWav !== true) reasons.push('not-measured-from-real-wav');
+  if (!Number.isFinite(Number(report?.qualityScore)) || Number(report?.qualityScore) < MIN_RELEASE_SCORE) reasons.push('quality-score-below-release-standard');
+  if (report?.bpmPassed === false) reasons.push('bpm-lock-not-verified');
+  if (Number.isFinite(Number(report?.clippingRatio)) && Number(report.clippingRatio) > 0.0005) reasons.push('excessive-clipping');
+  if (Number.isFinite(Number(report?.silenceRatio)) && Number(report.silenceRatio) > 0.28) reasons.push('excessive-silence');
+  if (Number.isFinite(Number(report?.dcOffset)) && Math.abs(Number(report.dcOffset)) > 0.02) reasons.push('dc-offset');
+  if (clean(report?.error)) reasons.push('analysis-error');
+  return {
+    version: RELEASE_STANDARD,
+    minimumQualityScore: MIN_RELEASE_SCORE,
+    publishable: reasons.length === 0,
+    autoRepairRecommended: reasons.length > 0,
+    reasons
+  };
+}
+
 function withRankedCandidates(data, rankedCandidates, reports, context) {
+  const bestReport = reports[0] || null;
+  const sonaraReleaseGate = releaseDecision(bestReport);
   const quality = {
     engine: VERSION,
+    releaseStandard: RELEASE_STANDARD,
     measuredFromRealWav: reports.some(report => report.measuredFromRealWav === true),
     requestedBpm: context?.bpm ?? null,
     requestedKey: context?.key || null,
-    bestScore: reports[0]?.qualityScore ?? null,
-    bestDetectedBpm: reports[0]?.detectedBpm ?? null,
-    bpmVerified: reports[0]?.bpmPassed === true,
-    keyVerified: reports[0]?.keyComparable ? reports[0]?.keyPassed === true : null,
+    requestedInstruments: context?.selectedInstruments || [],
+    bestScore: bestReport?.qualityScore ?? null,
+    bestDetectedBpm: bestReport?.detectedBpm ?? null,
+    bpmVerified: bestReport?.bpmPassed === true,
+    keyVerified: bestReport?.keyComparable ? bestReport?.keyPassed === true : null,
     candidateCount: reports.length,
+    releaseGate: sonaraReleaseGate,
     reports
   };
 
-  const next = { ...data, sonaraQualityJudge: quality };
+  const next = { ...data, sonaraQualityJudge: quality, sonaraReleaseGate };
   if (Array.isArray(data?.candidates)) next.candidates = rankedCandidates;
   else if (Array.isArray(data?.outputs)) next.outputs = rankedCandidates;
   else if (data?.data && typeof data.data === 'object') {
-    next.data = { ...data.data, sonaraQualityJudge: quality };
+    next.data = { ...data.data, sonaraQualityJudge: quality, sonaraReleaseGate };
     if (Array.isArray(data.data.candidates)) next.data.candidates = rankedCandidates;
     else if (Array.isArray(data.data.outputs)) next.data.outputs = rankedCandidates;
   }
-  next.metadata = { ...(data?.metadata || {}), sonaraQualityJudge: quality, recommendedCandidate: reports[0]?.candidateIndex ?? 0 };
+  next.metadata = {
+    ...(data?.metadata || {}),
+    sonaraQualityJudge: quality,
+    sonaraReleaseGate,
+    recommendedCandidate: bestReport?.candidateIndex ?? 0,
+    autoRepairRecommended: sonaraReleaseGate.autoRepairRecommended
+  };
   return next;
 }
 
@@ -180,6 +205,7 @@ async function transformJsonResponse(response, transform) {
     headers.delete('content-length');
     headers.set('content-type', 'application/json; charset=UTF-8');
     headers.set('x-sonara-quality-gate', VERSION);
+    headers.set('x-sonara-release-standard', RELEASE_STANDARD);
     return new Response(JSON.stringify(next), { status: response.status, statusText: response.statusText, headers });
   } catch {
     return response;
@@ -201,9 +227,11 @@ export default {
           metadata: {
             ...(data?.metadata || {}),
             sonaraQualityGate: VERSION,
+            sonaraReleaseStandard: RELEASE_STANDARD,
             qualityJudgeWillAnalyzeRealWav: true,
             requestedBpmForVerification: generationContext.bpm,
-            requestedKeyForVerification: generationContext.key || null
+            requestedKeyForVerification: generationContext.key || null,
+            requestedInstruments: generationContext.selectedInstruments
           }
         };
       });
@@ -221,9 +249,13 @@ export default {
       return transformJsonResponse(response, data => ({
         ...data,
         audioQualityJudge: VERSION,
+        releaseStandard: RELEASE_STANDARD,
+        minimumReleaseScore: MIN_RELEASE_SCORE,
         actualWavAnalysis: true,
         actualBpmVerification: true,
         automaticCandidateRanking: true,
+        automaticReleaseDecision: true,
+        automaticRepairRecommendation: true,
         clippingAndSilenceGate: true,
         dynamicsGate: true,
         approximateKeyVerification: true
