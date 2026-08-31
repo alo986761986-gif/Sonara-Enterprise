@@ -12,16 +12,18 @@ VENV = Path('/marimo/venvs/sonara-yue-v9-blackwell')
 PYTHON = VENV / 'bin' / 'python'
 HOME = Path('/marimo')
 BASE_WORKER = HOME / 'sonara_yue_worker_v9_exl2.py'
-QUALITY_WORKER = HOME / 'sonara_yue_v10_quality_worker.py'
+QUALITY_BASE = HOME / 'sonara_yue_v10_quality_worker.py'
+QUALITY_WORKER = HOME / 'sonara_yue_v103_quality_resident_worker.py'
 GATEWAY = HOME / 'sonara_yue_v10_gateway.py'
 LOG_FAST = HOME / 'sonara_yue_v10_fast.log'
-LOG_QUALITY = HOME / 'sonara_yue_v10_quality.log'
+LOG_QUALITY = HOME / 'sonara_yue_v103_quality_resident.log'
 LOG_GATEWAY = HOME / 'sonara_yue_v10_gateway.log'
 
 RAW = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/main/scripts/'
 FILES = {
     'sonara_yue_worker_v9_exl2.py': BASE_WORKER,
-    'sonara_yue_v10_quality_worker.py': QUALITY_WORKER,
+    'sonara_yue_v10_quality_worker.py': QUALITY_BASE,
+    'sonara_yue_v103_quality_resident_worker.py': QUALITY_WORKER,
     'sonara_yue_v10_gateway.py': GATEWAY,
 }
 
@@ -44,6 +46,11 @@ def clean_env():
     env['PYTHONUNBUFFERED'] = '1'
     env['TOKENIZERS_PARALLELISM'] = 'false'
     env['PYTORCH_ALLOC_CONF'] = 'expandable_segments:True'
+    env['CUDA_MODULE_LOADING'] = 'LAZY'
+    env['HF_HUB_OFFLINE'] = '1'
+    env['TRANSFORMERS_OFFLINE'] = '1'
+    env['SONARA_YUE_MAX_SPEED'] = '1'
+    env['SONARA_YUE_TORCH_COMPILE'] = '0'
     env.pop('PYTORCH_CUDA_ALLOC_CONF', None)
     return env
 
@@ -54,6 +61,7 @@ def stop_old():
         'sonara_yue_worker_v91_contract.py',
         'sonara_yue_worker_v91_launcher.py',
         'sonara_yue_v10_quality_worker.py',
+        'sonara_yue_v103_quality_resident_worker.py',
         'sonara_yue_v10_gateway.py',
     ]
     for pattern in patterns:
@@ -61,16 +69,20 @@ def stop_old():
     time.sleep(3)
 
 
-def start(script: Path, log: Path, env: dict):
+def start(script: Path, log: Path, env: dict, isolated: bool = True):
     log.write_text('', encoding='utf-8')
+    cmd = [str(PYTHON)]
+    if isolated:
+        cmd.append('-I')
+    cmd.append(str(script))
     with log.open('ab', buffering=0) as fh:
-        proc = subprocess.Popen([str(PYTHON), '-I', str(script)], stdout=fh, stderr=subprocess.STDOUT, env=env, start_new_session=True)
+        proc = subprocess.Popen(cmd, stdout=fh, stderr=subprocess.STDOUT, env=env, start_new_session=True)
     return proc
 
 
 def health(port: int):
     try:
-        req = urllib.request.Request(f'http://127.0.0.1:{port}/health', headers={'User-Agent': 'SONARA-V10-SUPERVISOR'})
+        req = urllib.request.Request(f'http://127.0.0.1:{port}/health', headers={'User-Agent': 'SONARA-V10.3-SUPERVISOR'})
         with urllib.request.urlopen(req, timeout=5) as response:
             return response.status, json.loads(response.read().decode('utf-8'))
     except Exception as exc:
@@ -85,7 +97,7 @@ def tail(path: Path, n=100):
 
 def main():
     print('=' * 80)
-    print('SONARA YUE V10 - QUALITY + FAST + GATEWAY')
+    print('SONARA YUE V10.3 - RESIDENT QUALITY + FAST + GATEWAY')
     print('=' * 80)
     if not PYTHON.exists():
         raise RuntimeError(f'Venv non trovato: {PYTHON}')
@@ -94,7 +106,7 @@ def main():
     if check.returncode:
         print(check.stdout)
         print(check.stderr)
-        raise RuntimeError('Errore sintassi V10')
+        raise RuntimeError('Errore sintassi V10.3')
     stop_old()
     base_env = clean_env()
 
@@ -119,6 +131,7 @@ def main():
     quality_env.update({
         'SONARA_YUE_PORT': '8014',
         'SONARA_YUE_MAX_DURATION': '480',
+        'PYTHONPATH': '/marimo/YuE-quality/inference',
     })
 
     gateway_env = base_env.copy()
@@ -128,49 +141,52 @@ def main():
         'SONARA_YUE_FAST_URL': 'http://127.0.0.1:8013',
     })
 
-    fast = start(BASE_WORKER, LOG_FAST, fast_env)
-    quality = start(QUALITY_WORKER, LOG_QUALITY, quality_env)
-    gateway = start(GATEWAY, LOG_GATEWAY, gateway_env)
+    fast = start(BASE_WORKER, LOG_FAST, fast_env, isolated=True)
+    quality = start(QUALITY_WORKER, LOG_QUALITY, quality_env, isolated=False)
+    gateway = start(GATEWAY, LOG_GATEWAY, gateway_env, isolated=True)
 
     print('✅ FAST PID:', fast.pid)
-    print('✅ QUALITY PID:', quality.pid)
+    print('✅ QUALITY RESIDENT PID:', quality.pid)
     print('✅ GATEWAY PID:', gateway.pid)
 
     for sec in range(1, 901):
-        fs, fd = health(8013)
+        _, fd = health(8013)
         qs, qd = health(8014)
         gs, gd = health(8012)
 
         fast_ready = bool((fd.get('engine') or {}).get('ready'))
-        quality_ready = qs == 200 and qd.get('version') == '10.0-quality-bf16-official'
+        resident = qd.get('resident_engine') or {}
+        quality_ready = qs == 200 and qd.get('version') == '10.3-quality-bf16-resident' and bool(resident.get('ready'))
         gateway_ready = gs == 200 and gd.get('version') == '10.0-quality-fast-gateway'
 
         if fast.poll() is not None:
             raise RuntimeError('FAST terminato:\n' + tail(LOG_FAST, 160))
         if quality.poll() is not None:
-            raise RuntimeError('QUALITY terminato:\n' + tail(LOG_QUALITY, 160))
+            raise RuntimeError('QUALITY RESIDENT terminato:\n' + tail(LOG_QUALITY, 200))
         if gateway.poll() is not None:
             raise RuntimeError('GATEWAY terminato:\n' + tail(LOG_GATEWAY, 160))
 
         if fast_ready and quality_ready and gateway_ready:
+            memory = resident.get('memory') or {}
             print('\n' + '=' * 80)
-            print('✅ SONARA YUE V10 PRONTO')
+            print('✅ SONARA YUE V10.3 PRONTO')
             print('✅ PUBLIC GATEWAY : http://127.0.0.1:8012')
-            print('✅ QUALITY BF16   : http://127.0.0.1:8014')
-            print('✅ FAST EXL2      : http://127.0.0.1:8013')
-            print('✅ DEFAULT        : QUALITY')
+            print('✅ QUALITY BF16   : RESIDENTE http://127.0.0.1:8014')
+            print('✅ FAST EXL2      : RESIDENTE http://127.0.0.1:8013')
+            print('✅ DEFAULT        : FAST/TURBO lato production edge')
+            print('✅ STAGE2 QUALITY : SHARED BATCH vocal + instrumental')
+            print('✅ VRAM FREE GB   :', memory.get('free_gb'))
+            print('✅ VRAM TOTAL GB  :', memory.get('total_gb'))
             print('✅ TUNNEL         : https://yue.sonaraenterprise.com -> 8012')
-            print('✅ CFG FAST       : ON')
-            print('✅ QUALITY        : official BF16 + native YuE decoding')
             print('=' * 80)
             return
 
         if sec % 15 == 0:
-            print(f'{sec}s | FAST={fast_ready} QUALITY={quality_ready} GATEWAY={gateway_ready}', flush=True)
+            print(f'{sec}s | FAST={fast_ready} QUALITY_RESIDENT={quality_ready} GATEWAY={gateway_ready}', flush=True)
 
         time.sleep(1)
 
-    raise RuntimeError('Timeout V10. FAST:\n' + tail(LOG_FAST) + '\nQUALITY:\n' + tail(LOG_QUALITY) + '\nGATEWAY:\n' + tail(LOG_GATEWAY))
+    raise RuntimeError('Timeout V10.3. FAST:\n' + tail(LOG_FAST) + '\nQUALITY:\n' + tail(LOG_QUALITY) + '\nGATEWAY:\n' + tail(LOG_GATEWAY))
 
 
 if __name__ == '__main__':
