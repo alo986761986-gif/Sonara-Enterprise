@@ -92,4 +92,5 @@ function patchFrontend() {
 patchBilling();
 patchJobBridge();
 patchFrontend();
+require('./activate-levo2-hobby-audio.cjs');
 console.log('[SONARA][LeVo2] Vercel preview wired to async LeVo 2 R&D worker. Production remains untouched.');
