@@ -1,0 +1,78 @@
+name: SONARA Studio Stems Lightweight Quality Patch
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/sonara-studio-stems-lightweight-quality-patch.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Apply stems resource fix and strict regression guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          router = Path('cloudflare/sonara-studio-ai-router.mjs')
+          text = router.read_text()
+          old = "const qualityReports = await mapWithConcurrency(outputs.slice(0, 12), 1, async (output, index) => {"
+          new = "const qualityTargets = state.operation === 'stems' ? [] : outputs.slice(0, 12);\n    const qualityReports = await mapWithConcurrency(qualityTargets, 1, async (output, index) => {"
+          if old not in text:
+            raise SystemExit('router quality marker missing')
+          router.write_text(text.replace(old, new, 1))
+
+          e2e = Path('scripts/sonara-real-music-e2e.mjs')
+          text = e2e.read_text()
+
+          old = "      console.log(`${label} poll retry: ${text}`);"
+          new = "      if (/Worker exceeded resources/i.test(text)) throw new Error(`${label}: Cloudflare Worker exceeded resources during polling.`);\n      console.log(`${label} poll retry: ${text}`);"
+          if old not in text:
+            raise SystemExit('poll retry marker missing')
+          text = text.replace(old, new, 1)
+
+          old = "  report.outputs[operation] = { jobId, audioUrls: urls, formats: urls.map(audioFormatFromUrl), metadata: done.metadata || null, qualityJudge: done.qualityJudge || null, raw: urls.length ? undefined : done };"
+          new = "  report.outputs[operation] = {\n    jobId,\n    audioUrls: urls,\n    formats: urls.map(audioFormatFromUrl),\n    outputs: Array.isArray(done.outputs) ? done.outputs.map(item => ({ id: item?.id || null, label: item?.label || null, kind: item?.kind || null, stem: item?.stem || null, audioUrl: item?.audioUrl || item?.url || null, model: item?.model || null })) : [],\n    metadata: done.metadata || null,\n    qualityJudge: done.qualityJudge || null,\n    raw: urls.length ? undefined : done\n  };"
+          if old not in text:
+            raise SystemExit('studio operation output marker missing')
+          text = text.replace(old, new, 1)
+
+          old = "      const stemLabels = (report.outputs['stems-pro']?.qualityJudge?.reports || []).map(item => String(item?.label || '')).filter(Boolean);"
+          new = "      const stemLabels = (report.outputs['stems-pro']?.outputs || []).map(item => String(item?.label || '')).filter(Boolean);"
+          if old not in text:
+            raise SystemExit('stem label marker missing')
+          text = text.replace(old, new, 1)
+
+          e2e.write_text(text)
+          PY
+
+          node --check cloudflare/sonara-studio-ai-router.mjs
+          node --check scripts/sonara-real-music-e2e.mjs
+          node --test cloudflare/sonara-studio-v2-contract.test.mjs
+          git diff --check
+          grep -q "state.operation === 'stems' ? \[\]" cloudflare/sonara-studio-ai-router.mjs
+          grep -q 'Worker exceeded resources during polling' scripts/sonara-real-music-e2e.mjs
+          grep -q "report.outputs\['stems-pro'\]?.outputs" scripts/sonara-real-music-e2e.mjs
+
+      - name: Commit production fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "sonara-ci"
+          git config user.email "sonara-ci@users.noreply.github.com"
+          git add cloudflare/sonara-studio-ai-router.mjs scripts/sonara-real-music-e2e.mjs
+          git commit -m "fix(studio): avoid heavy quality pass on 12 stems"
+          git push origin HEAD:main
