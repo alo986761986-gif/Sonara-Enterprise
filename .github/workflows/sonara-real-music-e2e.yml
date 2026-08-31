@@ -12,6 +12,7 @@ on:
       - '.github/workflows/sonara-real-music-e2e.yml'
       - '.github/sonara-real-music-e2e-trigger'
       - 'scripts/sonara-real-music-e2e.mjs'
+      - 'scripts/sonara-e2e-browser-origin.mjs'
 
 permissions:
   contents: read
@@ -40,7 +41,7 @@ jobs:
 
       - name: Run real music + Studio 2.0 canary
         shell: bash
-        run: node scripts/sonara-real-music-e2e.mjs
+        run: node --import ./scripts/sonara-e2e-browser-origin.mjs scripts/sonara-real-music-e2e.mjs
 
       - name: Print concise canary summary
         if: always()
@@ -57,7 +58,7 @@ jobs:
             generationJobId: r.outputs?.generationJobId,
             baseAudioUrls: r.outputs?.generation?.audioUrls,
             bestBaseCandidate: r.outputs?.bestBaseCandidate,
-            quality: Object.fromEntries(Object.entries(r.quality || {}).map(([k,v]) => [k, {bestScore:v.bestScore, passed:v.passed}])),
+            quality: Object.fromEntries(Object.entries(r.quality || {}).map(([k,v]) => [k, {bestScore:v.bestScore, passed:v.passed, endpointMeasured:v.endpointMeasured}])),
             replaceJobId: r.outputs?.replaceJobId,
             extendJobId: r.outputs?.extendJobId,
             stemsProJobId: r.outputs?.['stems-proJobId'],
