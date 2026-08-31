@@ -81,7 +81,8 @@ jobs:
           grep -q 'directAudioFetch' cloudflare/sonara-studio-ai-router.mjs
           grep -q 'studioStateStub' cloudflare/sonara-studio-ai-router.mjs
           grep -q 'padWavInputToDuration' cloudflare/sonara-studio-ai-router.mjs
-          grep -q 'mapWithConcurrency(outputs.slice(0, 12), 2' cloudflare/sonara-studio-ai-router.mjs
+          grep -q 'mapWithConcurrency(outputs.slice(0, 12), 1' cloudflare/sonara-studio-ai-router.mjs
+          grep -q "String(value).trim() === ''" cloudflare/sonara-quality-director-v2.mjs
           grep -q 'const optionalBpm' cloudflare/sonara-audio-quality-engine.mjs
           grep -q 'SONARA_SESSIONS_NATIVE_V2' src/components/studio/SonaraStudio.tsx
           grep -q 'data-sonara-sessions-timeline="2.0"' src/components/studio/SonaraSessions2Timeline.tsx
