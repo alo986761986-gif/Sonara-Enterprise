@@ -47,7 +47,7 @@ function validPublicFirebaseValue(value: string | undefined, fallback: string): 
 }
 
 function validFirebaseAuthDomain(value: string | undefined): string {
-  const candidate = validPublicFirebaseValue(value, SONARA_FIREBASE_PUBLIC_CONFIG.authDomain)
+  const candidate = validPublicFirebaseValue(env.VITE_FIREBASE_AUTH_DOMAIN, SONARA_FIREBASE_PUBLIC_CONFIG.authDomain)
     .replace(/^https?:\/\//i, '')
     .split('/')[0]
     .trim();
@@ -78,15 +78,34 @@ export const firebaseConfigured = Boolean(
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 
-type NativeCompatUser = Pick<User, 'uid' | 'email' | 'displayName'>;
+type NativeCompatUser = Pick<User, 'uid' | 'email' | 'displayName' | 'photoURL' | 'emailVerified' | 'providerData'>;
 
 async function nativeSessionUser(): Promise<NativeCompatUser | null> {
   try {
     const response = await fetch('/api/sonara-auth/session', { credentials: 'include', cache: 'no-store' });
     const payload = await response.json().catch(() => ({}));
-    return response.ok && payload?.authenticated && payload?.user?.uid
-      ? payload.user as NativeCompatUser
-      : null;
+    if (!response.ok || !payload?.authenticated || !payload?.user?.uid) return null;
+
+    const user = payload.user;
+    const uid = String(user.uid || '');
+    const email = user.email ? String(user.email) : null;
+    const displayName = user.displayName ? String(user.displayName) : null;
+
+    return {
+      uid,
+      email,
+      displayName,
+      photoURL: null,
+      emailVerified: true,
+      providerData: [{
+        providerId: 'password',
+        uid: email || uid,
+        displayName,
+        email,
+        phoneNumber: null,
+        photoURL: null
+      }]
+    } as NativeCompatUser;
   } catch {
     return null;
   }
