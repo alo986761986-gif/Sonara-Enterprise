@@ -49,7 +49,7 @@ jobs:
           for attempt in $(seq 1 24); do
             status="$(curl -sS --max-time 15 -A "${UA}" -o /tmp/yue-health.json -w '%{http_code}' "${YUE_URL}/health" || true)"
             echo "YuE health attempt ${attempt}/24 HTTP=${status}"
-            if [ "${status}" = "200" ] && grep -q 'SONARA YuE RTX PRO 6000' /tmp/yue-health.json; then
+            if [ "${status}" = "200" ] && grep -Eq 'SONARA YuE (V10 Gateway|RTX PRO 6000)' /tmp/yue-health.json; then
               ready=1
               cat /tmp/yue-health.json
               break
@@ -112,7 +112,7 @@ jobs:
           for attempt in $(seq 1 12); do
             status="$(curl -sS --max-time 15 -A "${UA}" -o /tmp/yue-health-after.json -w '%{http_code}' "${YUE_URL}/health" || true)"
             echo "YuE post-deploy health attempt ${attempt}/12 HTTP=${status}"
-            if [ "${status}" = "200" ] && grep -q 'SONARA YuE RTX PRO 6000' /tmp/yue-health-after.json; then
+            if [ "${status}" = "200" ] && grep -Eq 'SONARA YuE (V10 Gateway|RTX PRO 6000)' /tmp/yue-health-after.json; then
               ready=1
               cat /tmp/yue-health-after.json
               break
