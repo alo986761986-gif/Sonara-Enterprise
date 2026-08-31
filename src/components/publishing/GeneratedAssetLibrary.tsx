@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle2,
   Clock3,
@@ -22,7 +22,8 @@ import {
   type StoredGeneratedAsset
 } from '../../services/generatedAssetVault';
 
-const DEMO_DURATION_SECONDS = 30;
+const GLOBAL_PLAYER_PLAY_EVENT = 'sonara:global-player-play-track';
+const GLOBAL_PLAYER_STATE_EVENT = 'sonara:global-player-state';
 
 function formatBytes(value: number): string {
   if (!value) return 'Riferimento sicuro';
@@ -49,75 +50,29 @@ export default function GeneratedAssetLibrary() {
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState('');
   const [playingAssetId, setPlayingAssetId] = useState<string | null>(null);
-  const demoAudioRef = useRef<HTMLAudioElement | null>(null);
-  const demoObjectUrlRef = useRef('');
 
-  const releaseDemoAudio = useCallback(() => {
-    const audio = demoAudioRef.current;
-    if (audio) {
-      audio.pause();
-      audio.ontimeupdate = null;
-      audio.onended = null;
-      audio.onerror = null;
-      audio.removeAttribute('src');
-      audio.load();
-      demoAudioRef.current = null;
-    }
-    if (demoObjectUrlRef.current) {
-      URL.revokeObjectURL(demoObjectUrlRef.current);
-      demoObjectUrlRef.current = '';
-    }
-  }, []);
-
-  const stopDemo = useCallback(() => {
-    releaseDemoAudio();
-    setPlayingAssetId(null);
-  }, [releaseDemoAudio]);
-
-  const toggleDemo = useCallback(async (asset: StoredGeneratedAsset) => {
-    if (playingAssetId === asset.id) {
-      stopDemo();
-      return;
-    }
-
-    releaseDemoAudio();
-    const playbackUrl = asset.blob ? URL.createObjectURL(asset.blob) : asset.remoteUrl;
-    if (!playbackUrl) {
-      setNotice('La demo audio non è disponibile per questo file.');
+  const toggleInGlobalPlayer = useCallback((asset: StoredGeneratedAsset, project: GeneratedProjectArchive) => {
+    if (!asset.remoteUrl && !asset.blob) {
+      setNotice('Questo file audio non ha una sorgente riproducibile. Puoi provare a scaricarlo.');
       setPlayingAssetId(null);
       return;
     }
-
-    if (asset.blob) demoObjectUrlRef.current = playbackUrl;
-    const audio = new Audio(playbackUrl);
-    audio.preload = 'metadata';
-    demoAudioRef.current = audio;
-
-    const finishDemo = () => {
-      if (demoAudioRef.current !== audio) return;
-      releaseDemoAudio();
-      setPlayingAssetId(null);
-    };
-
-    audio.ontimeupdate = () => {
-      if (audio.currentTime >= DEMO_DURATION_SECONDS) finishDemo();
-    };
-    audio.onended = finishDemo;
-    audio.onerror = () => {
-      finishDemo();
-      setNotice('Impossibile riprodurre la demo. Puoi comunque scaricare il brano.');
-    };
 
     setNotice('');
-    setPlayingAssetId(asset.id);
-    try {
-      await audio.play();
-      if (demoAudioRef.current !== audio) audio.pause();
-    } catch {
-      finishDemo();
-      setNotice('Il browser ha bloccato la riproduzione. Premi di nuovo Play.');
-    }
-  }, [playingAssetId, releaseDemoAudio, stopDemo]);
+    window.dispatchEvent(new CustomEvent(GLOBAL_PLAYER_PLAY_EVENT, {
+      detail: {
+        id: `publication-${asset.id}`,
+        assetId: asset.id,
+        jobId: project.jobId,
+        audioUrl: asset.remoteUrl || '',
+        blob: asset.blob,
+        audioFormat: asset.format,
+        title: `${project.title} · ${asset.label}`,
+        source: 'publication',
+        toggle: true
+      }
+    }));
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -138,7 +93,18 @@ export default function GeneratedAssetLibrary() {
     return () => window.removeEventListener(GENERATED_ASSET_EVENT, updateHandler);
   }, [refresh]);
 
-  useEffect(() => () => releaseDemoAudio(), [releaseDemoAudio]);
+  useEffect(() => {
+    const onPlayerState = (event: Event) => {
+      const detail = (event as CustomEvent<{ playing?: boolean; assetId?: string; source?: string }>).detail;
+      if (detail?.source !== 'publication') {
+        if (detail?.playing) setPlayingAssetId(null);
+        return;
+      }
+      setPlayingAssetId(detail.playing && detail.assetId ? detail.assetId : null);
+    };
+    window.addEventListener(GLOBAL_PLAYER_STATE_EVENT, onPlayerState);
+    return () => window.removeEventListener(GLOBAL_PLAYER_STATE_EVENT, onPlayerState);
+  }, []);
 
   const totals = useMemo(() => {
     const files = projects.flatMap(project => project.assets);
@@ -172,8 +138,8 @@ export default function GeneratedAssetLibrary() {
         <div className="flex items-center gap-3">
           <div className="rounded-lg bg-emerald-500/10 p-2 text-emerald-300"><ShieldCheck className="h-5 w-5" /></div>
           <div>
-            <div className="text-sm font-bold text-emerald-200">Archivio automatico attivo</div>
-            <div className="mt-1 text-[11px] text-slate-400">Play fa ascoltare i primi 30 secondi delle Versioni A e B; dopo la scelta puoi scaricare il brano completo.</div>
+            <div className="text-sm font-bold text-emerald-200">Player universale SONARA attivo</div>
+            <div className="mt-1 text-[11px] text-slate-400">Versioni A e B e tutti i master audio salvati in Pubblicazione vengono riprodotti dal player fisso con play/pausa, timeline, avanti/indietro, precedente/successivo, volume, shuffle e repeat.</div>
           </div>
         </div>
         <button type="button" onClick={() => void refresh()} disabled={loading} className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-200 disabled:opacity-50">
@@ -223,14 +189,14 @@ export default function GeneratedAssetLibrary() {
                     {asset.kind === 'audio' && (
                       <button
                         type="button"
-                        onClick={() => void toggleDemo(asset)}
+                        onClick={() => toggleInGlobalPlayer(asset, project)}
                         disabled={!asset.blob && !asset.remoteUrl}
-                        aria-label={playingAssetId === asset.id ? `Ferma la demo di ${asset.name}` : `Riproduci i primi 30 secondi di ${asset.name}`}
+                        aria-label={playingAssetId === asset.id ? `Pausa ${asset.name} nel player SONARA` : `Riproduci ${asset.name} nel player SONARA`}
                         aria-pressed={playingAssetId === asset.id}
                         className="flex items-center justify-center gap-2 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-xs font-bold text-cyan-200 hover:bg-cyan-500/20 disabled:opacity-40"
                       >
                         {playingAssetId === asset.id ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                        {playingAssetId === asset.id ? 'Pausa demo' : 'Play demo 0–30s'}
+                        {playingAssetId === asset.id ? 'Pausa' : 'Play nel player'}
                       </button>
                     )}
                     <button type="button" onClick={() => downloadStoredAsset(asset)} disabled={!asset.blob && !asset.remoteUrl} className="flex items-center justify-center gap-2 rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-2 text-xs font-bold text-purple-200 hover:bg-purple-500/20 disabled:opacity-40">
