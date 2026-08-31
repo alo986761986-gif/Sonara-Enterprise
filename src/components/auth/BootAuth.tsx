@@ -21,7 +21,6 @@ import { uiText } from '../../i18n/ui';
 import {
   firebaseConfigured,
   loginWithEmail,
-  loginWithGoogle,
   logoutFirebase,
   registerWithEmail,
   resetEmailPassword,
@@ -46,6 +45,17 @@ function initialLanguage(): LanguageCode {
   const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(LANGUAGE_KEY) : null;
   if (saved && (SUPPORTED_LANGUAGES as readonly string[]).includes(saved)) return saved as LanguageCode;
   return detectDeviceLanguage();
+}
+
+function friendlyAuthError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  if (/invalid-credential|wrong-password|user-not-found/i.test(raw)) return 'Email o password non corretti.';
+  if (/email-already-in-use/i.test(raw)) return 'Questa email è già registrata. Accedi oppure recupera la password.';
+  if (/weak-password/i.test(raw)) return 'La password deve contenere almeno 6 caratteri.';
+  if (/too-many-requests/i.test(raw)) return 'Troppi tentativi. Riprova più tardi.';
+  if (/network-request-failed/i.test(raw)) return 'Connessione non disponibile. Controlla la rete e riprova.';
+  if (/consumer.*suspend|api-key.*suspend|permission-denied/i.test(raw)) return 'Servizio di autenticazione temporaneamente non disponibile. La configurazione Firebase deve essere aggiornata.';
+  return raw;
 }
 
 export default function BootAuth({ children }: { children: React.ReactNode }) {
@@ -108,7 +118,7 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
       return;
     }
     if (!email.trim()) {
-      setMessage('Email required.');
+      setMessage('Inserisci il tuo indirizzo email.');
       return;
     }
 
@@ -116,36 +126,21 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
     try {
       if (mode === 'reset') {
         await resetEmailPassword(email);
-        setMessage('Password reset email sent.');
+        setMessage('Email per il recupero password inviata.');
         setMode('login');
         return;
       }
+
       if (password.length < 6) {
-        setMessage('Password must contain at least 6 characters.');
+        setMessage('La password deve contenere almeno 6 caratteri.');
         return;
       }
+
       if (mode === 'register') await registerWithEmail(email, password);
       else await loginWithEmail(email, password);
       setAllowed(true);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const google = async () => {
-    setMessage('');
-    if (!firebaseConfigured) {
-      setMessage(t('authConfigMissing'));
-      return;
-    }
-    setBusy(true);
-    try {
-      await loginWithGoogle();
-      setAllowed(true);
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
+      setMessage(friendlyAuthError(error));
     } finally {
       setBusy(false);
     }
@@ -159,15 +154,7 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
         <div className="absolute h-56 w-56 animate-ping rounded-full border border-cyan-400/10 [animation-duration:2.2s]" />
         <div className="relative z-10 flex flex-col items-center">
           <div className="relative mb-8 h-24 w-24 rounded-[30px] shadow-2xl shadow-purple-950/70">
-            <img
-              src="/sonara-ai-icon.png"
-              alt="SONARA AI"
-              width={96}
-              height={96}
-              className="h-24 w-24 rounded-[30px] object-cover"
-              loading="eager"
-              decoding="sync"
-            />
+            <img src="/sonara-ai-icon.png" alt="SONARA AI" width={96} height={96} className="h-24 w-24 rounded-[30px] object-cover" loading="eager" decoding="sync" />
             <span className="absolute -inset-3 animate-pulse rounded-[38px] border border-purple-400/25" />
           </div>
           <div className="text-3xl font-black tracking-[0.24em]">SONARA</div>
@@ -201,7 +188,7 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
             </div>
             <div className="space-y-3 text-xs text-slate-400">
               <div className="flex items-center gap-3"><Sparkles className="h-4 w-4 text-purple-400" /> SONARA generative music</div>
-              <div className="flex items-center gap-3"><ShieldCheck className="h-4 w-4 text-emerald-400" /> Enterprise creative workspace</div>
+              <div className="flex items-center gap-3"><ShieldCheck className="h-4 w-4 text-emerald-400" /> Account protetto con email e password</div>
               <div className="flex items-center gap-3"><Globe2 className="h-4 w-4 text-cyan-400" /> Global genres · multilingual interface</div>
             </div>
           </section>
@@ -214,20 +201,14 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
                 <div className="text-[9px] font-bold tracking-[0.22em] text-purple-300">ENTERPRISE</div>
               </div>
             </div>
+
             <div className="mb-8 flex items-center justify-between gap-4">
               <div>
                 <div className="text-2xl font-black">{t('welcome')}</div>
                 <div className="mt-1 text-xs text-slate-500">{mode === 'register' ? t('createAccount') : mode === 'reset' ? t('resetPassword') : t('signInSubtitle')}</div>
               </div>
-              <select
-                aria-label={t('language')}
-                value={language}
-                onChange={event => changeLanguage(event.target.value)}
-                className="max-w-[190px] rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-xs text-slate-300 outline-none focus:border-purple-500"
-              >
-                {SUPPORTED_LANGUAGES.map(code => (
-                  <option key={code} value={code}>{LANGUAGE_METADATA[code].nativeName}</option>
-                ))}
+              <select aria-label={t('language')} value={language} onChange={event => changeLanguage(event.target.value)} className="max-w-[190px] rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-xs text-slate-300 outline-none focus:border-purple-500">
+                {SUPPORTED_LANGUAGES.map(code => <option key={code} value={code}>{LANGUAGE_METADATA[code].nativeName}</option>)}
               </select>
             </div>
 
@@ -246,13 +227,7 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
                   <div className="mt-2 flex items-center rounded-xl border border-white/10 bg-slate-950 px-3 focus-within:border-purple-500">
                     <LockKeyhole className="h-4 w-4 text-slate-600" />
                     <input type={showPassword ? 'text' : 'password'} value={password} onChange={event => setPassword(event.target.value)} autoComplete={mode === 'register' ? 'new-password' : 'current-password'} required className="w-full bg-transparent px-3 py-3 text-sm outline-none" />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(value => !value)}
-                      className="rounded-lg p-2 text-slate-500 transition hover:bg-white/5 hover:text-white"
-                      aria-label={showPassword ? 'Nascondi password' : 'Mostra password'}
-                      title={showPassword ? 'Nascondi password' : 'Mostra password'}
-                    >
+                    <button type="button" onClick={() => setShowPassword(value => !value)} className="rounded-lg p-2 text-slate-500 transition hover:bg-white/5 hover:text-white" aria-label={showPassword ? 'Nascondi password' : 'Mostra password'} title={showPassword ? 'Nascondi password' : 'Mostra password'}>
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
@@ -268,16 +243,7 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
               </button>
             </form>
 
-            {mode === 'login' && (
-              <button onClick={() => setMode('reset')} className="mt-3 text-xs text-purple-300 hover:text-purple-200">{t('forgotPassword')}</button>
-            )}
-
-            <div className="my-6 flex items-center gap-3 text-[10px] uppercase tracking-widest text-slate-600"><span className="h-px flex-1 bg-white/10" />{t('or')}<span className="h-px flex-1 bg-white/10" /></div>
-
-            <button type="button" onClick={google} disabled={busy} className="flex w-full items-center justify-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-bold transition hover:bg-white/[0.07]">
-              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-xs font-black text-slate-900">G</span>
-              {t('continueGoogle')}
-            </button>
+            {mode === 'login' && <button onClick={() => { setMode('reset'); setMessage(''); }} className="mt-3 text-xs text-purple-300 hover:text-purple-200">{t('forgotPassword')}</button>}
 
             <div className="mt-6 flex flex-wrap items-center justify-between gap-3 text-xs">
               {mode === 'login' ? (
@@ -286,7 +252,7 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
                 <button onClick={() => { setMode('login'); setMessage(''); }} className="text-slate-400 hover:text-white">{t('backToLogin')}</button>
               )}
               <span className={`rounded-full border px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider ${firebaseConfigured ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300' : 'border-amber-500/20 bg-amber-500/10 text-amber-300'}`}>
-                {firebaseConfigured ? 'Firebase Auth Ready' : 'Firebase config pending'}
+                {firebaseConfigured ? 'Email Auth Ready' : 'Firebase config pending'}
               </span>
             </div>
 
