@@ -1,0 +1,4 @@
+trigger: 2026-08-31T21:50:00+02:00
+reason: remove all legacy SONARA boot/startup overlays and expose the creator landing immediately
+workflow: deploy-cloudflare-no-boot.yml
+source: 23a97bb4d626fc695f43f63dcc36a2d901f66266
