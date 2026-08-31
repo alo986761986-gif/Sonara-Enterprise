@@ -30,6 +30,7 @@ OUTPUT_ROOT = Path('/marimo/YuE-quality/sonara_output_v10')
 TOP_TAGS = ROOT / 'top_200_tags.json'
 API_KEY = os.environ.get('SONARA_YUE_API_KEY', '').strip()
 MAX_DURATION = max(60, min(480, int(os.environ.get('SONARA_YUE_MAX_DURATION', '480'))))
+MAX_SPEED = os.environ.get('SONARA_YUE_MAX_SPEED', '1') == '1'
 OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
 JOBS: dict[str, dict] = {}
@@ -158,7 +159,6 @@ def tag_prompt(body: dict):
 
     genre_candidates = [subgenre, genre, family, prompt]
     g = canonical_tag('genre', genre_candidates, 'electronic')
-
     instruments = infer_instruments(' '.join(genre_candidates + [prompt]))
 
     mood_candidates = [mood, prompt]
@@ -273,7 +273,7 @@ def run_quality_job(task_id: str, body: dict):
             tags = tag_prompt(body)
             seed = int(clamp(body.get('seed'), 42, 1, 2_147_483_647))
             repetition = float(clamp(body.get('repetition_penalty'), 1.1, 1.0, 1.3))
-            stage2_batch = int(clamp(body.get('stage2_batch_size'), 8, 1, 16))
+            stage2_batch = 16 if MAX_SPEED else int(clamp(body.get('stage2_batch_size'), 8, 1, 16))
             max_tokens = int(clamp(body.get('max_new_tokens'), 3000, 1200, 5000))
             use_reference = bool(body.get('reference_audio_path'))
             stage1_model = STAGE1_ICL if use_reference else STAGE1
@@ -285,8 +285,8 @@ def run_quality_job(task_id: str, body: dict):
             genre_txt.write_text(tags + '\n', encoding='utf-8')
             lyrics_txt.write_text(lyrics + '\n', encoding='utf-8')
 
-            set_job(task_id, status=0, progress=8, stage='V10 QUALITY · prompt tagging',
-                    profile='quality-bf16', tags=tags, segments=segments,
+            set_job(task_id, status=0, progress=8, stage='V10.1 MAX SPEED · prompt tagging',
+                    profile='quality-bf16-maxspeed' if MAX_SPEED else 'quality-bf16', tags=tags, segments=segments,
                     requested_duration_sec=requested_duration,
                     requested_bpm=int(clamp(body.get('bpm'), 124, 40, 220)))
 
@@ -305,6 +305,9 @@ def run_quality_job(task_id: str, body: dict):
                 '--seed', str(seed),
                 '--rescale',
             ]
+            if MAX_SPEED:
+                cmd.append('--disable_offload_model')
+
             ref = safe_text(body.get('reference_audio_path'))
             if ref:
                 ref_path = Path(ref).resolve()
@@ -315,7 +318,13 @@ def run_quality_job(task_id: str, body: dict):
             env = os.environ.copy()
             env['TOKENIZERS_PARALLELISM'] = 'false'
             env['PYTORCH_ALLOC_CONF'] = 'expandable_segments:True'
-            set_job(task_id, status=0, progress=12, stage='V10 QUALITY · YuE BF16 Stage 1/2')
+            env['PYTHONPATH'] = str(INFERENCE) + os.pathsep + env.get('PYTHONPATH', '')
+            env['HF_HUB_OFFLINE'] = '1'
+            env['TRANSFORMERS_OFFLINE'] = '1'
+            env['SONARA_YUE_MAX_SPEED'] = '1' if MAX_SPEED else '0'
+            env['SONARA_YUE_TORCH_COMPILE'] = '0'
+            env['CUDA_MODULE_LOADING'] = 'LAZY'
+            set_job(task_id, status=0, progress=12, stage='V10.1 MAX SPEED · YuE BF16 Stage 1/2')
             with log_path.open('wb') as log:
                 proc = subprocess.run(cmd, cwd=str(INFERENCE), env=env, stdout=log, stderr=subprocess.STDOUT, check=False)
             if proc.returncode != 0:
@@ -349,7 +358,7 @@ def run_quality_job(task_id: str, body: dict):
             set_job(task_id,
                     status=1, progress=100, stage='Completato',
                     result=[{'path': path, 'file': path}],
-                    profile='quality-bf16', tags=tags,
+                    profile='quality-bf16-maxspeed' if MAX_SPEED else 'quality-bf16', tags=tags,
                     requested_duration_sec=requested_duration,
                     output_duration_sec=round(actual_duration, 3),
                     requested_bpm=target_bpm,
@@ -357,17 +366,19 @@ def run_quality_job(task_id: str, body: dict):
                     bpm_error=bpm_error,
                     quality_score=quality_score,
                     quality_gate_pass=(quality_score >= 80),
-                    elapsed_sec=int(time.time() - started))
+                    elapsed_sec=int(time.time() - started),
+                    stage2_batch_size=stage2_batch,
+                    max_speed=MAX_SPEED)
     except Exception as exc:
         traceback.print_exc()
         set_job(task_id, status=2, progress=0, stage='Errore', error=str(exc), message=str(exc))
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'SONARA-YuE/10-QUALITY-BF16'
+    server_version = 'SONARA-YuE/10.1-QUALITY-BF16-MAXSPEED'
 
     def log_message(self, fmt, *args):
-        print('[YuE V10]', fmt % args, flush=True)
+        print('[YuE V10.1]', fmt % args, flush=True)
 
     def cors(self):
         self.send_header('Access-Control-Allow-Origin', '*')
@@ -453,8 +464,8 @@ class Handler(BaseHTTPRequestHandler):
                 active = sum(1 for item in JOBS.values() if int(item.get('status', 0)) == 0)
             return self.json_response({
                 'ok': True,
-                'service': 'SONARA YuE V10 QUALITY BF16',
-                'version': '10.0-quality-bf16-official',
+                'service': 'SONARA YuE V10.1 QUALITY BF16 MAX SPEED',
+                'version': '10.1-quality-bf16-maxspeed',
                 'profile': 'quality',
                 'model_precision': 'bf16',
                 'stage1_model': str(STAGE1),
@@ -463,6 +474,10 @@ class Handler(BaseHTTPRequestHandler):
                 'top_p': 0.93,
                 'temperature': 1.0,
                 'guidance': 'YuE native 1.5/1.2',
+                'max_speed': MAX_SPEED,
+                'stage2_batch_size': 16 if MAX_SPEED else 'request',
+                'torch_compile_per_job': False if MAX_SPEED else 'default',
+                'disable_offload_model': MAX_SPEED,
                 'active_jobs': active,
                 'latest_job': latest,
             })
@@ -489,7 +504,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_response({'code': 400, 'error': f'Invalid JSON: {exc}'}, 400)
         if parsed.path == '/release_task':
             task_id = 'v10_' + uuid.uuid4().hex
-            set_job(task_id, status=0, progress=1, stage='V10 QUALITY job ricevuto', result=[], created_at=now_ms())
+            set_job(task_id, status=0, progress=1, stage='V10.1 MAX SPEED job ricevuto', result=[], created_at=now_ms())
             threading.Thread(target=run_quality_job, args=(task_id, body), daemon=True).start()
             return self.json_response({'code': 200, 'data': {'task_id': task_id}})
         if parsed.path == '/query_result':
@@ -506,11 +521,11 @@ def main():
     required = [PYTHON, INFERENCE / 'infer.py', TOP_TAGS, STAGE1 / 'config.json', STAGE1_ICL / 'config.json', STAGE2 / 'config.json']
     missing = [str(p) for p in required if not p.exists()]
     if missing:
-        raise RuntimeError('V10 QUALITY non pronto. Esegui prima bootstrap:\n' + '\n'.join(missing))
+        raise RuntimeError('V10.1 QUALITY non pronto. Esegui prima bootstrap:\n' + '\n'.join(missing))
     print('=' * 80)
-    print('SONARA YUE V10 QUALITY BF16')
-    print('OFFICIAL YUE DECODING · TOP TAGS · BPM/DURATION QUALITY GATE')
-    print(f'PORT={PORT}')
+    print('SONARA YUE V10.1 QUALITY BF16 MAX SPEED')
+    print('OFFICIAL YUE DECODING · BLACKWELL SPEED PROFILE')
+    print(f'PORT={PORT} MAX_SPEED={MAX_SPEED}')
     print('=' * 80)
     ThreadingHTTPServer(('0.0.0.0', PORT), Handler).serve_forever()
 
