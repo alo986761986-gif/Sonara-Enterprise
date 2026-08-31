@@ -1,0 +1,1 @@
+Execute latest-main Firebase web API key rotation after prior Vercel build completed.
