@@ -2,11 +2,19 @@ import runtime, { SonaraJobState } from './sonara-molab-xl-router.mjs';
 
 export { SonaraJobState };
 
-const VERSION = 'sonara-ab-player-visibility-edge-v1';
+const VERSION = 'sonara-ab-player-playback-edge-v2';
 
-const AB_VISIBILITY_SCRIPT = `<script id="sonara-ab-player-visibility-edge-v1">(()=>{
-if(window.__sonaraABPlayerVisibilityEdgeV1)return;
-window.__sonaraABPlayerVisibilityEdgeV1=true;
+const AB_VISIBILITY_SCRIPT = `<script id="sonara-ab-player-playback-edge-v2">(()=>{
+if(window.__sonaraABPlayerPlaybackEdgeV2)return;
+window.__sonaraABPlayerPlaybackEdgeV2=true;
+
+// The current A/B player already calls HTMLMediaElement.play() directly from
+// the React click handler. Disable the old capture-phase gesture shim before
+// it is registered at the end of the page: otherwise it starts playback in
+// capture phase and the React handler immediately sees an already-playing
+// element and pauses it again.
+window.__sonaraAudioGestureUnlockV1=true;
+
 let scheduled=false;
 const force=()=>{
   scheduled=false;
@@ -32,6 +40,8 @@ const force=()=>{
       const audio=article.querySelector('audio[data-sonara-custom-audio="true"]');
       if(audio){
         audio.controls=false;
+        audio.playsInline=true;
+        audio.preload='metadata';
         audio.style.setProperty('display','none','important');
         audio.style.setProperty('visibility','hidden','important');
         audio.style.setProperty('width','0','important');
@@ -61,6 +71,7 @@ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',
 function withVersion(response) {
   const headers = new Headers(response.headers);
   headers.set('x-sonara-ab-player-fix', VERSION);
+  headers.set('x-sonara-ab-playback-fix', 'native-react-v2');
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -77,6 +88,7 @@ function inject(response) {
   headers.delete('content-encoding');
   headers.set('cache-control', 'no-store, max-age=0');
   headers.set('x-sonara-ab-player-fix', VERSION);
+  headers.set('x-sonara-ab-playback-fix', 'native-react-v2');
 
   const safe = new Response(response.body, {
     status: response.status,
