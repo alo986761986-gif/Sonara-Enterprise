@@ -8,6 +8,12 @@
   "vars": {
     "SONARA_YUE_WORKER_URL": "https://yue.sonaraenterprise.com"
   },
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/__sonara_internal/*"]
+  },
   "durable_objects": {
     "bindings": [
       {
@@ -34,14 +40,6 @@
     {
       "pattern": "api.sonaraenterprise.com",
       "custom_domain": true
-    },
-    {
-      "pattern": "sonaraenterprise.com/assets/index-*",
-      "zone_name": "sonaraenterprise.com"
-    },
-    {
-      "pattern": "www.sonaraenterprise.com/assets/index-*",
-      "zone_name": "sonaraenterprise.com"
     },
     {
       "pattern": "sonaraenterprise.com/*",
