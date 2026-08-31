@@ -7,6 +7,7 @@ import IntelligentPromptControl from './components/generator/IntelligentPromptCo
 import IntelligentLyricsControl from './components/generator/IntelligentLyricsControl';
 import VocalCharacterControl from './components/generator/VocalCharacterControl';
 import ElevenMusicGenerationControl from './components/generator/ElevenMusicGenerationControl';
+import DualPlayerVisibilityBridge from './components/generator/DualPlayerVisibilityBridge';
 import LyricsApiCompatibilityBridge from './components/generator/LyricsApiCompatibilityBridge';
 import RealMusicIntelligenceBridge from './components/generator/RealMusicIntelligenceBridge';
 import BpmModeControl from './components/generator/BpmModeControl';
@@ -39,6 +40,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <IntelligentLyricsControl />
         <VocalCharacterControl />
         <ElevenMusicGenerationControl />
+        <DualPlayerVisibilityBridge />
         <SunoStylePromptControl />
         <GlobalMusicSuggestionControl />
         <SonaraInteractiveMiniGuide />
