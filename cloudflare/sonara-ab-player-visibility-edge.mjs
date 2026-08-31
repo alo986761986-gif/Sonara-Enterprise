@@ -4,7 +4,7 @@ import { SonaraAuthStore, handleSonaraNativeAuth } from './sonara-native-auth.mj
 export { SonaraJobState, SonaraAuthStore };
 
 const VERSION = 'sonara-ab-player-playback-edge-v2';
-const AUTH_VERSION = 'sonara-native-auth-v1';
+const AUTH_VERSION = 'sonara-native-auth-v2';
 
 const AB_VISIBILITY_SCRIPT = `<script id="sonara-ab-player-playback-edge-v2">(()=>{
 if(window.__sonaraABPlayerPlaybackEdgeV2)return;
@@ -32,9 +32,9 @@ const start=()=>{schedule();new MutationObserver(schedule).observe(document.body
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
 })();</script>`;
 
-const AUTH_EMAIL_ONLY_SCRIPT = `<script id="sonara-native-auth-v1-ui">(()=>{
-if(window.__sonaraNativeAuthUiV1)return;
-window.__sonaraNativeAuthUiV1=true;
+const AUTH_EMAIL_ONLY_SCRIPT = `<script id="sonara-native-auth-v2-ui">(()=>{
+if(window.__sonaraNativeAuthUiV2)return;
+window.__sonaraNativeAuthUiV2=true;
 const clean=()=>{
   document.documentElement.setAttribute('data-sonara-auth-mode','native-email-password');
   document.querySelectorAll('button,a,[role="button"]').forEach(node=>{
@@ -78,7 +78,13 @@ export default {
     const url = new URL(request.url);
     const publicHost = url.hostname === 'sonaraenterprise.com' || url.hostname === 'www.sonaraenterprise.com';
 
-    if (publicHost && url.pathname.startsWith('/api/sonara-auth/')) {
+    if (
+      publicHost && (
+        url.pathname.startsWith('/api/sonara-auth/') ||
+        url.pathname === '/api/billing/status' ||
+        url.pathname === '/api/video/status'
+      )
+    ) {
       const authResponse = await handleSonaraNativeAuth(request, env);
       if (authResponse) return authResponse;
     }
