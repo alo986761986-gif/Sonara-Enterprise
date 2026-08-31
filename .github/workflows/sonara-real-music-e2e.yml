@@ -1,0 +1,83 @@
+name: SONARA Real Music E2E Canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      strict_release_gate:
+        description: 'Fail if Quality 2.0 release gate 88 is not passed'
+        required: false
+        default: 'false'
+  push:
+    paths:
+      - '.github/workflows/sonara-real-music-e2e.yml'
+      - '.github/sonara-real-music-e2e-trigger'
+      - 'scripts/sonara-real-music-e2e.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  real-music-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      API_ORIGIN: https://api.sonaraenterprise.com
+      WEB_ORIGIN: https://sonaraenterprise.com
+      SONARA_INTERNAL_PROXY_SECRET: ${{ secrets.SONARA_INTERNAL_PROXY_SECRET }}
+      STRICT_RELEASE_GATE: ${{ github.event_name == 'workflow_dispatch' && inputs.strict_release_gate || 'false' }}
+      MAX_POLLS: '160'
+      POLL_MS: '5000'
+      SONARA_E2E_REPORT: sonara-real-music-e2e-report.json
+
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Validate canary secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SONARA_INTERNAL_PROXY_SECRET}"
+
+      - name: Run real music + Studio 2.0 canary
+        shell: bash
+        run: node scripts/sonara-real-music-e2e.mjs
+
+      - name: Print concise canary summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f sonara-real-music-e2e-report.json ]]; then
+            node - <<'NODE'
+          const fs = require('fs');
+          const r = JSON.parse(fs.readFileSync('sonara-real-music-e2e-report.json', 'utf8'));
+          console.log(JSON.stringify({
+            ok: r.ok,
+            startedAt: r.startedAt,
+            finishedAt: r.finishedAt,
+            generationJobId: r.outputs?.generationJobId,
+            baseAudioUrls: r.outputs?.generation?.audioUrls,
+            bestBaseCandidate: r.outputs?.bestBaseCandidate,
+            quality: Object.fromEntries(Object.entries(r.quality || {}).map(([k,v]) => [k, {bestScore:v.bestScore, passed:v.passed}])),
+            replaceJobId: r.outputs?.replaceJobId,
+            extendJobId: r.outputs?.extendJobId,
+            stemsProJobId: r.outputs?.['stems-proJobId'],
+            diagnostics: r.diagnostics,
+            error: r.error
+          }, null, 2));
+          NODE
+          fi
+
+      - name: Upload E2E report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonara-real-music-e2e-report-${{ github.run_id }}
+          path: sonara-real-music-e2e-report.json
+          if-no-files-found: warn
+          retention-days: 14
