@@ -55,25 +55,53 @@ jobs:
         run: |
           set -euo pipefail
           grep -q 'cloudflare/sonara-ab-player-visibility-edge.mjs' wrangler.jsonc
-          grep -q 'sonara-auth-email-password-only-v1' cloudflare/sonara-ab-player-visibility-edge.mjs
+          grep -q 'sonara-auth-email-password-only-v2' cloudflare/sonara-ab-player-visibility-edge.mjs
+          grep -q 'sonara-firebase-auth-edge-v2' cloudflare/sonara-firebase-auth-edge.mjs
+          grep -q 'handleFirebaseAuthEdge' cloudflare/sonara-ab-player-visibility-edge.mjs
           grep -q "headers.set('x-sonara-auth-edge', AUTH_VERSION)" cloudflare/sonara-ab-player-visibility-edge.mjs
+          node --check cloudflare/sonara-firebase-auth-edge.mjs
           node --check cloudflare/sonara-ab-player-visibility-edge.mjs
 
       - name: Deploy current SONARA Worker
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
 
-      - name: Verify public auth edge
+      - name: Repair Firebase email-password auth
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl -fsS --max-time 60 -H 'Cache-Control: no-cache' 'https://sonaraenterprise.com/__sonara_internal/firebase-auth-status?repair=1')"
+          printf '%s' "${response}" > /tmp/firebase-auth-status.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const data = JSON.parse(fs.readFileSync('/tmp/firebase-auth-status.json', 'utf8'));
+          if (data.ok !== true) throw new Error(`Firebase repair failed: ${data.reason || 'unknown'}`);
+          if (data.hasKey !== true) throw new Error('Firebase repair returned no usable key');
+          if (data.firebaseProbe !== 'firebase_auth_accepted') throw new Error(`Firebase key probe not accepted: ${data.firebaseProbe}`);
+          console.log(`Firebase Auth repaired through ${data.credentialSource}/${data.source}; emailEnabled=${data.emailEnabled}; domainsReady=${data.domainsReady}`);
+          NODE
+
+      - name: Verify public auth edge and bundle repair
         shell: bash
         run: |
           set -euo pipefail
           for attempt in {1..15}; do
-            headers="$(curl -sSI --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?auth-edge=${GITHUB_SHA}-${attempt}" || true)"
-            if printf '%s' "${headers}" | grep -qi 'x-sonara-auth-edge: sonara-auth-email-password-only-v1'; then
-              echo 'SONARA auth edge hotfix is live.'
+            html_headers="$(curl -sSI --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?auth-edge=${GITHUB_SHA}-${attempt}" || true)"
+            html="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?auth-edge=${GITHUB_SHA}-${attempt}" || true)"
+            asset="$(printf '%s' "${html}" | grep -oE 'src="[^"]+/assets/index-[^"]+\.js"' | head -n1 | sed -E 's/^src="|"$//g' || true)"
+            if [[ -n "${asset}" ]]; then
+              if [[ "${asset}" == http* ]]; then asset_url="${asset}"; else asset_url="https://sonaraenterprise.com${asset}"; fi
+              asset_headers="$(curl -sSI --max-time 30 -H 'Cache-Control: no-cache' "${asset_url}?auth-edge=${GITHUB_SHA}-${attempt}" || true)"
+            else
+              asset_headers=''
+            fi
+            if printf '%s' "${html_headers}" | grep -qi 'x-sonara-auth-edge: sonara-auth-email-password-only-v2' \
+              && printf '%s' "${asset_headers}" | grep -qi 'x-sonara-firebase-auth-edge: sonara-firebase-auth-edge-v2' \
+              && printf '%s' "${asset_headers}" | grep -Eqi 'x-sonara-firebase-auth-status: (repaired|ready)'; then
+              echo 'SONARA email/password auth repair is live on public domain.'
               exit 0
             fi
             echo "Propagation pending (${attempt}/15)."
             sleep 4
           done
-          echo 'SONARA auth edge header not observed on public domain.' >&2
+          echo 'SONARA auth repair headers not observed on public domain.' >&2
           exit 1
