@@ -39,14 +39,16 @@ jobs:
       - name: Build current production app
         run: npm run build
 
-      - name: Guard professional player in production bundle
+      - name: Guard professional universal player in production bundle
         shell: bash
         run: |
           set -euo pipefail
           test -d dist
           grep -R -q 'sonara-pro-fixed-player' dist
           grep -R -q 'SONARA professional fixed audio player' dist
-          echo "Professional fixed player is present in the production bundle."
+          grep -R -q 'sonara-global-player-v2' dist
+          grep -R -q 'sonara:global-player-play-track' dist
+          echo "Professional universal fixed player is present in the production bundle."
 
       - name: Resolve Cloudflare account and zone
         shell: bash
@@ -99,7 +101,7 @@ jobs:
           console.log('Cloudflare cache purge completed.');
           NODE
 
-      - name: Verify professional player on sonaraenterprise.com
+      - name: Verify universal player on sonaraenterprise.com
         shell: bash
         run: |
           set -euo pipefail
@@ -109,13 +111,14 @@ jobs:
             if [[ -n "${asset}" ]]; then
               js="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com${asset}?player=${GITHUB_SHA}-${attempt}" || true)"
               if printf '%s' "${js}" | grep -q 'sonara-pro-fixed-player' \
-                && printf '%s' "${js}" | grep -q 'Professional player'; then
-                echo "Official SONARA professional player is live: ${asset}"
+                && printf '%s' "${js}" | grep -q 'sonara-global-player-v2' \
+                && printf '%s' "${js}" | grep -q 'sonara:global-player-play-track'; then
+                echo "Official SONARA universal professional player is live: ${asset}"
                 exit 0
               fi
             fi
-            echo "Waiting for official player propagation (${attempt}/30)."
+            echo "Waiting for official universal player propagation (${attempt}/30)."
             sleep 4
           done
-          echo "Official SONARA player verification failed." >&2
+          echo "Official SONARA universal player verification failed." >&2
           exit 1
