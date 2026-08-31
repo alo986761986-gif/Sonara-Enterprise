@@ -1,4 +1,4 @@
-import runtime, { SonaraJobState } from './sonara-molab-xl-router.mjs';
+import runtime, { SonaraJobState } from './sonara-studio-ai-router.mjs';
 import { SonaraAuthStore, handleSonaraNativeAuth } from './sonara-native-auth.mjs';
 
 export { SonaraJobState, SonaraAuthStore };
