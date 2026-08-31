@@ -105,14 +105,34 @@ function getFirebaseAuth(): Auth {
 }
 
 export function watchFirebaseUser(callback: (user: User | null) => void): () => void {
+  let active = true;
+
+  const emitNativeSession = async () => {
+    const nativeUser = await nativeSessionUser();
+    if (active) callback(nativeUser as User | null);
+  };
+
   if (!firebaseConfigured) {
-    let active = true;
-    void nativeSessionUser().then(user => {
-      if (active) callback(user as User | null);
-    });
+    void emitNativeSession();
     return () => { active = false; };
   }
-  return onAuthStateChanged(getFirebaseAuth(), callback);
+
+  const unsubscribe = onAuthStateChanged(getFirebaseAuth(), firebaseUser => {
+    if (!active) return;
+    if (firebaseUser) {
+      callback(firebaseUser);
+      return;
+    }
+    // SONARA authentication is native now. Firebase can still be configured
+    // for legacy storage/features, so a null Firebase user must fall back to
+    // the valid Secure/HttpOnly SONARA session instead of appearing logged out.
+    void emitNativeSession();
+  });
+
+  return () => {
+    active = false;
+    unsubscribe();
+  };
 }
 
 export async function loginWithEmail(email: string, password: string): Promise<User> {
@@ -138,15 +158,18 @@ export async function logoutFirebase(): Promise<void> {
 }
 
 export async function getFirebaseIdToken(forceRefresh = false): Promise<string> {
+  // Native SONARA auth is authoritative. Prefer its session even when Firebase
+  // happens to be configured for legacy services, otherwise native users are
+  // incorrectly treated as logged out by old billing/store/video components.
+  const nativeUser = await nativeSessionUser();
+  if (nativeUser) return 'sonara-native-session';
+
   if (!firebaseConfigured) {
-    const user = await nativeSessionUser();
-    if (!user) throw new Error('Accedi per usare SONARA.');
-    // Compatibility marker only. Native SONARA endpoints authenticate through
-    // the Secure/HttpOnly session cookie and ignore this legacy bearer value.
-    return 'sonara-native-session';
+    throw new Error('Accedi per usare SONARA.');
   }
+
   const user = getFirebaseAuth().currentUser;
-  if (!user) throw new Error('Accedi per usare Ember.');
+  if (!user) throw new Error('Accedi per usare SONARA.');
   return user.getIdToken(forceRefresh);
 }
 
