@@ -111,16 +111,22 @@ jobs:
           set -euo pipefail
           ready=0
           for attempt in {1..20}; do
-            html="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?native-auth=${GITHUB_SHA}-${attempt}" || true)"
-            asset="$(printf '%s' "${html}" | grep -oE 'src="[^"]*/assets/index-[^"]+\.js"' | head -n1 | sed -E 's/^src="|"$//g' || true)"
+            curl -fsS --max-time 20 -H 'Cache-Control: no-cache' \
+              "https://sonaraenterprise.com/?native-auth=${GITHUB_SHA}-${attempt}" \
+              -o /tmp/sonara-index.html || true
+            asset="$(grep -oE 'src="[^"]*/assets/index-[^"]+\.js"' /tmp/sonara-index.html 2>/dev/null | head -n1 | sed -E 's/^src="|"$//g' || true)"
             if [[ -n "${asset}" ]]; then
               if [[ "${asset}" == http* ]]; then asset_url="${asset}"; else asset_url="https://sonaraenterprise.com${asset}"; fi
-              bundle="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "${asset_url}?native-auth=${GITHUB_SHA}-${attempt}" || true)"
-              if printf '%s' "${bundle}" | grep -q '/api/sonara-auth/login' \
-                && printf '%s' "${bundle}" | grep -q '/api/sonara-auth/register'; then
-                echo 'SONARA_NATIVE_AUTH_FRONTEND=ok'
-                ready=1
-                break
+              if curl -fsS --max-time 30 -H 'Cache-Control: no-cache' \
+                "${asset_url}?native-auth=${GITHUB_SHA}-${attempt}" \
+                -o /tmp/sonara-native-bundle.js; then
+                if grep -q '/api/sonara-auth/login' /tmp/sonara-native-bundle.js \
+                  && grep -q '/api/sonara-auth/register' /tmp/sonara-native-bundle.js \
+                  && grep -q 'SONARA Email Auth Ready' /tmp/sonara-native-bundle.js; then
+                  echo 'SONARA_NATIVE_AUTH_FRONTEND=ok'
+                  ready=1
+                  break
+                fi
               fi
             fi
             echo "Frontend native-auth propagation pending (${attempt}/20)."
@@ -128,10 +134,56 @@ jobs:
           done
           test "${ready}" = "1"
 
+      - name: Verify real registration login and session
+        shell: bash
+        run: |
+          set -euo pipefail
+          TEST_EMAIL='sonara-native-auth-probe@example.invalid'
+          TEST_PASSWORD='Sonara-Native-Auth-Probe-2026!'
+          rm -f /tmp/sonara-cookie.txt
+
+          register_code="$(curl -sS --max-time 30 -o /tmp/sonara-register.json -w '%{http_code}' \
+            -c /tmp/sonara-cookie.txt -b /tmp/sonara-cookie.txt \
+            -H 'Content-Type: application/json' -H 'Origin: https://sonaraenterprise.com' \
+            --data "{\"email\":\"${TEST_EMAIL}\",\"password\":\"${TEST_PASSWORD}\"}" \
+            'https://sonaraenterprise.com/api/sonara-auth/register')"
+
+          if [[ "${register_code}" != "201" && "${register_code}" != "409" ]]; then
+            cat /tmp/sonara-register.json
+            exit 1
+          fi
+
+          rm -f /tmp/sonara-cookie.txt
+          curl -fsS --max-time 30 \
+            -c /tmp/sonara-cookie.txt -b /tmp/sonara-cookie.txt \
+            -H 'Content-Type: application/json' -H 'Origin: https://sonaraenterprise.com' \
+            --data "{\"email\":\"${TEST_EMAIL}\",\"password\":\"${TEST_PASSWORD}\"}" \
+            'https://sonaraenterprise.com/api/sonara-auth/login' > /tmp/sonara-login.json
+
+          curl -fsS --max-time 20 \
+            -c /tmp/sonara-cookie.txt -b /tmp/sonara-cookie.txt \
+            'https://sonaraenterprise.com/api/sonara-auth/session' > /tmp/sonara-session.json
+
+          node - <<'NODE'
+          const fs = require('fs');
+          const login = JSON.parse(fs.readFileSync('/tmp/sonara-login.json','utf8'));
+          const session = JSON.parse(fs.readFileSync('/tmp/sonara-session.json','utf8'));
+          if (login.ok !== true || !login.user?.uid) process.exit(1);
+          if (session.ok !== true || session.authenticated !== true || !session.user?.uid) process.exit(1);
+          console.log('SONARA_NATIVE_AUTH_REGISTER_LOGIN_SESSION=ok');
+          NODE
+
+          curl -fsS --max-time 20 \
+            -c /tmp/sonara-cookie.txt -b /tmp/sonara-cookie.txt \
+            -H 'Content-Type: application/json' -H 'Origin: https://sonaraenterprise.com' \
+            --data '{}' \
+            'https://sonaraenterprise.com/api/sonara-auth/logout' > /tmp/sonara-logout.json
+
       - name: Verify unauthenticated session endpoint
         shell: bash
         run: |
           set -euo pipefail
+          rm -f /tmp/sonara-cookie.txt
           curl -fsS --max-time 20 -c /tmp/sonara-cookie.txt -b /tmp/sonara-cookie.txt \
             'https://sonaraenterprise.com/api/sonara-auth/session' > /tmp/sonara-session.json
           node - <<'NODE'
