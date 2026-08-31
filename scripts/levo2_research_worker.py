@@ -23,6 +23,8 @@ MAX_DURATION = 270
 LICENSE_MODE = 'RESEARCH_ONLY'
 
 _generation_lock = threading.Lock()
+_jobs_lock = threading.Lock()
+_jobs = {}
 
 
 def json_response(handler, status, payload):
@@ -74,7 +76,7 @@ def build_env():
     return env
 
 
-def normalize_request(payload):
+def normalize_request(payload, job_id_override=None):
     prompt = str(payload.get('descriptions') or payload.get('prompt') or 'professional music production').strip()
     genre = str(payload.get('genre') or 'Electronic').strip()
     mood = str(payload.get('mood') or '').strip()
@@ -93,12 +95,13 @@ def normalize_request(payload):
     if not lyrics and generate_type != 'bgm':
         lyrics = '[intro-short]; [verse] Sonara research generation; [chorus] Sonara research generation; [outro-short]'
 
+    job_id = str(job_id_override or f"SONARA_LEVO2_{int(time.time())}_{uuid.uuid4().hex[:8]}")
     return {
         'title': title,
         'duration': duration,
         'generate_type': generate_type,
         'item': {
-            'idx': f"SONARA_LEVO2_{int(time.time())}_{uuid.uuid4().hex[:8]}",
+            'idx': job_id,
             'gt_lyric': lyrics or '.',
             'descriptions': descriptions,
             'auto_prompt_audio_type': auto_type,
@@ -106,12 +109,63 @@ def normalize_request(payload):
     }
 
 
-def run_generation(payload):
-    required, missing = environment_status()
+def job_state_path(job_id):
+    return OUTPUT_ROOT / job_id / 'job_state.json'
+
+
+def save_job_state(state):
+    job_id = str(state.get('job_id') or '')
+    if not job_id:
+        return
+    path = job_state_path(job_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix('.tmp')
+    tmp.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding='utf-8')
+    tmp.replace(path)
+
+
+def set_job_state(job_id, **changes):
+    with _jobs_lock:
+        current = dict(_jobs.get(job_id) or {
+            'job_id': job_id,
+            'status': 'QUEUED',
+            'progress': 0,
+            'engine': 'LeVo2-v2-large',
+            'license_mode': LICENSE_MODE,
+            'research_only': True,
+            'created_at': int(time.time() * 1000),
+        })
+        current.update(changes)
+        current['updated_at'] = int(time.time() * 1000)
+        _jobs[job_id] = current
+        snapshot = dict(current)
+    save_job_state(snapshot)
+    return snapshot
+
+
+def get_job_state(job_id):
+    with _jobs_lock:
+        state = _jobs.get(job_id)
+        if state:
+            return dict(state)
+    path = job_state_path(job_id)
+    if path.exists():
+        try:
+            state = json.loads(path.read_text(encoding='utf-8'))
+            with _jobs_lock:
+                _jobs[job_id] = state
+            return dict(state)
+        except Exception:
+            pass
+    return None
+
+
+def run_generation(payload, job_id_override=None):
+    _, missing = environment_status()
     if missing:
         raise RuntimeError('LeVo 2 environment incomplete: ' + ', '.join(missing))
 
-    request = normalize_request(payload)
+    request = normalize_request(payload, job_id_override=job_id_override)
     job_id = request['item']['idx']
     job_dir = OUTPUT_ROOT / job_id
     output_dir = job_dir / 'output'
@@ -188,8 +242,53 @@ def run_generation(payload):
     }
 
 
+def start_async_generation(payload):
+    job_id = f"levo_{uuid.uuid4().hex}"
+    initial = set_job_state(
+        job_id,
+        status='QUEUED',
+        progress=0,
+        stage='Queued on SONARA LeVo 2 RTX worker',
+        audio_url=None,
+        error=None,
+    )
+
+    def runner():
+        set_job_state(
+            job_id,
+            status='PROCESSING',
+            progress=10,
+            stage='LeVo 2 is generating audio on RTX PRO 6000',
+        )
+        try:
+            result = run_generation(payload, job_id_override=job_id)
+            set_job_state(
+                job_id,
+                status='COMPLETED',
+                progress=100,
+                stage='Audio ready',
+                audio_url=result.get('audio_url'),
+                output_path=result.get('output_path'),
+                elapsed_sec=result.get('elapsed_sec'),
+                bytes=result.get('bytes'),
+                metadata=result.get('metadata') or {},
+                error=None,
+            )
+        except Exception as exc:
+            set_job_state(
+                job_id,
+                status='FAILED',
+                progress=0,
+                stage='Generation failed',
+                error=str(exc),
+            )
+
+    threading.Thread(target=runner, name=f'levo2-{job_id}', daemon=True).start()
+    return initial
+
+
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'SonaraLeVo2Research/1.0'
+    server_version = 'SonaraLeVo2Research/1.1'
 
     def log_message(self, fmt, *args):
         print('[LEVO2_RESEARCH_HTTP]', fmt % args, flush=True)
@@ -199,12 +298,13 @@ class Handler(BaseHTTPRequestHandler):
             return json_response(self, 401, {'status': 'error', 'detail': 'Unauthorized'})
 
         if self.path == '/health':
-            required, missing = environment_status()
+            _, missing = environment_status()
             payload = {
                 'status': 'ready' if not missing else 'not_ready',
                 'ready': not missing,
                 'engine': 'LeVo2-v2-large',
                 'mode': 'research',
+                'queue_mode': 'async',
                 'license_mode': LICENSE_MODE,
                 'research_only': True,
                 'root': str(ROOT),
@@ -212,6 +312,15 @@ class Handler(BaseHTTPRequestHandler):
                 'missing': missing,
             }
             return json_response(self, 200 if not missing else 503, payload)
+
+        if self.path.startswith('/job/'):
+            job_id = unquote(self.path[len('/job/'):]).strip('/')
+            if not job_id.startswith('levo_'):
+                return json_response(self, 400, {'status': 'FAILED', 'progress': 0, 'error': 'Invalid LeVo job ID'})
+            state = get_job_state(job_id)
+            if not state:
+                return json_response(self, 404, {'job_id': job_id, 'status': 'FAILED', 'progress': 0, 'error': 'LeVo job not found'})
+            return json_response(self, 200, state)
 
         if self.path.startswith('/audio/'):
             rel = unquote(self.path[len('/audio/'):]).lstrip('/')
@@ -254,6 +363,13 @@ class Handler(BaseHTTPRequestHandler):
                 'detail': 'LeVo 2 worker is research-only. Set research_only=true explicitly.'
             })
 
+        if bool(payload.get('async')):
+            try:
+                state = start_async_generation(payload)
+                return json_response(self, 202, state)
+            except Exception as exc:
+                return json_response(self, 500, {'status': 'FAILED', 'progress': 0, 'detail': str(exc)})
+
         try:
             result = run_generation(payload)
             return json_response(self, 200, result)
@@ -270,6 +386,7 @@ def check_only():
         'missing': missing,
         'paths': {k: str(v) for k, v in required.items()},
         'license_mode': LICENSE_MODE,
+        'queue_mode': 'async',
     }, indent=2))
     return 0 if not missing else 1
 
@@ -295,6 +412,7 @@ def main():
     print(f'MODEL={MODEL}', flush=True)
     print(f'URL=http://{args.host}:{args.port}', flush=True)
     print(f'LICENSE={LICENSE_MODE}', flush=True)
+    print(f'QUEUE=ASYNC', flush=True)
     print(f'AUTH={"ON" if API_KEY else "OFF"}', flush=True)
     print('=' * 80, flush=True)
 
