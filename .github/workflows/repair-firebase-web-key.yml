@@ -1,0 +1,122 @@
+name: Repair Firebase Web API Key
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/repair-firebase-web-key.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERCEL_ORG_ID: team_d9jPexmsm0saAlZPAznj0TTy
+      VERCEL_PROJECT_ID: prj_mbAUXtVS9ecRbl0yAZfeR3WA66TZ
+
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Pull production credentials securely
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN}"
+          npm install -g vercel@latest >/dev/null
+          mkdir -p .vercel
+          printf '%s\n' '{"orgId":"team_d9jPexmsm0saAlZPAznj0TTy","projectId":"prj_mbAUXtVS9ecRbl0yAZfeR3WA66TZ"}' > .vercel/project.json
+          vercel env pull /tmp/sonara-production.env --environment=production --yes --token="${VERCEL_TOKEN}" >/dev/null
+          set -a
+          source /tmp/sonara-production.env
+          set +a
+          firebase_project_id="${SONARA_FIREBASE_PROJECT_ID:-${FIREBASE_PROJECT_ID:-${VITE_FIREBASE_PROJECT_ID:-}}}"
+          firebase_service_account="${FIREBASE_SERVICE_ACCOUNT_JSON:-${SONARA_VERTEX_SERVICE_ACCOUNT_JSON:-}}"
+          test -n "${firebase_project_id}"
+          test -n "${firebase_service_account}"
+          printf '%s' "${firebase_service_account}" > /tmp/firebase-service-account.json
+          node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('/tmp/firebase-service-account.json','utf8')); if(!p.project_id||!p.client_email||!p.private_key) process.exit(1);"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/firebase-service-account.json" >> "${GITHUB_ENV}"
+          echo "FIREBASE_PROJECT_ID=${firebase_project_id}" >> "${GITHUB_ENV}"
+          echo "::add-mask::${firebase_project_id}"
+          rm -f /tmp/sonara-production.env
+
+      - name: Authenticate Google Cloud
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud auth activate-service-account --key-file="${GOOGLE_APPLICATION_CREDENTIALS}" --quiet
+          gcloud config set project "${FIREBASE_PROJECT_ID}" --quiet
+
+      - name: Create restricted replacement API key
+        id: rotate
+        shell: bash
+        run: |
+          set -euo pipefail
+          display_name="sonara-web-$(date -u +%Y%m%d-%H%M%S)"
+          create_json="$(gcloud services api-keys create \
+            --project="${FIREBASE_PROJECT_ID}" \
+            --display-name="${display_name}" \
+            --api-target=service=identitytoolkit.googleapis.com \
+            --api-target=service=securetoken.googleapis.com \
+            --format=json \
+            --quiet)"
+          key_string="$(printf '%s' "${create_json}" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);process.stdout.write(j.response?.keyString||j.keyString||'')})")"
+          key_name="$(printf '%s' "${create_json}" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);process.stdout.write(j.response?.name||j.name||'')})")"
+          test -n "${key_string}"
+          test -n "${key_name}"
+          key_id="${key_name##*/}"
+          echo "::add-mask::${key_string}"
+          gcloud services api-keys update "${key_id}" \
+            --project="${FIREBASE_PROJECT_ID}" \
+            --allowed-referrers="https://sonaraenterprise.com/*,https://*.sonaraenterprise.com/*,https://sonaraenterprice.com/*,https://*.sonaraenterprice.com/*,https://sonara-enterprise.vercel.app/*,https://*.vercel.app/*" \
+            --quiet >/dev/null
+          printf '%s' "${key_string}" > /tmp/sonara-firebase-web-key
+
+      - name: Verify replacement key is accepted by Firebase Auth
+        shell: bash
+        run: |
+          set -euo pipefail
+          key_string="$(cat /tmp/sonara-firebase-web-key)"
+          response="$(curl -sS -X POST \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"sonara-key-probe@example.invalid","password":"not-a-real-password","returnSecureToken":true}' \
+            "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${key_string}")"
+          if printf '%s' "${response}" | grep -Eqi 'API_KEY_INVALID|API key.*suspend|CONSUMER_SUSPENDED|PERMISSION_DENIED'; then
+            echo 'Replacement Firebase API key was rejected.' >&2
+            exit 1
+          fi
+          echo 'Firebase Auth accepted the replacement API key.'
+
+      - name: Update Vercel production environment
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          key_string="$(cat /tmp/sonara-firebase-web-key)"
+          printf '%s' "${key_string}" | vercel env add VITE_FIREBASE_API_KEY production --force --yes --token="${VERCEL_TOKEN}" >/dev/null
+          echo 'Vercel production Firebase API key updated.'
+
+      - name: Redeploy SONARA production
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          vercel deploy --prod --yes --token="${VERCEL_TOKEN}"
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: rm -f /tmp/firebase-service-account.json /tmp/sonara-production.env /tmp/sonara-firebase-web-key
