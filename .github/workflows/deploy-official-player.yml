@@ -1,0 +1,121 @@
+name: Deploy SONARA Official Professional Player
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/official-player-deploy-trigger"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonara-official-player-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build, deploy and verify professional fixed player
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build current production app
+        run: npm run build
+
+      - name: Guard professional player in production bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d dist
+          grep -R -q 'sonara-pro-fixed-player' dist
+          grep -R -q 'SONARA professional fixed audio player' dist
+          echo "Professional fixed player is present in the production bundle."
+
+      - name: Resolve Cloudflare account and zone
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN}"
+          zone_response="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json" "https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50")"
+          zone_id="$(CF_RESPONSE="${zone_response}" node - <<'NODE'
+          const payload = JSON.parse(process.env.CF_RESPONSE || '{}');
+          const zone = Array.isArray(payload.result) ? payload.result.find(item => item?.name === 'sonaraenterprise.com') : null;
+          process.stdout.write(String(zone?.id || ''));
+          NODE
+          )"
+          account_id="${CLOUDFLARE_ACCOUNT_ID}"
+          if [[ -z "${account_id}" ]]; then
+            account_id="$(CF_RESPONSE="${zone_response}" node - <<'NODE'
+          const payload = JSON.parse(process.env.CF_RESPONSE || '{}');
+          const zone = Array.isArray(payload.result) ? payload.result.find(item => item?.name === 'sonaraenterprise.com') : null;
+          process.stdout.write(String(zone?.account?.id || ''));
+          NODE
+            )"
+          fi
+          test -n "${zone_id}"
+          test -n "${account_id}"
+          echo "::add-mask::${zone_id}"
+          echo "::add-mask::${account_id}"
+          echo "CLOUDFLARE_ZONE_ID=${zone_id}" >> "${GITHUB_ENV}"
+          echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
+
+      - name: Deploy current app and assets to official Cloudflare Worker
+        run: npx --yes wrangler@latest deploy --config wrangler.jsonc
+
+      - name: Purge official site cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data '{"purge_everything":true}' \
+            "https://api.cloudflare.com/client/v4/zones/${CLOUDFLARE_ZONE_ID}/purge_cache" \
+            > /tmp/purge.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const result = JSON.parse(fs.readFileSync('/tmp/purge.json', 'utf8'));
+          if (result.success !== true) {
+            console.error(JSON.stringify(result.errors || result));
+            process.exit(1);
+          }
+          console.log('Cloudflare cache purge completed.');
+          NODE
+
+      - name: Verify professional player on sonaraenterprise.com
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..30}; do
+            html="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?player=${GITHUB_SHA}-${attempt}" || true)"
+            asset="$(printf '%s' "${html}" | grep -oE 'src="/assets/index-[^"]+\.js"' | head -n1 | cut -d'"' -f2 || true)"
+            if [[ -n "${asset}" ]]; then
+              js="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com${asset}?player=${GITHUB_SHA}-${attempt}" || true)"
+              if printf '%s' "${js}" | grep -q 'sonara-pro-fixed-player' \
+                && printf '%s' "${js}" | grep -q 'Professional player'; then
+                echo "Official SONARA professional player is live: ${asset}"
+                exit 0
+              fi
+            fi
+            echo "Waiting for official player propagation (${attempt}/30)."
+            sleep 4
+          done
+          echo "Official SONARA player verification failed." >&2
+          exit 1
