@@ -17,10 +17,10 @@ function runCommand(command, args) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-function runOptional(command, args) {
+function runOptional(command, args, warning) {
   const result = spawnSync(command, args, { stdio: 'inherit', shell: false, env: process.env });
   if (result.error || result.status !== 0) {
-    console.warn('[SONARA][Firebase] Authorized-domain repair could not complete during build; application build will continue and runtime repair remains available.');
+    console.warn(warning || '[SONARA] Optional build step failed; continuing.');
     return false;
   }
   return true;
@@ -29,18 +29,27 @@ function runOptional(command, args) {
 function run(args) { runCommand(npx, args); }
 
 console.log('[SONARA] Checking Firebase authorized domains before build.');
-runOptional(node, ['scripts/ensure-firebase-authorized-domains.cjs']);
+runOptional(
+  node,
+  ['scripts/ensure-firebase-authorized-domains.cjs'],
+  '[SONARA][Firebase] Authorized-domain repair could not complete during build; application build will continue.'
+);
 
 if (process.env.VERCEL === '1' && process.env.VERCEL_ENV === 'production') {
-  console.log('[SONARA][Firebase] Rotating suspended Firebase web API key inside protected Vercel production build.');
-  runCommand(node, ['scripts/rotate-firebase-web-key-on-build.cjs']);
-  const rotatedKey = fs.readFileSync(firebaseKeyOutput, 'utf8').trim();
-  if (!rotatedKey) {
-    console.error('[SONARA][Firebase] Rotation returned an empty API key.');
-    process.exit(1);
+  console.log('[SONARA][Firebase] Attempting optional Firebase web API key rotation.');
+  const rotated = runOptional(
+    node,
+    ['scripts/rotate-firebase-web-key-on-build.cjs'],
+    '[SONARA][Firebase] Web-key rotation unavailable; continuing production build with configured runtime key.'
+  );
+
+  if (rotated && fs.existsSync(firebaseKeyOutput)) {
+    const rotatedKey = fs.readFileSync(firebaseKeyOutput, 'utf8').trim();
+    if (rotatedKey) {
+      process.env.VITE_FIREBASE_API_KEY = rotatedKey;
+      console.log('[SONARA][Firebase] Replacement API key injected into this Vite production build.');
+    }
   }
-  process.env.VITE_FIREBASE_API_KEY = rotatedKey;
-  console.log('[SONARA][Firebase] Replacement API key injected into this Vite production build.');
 }
 
 console.log('[SONARA] Activating production audio suite.');
