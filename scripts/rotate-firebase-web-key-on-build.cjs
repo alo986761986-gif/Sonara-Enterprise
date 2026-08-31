@@ -11,6 +11,14 @@ const REQUIRED_REFERRERS = [
   'https://*.vercel.app/*'
 ];
 
+function serviceAccountRaw() {
+  const primary = String(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '').trim();
+  if (primary && primary !== '[SENSITIVE]') return primary;
+  const vertex = String(process.env.SONARA_VERTEX_SERVICE_ACCOUNT_JSON || '').trim();
+  if (vertex && vertex !== '[SENSITIVE]') return vertex;
+  return '';
+}
+
 async function json(response) {
   const text = await response.text();
   if (!text) return {};
@@ -20,25 +28,29 @@ async function json(response) {
 async function request(url, options, label) {
   const response = await fetch(url, options);
   const body = await json(response);
-  if (!response.ok) {
-    throw new Error(`${label} failed (HTTP ${response.status}): ${JSON.stringify(body).slice(0, 700)}`);
-  }
+  if (!response.ok) throw new Error(`${label} failed (HTTP ${response.status}): ${JSON.stringify(body).slice(0, 700)}`);
   return body;
 }
 
 async function main() {
-  const raw = String(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || '').trim();
-  if (!raw) throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON is unavailable in the Vercel production build.');
+  const raw = serviceAccountRaw();
+  if (!raw) throw new Error('No usable Firebase/Vertex service account is available in the Vercel production build.');
 
   let serviceAccount;
-  try { serviceAccount = JSON.parse(raw); } catch { throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON is invalid JSON.'); }
-  const projectId = String(process.env.SONARA_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID || serviceAccount.project_id || '').trim();
-  if (!projectId || !serviceAccount.client_email || !serviceAccount.private_key) {
-    throw new Error('Firebase service-account data is incomplete.');
-  }
+  try { serviceAccount = JSON.parse(raw); } catch { throw new Error('Selected Firebase/Vertex service account is invalid JSON.'); }
+
+  const projectId = String(
+    process.env.SONARA_FIREBASE_PROJECT_ID ||
+    process.env.FIREBASE_PROJECT_ID ||
+    process.env.SONARA_VERTEX_PROJECT_ID ||
+    serviceAccount.project_id ||
+    ''
+  ).trim();
+
+  if (!projectId || !serviceAccount.client_email || !serviceAccount.private_key) throw new Error('Firebase service-account data is incomplete.');
 
   const appName = 'sonara-web-key-rotation';
-  const existing = getApps().find((candidate) => candidate.name === appName);
+  const existing = getApps().find(candidate => candidate.name === appName);
   const app = existing || initializeApp({ credential: cert(serviceAccount), projectId }, appName);
   const access = await app.options.credential.getAccessToken();
   const token = String(access?.access_token || '').trim();
@@ -49,8 +61,7 @@ async function main() {
   const create = await request(
     `https://apikeys.googleapis.com/v2/${parent}/keys`,
     {
-      method: 'POST',
-      headers,
+      method: 'POST', headers,
       body: JSON.stringify({
         displayName: `sonara-web-${new Date().toISOString().replace(/[:.]/g, '-')}`,
         restrictions: {
@@ -67,7 +78,7 @@ async function main() {
 
   let operation = create;
   for (let attempt = 0; attempt < 30 && !operation.done; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, 1000));
     operation = await request(`https://apikeys.googleapis.com/v2/${operation.name}`, { headers }, 'API key operation');
   }
   if (!operation.done) throw new Error('Google API key creation did not finish in time.');
@@ -80,22 +91,19 @@ async function main() {
   if (!keyString) throw new Error('Google API Keys API returned an empty key string.');
 
   const probe = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(keyString)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: 'sonara-key-probe@example.invalid', password: 'not-a-real-password', returnSecureToken: true })
   });
   const probeBody = await json(probe);
   const probeText = JSON.stringify(probeBody);
-  if (/API_KEY_INVALID|CONSUMER_SUSPENDED|PERMISSION_DENIED|suspend/i.test(probeText)) {
-    throw new Error(`Replacement Firebase key was rejected: ${probeText.slice(0, 500)}`);
-  }
+  if (/API_KEY_INVALID|CONSUMER_SUSPENDED|PERMISSION_DENIED|suspend/i.test(probeText)) throw new Error(`Replacement Firebase key was rejected: ${probeText.slice(0, 500)}`);
 
   fs.writeFileSync(OUTPUT, keyString, { mode: 0o600 });
   console.log('[SONARA][Firebase] Replacement web API key created and accepted by Firebase Auth.');
   console.log('[SONARA][Firebase] Key value intentionally omitted from logs.');
 }
 
-main().catch((error) => {
+main().catch(error => {
   console.error(`[SONARA][Firebase] WEB_KEY_ROTATION_FAILED: ${error instanceof Error ? error.message : String(error)}`);
   process.exit(1);
 });
