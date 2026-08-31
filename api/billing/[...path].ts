@@ -197,14 +197,51 @@ async function authenticateWithFirebaseRest(token: string): Promise<Authenticate
   return user?.localId ? { uid: user.localId, email: user.email } : null;
 }
 
-async function authenticatedUser(req: any): Promise<AuthenticatedUser | null> {
-  const token = bearerToken(req);
-  if (!token) return null;
+async function authenticateWithNativeSession(req: any): Promise<AuthenticatedUser | null> {
+  const cookie = String(req.headers?.cookie || '').trim();
+  if (!cookie || !/(?:^|;\s*)sonara_session=/.test(cookie)) return null;
+
+  const authBase = String(process.env.SONARA_NATIVE_AUTH_URL || DEFAULT_APP_URL).replace(/\/$/, '');
   try {
-    return await authenticateWithFirebaseRest(token);
+    const response = await fetch(`${authBase}/api/sonara-auth/session`, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        Cookie: cookie
+      },
+      redirect: 'manual'
+    });
+    if (!response.ok) return null;
+    const payload = await response.json() as {
+      authenticated?: boolean;
+      user?: { uid?: string; email?: string } | null;
+    };
+    const user = payload?.authenticated ? payload.user : null;
+    const uid = String(user?.uid || '').trim();
+    if (!uid) return null;
+    const email = String(user?.email || '').trim();
+    return { uid, ...(email ? { email } : {}) };
   } catch {
     return null;
   }
+}
+
+async function authenticatedUser(req: any): Promise<AuthenticatedUser | null> {
+  const token = bearerToken(req);
+
+  // Keep Firebase compatibility for legacy accounts, but the marker emitted by
+  // the native SONARA frontend is never trusted by itself. Native accounts are
+  // authenticated server-to-server against the real Secure/HttpOnly session.
+  if (token && token !== 'sonara-native-session') {
+    try {
+      const firebaseUser = await authenticateWithFirebaseRest(token);
+      if (firebaseUser) return firebaseUser;
+    } catch {
+      // Fall through to native session verification.
+    }
+  }
+
+  return authenticateWithNativeSession(req);
 }
 
 function actionFromRequest(req: any): string {
