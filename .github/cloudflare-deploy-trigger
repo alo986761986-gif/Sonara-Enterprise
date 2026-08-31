@@ -1,2 +1,4 @@
-trigger: 2026-08-29T17:08:00+02:00
-reason: deploy SONARA favicon and icon metadata at the Cloudflare edge so browsers and search engines receive the Sonara icon instead of the generic globe
+trigger: 2026-08-31T19:22:00+02:00
+reason: publish SONARA email-password-only auth hotfix at Cloudflare edge while Vercel free daily deployment quota is exhausted
+expected_auth_edge: sonara-auth-email-password-only-v1
+source_commit: 3fd8c76f80be5aa4906cbbdcf19ccf76f353fdc7
