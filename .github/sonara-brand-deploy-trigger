@@ -1,5 +1,6 @@
-trigger: 2026-08-29T21:50:00+02:00
-reason: restore SONARA Instant Dual Kaggle T4 production engine
-source: 64e05adc11f7e16da17248ba56396b9c6397b06a
-GPU0=https://gain-herbs-showcase-archives.trycloudflare.com
-GPU1=https://serve-charter-establish-designs.trycloudflare.com
+trigger: 2026-08-31T11:20:00+02:00
+reason: remove legacy SONARA Instant Dual and activate YuE Turbo single production edge
+router: cloudflare/sonara-instant-speed-router.mjs
+profile: sonara-yue-turbo-single-v2
+yue_primary: sonara-yue-v10-turbo-primary
+yue_router: sonara-yue-v10-profile-routing
