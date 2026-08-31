@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
+  ChevronDown,
+  History,
+  Layers3,
   Loader2,
   Play,
   Redo2,
@@ -10,8 +13,9 @@ import {
   WandSparkles
 } from 'lucide-react';
 
-type SessionOperation = 'replace' | 'inpaint' | 'extend';
+type SessionOperation = 'replace' | 'inpaint' | 'extend' | 'remix' | 'audio-to-audio';
 type SessionVariation = 'A' | 'B';
+type StemName = 'vocals' | 'drums' | 'bass' | 'guitar' | 'keys' | 'synth' | 'strings' | 'brass' | 'woodwinds' | 'percussion' | 'pads' | 'fx';
 
 type SessionSelection = {
   timelineStart: number;
@@ -22,6 +26,7 @@ type SessionSelection = {
   clipDuration: number;
   sourceOffset: number;
   clipName: string;
+  clipId: string;
 };
 
 type SessionCandidate = {
@@ -36,6 +41,7 @@ type SessionCandidate = {
 type JobOutput = {
   audioUrl?: string;
   label?: string;
+  stem?: string | null;
   quality?: {
     qualityScore?: number;
     professionalScore?: number;
@@ -55,6 +61,15 @@ type JobResponse = {
   };
 };
 
+type SessionVersion = {
+  id: string;
+  operation: SessionOperation;
+  chosenVariation: SessionVariation;
+  selection: SessionSelection | null;
+  candidates: SessionCandidate[];
+  createdAt: string;
+};
+
 interface SonaraSessions2TimelineProps {
   sourceAudioUrl?: string;
   bpm: number;
@@ -63,8 +78,11 @@ interface SonaraSessions2TimelineProps {
 
 const API = 'https://api.sonaraenterprise.com';
 const SOURCE_KEY = 'sonara.studio.sourceAudioUrl';
+const PROFILE_KEY = 'sonara.profile.id';
+const PROJECT_KEY = 'sonara.studio.projectId';
 const POLL_MS = 1800;
 const MAX_POLLS = 220;
+const STEMS: StemName[] = ['vocals', 'drums', 'bass', 'guitar', 'keys', 'synth', 'strings', 'brass', 'woodwinds', 'percussion', 'pads', 'fx'];
 
 const sleep = (milliseconds: number) => new Promise<void>(resolve => window.setTimeout(resolve, milliseconds));
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -76,6 +94,15 @@ const formatTime = (seconds: number) => {
   const tenths = Math.floor((safe - Math.floor(safe)) * 10);
   return `${minutes}:${String(wholeSeconds).padStart(2, '0')}.${tenths}`;
 };
+
+function ensureId(key: string, prefix: string) {
+  let id = window.localStorage.getItem(key) || '';
+  if (!id) {
+    id = `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    window.localStorage.setItem(key, id);
+  }
+  return id;
+}
 
 function parseLeft(element: HTMLElement | null) {
   if (!element) return Number.NaN;
@@ -114,6 +141,16 @@ function sourceOffsetFromClip(button: HTMLButtonElement) {
   return Number.isFinite(value) ? value : 0;
 }
 
+function clipIdFromButton(button: HTMLButtonElement) {
+  try {
+    const transfer = new DataTransfer();
+    button.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    return transfer.getData('text/sonara-clip') || '';
+  } catch {
+    return '';
+  }
+}
+
 function playerPlay(candidate: SessionCandidate) {
   window.dispatchEvent(new CustomEvent('sonara:global-player-play-track', {
     detail: {
@@ -139,10 +176,17 @@ export default function SonaraSessions2Timeline({ sourceAudioUrl = '', bpm, keyS
   const [notice, setNotice] = useState('Trascina direttamente sulla waveform per selezionare la regione da modificare.');
   const [candidates, setCandidates] = useState<SessionCandidate[]>([]);
   const [applying, setApplying] = useState<SessionVariation | null>(null);
+  const [versions, setVersions] = useState<SessionVersion[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [stemBusy, setStemBusy] = useState(false);
+  const [stemName, setStemName] = useState<StemName>('vocals');
+  const [stemOutputs, setStemOutputs] = useState<JobOutput[]>([]);
 
   const importedFilesRef = useRef(new Map<string, File>());
   const selectedLocalFileRef = useRef<File | null>(null);
   const activeSourceUrlRef = useRef(sourceAudioUrl);
+  const profileIdRef = useRef('');
+  const projectIdRef = useRef('');
   const dragRef = useRef<{
     button: HTMLButtonElement;
     startTime: number;
@@ -150,11 +194,52 @@ export default function SonaraSessions2Timeline({ sourceAudioUrl = '', bpm, keyS
     clipDuration: number;
     sourceOffset: number;
     clipName: string;
+    clipId: string;
   } | null>(null);
+
+  useEffect(() => {
+    profileIdRef.current = ensureId(PROFILE_KEY, 'profile');
+    projectIdRef.current = ensureId(PROJECT_KEY, 'studio');
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(`sonara.sessions.history.${projectIdRef.current}`) || '[]');
+      if (Array.isArray(stored)) setVersions(stored.slice(-30).reverse());
+    } catch {}
+  }, []);
 
   useEffect(() => {
     if (sourceAudioUrl) activeSourceUrlRef.current = sourceAudioUrl;
   }, [sourceAudioUrl]);
+
+  const apiHeaders = (json = false) => ({
+    ...(json ? { 'content-type': 'application/json' } : {}),
+    'x-sonara-profile-id': profileIdRef.current || ensureId(PROFILE_KEY, 'profile'),
+    'x-sonara-project-id': projectIdRef.current || ensureId(PROJECT_KEY, 'studio')
+  });
+
+  const persistVersions = (next: SessionVersion[]) => {
+    const limited = next.slice(0, 30);
+    setVersions(limited);
+    try { window.localStorage.setItem(`sonara.sessions.history.${projectIdRef.current}`, JSON.stringify([...limited].reverse())); } catch {}
+  };
+
+  const updateMemory = async (extra: Record<string, unknown> = {}) => {
+    try {
+      await fetch(`${API}/api/studio/project-memory`, {
+        method: 'PUT',
+        headers: apiHeaders(true),
+        body: JSON.stringify({
+          projectId: projectIdRef.current,
+          bpm,
+          key: keySignature,
+          prompt,
+          lastOperation: operation,
+          arrangement: selection ? `Active edit region ${selection.timelineStart.toFixed(2)}-${selection.timelineEnd.toFixed(2)}s on ${selection.clipName}` : '',
+          ...extra
+        }),
+        cache: 'no-store'
+      });
+    } catch {}
+  };
 
   useEffect(() => {
     const onFileChange = (event: Event) => {
@@ -162,9 +247,7 @@ export default function SonaraSessions2Timeline({ sourceAudioUrl = '', bpm, keyS
       if (!(input instanceof HTMLInputElement) || input.type !== 'file') return;
       const root = studioRoot();
       if (!root || !root.contains(input)) return;
-      for (const file of Array.from(input.files || [])) {
-        importedFilesRef.current.set(cleanFileStem(file.name), file);
-      }
+      for (const file of Array.from(input.files || [])) importedFilesRef.current.set(cleanFileStem(file.name), file);
     };
     document.addEventListener('change', onFileChange, true);
     return () => document.removeEventListener('change', onFileChange, true);
@@ -184,8 +267,7 @@ export default function SonaraSessions2Timeline({ sourceAudioUrl = '', bpm, keyS
         clientY: timelineRect.top + Math.min(20, timelineRect.height / 2)
       }));
       await sleep(35);
-      const control = exactButton(root, action === 'in' ? /^IN\s+\d/i : /^OUT\s+\d/i);
-      control?.click();
+      exactButton(root, action === 'in' ? /^IN\s+\d/i : /^OUT\s+\d/i)?.click();
       await sleep(35);
     };
     await clickAt(start, 'in');
@@ -200,7 +282,6 @@ export default function SonaraSessions2Timeline({ sourceAudioUrl = '', bpm, keyS
       const button = target?.closest<HTMLButtonElement>('button[draggable="true"]');
       const root = studioRoot();
       if (!button || !root || !root.contains(button)) return;
-
       const pixelsPerSecond = timelinePixelsPerSecond(root);
       const clipLeft = Number.parseFloat(button.style.left || '0');
       const clipWidth = Number.parseFloat(button.style.width || '0');
@@ -211,60 +292,17 @@ export default function SonaraSessions2Timeline({ sourceAudioUrl = '', bpm, keyS
       const ratio = clamp((event.clientX - rect.left) / Math.max(1, rect.width), 0, 1);
       const startTime = clipStart + ratio * clipDuration;
       const clipName = selectedClipName(button);
-      const localFile = importedFilesRef.current.get(cleanFileStem(clipName)) || null;
-      selectedLocalFileRef.current = localFile;
+      const clipId = clipIdFromButton(button);
+      selectedLocalFileRef.current = importedFilesRef.current.get(cleanFileStem(clipName)) || null;
       button.click();
-      dragRef.current = {
-        button,
-        startTime,
-        clipStart,
-        clipDuration,
-        sourceOffset: sourceOffsetFromClip(button),
-        clipName
-      };
-      setSelection({
-        timelineStart: startTime,
-        timelineEnd: Math.min(clipStart + clipDuration, startTime + 0.5),
-        sourceStart: sourceOffsetFromClip(button) + Math.max(0, startTime - clipStart),
-        sourceEnd: sourceOffsetFromClip(button) + Math.max(0.5, startTime - clipStart + 0.5),
-        clipStart,
-        clipDuration,
-        sourceOffset: sourceOffsetFromClip(button),
-        clipName
-      });
+      dragRef.current = { button, startTime, clipStart, clipDuration, sourceOffset: sourceOffsetFromClip(button), clipName, clipId };
       event.preventDefault();
       event.stopPropagation();
     };
 
-    const onPointerMove = (event: PointerEvent) => {
+    const updateFromPointer = (event: PointerEvent, final: boolean) => {
       const drag = dragRef.current;
       if (!drag) return;
-      const rect = drag.button.getBoundingClientRect();
-      const ratio = clamp((event.clientX - rect.left) / Math.max(1, rect.width), 0, 1);
-      const currentTime = drag.clipStart + ratio * drag.clipDuration;
-      let start = Math.min(drag.startTime, currentTime);
-      let end = Math.max(drag.startTime, currentTime);
-      if (end - start < 0.5) end = Math.min(drag.clipStart + drag.clipDuration, start + 0.5);
-      start = clamp(start, drag.clipStart, drag.clipStart + drag.clipDuration);
-      end = clamp(end, start + 0.05, drag.clipStart + drag.clipDuration);
-      setSelection({
-        timelineStart: start,
-        timelineEnd: end,
-        sourceStart: drag.sourceOffset + (start - drag.clipStart),
-        sourceEnd: drag.sourceOffset + (end - drag.clipStart),
-        clipStart: drag.clipStart,
-        clipDuration: drag.clipDuration,
-        sourceOffset: drag.sourceOffset,
-        clipName: drag.clipName
-      });
-      event.preventDefault();
-      event.stopPropagation();
-    };
-
-    const onPointerUp = (event: PointerEvent) => {
-      const drag = dragRef.current;
-      if (!drag) return;
-      dragRef.current = null;
       const rect = drag.button.getBoundingClientRect();
       const ratio = clamp((event.clientX - rect.left) / Math.max(1, rect.width), 0, 1);
       const currentTime = drag.clipStart + ratio * drag.clipDuration;
@@ -281,17 +319,23 @@ export default function SonaraSessions2Timeline({ sourceAudioUrl = '', bpm, keyS
         clipStart: drag.clipStart,
         clipDuration: drag.clipDuration,
         sourceOffset: drag.sourceOffset,
-        clipName: drag.clipName
+        clipName: drag.clipName,
+        clipId: drag.clipId
       };
       setSelection(nextSelection);
+      event.preventDefault();
+      event.stopPropagation();
+      if (!final) return;
+      dragRef.current = null;
       setSelectionMode(false);
       setCandidates([]);
       setNotice(`Regione selezionata: ${formatTime(start)} → ${formatTime(end)} su ${drag.clipName}.`);
       void setStudioPunchRange(drag.button, start, end);
-      event.preventDefault();
-      event.stopPropagation();
+      void updateMemory({ arrangement: `Selected region ${start.toFixed(2)}-${end.toFixed(2)}s on ${drag.clipName}` });
     };
 
+    const onPointerMove = (event: PointerEvent) => updateFromPointer(event, false);
+    const onPointerUp = (event: PointerEvent) => updateFromPointer(event, true);
     document.addEventListener('pointerdown', onPointerDown, true);
     document.addEventListener('pointermove', onPointerMove, true);
     document.addEventListener('pointerup', onPointerUp, true);
@@ -303,30 +347,20 @@ export default function SonaraSessions2Timeline({ sourceAudioUrl = '', bpm, keyS
       document.removeEventListener('pointercancel', onPointerUp, true);
       dragRef.current = null;
     };
-  }, [selectionMode]);
+  }, [selectionMode, bpm, keySignature, operation, prompt]);
 
-  const activeSource = () => {
-    const stored = window.localStorage.getItem(SOURCE_KEY) || '';
-    return activeSourceUrlRef.current || sourceAudioUrl || stored;
-  };
+  const activeSource = () => activeSourceUrlRef.current || sourceAudioUrl || window.localStorage.getItem(SOURCE_KEY) || '';
 
   const submitJob = async (variation: SessionVariation) => {
-    if (!selection && operation !== 'extend') throw new Error('Seleziona prima una regione della waveform.');
+    if (!selection && ['replace', 'inpaint'].includes(operation)) throw new Error('Seleziona prima una regione della waveform.');
     const source = activeSource();
     const localFile = selectedLocalFileRef.current;
     if (!source && !localFile) throw new Error('Nessun audio sorgente disponibile nello Studio.');
-
     const endpoint = `${API}/api/studio/${operation}`;
     const selectionStart = selection?.sourceStart ?? 0;
     const selectionEnd = selection?.sourceEnd ?? Math.max(8, selectionStart + 16);
-    const durationSec = Math.min(600, Math.max(selection?.sourceOffset ? selection.sourceOffset + (selection?.clipDuration || 60) : selection?.clipDuration || 60, selectionEnd + 2));
-    const instruction = [
-      `SONARA Sessions 2.0 variation ${variation}.`,
-      operation === 'replace' ? 'Replace the selected passage only and preserve every surrounding musical detail.' : '',
-      operation === 'inpaint' ? 'Inpaint the selected passage seamlessly with inaudible boundaries.' : '',
-      operation === 'extend' ? 'Extend the arrangement naturally while preserving singer, motif, BPM, key and production identity.' : '',
-      prompt.trim()
-    ].filter(Boolean).join(' ');
+    const durationSec = Math.min(600, Math.max(selection?.clipDuration || 60, selectionEnd + 2));
+    const instruction = [`SONARA Sessions 2.0 variation ${variation}.`, prompt.trim()].filter(Boolean).join(' ');
 
     let response: Response;
     if (localFile && !activeSourceUrlRef.current) {
@@ -338,83 +372,74 @@ export default function SonaraSessions2Timeline({ sourceAudioUrl = '', bpm, keyS
       form.append('start', String(selectionStart));
       form.append('end', String(selectionEnd));
       form.append('durationSec', String(durationSec));
-      response = await fetch(endpoint, { method: 'POST', body: form, cache: 'no-store' });
+      form.append('projectId', projectIdRef.current);
+      response = await fetch(endpoint, { method: 'POST', headers: apiHeaders(false), body: form, cache: 'no-store' });
     } else {
       response = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          sourceAudioUrl: source,
-          prompt: instruction,
-          bpm,
-          key: keySignature,
-          start: selectionStart,
-          end: selectionEnd,
-          durationSec,
-          sonaraSessionsVersion: '2.0',
-          sonaraVariation: variation
-        }),
+        headers: apiHeaders(true),
+        body: JSON.stringify({ sourceAudioUrl: source, prompt: instruction, bpm, key: keySignature, start: selectionStart, end: selectionEnd, durationSec, projectId: projectIdRef.current, sonaraVariation: variation }),
         cache: 'no-store'
       });
     }
-
     const data = await response.json().catch(() => ({})) as JobResponse;
     if (!response.ok || !data.jobId) throw new Error(data.error || `Avvio Session ${variation} non riuscito (HTTP ${response.status}).`);
     return data.jobId;
   };
 
-  const pollJob = async (jobId: string, variation: SessionVariation, index: number) => {
+  const pollJobData = async (jobId: string, progressBase = 0): Promise<JobResponse> => {
     for (let attempt = 0; attempt < MAX_POLLS; attempt += 1) {
-      const response = await fetch(`${API}/api/studio/job/${encodeURIComponent(jobId)}?session=2.0-${variation}-${attempt}`, {
-        cache: 'no-store',
-        headers: { 'cache-control': 'no-cache' }
-      });
+      const response = await fetch(`${API}/api/studio/job/${encodeURIComponent(jobId)}?session=2.0-${attempt}`, { cache: 'no-store', headers: { ...apiHeaders(false), 'cache-control': 'no-cache' } });
       const data = await response.json().catch(() => ({})) as JobResponse;
-      if (!response.ok && data.status !== 'PROCESSING') throw new Error(data.error || `Session ${variation} HTTP ${response.status}.`);
-      const localProgress = clamp(Number(data.progress || 0), 0, 100);
-      setProgress(current => Math.max(current, Math.round((index * 5 + localProgress) / 2)));
-      if (data.status === 'FAILED') throw new Error(data.error || `Session ${variation} non riuscita.`);
-      if (data.status === 'COMPLETED') {
-        const output = data.outputs?.find(item => item.audioUrl) || data.outputs?.[0];
-        if (!output?.audioUrl) throw new Error(`Session ${variation} completata senza audio.`);
-        const score = Number(output.quality?.professionalScore ?? output.quality?.qualityScore ?? data.qualityJudge?.bestScore);
-        const detectedBpm = Number(output.quality?.detectedBpm ?? data.qualityJudge?.bestDetectedBpm);
-        return {
-          variation,
-          jobId,
-          audioUrl: output.audioUrl,
-          title: `SONARA Session ${operation.toUpperCase()} ${variation}`,
-          score: Number.isFinite(score) ? score : null,
-          detectedBpm: Number.isFinite(detectedBpm) ? detectedBpm : null
-        } satisfies SessionCandidate;
-      }
+      if (!response.ok && data.status !== 'PROCESSING') throw new Error(data.error || `Studio job HTTP ${response.status}.`);
+      setProgress(Math.max(progressBase, Math.min(99, Math.round(Number(data.progress || 0)))));
+      if (data.status === 'FAILED') throw new Error(data.error || 'Studio job non riuscito.');
+      if (data.status === 'COMPLETED') return data;
       await sleep(POLL_MS);
     }
-    throw new Error(`Session ${variation}: tempo massimo di elaborazione superato.`);
+    throw new Error('Tempo massimo di elaborazione superato.');
+  };
+
+  const candidateFromJob = async (jobId: string, variation: SessionVariation) => {
+    const data = await pollJobData(jobId, variation === 'A' ? 5 : 8);
+    const output = data.outputs?.find(item => item.audioUrl) || data.outputs?.[0];
+    if (!output?.audioUrl) throw new Error(`Session ${variation} completata senza audio.`);
+    const score = Number(output.quality?.professionalScore ?? output.quality?.qualityScore ?? data.qualityJudge?.bestScore);
+    const detectedBpm = Number(output.quality?.detectedBpm ?? data.qualityJudge?.bestDetectedBpm);
+    return {
+      variation,
+      jobId,
+      audioUrl: output.audioUrl,
+      title: `SONARA Session ${operation.toUpperCase()} ${variation}`,
+      score: Number.isFinite(score) ? score : null,
+      detectedBpm: Number.isFinite(detectedBpm) ? detectedBpm : null
+    } satisfies SessionCandidate;
   };
 
   const generateAB = async () => {
     if (busy) return;
-    if (!selection && operation !== 'extend') {
+    if (!selection && ['replace', 'inpaint'].includes(operation)) {
       setNotice('Attiva SELEZIONA REGIONE e trascina sulla waveform prima di generare.');
       return;
     }
     setBusy(true);
     setProgress(1);
     setCandidates([]);
-    setNotice(`Sessions 2.0: creo due versioni ${operation.toUpperCase()} A/B…`);
+    setNotice(`Sessions 2.0: creo due versioni ${operation.toUpperCase()} A/B con Voice DNA, Style DNA e memoria progetto.`);
     try {
+      await updateMemory();
       const [jobA, jobB] = await Promise.all([submitJob('A'), submitJob('B')]);
-      setProgress(8);
-      setNotice('A/B avviate. SONARA sta mantenendo BPM, tonalità, identità e continuità fuori dalla regione.');
-      const [candidateA, candidateB] = await Promise.all([
-        pollJob(jobA, 'A', 0),
-        pollJob(jobB, 'B', 1)
-      ]);
-      setCandidates([candidateA, candidateB]);
+      const [candidateA, candidateB] = await Promise.all([candidateFromJob(jobA, 'A'), candidateFromJob(jobB, 'B')]);
+      const nextCandidates = [candidateA, candidateB];
+      setCandidates(nextCandidates);
       setProgress(100);
-      const scores = [candidateA, candidateB].filter(candidate => candidate.score !== null).sort((a, b) => Number(b.score) - Number(a.score));
-      setNotice(scores[0]?.score !== null && scores[0] ? `A/B pronte. Quality ranking: ${scores[0].variation} migliore con ${scores[0].score}/100.` : 'A/B pronte. Ascolta entrambe nel player fisso e scegli quale applicare.');
+      if (selection?.clipId) {
+        window.dispatchEvent(new CustomEvent('sonara:studio-register-session-candidates', {
+          detail: { operation, selection, clipId: selection.clipId, candidates: nextCandidates }
+        }));
+      }
+      const scores = nextCandidates.filter(candidate => candidate.score !== null).sort((a, b) => Number(b.score) - Number(a.score));
+      setNotice(scores[0] ? `A/B pronte. Quality ranking: ${scores[0].variation} migliore con ${scores[0].score}/100. Entrambe sono registrate come take della regione.` : 'A/B pronte. Ascolta entrambe e applica la take desiderata.');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
@@ -422,59 +447,115 @@ export default function SonaraSessions2Timeline({ sourceAudioUrl = '', bpm, keyS
     }
   };
 
-  const applyCandidate = async (candidate: SessionCandidate) => {
-    if (applying) return;
-    const root = studioRoot();
-    if (!root) {
-      setNotice('Timeline Studio non disponibile.');
-      return;
-    }
-    const audioInput = Array.from(root.querySelectorAll<HTMLInputElement>('input[type="file"]'))[0];
-    if (!audioInput) {
-      setNotice('Import audio della timeline non disponibile.');
-      return;
-    }
-
+  const applyCandidate = (candidate: SessionCandidate, restoring = false) => {
+    if (applying || !selection) return;
     setApplying(candidate.variation);
-    setNotice(`Applico la versione ${candidate.variation} come nuova take non distruttiva nella timeline…`);
-    try {
-      const response = await fetch(candidate.audioUrl, { cache: 'no-store' });
-      if (!response.ok) throw new Error(`Audio Session ${candidate.variation} non leggibile (HTTP ${response.status}).`);
-      const blob = await response.blob();
-      const extension = /mpeg|mp3/i.test(blob.type) ? 'mp3' : /flac/i.test(blob.type) ? 'flac' : /ogg/i.test(blob.type) ? 'ogg' : 'wav';
-      const file = new File([blob], `SONARA-Session-${operation}-${candidate.variation}.${extension}`, { type: blob.type || 'audio/wav' });
-      importedFilesRef.current.set(cleanFileStem(file.name), file);
-      const soloBefore = Array.from(root.querySelectorAll<HTMLButtonElement>('button')).filter(button => (button.textContent || '').trim() === 'S').length;
-      const transfer = new DataTransfer();
-      transfer.items.add(file);
-      audioInput.files = transfer.files;
-      audioInput.dispatchEvent(new Event('change', { bubbles: true }));
-      activeSourceUrlRef.current = candidate.audioUrl;
-      selectedLocalFileRef.current = null;
-      window.localStorage.setItem(SOURCE_KEY, candidate.audioUrl);
-
-      for (let attempt = 0; attempt < 50; attempt += 1) {
-        await sleep(60);
-        const soloButtons = Array.from(root.querySelectorAll<HTMLButtonElement>('button')).filter(button => (button.textContent || '').trim() === 'S');
-        if (soloButtons.length > soloBefore) {
-          soloButtons.at(-1)?.click();
-          break;
-        }
-      }
-      setNotice(`Versione ${candidate.variation} applicata come nuova take/track e messa in SOLO. UNDO torna allo stato precedente; REDO la ripristina.`);
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : String(error));
-    } finally {
-      setApplying(null);
+    window.dispatchEvent(new CustomEvent('sonara:studio-apply-session-candidate', {
+      detail: { operation, selection, clipId: selection.clipId, variation: candidate.variation, jobId: candidate.jobId, audioUrl: candidate.audioUrl }
+    }));
+    activeSourceUrlRef.current = candidate.audioUrl;
+    window.localStorage.setItem(SOURCE_KEY, candidate.audioUrl);
+    if (!restoring) {
+      const version: SessionVersion = {
+        id: `v-${Date.now().toString(36)}-${candidate.variation}`,
+        operation,
+        chosenVariation: candidate.variation,
+        selection,
+        candidates,
+        createdAt: new Date().toISOString()
+      };
+      persistVersions([version, ...versions]);
+      void updateMemory({ sourceAudioUrl: candidate.audioUrl, lastOperation: operation });
     }
+    setNotice(`Versione ${candidate.variation} applicata SOLO alla regione selezionata. Fuori dalla regione resta l'originale; UNDO/REDO resta disponibile.`);
+    window.setTimeout(() => setApplying(null), 300);
+  };
+
+  const restoreVersion = (version: SessionVersion) => {
+    if (!version.selection || !version.candidates.length) return;
+    setOperation(version.operation);
+    setSelection(version.selection);
+    setCandidates(version.candidates);
+    window.dispatchEvent(new CustomEvent('sonara:studio-register-session-candidates', {
+      detail: { operation: version.operation, selection: version.selection, clipId: version.selection.clipId, candidates: version.candidates }
+    }));
+    const candidate = version.candidates.find(item => item.variation === version.chosenVariation);
+    if (candidate) window.setTimeout(() => applyCandidate(candidate, true), 80);
   };
 
   const clickUndoRedo = (kind: 'undo' | 'redo') => {
     const root = studioRoot();
-    if (!root) return;
-    const button = root.querySelector<HTMLButtonElement>(`button[title="${kind === 'undo' ? 'Undo' : 'Redo'}"]`);
-    button?.click();
+    root?.querySelector<HTMLButtonElement>(`button[title="${kind === 'undo' ? 'Undo' : 'Redo'}"]`)?.click();
     setNotice(kind === 'undo' ? 'Undo eseguito sulla sessione Studio.' : 'Redo eseguito sulla sessione Studio.');
+  };
+
+  const importOutputsAsStems = async (outputs: JobOutput[]) => {
+    const root = studioRoot();
+    const stemInput = Array.from(root?.querySelectorAll<HTMLInputElement>('input[type="file"]') || [])[1];
+    if (!stemInput) throw new Error('Import Stems non disponibile nello Studio.');
+    const transfer = new DataTransfer();
+    for (const output of outputs) {
+      if (!output.audioUrl) continue;
+      const response = await fetch(output.audioUrl, { cache: 'no-store' });
+      if (!response.ok) continue;
+      const blob = await response.blob();
+      const name = `${output.stem || output.label || 'stem'}.wav`;
+      transfer.items.add(new File([blob], name, { type: blob.type || 'audio/wav' }));
+    }
+    if (!transfer.files.length) throw new Error('Nessuno stem scaricabile ricevuto.');
+    stemInput.files = transfer.files;
+    stemInput.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+
+  const runStemJob = async (mode: 'stems-pro' | 'regenerate-stem-section') => {
+    if (stemBusy) return;
+    const source = activeSource();
+    if (!source && !selectedLocalFileRef.current) {
+      setNotice('Seleziona prima una sorgente audio.');
+      return;
+    }
+    setStemBusy(true);
+    setProgress(1);
+    setNotice(mode === 'stems-pro' ? 'Separazione professionale in 12 stem in corso…' : `Rigenerazione ${stemName} nella regione selezionata…`);
+    try {
+      const body = {
+        sourceAudioUrl: source,
+        bpm,
+        key: keySignature,
+        projectId: projectIdRef.current,
+        stems: STEMS,
+        stem: stemName,
+        start: selection?.sourceStart ?? 0,
+        end: selection?.sourceEnd ?? -1,
+        prompt
+      };
+      const response = await fetch(`${API}/api/studio/${mode}`, { method: 'POST', headers: apiHeaders(true), body: JSON.stringify(body), cache: 'no-store' });
+      const queued = await response.json().catch(() => ({})) as JobResponse;
+      if (!response.ok || !queued.jobId) throw new Error(queued.error || `Avvio ${mode} non riuscito.`);
+      const completed = await pollJobData(queued.jobId, 5);
+      const outputs = (completed.outputs || []).filter(item => item.audioUrl);
+      setStemOutputs(outputs);
+      await importOutputsAsStems(outputs);
+      setProgress(100);
+      await updateMemory({ instrumentation: mode === 'stems-pro' ? `12 professional stems: ${STEMS.join(', ')}` : `Regenerated ${stemName} section` });
+      setNotice(mode === 'stems-pro' ? `${outputs.length} stem importati nella timeline: usa S per Isolate, M per Remove/Mute, oppure REGEN REGION per rigenerare una sezione.` : `${stemName} rigenerato e importato come nuova traccia time-aligned.`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setStemBusy(false);
+    }
+  };
+
+  const clickTrackControl = (stem: StemName, control: 'S' | 'M') => {
+    const root = studioRoot();
+    if (!root) return;
+    const trackRow = Array.from(root.querySelectorAll<HTMLElement>('div')).find(element => {
+      const text = (element.textContent || '').trim().toLowerCase();
+      return text.startsWith(stem) && element.querySelectorAll('button').length >= 3;
+    });
+    const button = Array.from(trackRow?.querySelectorAll<HTMLButtonElement>('button') || []).find(item => (item.textContent || '').trim() === control);
+    button?.click();
+    setNotice(`${stem}: ${control === 'S' ? 'ISOLATE/SOLO' : 'REMOVE/MUTE'} aggiornato.`);
   };
 
   const bestVariation = useMemo(() => {
@@ -485,77 +566,38 @@ export default function SonaraSessions2Timeline({ sourceAudioUrl = '', bpm, keyS
   return (
     <section className="sticky top-[104px] z-[55] border-b border-white/[0.07] bg-[#080b12]/95 px-3 py-2.5 backdrop-blur-2xl sm:px-5" data-sonara-sessions-timeline="2.0">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="mr-1 flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.18em] text-violet-300">
-          <Sparkles className="h-3.5 w-3.5" /> Sessions 2.0
-        </div>
-
-        {(['replace', 'inpaint', 'extend'] as SessionOperation[]).map(value => (
-          <button
-            key={value}
-            type="button"
-            onClick={() => { setOperation(value); setCandidates([]); }}
-            className={`rounded-lg border px-2.5 py-1.5 text-[8px] font-black uppercase tracking-wider ${operation === value ? 'border-violet-400/35 bg-violet-400/[0.12] text-violet-100' : 'border-white/[0.07] bg-white/[0.025] text-slate-500 hover:text-white'}`}
-          >
-            {value}
-          </button>
+        <div className="mr-1 flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.18em] text-violet-300"><Sparkles className="h-3.5 w-3.5" /> Sessions 2.0</div>
+        {(['replace', 'inpaint', 'extend', 'remix', 'audio-to-audio'] as SessionOperation[]).map(value => (
+          <button key={value} type="button" onClick={() => { setOperation(value); setCandidates([]); }} className={`rounded-lg border px-2.5 py-1.5 text-[8px] font-black uppercase tracking-wider ${operation === value ? 'border-violet-400/35 bg-violet-400/[0.12] text-violet-100' : 'border-white/[0.07] bg-white/[0.025] text-slate-500 hover:text-white'}`}>{value}</button>
         ))}
-
-        <button
-          type="button"
-          onClick={() => { setSelectionMode(value => !value); setCandidates([]); }}
-          className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[8px] font-black ${selectionMode ? 'border-cyan-400/45 bg-cyan-400/[0.12] text-cyan-100 shadow-[0_0_18px_rgba(34,211,238,.12)]' : 'border-cyan-400/20 bg-cyan-400/[0.05] text-cyan-300'}`}
-        >
-          <Scissors className="h-3.5 w-3.5" /> {selectionMode ? 'TRASCINA SULLA WAVEFORM' : 'SELEZIONA REGIONE'}
-        </button>
-
-        <div className="min-w-[150px] rounded-lg border border-white/[0.07] bg-black/20 px-2.5 py-1.5 font-mono text-[8px] text-slate-400">
-          {selection ? `${formatTime(selection.timelineStart)} → ${formatTime(selection.timelineEnd)}` : operation === 'extend' ? 'EXTEND DAL SOURCE' : 'NESSUNA REGIONE'}
-        </div>
-
-        <input
-          value={prompt}
-          onChange={event => setPrompt(event.target.value)}
-          placeholder="Istruzione opzionale: cosa deve cambiare nella regione…"
-          className="min-w-[220px] flex-1 rounded-lg border border-white/[0.08] bg-black/25 px-3 py-2 text-[9px] text-white outline-none placeholder:text-slate-700 focus:border-violet-400/40"
-        />
-
-        <button
-          type="button"
-          onClick={() => void generateAB()}
-          disabled={busy || (!selection && operation !== 'extend')}
-          className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 px-3 py-2 text-[9px] font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <WandSparkles className="h-3.5 w-3.5" />}
-          GENERA A/B
-        </button>
-
-        <button type="button" onClick={() => clickUndoRedo('undo')} className="rounded-lg border border-white/[0.07] bg-white/[0.025] p-2 text-slate-400 hover:text-white" title="Sessions Undo"><Undo2 className="h-3.5 w-3.5" /></button>
-        <button type="button" onClick={() => clickUndoRedo('redo')} className="rounded-lg border border-white/[0.07] bg-white/[0.025] p-2 text-slate-400 hover:text-white" title="Sessions Redo"><Redo2 className="h-3.5 w-3.5" /></button>
+        <button type="button" onClick={() => { setSelectionMode(value => !value); setCandidates([]); }} className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[8px] font-black ${selectionMode ? 'border-cyan-400/45 bg-cyan-400/[0.12] text-cyan-100' : 'border-cyan-400/20 bg-cyan-400/[0.05] text-cyan-300'}`}><Scissors className="h-3.5 w-3.5" /> {selectionMode ? 'TRASCINA SULLA WAVEFORM' : 'SELEZIONA REGIONE'}</button>
+        <div className="min-w-[150px] rounded-lg border border-white/[0.07] bg-black/20 px-2.5 py-1.5 font-mono text-[8px] text-slate-400">{selection ? `${formatTime(selection.timelineStart)} → ${formatTime(selection.timelineEnd)}` : ['extend', 'remix', 'audio-to-audio'].includes(operation) ? 'SOURCE COMPLETO' : 'NESSUNA REGIONE'}</div>
+        <input value={prompt} onChange={event => setPrompt(event.target.value)} placeholder="Istruzione opzionale…" className="min-w-[210px] flex-1 rounded-lg border border-white/[0.08] bg-black/25 px-3 py-2 text-[9px] text-white outline-none placeholder:text-slate-700 focus:border-violet-400/40" />
+        <button type="button" onClick={() => void generateAB()} disabled={busy || (!selection && ['replace', 'inpaint'].includes(operation))} className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-violet-600 to-indigo-600 px-3 py-2 text-[9px] font-black text-white disabled:opacity-40">{busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <WandSparkles className="h-3.5 w-3.5" />} GENERA A/B</button>
+        <button type="button" onClick={() => clickUndoRedo('undo')} className="rounded-lg border border-white/[0.07] bg-white/[0.025] p-2 text-slate-400" title="Sessions Undo"><Undo2 className="h-3.5 w-3.5" /></button>
+        <button type="button" onClick={() => clickUndoRedo('redo')} className="rounded-lg border border-white/[0.07] bg-white/[0.025] p-2 text-slate-400" title="Sessions Redo"><Redo2 className="h-3.5 w-3.5" /></button>
+        <button type="button" onClick={() => setHistoryOpen(value => !value)} className="flex items-center gap-1.5 rounded-lg border border-white/[0.07] bg-white/[0.025] px-2.5 py-2 text-[8px] font-black text-slate-400"><History className="h-3.5 w-3.5" /> VERSIONI <ChevronDown className={`h-3 w-3 transition ${historyOpen ? 'rotate-180' : ''}`} /></button>
       </div>
 
-      {(busy || candidates.length > 0) && (
-        <div className="mt-2 grid gap-2 lg:grid-cols-[180px_1fr_1fr]">
-          <div className="rounded-lg border border-white/[0.06] bg-black/20 px-3 py-2">
-            <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-wider text-slate-600"><span>Session progress</span><span>{progress}%</span></div>
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.05]"><div className="h-full rounded-full bg-violet-400 transition-all" style={{ width: `${progress}%` }} /></div>
-          </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-white/[0.05] bg-black/15 px-2.5 py-2">
+        <div className="flex items-center gap-1.5 text-[8px] font-black uppercase tracking-wider text-cyan-300"><Layers3 className="h-3.5 w-3.5" /> Stems Pro 12</div>
+        <button type="button" disabled={stemBusy} onClick={() => void runStemJob('stems-pro')} className="rounded-md border border-cyan-400/25 bg-cyan-400/[0.07] px-2 py-1.5 text-[7px] font-black text-cyan-200 disabled:opacity-40">{stemBusy ? 'WORKING…' : 'SEPARA 12 STEMS'}</button>
+        <select value={stemName} onChange={event => setStemName(event.target.value as StemName)} className="rounded-md border border-white/[0.08] bg-[#090c13] px-2 py-1.5 text-[8px] font-bold text-slate-300 outline-none">{STEMS.map(stem => <option key={stem} value={stem}>{stem.toUpperCase()}</option>)}</select>
+        <button type="button" onClick={() => clickTrackControl(stemName, 'S')} className="rounded-md border border-emerald-400/20 bg-emerald-400/[0.05] px-2 py-1.5 text-[7px] font-black text-emerald-200">ISOLATE</button>
+        <button type="button" onClick={() => clickTrackControl(stemName, 'M')} className="rounded-md border border-amber-400/20 bg-amber-400/[0.05] px-2 py-1.5 text-[7px] font-black text-amber-200">REMOVE / MUTE</button>
+        <button type="button" disabled={stemBusy || !selection} onClick={() => void runStemJob('regenerate-stem-section')} className="rounded-md border border-violet-400/20 bg-violet-400/[0.06] px-2 py-1.5 text-[7px] font-black text-violet-200 disabled:opacity-40">REGEN REGION</button>
+        <span className="ml-auto text-[7px] font-bold uppercase tracking-wider text-slate-600">Voice DNA ON · Style DNA ON · Long Memory ON · {stemOutputs.length ? `${stemOutputs.length} STEM READY` : '12 STEM'}</span>
+      </div>
 
-          {(['A', 'B'] as SessionVariation[]).map(variation => {
-            const candidate = candidates.find(item => item.variation === variation);
-            return (
-              <div key={variation} className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 ${candidate && bestVariation === variation ? 'border-emerald-400/25 bg-emerald-400/[0.05]' : 'border-white/[0.06] bg-black/20'}`}>
-                <div className="flex h-7 w-7 items-center justify-center rounded-md bg-white/[0.05] text-[10px] font-black text-white">{variation}</div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[8px] font-black text-slate-300">{candidate ? candidate.title : busy ? `GENERAZIONE ${variation}…` : `SESSION ${variation}`}</div>
-                  <div className="mt-0.5 text-[7px] text-slate-600">{candidate ? `${candidate.score !== null ? `Quality ${candidate.score}/100` : 'Quality n/d'}${candidate.detectedBpm !== null ? ` · ${candidate.detectedBpm} BPM` : ''}${bestVariation === variation ? ' · BEST' : ''}` : 'in attesa'}</div>
-                </div>
-                <button type="button" disabled={!candidate} onClick={() => candidate && playerPlay(candidate)} className="rounded-md border border-white/[0.08] bg-white/[0.03] p-1.5 text-slate-300 disabled:opacity-30" title={`Ascolta ${variation} nel player fisso`}><Play className="h-3 w-3 fill-current" /></button>
-                <button type="button" disabled={!candidate || applying !== null} onClick={() => candidate && void applyCandidate(candidate)} className="flex items-center gap-1 rounded-md border border-violet-400/25 bg-violet-400/[0.08] px-2 py-1.5 text-[7px] font-black text-violet-200 disabled:opacity-30">{applying === variation ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />} APPLICA</button>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {(busy || stemBusy || candidates.length > 0) && <div className="mt-2 grid gap-2 lg:grid-cols-[180px_1fr_1fr]">
+        <div className="rounded-lg border border-white/[0.06] bg-black/20 px-3 py-2"><div className="flex items-center justify-between text-[8px] font-black uppercase tracking-wider text-slate-600"><span>Progress</span><span>{progress}%</span></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.05]"><div className="h-full rounded-full bg-violet-400 transition-all" style={{ width: `${progress}%` }} /></div></div>
+        {(['A', 'B'] as SessionVariation[]).map(variation => {
+          const candidate = candidates.find(item => item.variation === variation);
+          return <div key={variation} className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 ${candidate && bestVariation === variation ? 'border-emerald-400/25 bg-emerald-400/[0.05]' : 'border-white/[0.06] bg-black/20'}`}><div className="flex h-7 w-7 items-center justify-center rounded-md bg-white/[0.05] text-[10px] font-black text-white">{variation}</div><div className="min-w-0 flex-1"><div className="truncate text-[8px] font-black text-slate-300">{candidate ? candidate.title : busy ? `GENERAZIONE ${variation}…` : `SESSION ${variation}`}</div><div className="mt-0.5 text-[7px] text-slate-600">{candidate ? `${candidate.score !== null ? `Quality ${candidate.score}/100` : 'Quality n/d'}${candidate.detectedBpm !== null ? ` · ${candidate.detectedBpm} BPM` : ''}${bestVariation === variation ? ' · BEST' : ''}` : 'in attesa'}</div></div><button type="button" disabled={!candidate} onClick={() => candidate && playerPlay(candidate)} className="rounded-md border border-white/[0.08] bg-white/[0.03] p-1.5 text-slate-300 disabled:opacity-30"><Play className="h-3 w-3 fill-current" /></button><button type="button" disabled={!candidate || applying !== null || !selection} onClick={() => candidate && applyCandidate(candidate)} className="flex items-center gap-1 rounded-md border border-violet-400/25 bg-violet-400/[0.08] px-2 py-1.5 text-[7px] font-black text-violet-200 disabled:opacity-30">{applying === variation ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />} APPLICA</button></div>;
+        })}
+      </div>}
+
+      {historyOpen && <div className="mt-2 max-h-40 overflow-auto rounded-lg border border-white/[0.06] bg-black/25 p-2"><div className="mb-1 text-[7px] font-black uppercase tracking-wider text-slate-600">Version History persistente · progetto {projectIdRef.current || 'studio'}</div>{versions.length === 0 ? <div className="py-2 text-[8px] text-slate-700">Nessuna versione applicata.</div> : versions.map(version => <div key={version.id} className="flex items-center gap-2 border-t border-white/[0.04] py-1.5 first:border-0"><span className="w-24 text-[7px] font-black uppercase text-violet-300">{version.operation} {version.chosenVariation}</span><span className="flex-1 truncate text-[7px] text-slate-600">{new Date(version.createdAt).toLocaleString()} {version.selection ? `· ${formatTime(version.selection.timelineStart)}-${formatTime(version.selection.timelineEnd)}` : ''}</span><button type="button" onClick={() => restoreVersion(version)} className="rounded border border-white/[0.08] px-2 py-1 text-[7px] font-black text-slate-300">RIPRISTINA</button></div>)}</div>}
 
       <div className="mt-1.5 text-[8px] leading-4 text-slate-600">{notice}</div>
     </section>
