@@ -1,0 +1,79 @@
+name: Deploy SONARA Auth Edge Hotfix
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/cloudflare-auth-edge-trigger'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonara-cloudflare-auth-edge
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Resolve Cloudflare account
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN}"
+          account_id="${CLOUDFLARE_ACCOUNT_ID}"
+          if [[ -z "${account_id}" ]]; then
+            zone_response="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' 'https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50')"
+            account_id="$(CF_RESPONSE="${zone_response}" node - <<'NODE'
+          const payload = JSON.parse(process.env.CF_RESPONSE || '{}');
+          const zone = Array.isArray(payload.result) ? payload.result.find(item => item?.name === 'sonaraenterprise.com') : null;
+          process.stdout.write(String(zone?.account?.id || ''));
+          NODE
+            )"
+          fi
+          test -n "${account_id}"
+          echo "::add-mask::${account_id}"
+          echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
+
+      - name: Validate isolated auth hotfix
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'cloudflare/sonara-ab-player-visibility-edge.mjs' wrangler.jsonc
+          grep -q 'sonara-auth-email-password-only-v1' cloudflare/sonara-ab-player-visibility-edge.mjs
+          grep -q "headers.set('x-sonara-auth-edge', AUTH_VERSION)" cloudflare/sonara-ab-player-visibility-edge.mjs
+          node --check cloudflare/sonara-ab-player-visibility-edge.mjs
+
+      - name: Deploy current SONARA Worker
+        run: npx --yes wrangler@latest deploy --config wrangler.jsonc
+
+      - name: Verify public auth edge
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..15}; do
+            headers="$(curl -sSI --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?auth-edge=${GITHUB_SHA}-${attempt}" || true)"
+            if printf '%s' "${headers}" | grep -qi 'x-sonara-auth-edge: sonara-auth-email-password-only-v1'; then
+              echo 'SONARA auth edge hotfix is live.'
+              exit 0
+            fi
+            echo "Propagation pending (${attempt}/15)."
+            sleep 4
+          done
+          echo 'SONARA auth edge header not observed on public domain.' >&2
+          exit 1
