@@ -1,3 +1,4 @@
-SONARA_VERCEL_RELEASE=2026-08-31-ACE-STEP-XL-TURBO
-REASON=Switch production music generation from Eleven to ACE-Step 1.5 XL-Turbo
-EXPECTED_PROVIDER=ace_step_xl
+SONARA_VERCEL_RELEASE=2026-08-31-EMAIL-PASSWORD-ONLY
+REASON=Publish auth hotfix removing Google Login and suspended Firebase fallback
+EXPECTED_AUTH=email_password_only
+SOURCE_COMMIT=5ccc330d12f17f9224f48629b0f4a2338954193b
