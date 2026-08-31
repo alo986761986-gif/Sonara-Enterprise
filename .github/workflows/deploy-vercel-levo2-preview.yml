@@ -1,0 +1,136 @@
+name: Deploy SONARA LeVo2 R&D Preview Prebuilt
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/levo2-research-engine-20260831
+    paths:
+      - .github/workflows/deploy-vercel-levo2-preview.yml
+      - .github/vercel-levo2-prebuilt-trigger
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonara-levo2-vercel-preview
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build and deploy LeVo2 R&D preview
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERCEL_ORG_ID: team_d9jPexmsm0saAlZPAznj0TTy
+      VERCEL_PROJECT_ID: prj_mbAUXtVS9ecRbl0yAZfeR3WA66TZ
+      LEVO_BRANCH: feature/levo2-research-engine-20260831
+
+    steps:
+      - name: Checkout LeVo2 R&D branch
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Validate Vercel credential
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${VERCEL_TOKEN}" ]]; then
+            echo "Missing GitHub Actions secret VERCEL_TOKEN." >&2
+            exit 1
+          fi
+          echo "Vercel credential is configured."
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Link exact SONARA Vercel project
+        shell: bash
+        run: |
+          mkdir -p .vercel
+          printf '%s\n' '{"orgId":"team_d9jPexmsm0saAlZPAznj0TTy","projectId":"prj_mbAUXtVS9ecRbl0yAZfeR3WA66TZ"}' > .vercel/project.json
+
+      - name: Pull LeVo2 preview environment
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel pull --yes --environment=preview --git-branch="${LEVO_BRANCH}" --token="${VERCEL_TOKEN}"
+
+      - name: Verify LeVo2 preview variables exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          ENV_FILE=".vercel/.env.preview.local"
+          if [[ ! -f "${ENV_FILE}" ]]; then
+            echo "Preview environment file was not created." >&2
+            exit 1
+          fi
+          if ! grep -q '^LEVO2_RESEARCH_API_URL=' "${ENV_FILE}"; then
+            echo "LEVO2_RESEARCH_API_URL is missing from Vercel Preview environment." >&2
+            exit 1
+          fi
+          if ! grep -q '^LEVO2_RESEARCH_API_KEY=' "${ENV_FILE}"; then
+            echo "LEVO2_RESEARCH_API_KEY is missing from Vercel Preview environment." >&2
+            exit 1
+          fi
+          echo "LeVo2 preview URL and credential are configured."
+
+      - name: Build SONARA LeVo2 preview locally
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ENV: preview
+        run: vercel build --token="${VERCEL_TOKEN}"
+
+      - name: Deploy prebuilt preview artifact
+        id: deploy
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          DEPLOY_URL="$(vercel deploy --prebuilt --yes --token="${VERCEL_TOKEN}" | tail -n 1 | tr -d '\r')"
+          if [[ "${DEPLOY_URL}" != https://* ]]; then
+            echo "Unexpected Vercel deployment output: ${DEPLOY_URL}" >&2
+            exit 1
+          fi
+          echo "url=${DEPLOY_URL}" >> "${GITHUB_OUTPUT}"
+          echo "SONARA LeVo2 R&D preview: ${DEPLOY_URL}"
+
+      - name: Verify preview web bundle uses LeVo2
+        shell: bash
+        env:
+          DEPLOY_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -euo pipefail
+          html="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "${DEPLOY_URL}/")"
+          mapfile -t assets < <(printf '%s' "${html}" | grep -oE 'src="[^"]+\.js"' | sed -E 's/^src="|"$//g' | sort -u)
+          if [[ ${#assets[@]} -eq 0 ]]; then
+            echo "No JavaScript assets found in preview." >&2
+            exit 1
+          fi
+          found=0
+          for asset in "${assets[@]}"; do
+            if [[ "${asset}" == http* ]]; then url="${asset}"; else url="${DEPLOY_URL}${asset}"; fi
+            if curl -fsS --max-time 30 "${url}" | grep -q 'sonara_levo2_research'; then
+              found=1
+              echo "LeVo2 engine marker found in preview bundle."
+              break
+            fi
+          done
+          if [[ ${found} -ne 1 ]]; then
+            echo "LeVo2 engine marker not found in preview JavaScript bundle." >&2
+            exit 1
+          fi
+
+      - name: Publish preview URL
+        shell: bash
+        env:
+          DEPLOY_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          echo "### SONARA LeVo2 R&D Preview" >> "${GITHUB_STEP_SUMMARY}"
+          echo "${DEPLOY_URL}" >> "${GITHUB_STEP_SUMMARY}"
