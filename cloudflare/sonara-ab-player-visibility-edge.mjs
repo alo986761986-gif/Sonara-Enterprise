@@ -1,11 +1,10 @@
 import runtime, { SonaraJobState } from './sonara-molab-xl-router.mjs';
-import { handleFirebaseAuthEdge } from './sonara-firebase-auth-edge.mjs';
-import { handleFirebasePublicConfigEdge } from './sonara-firebase-public-config-edge.mjs';
+import { SonaraAuthStore, handleSonaraNativeAuth } from './sonara-native-auth.mjs';
 
-export { SonaraJobState };
+export { SonaraJobState, SonaraAuthStore };
 
 const VERSION = 'sonara-ab-player-playback-edge-v2';
-const AUTH_VERSION = 'sonara-auth-email-password-only-v3';
+const AUTH_VERSION = 'sonara-native-auth-v1';
 
 const AB_VISIBILITY_SCRIPT = `<script id="sonara-ab-player-playback-edge-v2">(()=>{
 if(window.__sonaraABPlayerPlaybackEdgeV2)return;
@@ -26,76 +25,32 @@ const force=()=>{
     grid.style.setProperty('visibility','visible','important');
     grid.style.setProperty('opacity','1','important');
     grid.style.setProperty('pointer-events','auto','important');
-    [...grid.children].filter(child=>child.tagName==='ARTICLE').forEach(article=>{
-      article.style.setProperty('display','block','important');
-      article.style.setProperty('visibility','visible','important');
-      article.style.setProperty('opacity','1','important');
-      article.style.setProperty('pointer-events','auto','important');
-      const audio=article.querySelector('audio[data-sonara-custom-audio="true"]');
-      if(audio){
-        audio.controls=false;
-        audio.playsInline=true;
-        audio.preload='metadata';
-        audio.style.setProperty('display','none','important');
-        audio.style.setProperty('visibility','hidden','important');
-        audio.style.setProperty('width','0','important');
-        audio.style.setProperty('height','0','important');
-        audio.style.setProperty('pointer-events','none','important');
-      }
-    });
   });
 };
 const schedule=()=>{if(!scheduled){scheduled=true;queueMicrotask(force);}setTimeout(force,60);setTimeout(force,220);setTimeout(force,700);};
-const start=()=>{schedule();new MutationObserver(schedule).observe(document.body||document.documentElement,{childList:true,subtree:true});['sonara:billing-updated','sonara:generated-track-selected'].forEach(name=>window.addEventListener(name,schedule));window.addEventListener('resize',schedule);setTimeout(force,1500);setTimeout(force,3000);};
+const start=()=>{schedule();new MutationObserver(schedule).observe(document.body||document.documentElement,{childList:true,subtree:true});window.addEventListener('resize',schedule);setTimeout(force,1500);};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
 })();</script>`;
 
-const AUTH_EMAIL_ONLY_SCRIPT = `<script id="sonara-auth-email-password-only-v3">(()=>{
-if(window.__sonaraAuthEmailPasswordOnlyV3)return;
-window.__sonaraAuthEmailPasswordOnlyV3=true;
-const google=/google/i;
-const suspended=/consumer[^\n]*api-key|api-key[^\n]*suspend|has-been-suspended/i;
-const removeGoogle=()=>{
-  const nodes=[...document.querySelectorAll('button,a,[role="button"]')];
-  nodes.forEach(node=>{
+const AUTH_EMAIL_ONLY_SCRIPT = `<script id="sonara-native-auth-v1-ui">(()=>{
+if(window.__sonaraNativeAuthUiV1)return;
+window.__sonaraNativeAuthUiV1=true;
+const clean=()=>{
+  document.documentElement.setAttribute('data-sonara-auth-mode','native-email-password');
+  document.querySelectorAll('button,a,[role="button"]').forEach(node=>{
     const text=String(node.textContent||'').trim();
     const aria=String(node.getAttribute('aria-label')||'');
     const title=String(node.getAttribute('title')||'');
-    if(!google.test(text)&&!google.test(aria)&&!google.test(title))return;
-    let target=node;
-    for(let i=0;i<2;i+=1){
-      const parent=target.parentElement;
-      if(!parent)break;
-      const parentText=String(parent.textContent||'').trim();
-      if(google.test(parentText)&&parent.children.length<=3)target=parent;else break;
-    }
-    target.remove();
+    if(/google/i.test(text)||/google/i.test(aria)||/google/i.test(title)) node.remove();
   });
 };
-const clean=()=>{
-  document.documentElement.setAttribute('data-sonara-auth-mode','email-password-only');
-  removeGoogle();
-  document.querySelectorAll('div,p,span').forEach(node=>{
-    const text=String(node.textContent||'').trim();
-    if(suspended.test(text)&&node.children.length===0){
-      node.textContent='Servizio di autenticazione in ripristino. Usa email e password e riprova.';
-    }
-    if((/^or$/i.test(text)||/^oppure$/i.test(text))&&node.children.length<=2){
-      const parentText=String(node.parentElement?.textContent||'');
-      if(google.test(parentText))node.remove();
-    }
-  });
-};
-let queued=false;
-const schedule=()=>{if(queued)return;queued=true;queueMicrotask(()=>{queued=false;clean();});setTimeout(clean,80);setTimeout(clean,300);};
-const start=()=>{clean();new MutationObserver(schedule).observe(document.body||document.documentElement,{childList:true,subtree:true,characterData:true});setTimeout(clean,700);setTimeout(clean,1800);setTimeout(clean,4000);};
+const start=()=>{clean();new MutationObserver(clean).observe(document.body||document.documentElement,{childList:true,subtree:true});setTimeout(clean,700);};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
 })();</script>`;
 
 function withVersion(response) {
   const headers = new Headers(response.headers);
   headers.set('x-sonara-ab-player-fix', VERSION);
-  headers.set('x-sonara-ab-playback-fix', 'native-react-v2');
   headers.set('x-sonara-auth-edge', AUTH_VERSION);
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
@@ -103,25 +58,19 @@ function withVersion(response) {
 function inject(response) {
   const type = String(response.headers.get('content-type') || '').toLowerCase();
   if (!type.includes('text/html')) return withVersion(response);
-
   const headers = new Headers(response.headers);
   headers.delete('content-length');
   headers.delete('content-encoding');
   headers.set('cache-control', 'no-store, max-age=0');
   headers.set('x-sonara-ab-player-fix', VERSION);
-  headers.set('x-sonara-ab-playback-fix', 'native-react-v2');
   headers.set('x-sonara-auth-edge', AUTH_VERSION);
-
   const safe = new Response(response.body, { status: response.status, statusText: response.statusText, headers });
-
-  return new HTMLRewriter()
-    .on('head', {
-      element(element) {
-        element.append(AUTH_EMAIL_ONLY_SCRIPT, { html: true });
-        element.append(AB_VISIBILITY_SCRIPT, { html: true });
-      }
-    })
-    .transform(safe);
+  return new HTMLRewriter().on('head', {
+    element(element) {
+      element.append(AUTH_EMAIL_ONLY_SCRIPT, { html: true });
+      element.append(AB_VISIBILITY_SCRIPT, { html: true });
+    }
+  }).transform(safe);
 }
 
 export default {
@@ -129,25 +78,13 @@ export default {
     const url = new URL(request.url);
     const publicHost = url.hostname === 'sonaraenterprise.com' || url.hostname === 'www.sonaraenterprise.com';
 
-    if (publicHost && url.pathname === '/__sonara_internal/firebase-public-config-status') {
-      const publicStatus = await handleFirebasePublicConfigEdge(request, new Response(null));
-      if (publicStatus) return publicStatus;
-    }
-
-    if (publicHost && url.pathname === '/__sonara_internal/firebase-auth-status') {
-      const authStatus = await handleFirebaseAuthEdge(request, env, new Response(null));
-      if (authStatus) return authStatus;
+    if (publicHost && url.pathname.startsWith('/api/sonara-auth/')) {
+      const authResponse = await handleSonaraNativeAuth(request, env);
+      if (authResponse) return authResponse;
     }
 
     const response = await runtime.fetch(request, env, ctx);
     if (!publicHost) return response;
-
-    const publicConfigResponse = await handleFirebasePublicConfigEdge(request, response);
-    if (publicConfigResponse) return publicConfigResponse;
-
-    const authResponse = await handleFirebaseAuthEdge(request, env, response);
-    if (authResponse) return authResponse;
-
     if (request.method === 'GET') return inject(response);
     if (request.method === 'HEAD') return withVersion(response);
     return response;

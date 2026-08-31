@@ -13,6 +13,10 @@
       {
         "name": "SONARA_JOB_STATE",
         "class_name": "SonaraJobState"
+      },
+      {
+        "name": "SONARA_AUTH",
+        "class_name": "SonaraAuthStore"
       }
     ]
   },
@@ -20,6 +24,10 @@
     {
       "tag": "v19-durable-job-state-1",
       "new_sqlite_classes": ["SonaraJobState"]
+    },
+    {
+      "tag": "v20-sonara-native-auth-1",
+      "new_sqlite_classes": ["SonaraAuthStore"]
     }
   ],
   "routes": [

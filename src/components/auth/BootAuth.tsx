@@ -19,13 +19,13 @@ import {
 } from '../../i18n/locales';
 import { uiText } from '../../i18n/ui';
 import {
-  firebaseConfigured,
-  loginWithEmail,
-  logoutFirebase,
-  registerWithEmail,
-  resetEmailPassword,
-  watchFirebaseUser
-} from '../../lib/firebaseClient';
+  loginSonara,
+  logoutSonara,
+  registerSonara,
+  resetSonaraPassword,
+  sonaraAuthConfigured,
+  watchSonaraUser
+} from '../../lib/sonaraAuthClient';
 
 type AuthMode = 'login' | 'register' | 'reset';
 
@@ -49,19 +49,19 @@ function initialLanguage(): LanguageCode {
 
 function friendlyAuthError(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error);
-  if (/invalid-credential|wrong-password|user-not-found/i.test(raw)) return 'Email o password non corretti.';
-  if (/email-already-in-use/i.test(raw)) return 'Questa email è già registrata. Accedi oppure recupera la password.';
-  if (/weak-password/i.test(raw)) return 'La password deve contenere almeno 6 caratteri.';
-  if (/too-many-requests/i.test(raw)) return 'Troppi tentativi. Riprova più tardi.';
-  if (/network-request-failed/i.test(raw)) return 'Connessione non disponibile. Controlla la rete e riprova.';
-  if (/consumer.*suspend|api-key.*suspend|permission-denied/i.test(raw)) return 'Servizio di autenticazione temporaneamente non disponibile. La configurazione Firebase deve essere aggiornata.';
-  return raw;
+  if (/email o password non corretti|invalid_credentials/i.test(raw)) return 'Email o password non corretti.';
+  if (/già registrata|email_exists/i.test(raw)) return 'Questa email è già registrata. Accedi con la password esistente.';
+  if (/almeno 6 caratteri|weak_password/i.test(raw)) return 'La password deve contenere almeno 6 caratteri.';
+  if (/troppi tentativi|too_many_attempts/i.test(raw)) return 'Troppi tentativi. Riprova tra qualche minuto.';
+  if (/failed to fetch|network/i.test(raw)) return 'Connessione non disponibile. Controlla la rete e riprova.';
+  if (/recupero password/i.test(raw)) return 'Recupero password via email momentaneamente non disponibile.';
+  return raw || 'Errore di autenticazione SONARA.';
 }
 
 export default function BootAuth({ children }: { children: React.ReactNode }) {
   const [language, setLanguage] = useState<LanguageCode>(initialLanguage);
   const [booting, setBooting] = useState(true);
-  const [authReady, setAuthReady] = useState(!firebaseConfigured);
+  const [authReady, setAuthReady] = useState(false);
   const [allowed, setAllowed] = useState(false);
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
@@ -73,7 +73,7 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
   const t = useMemo(() => (key: Parameters<typeof uiText>[1]) => brandSonara(uiText(language, key)), [language]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setBooting(false), 1900);
+    const timer = window.setTimeout(() => setBooting(false), 1200);
     return () => window.clearTimeout(timer);
   }, []);
 
@@ -86,13 +86,13 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     sessionStorage.removeItem(LEGACY_GUEST_KEY);
-    const unsubscribe = watchFirebaseUser(user => {
+    const unsubscribe = watchSonaraUser(user => {
       setAllowed(Boolean(user));
       setAuthReady(true);
     });
 
     const logoutHandler = async () => {
-      try { await logoutFirebase(); } catch {}
+      try { await logoutSonara(); } catch {}
       setAllowed(false);
       setMode('login');
       setMessage('');
@@ -113,10 +113,6 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
     event.preventDefault();
     setMessage('');
 
-    if (!firebaseConfigured) {
-      setMessage(t('authConfigMissing'));
-      return;
-    }
     if (!email.trim()) {
       setMessage('Inserisci il tuo indirizzo email.');
       return;
@@ -125,7 +121,7 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
     setBusy(true);
     try {
       if (mode === 'reset') {
-        await resetEmailPassword(email);
+        await resetSonaraPassword(email);
         setMessage('Email per il recupero password inviata.');
         setMode('login');
         return;
@@ -136,8 +132,8 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      if (mode === 'register') await registerWithEmail(email, password);
-      else await loginWithEmail(email, password);
+      if (mode === 'register') await registerSonara(email, password);
+      else await loginSonara(email, password);
       setAllowed(true);
     } catch (error) {
       setMessage(friendlyAuthError(error));
@@ -150,8 +146,6 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
     return (
       <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#030611] text-white">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(124,58,237,0.18),transparent_42%)]" />
-        <div className="absolute h-80 w-80 animate-pulse rounded-full border border-purple-500/10" />
-        <div className="absolute h-56 w-56 animate-ping rounded-full border border-cyan-400/10 [animation-duration:2.2s]" />
         <div className="relative z-10 flex flex-col items-center">
           <div className="relative mb-8 h-24 w-24 rounded-[30px] shadow-2xl shadow-purple-950/70">
             <img src="/sonara-ai-icon.png" alt="SONARA AI" width={96} height={96} className="h-24 w-24 rounded-[30px] object-cover" loading="eager" decoding="sync" />
@@ -159,16 +153,11 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
           </div>
           <div className="text-3xl font-black tracking-[0.24em]">SONARA</div>
           <div className="mt-2 text-[10px] font-bold uppercase tracking-[0.34em] text-purple-300">ENTERPRISE</div>
-          <div className="mt-10 h-1 w-64 overflow-hidden rounded-full bg-white/5">
-            <div className="h-full animate-[sonaraBoot_1.8s_ease-in-out_forwards] rounded-full bg-gradient-to-r from-purple-500 via-cyan-400 to-purple-500" />
-          </div>
-          <div className="mt-4 flex items-center gap-2 text-[10px] font-semibold tracking-[0.15em] text-slate-500">
+          <div className="mt-8 flex items-center gap-2 text-[10px] font-semibold tracking-[0.15em] text-slate-500">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
             {t('bootInitializing')}
           </div>
-          <div className="mt-2 text-[10px] font-black tracking-[0.2em] text-emerald-400">SONARA</div>
         </div>
-        <style>{`@keyframes sonaraBoot{from{width:0}to{width:100%}}`}</style>
       </div>
     );
   }
@@ -188,7 +177,7 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
             </div>
             <div className="space-y-3 text-xs text-slate-400">
               <div className="flex items-center gap-3"><Sparkles className="h-4 w-4 text-purple-400" /> SONARA generative music</div>
-              <div className="flex items-center gap-3"><ShieldCheck className="h-4 w-4 text-emerald-400" /> Account protetto con email e password</div>
+              <div className="flex items-center gap-3"><ShieldCheck className="h-4 w-4 text-emerald-400" /> Account SONARA protetto con email e password</div>
               <div className="flex items-center gap-3"><Globe2 className="h-4 w-4 text-cyan-400" /> Global genres · multilingual interface</div>
             </div>
           </section>
@@ -227,7 +216,7 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
                   <div className="mt-2 flex items-center rounded-xl border border-white/10 bg-slate-950 px-3 focus-within:border-purple-500">
                     <LockKeyhole className="h-4 w-4 text-slate-600" />
                     <input type={showPassword ? 'text' : 'password'} value={password} onChange={event => setPassword(event.target.value)} autoComplete={mode === 'register' ? 'new-password' : 'current-password'} required className="w-full bg-transparent px-3 py-3 text-sm outline-none" />
-                    <button type="button" onClick={() => setShowPassword(value => !value)} className="rounded-lg p-2 text-slate-500 transition hover:bg-white/5 hover:text-white" aria-label={showPassword ? 'Nascondi password' : 'Mostra password'} title={showPassword ? 'Nascondi password' : 'Mostra password'}>
+                    <button type="button" onClick={() => setShowPassword(value => !value)} className="rounded-lg p-2 text-slate-500 transition hover:bg-white/5 hover:text-white" aria-label={showPassword ? 'Nascondi password' : 'Mostra password'}>
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
@@ -251,8 +240,8 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
               ) : (
                 <button onClick={() => { setMode('login'); setMessage(''); }} className="text-slate-400 hover:text-white">{t('backToLogin')}</button>
               )}
-              <span className={`rounded-full border px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider ${firebaseConfigured ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300' : 'border-amber-500/20 bg-amber-500/10 text-amber-300'}`}>
-                {firebaseConfigured ? 'Email Auth Ready' : 'Firebase config pending'}
+              <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-[9px] font-bold uppercase tracking-wider text-emerald-300">
+                {sonaraAuthConfigured ? 'SONARA Email Auth Ready' : 'Auth pending'}
               </span>
             </div>
 
