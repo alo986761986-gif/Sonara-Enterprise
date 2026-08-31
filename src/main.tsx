@@ -6,7 +6,7 @@ import LegalDocumentPage from './components/legal/LegalDocumentPage';
 import IntelligentPromptControl from './components/generator/IntelligentPromptControl';
 import IntelligentLyricsControl from './components/generator/IntelligentLyricsControl';
 import VocalCharacterControl from './components/generator/VocalCharacterControl';
-import DualTrackGenerationControl from './components/generator/DualTrackGenerationControl';
+import ElevenMusicGenerationControl from './components/generator/ElevenMusicGenerationControl';
 import LyricsApiCompatibilityBridge from './components/generator/LyricsApiCompatibilityBridge';
 import RealMusicIntelligenceBridge from './components/generator/RealMusicIntelligenceBridge';
 import BpmModeControl from './components/generator/BpmModeControl';
@@ -38,7 +38,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <IntelligentPromptControl />
         <IntelligentLyricsControl />
         <VocalCharacterControl />
-        <DualTrackGenerationControl />
+        <ElevenMusicGenerationControl />
         <SunoStylePromptControl />
         <GlobalMusicSuggestionControl />
         <SonaraInteractiveMiniGuide />
