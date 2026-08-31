@@ -16,6 +16,7 @@ import SunoStylePromptControl from './components/generator/SunoStylePromptContro
 import GlobalMusicSuggestionControl from './components/generator/GlobalMusicSuggestionControl';
 import SonaraInteractiveMiniGuide from './components/generator/SonaraInteractiveMiniGuide';
 import SonaraSunoLanding from './components/home/SonaraSunoLanding';
+import LandingPromptGuard from './components/home/LandingPromptGuard';
 import StudioSectionControl from './components/studio/StudioSectionControl';
 import VideoAISectionControl from './components/video/VideoAISectionControl';
 import DJSectionControl from './components/dj/DJSectionControl';
@@ -37,6 +38,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <SonaraSunoLanding />
           </>
         </BootAuth>
+        <LandingPromptGuard />
         <LyricsApiCompatibilityBridge />
         <RealMusicIntelligenceBridge />
         <BpmModeControl />
