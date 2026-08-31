@@ -3,86 +3,18 @@ import yueRuntime from './sonara-yue-router.mjs';
 
 export { SonaraJobState };
 
-const VERSION = 'sonara-yue-v10.4-dual-fidelity-primary';
+const VERSION = 'sonara-eleven-music-v2-primary';
 const BILLING_GENERATE_PATH = '/api/billing/generate';
 const ENGINE_GENERATE_PATH = '/api/engine/generate';
 const YUE_JOB_PATH = /^\/api\/music\/job\/yue_[^/]+$/;
+const ELEVEN_JOB_PATH = /^\/api\/music\/job\/(eleven_[^/]+)$/;
 const YUE_AUDIO_PATH = '/api/yue/audio';
+const VERCEL_ORIGIN = 'https://sonara-enterprise.vercel.app';
 
-function requestedProfile(body = {}) {
-  const raw = String(body.qualityProfile || body.generationProfile || body.yueProfile || 'fast').trim().toLowerCase();
-  return raw === 'quality' ? 'quality' : 'fast';
-}
-
-function clean(value) {
-  return String(value ?? '').trim();
-}
-
-function extractCreatorBrief(body = {}) {
-  const explicit = clean(body.sonaraCreatorPromptAuthoritative || body.sonaraOriginalCreatorBrief || body.rawPrompt || body.creatorPrompt || body.creator_prompt || body.musicPrompt);
-  if (explicit) return explicit.slice(0, 2400);
-  const prompt = clean(body.prompt);
-  const match = prompt.match(/CREATOR BRIEF\s*—?\s*VERBATIM:\s*<<<\s*([\s\S]*?)\s*>>>/i);
-  return clean(match?.[1] || prompt).slice(0, 2400);
-}
-
-async function forceYueRequest(request) {
-  const contentType = String(request.headers.get('content-type') || '').toLowerCase();
-  if (!contentType.includes('application/json')) return request;
-
-  let body;
-  try {
-    body = await request.clone().json();
-  } catch {
-    return request;
-  }
-
-  const profile = requestedProfile(body);
-  const quality = profile === 'quality';
-  const creatorPrompt = extractCreatorBrief(body);
-  const language = clean(body.language || body.vocalLanguage || body.lyricsLanguage || body.lyrics_language) || 'auto';
-  const nextBody = {
-    ...body,
-    forceYue: true,
-    forceAceStep: false,
-    provider: 'yue',
-    engineProvider: 'yue',
-    qualityProfile: profile,
-    generationProfile: profile,
-    yueProfile: profile,
-    dualFast: false,
-    candidateCount: quality ? 1 : 2,
-    candidate_count: quality ? 1 : 2,
-    sonaraCreatorPromptAuthoritative: creatorPrompt,
-    sonaraOriginalCreatorBrief: creatorPrompt,
-    rawPrompt: creatorPrompt,
-    creatorPrompt,
-    language,
-    vocalLanguage: language,
-    lyricsLanguage: language,
-    stage2_batch_size: 16,
-    max_new_tokens: quality ? 3000 : Math.max(3200, Number(body.max_new_tokens || 3200)),
-    repetition_penalty: 1.1
-  };
-
-  const headers = new Headers(request.headers);
-  headers.delete('content-length');
-  headers.set('content-type', 'application/json');
-  headers.set('x-sonara-generation-profile', `yue-v10.4-${profile}`);
-  headers.set('x-sonara-yue-primary', VERSION);
-  headers.set('x-sonara-candidate-count', String(nextBody.candidateCount));
-
-  return new Request(request.url, {
-    method: request.method,
-    headers,
-    body: JSON.stringify(nextBody),
-    redirect: request.redirect
-  });
-}
-
-function decorate(response) {
+function decorate(response, provider = 'eleven-music-v2') {
   const headers = new Headers(response.headers);
-  headers.set('x-sonara-yue-primary', VERSION);
+  headers.set('x-sonara-music-primary', VERSION);
+  headers.set('x-sonara-music-provider', provider);
   headers.set('cache-control', 'private, no-store');
   return new Response(response.body, {
     status: response.status,
@@ -91,9 +23,26 @@ function decorate(response) {
   });
 }
 
-async function visibleJobResponse(request, env, ctx) {
+async function proxyElevenJob(request, jobId) {
+  const target = `${VERCEL_ORIGIN}/api/eleven-music/job/${encodeURIComponent(jobId)}`;
+  const headers = new Headers(request.headers);
+  headers.delete('host');
+  headers.delete('content-length');
+  headers.set('accept', 'application/json');
+  headers.set('cache-control', 'no-cache');
+  headers.set('x-sonara-edge-proxy', VERSION);
+
+  const response = await fetch(target, {
+    method: 'GET',
+    headers,
+    redirect: 'manual'
+  });
+  return decorate(response);
+}
+
+async function visibleYueJobResponse(request, env, ctx) {
   const response = await yueRuntime.fetch(request, env, ctx);
-  if (response.ok) return decorate(response);
+  if (response.ok) return decorate(response, 'yue-fallback');
 
   let payload = {};
   try {
@@ -115,8 +64,8 @@ async function visibleJobResponse(request, env, ctx) {
     error: message,
     metadata: {
       ...(payload?.metadata || {}),
-      provider: 'yue',
-      currentStage: `Errore YuE: ${message}`,
+      provider: 'yue-fallback',
+      currentStage: `Errore YuE fallback: ${message}`,
       originalHttpStatus: response.status
     }
   }), {
@@ -125,29 +74,35 @@ async function visibleJobResponse(request, env, ctx) {
       'content-type': 'application/json; charset=UTF-8',
       'cache-control': 'private, no-store'
     }
-  }));
+  }), 'yue-fallback');
 }
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
+    // Main public generation path: billing/auth/quotas -> Eleven Music v2 on Vercel.
+    // Do not mutate the creator prompt and do not force YuE here.
     if (request.method === 'POST' && url.pathname === BILLING_GENERATE_PATH) {
-      const nextRequest = await forceYueRequest(request);
-      return decorate(await billingRuntime.fetch(nextRequest, env, ctx));
+      return decorate(await billingRuntime.fetch(request, env, ctx));
     }
 
+    const elevenMatch = url.pathname.match(ELEVEN_JOB_PATH);
+    if (request.method === 'GET' && elevenMatch) {
+      return proxyElevenJob(request, decodeURIComponent(elevenMatch[1]));
+    }
+
+    // Direct engine requests remain a private fallback route for existing integrations.
     if (request.method === 'POST' && url.pathname === ENGINE_GENERATE_PATH) {
-      const nextRequest = await forceYueRequest(request);
-      return decorate(await yueRuntime.fetch(nextRequest, env, ctx));
+      return decorate(await yueRuntime.fetch(request, env, ctx), 'yue-fallback');
     }
 
     if (request.method === 'GET' && YUE_JOB_PATH.test(url.pathname)) {
-      return visibleJobResponse(request, env, ctx);
+      return visibleYueJobResponse(request, env, ctx);
     }
 
     if ((request.method === 'GET' || request.method === 'HEAD') && url.pathname === YUE_AUDIO_PATH) {
-      return decorate(await yueRuntime.fetch(request, env, ctx));
+      return decorate(await yueRuntime.fetch(request, env, ctx), 'yue-fallback');
     }
 
     return decorate(await billingRuntime.fetch(request, env, ctx));
