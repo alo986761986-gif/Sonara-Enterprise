@@ -1,9 +1,10 @@
 import runtime, { SonaraJobState } from './sonara-molab-xl-router.mjs';
+import { handleFirebaseAuthEdge } from './sonara-firebase-auth-edge.mjs';
 
 export { SonaraJobState };
 
 const VERSION = 'sonara-ab-player-playback-edge-v2';
-const AUTH_VERSION = 'sonara-auth-email-password-only-v1';
+const AUTH_VERSION = 'sonara-auth-email-password-only-v2';
 
 const AB_VISIBILITY_SCRIPT = `<script id="sonara-ab-player-playback-edge-v2">(()=>{
 if(window.__sonaraABPlayerPlaybackEdgeV2)return;
@@ -48,37 +49,45 @@ const start=()=>{schedule();new MutationObserver(schedule).observe(document.body
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
 })();</script>`;
 
-const AUTH_EMAIL_ONLY_SCRIPT = `<script id="sonara-auth-email-password-only-v1">(()=>{
-if(window.__sonaraAuthEmailPasswordOnlyV1)return;
-window.__sonaraAuthEmailPasswordOnlyV1=true;
+const AUTH_EMAIL_ONLY_SCRIPT = `<script id="sonara-auth-email-password-only-v2">(()=>{
+if(window.__sonaraAuthEmailPasswordOnlyV2)return;
+window.__sonaraAuthEmailPasswordOnlyV2=true;
 const google=/google/i;
 const suspended=/consumer[^\n]*api-key|api-key[^\n]*suspend|has-been-suspended/i;
-const clean=()=>{
-  document.documentElement.setAttribute('data-sonara-auth-mode','email-password-only');
-  document.querySelectorAll('button,a').forEach(node=>{
+const removeGoogle=()=>{
+  const nodes=[...document.querySelectorAll('button,a,[role="button"]')];
+  nodes.forEach(node=>{
     const text=String(node.textContent||'').trim();
     const aria=String(node.getAttribute('aria-label')||'');
     const title=String(node.getAttribute('title')||'');
-    if(google.test(text)||google.test(aria)||google.test(title)){
-      const parent=node.parentElement;
-      node.remove();
-      if(parent&&parent.children.length===0&&/^(DIV|SECTION)$/.test(parent.tagName))parent.remove();
+    if(!google.test(text)&&!google.test(aria)&&!google.test(title))return;
+    let target=node;
+    for(let i=0;i<2;i+=1){
+      const parent=target.parentElement;
+      if(!parent)break;
+      const parentText=String(parent.textContent||'').trim();
+      if(google.test(parentText)&&parent.children.length<=3)target=parent;else break;
     }
+    target.remove();
   });
+};
+const clean=()=>{
+  document.documentElement.setAttribute('data-sonara-auth-mode','email-password-only');
+  removeGoogle();
   document.querySelectorAll('div,p,span').forEach(node=>{
     const text=String(node.textContent||'').trim();
     if(suspended.test(text)&&node.children.length===0){
-      node.textContent='Servizio di autenticazione temporaneamente non disponibile. Usa email e password; la configurazione Firebase e in aggiornamento.';
+      node.textContent='Servizio di autenticazione in ripristino. Usa email e password e riprova.';
     }
     if((/^or$/i.test(text)||/^oppure$/i.test(text))&&node.children.length<=2){
-      const around=node.parentElement?.textContent||'';
-      if(google.test(around))node.remove();
+      const parentText=String(node.parentElement?.textContent||'');
+      if(google.test(parentText))node.remove();
     }
   });
 };
 let queued=false;
 const schedule=()=>{if(queued)return;queued=true;queueMicrotask(()=>{queued=false;clean();});setTimeout(clean,80);setTimeout(clean,300);};
-const start=()=>{clean();new MutationObserver(schedule).observe(document.body||document.documentElement,{childList:true,subtree:true,characterData:true});setTimeout(clean,1000);setTimeout(clean,2500);};
+const start=()=>{clean();new MutationObserver(schedule).observe(document.body||document.documentElement,{childList:true,subtree:true,characterData:true});setTimeout(clean,700);setTimeout(clean,1800);setTimeout(clean,4000);};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
 })();</script>`;
 
@@ -116,11 +125,20 @@ function inject(response) {
 
 export default {
   async fetch(request, env, ctx) {
-    const response = await runtime.fetch(request, env, ctx);
     const url = new URL(request.url);
     const publicHost = url.hostname === 'sonaraenterprise.com' || url.hostname === 'www.sonaraenterprise.com';
 
+    if (publicHost && url.pathname === '/__sonara_internal/firebase-auth-status') {
+      const authStatus = await handleFirebaseAuthEdge(request, env, new Response(null));
+      if (authStatus) return authStatus;
+    }
+
+    const response = await runtime.fetch(request, env, ctx);
     if (!publicHost) return response;
+
+    const authResponse = await handleFirebaseAuthEdge(request, env, response);
+    if (authResponse) return authResponse;
+
     if (request.method === 'GET') return inject(response);
     if (request.method === 'HEAD') return withVersion(response);
     return response;
