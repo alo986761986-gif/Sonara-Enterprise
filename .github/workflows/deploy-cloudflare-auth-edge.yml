@@ -50,15 +50,17 @@ jobs:
           echo "::add-mask::${account_id}"
           echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
 
-      - name: Validate native SONARA auth
+      - name: Validate native SONARA auth and Studio entitlement
         shell: bash
         run: |
           set -euo pipefail
           grep -q 'SONARA_AUTH' wrangler.jsonc
           grep -q 'SonaraAuthStore' wrangler.jsonc
           grep -q '"directory": "./dist"' wrangler.jsonc
-          grep -q 'sonara-native-auth-v1' cloudflare/sonara-ab-player-visibility-edge.mjs
-          grep -q 'handleSonaraNativeAuth' cloudflare/sonara-ab-player-visibility-edge.mjs
+          grep -q 'sonara-native-auth-v2' cloudflare/sonara-ab-player-visibility-edge.mjs
+          grep -q 'restore-studio' cloudflare/sonara-native-auth.mjs
+          grep -q "planId: 'studio'" cloudflare/sonara-native-auth.mjs
+          grep -q 'sonara-native-session' src/lib/firebaseClient.ts
           grep -q 'loginSonara' src/components/auth/BootAuth.tsx
           grep -q 'registerSonara' src/components/auth/BootAuth.tsx
           node --check cloudflare/sonara-native-auth.mjs
@@ -78,6 +80,7 @@ jobs:
           test -n "$(find dist/assets -maxdepth 1 -type f -name 'index-*.js' -print -quit)"
           grep -R -q '/api/sonara-auth/login' dist/assets
           grep -R -q '/api/sonara-auth/register' dist/assets
+          grep -R -q 'sonara-native-session' dist/assets
           printf 'server.cjs\n' > dist/.assetsignore
 
       - name: Deploy SONARA Worker and frontend assets
@@ -93,7 +96,7 @@ jobs:
             if [[ "${http_code}" == "200" ]] && node - <<'NODE'
           const fs = require('fs');
           const data = JSON.parse(fs.readFileSync('/tmp/sonara-auth-health.json','utf8'));
-          if (data.ok !== true || data.service !== 'sonara-native-auth-v1') process.exit(1);
+          if (data.ok !== true || data.service !== 'sonara-native-auth-v2') process.exit(1);
           console.log('SONARA_NATIVE_AUTH_HEALTH=ok');
           NODE
             then
@@ -122,7 +125,7 @@ jobs:
                 -o /tmp/sonara-native-bundle.js; then
                 if grep -q '/api/sonara-auth/login' /tmp/sonara-native-bundle.js \
                   && grep -q '/api/sonara-auth/register' /tmp/sonara-native-bundle.js \
-                  && grep -q 'SONARA Email Auth Ready' /tmp/sonara-native-bundle.js; then
+                  && grep -q 'sonara-native-session' /tmp/sonara-native-bundle.js; then
                   echo 'SONARA_NATIVE_AUTH_FRONTEND=ok'
                   ready=1
                   break
@@ -171,6 +174,16 @@ jobs:
           if (login.ok !== true || !login.user?.uid) process.exit(1);
           if (session.ok !== true || session.authenticated !== true || !session.user?.uid) process.exit(1);
           console.log('SONARA_NATIVE_AUTH_REGISTER_LOGIN_SESSION=ok');
+          NODE
+
+          curl -fsS --max-time 20 \
+            -c /tmp/sonara-cookie.txt -b /tmp/sonara-cookie.txt \
+            'https://sonaraenterprise.com/api/billing/status' > /tmp/sonara-billing.json
+          node - <<'NODE'
+          const fs = require('fs');
+          const data = JSON.parse(fs.readFileSync('/tmp/sonara-billing.json','utf8'));
+          if (!data.billing || data.billing.planId !== 'free') process.exit(1);
+          console.log('SONARA_NATIVE_BILLING_STATUS=ok');
           NODE
 
           curl -fsS --max-time 20 \
