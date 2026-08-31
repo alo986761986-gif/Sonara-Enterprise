@@ -60,7 +60,6 @@ function friendlyAuthError(error: unknown): string {
 
 export default function BootAuth({ children }: { children: React.ReactNode }) {
   const [language, setLanguage] = useState<LanguageCode>(initialLanguage);
-  const [booting, setBooting] = useState(true);
   const [authReady, setAuthReady] = useState(false);
   const [allowed, setAllowed] = useState(false);
   const [mode, setMode] = useState<AuthMode>('login');
@@ -71,11 +70,6 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
   const [message, setMessage] = useState('');
 
   const t = useMemo(() => (key: Parameters<typeof uiText>[1]) => brandSonara(uiText(language, key)), [language]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setBooting(false), 1200);
-    return () => window.clearTimeout(timer);
-  }, []);
 
   useEffect(() => {
     document.documentElement.lang = language;
@@ -142,25 +136,9 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
     }
   };
 
-  if (booting || !authReady) {
-    return (
-      <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#030611] text-white">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(124,58,237,0.18),transparent_42%)]" />
-        <div className="relative z-10 flex flex-col items-center">
-          <div className="relative mb-8 h-24 w-24 rounded-[30px] shadow-2xl shadow-purple-950/70">
-            <img src="/sonara-ai-icon.png" alt="SONARA AI" width={96} height={96} className="h-24 w-24 rounded-[30px] object-cover" loading="eager" decoding="sync" />
-            <span className="absolute -inset-3 animate-pulse rounded-[38px] border border-purple-400/25" />
-          </div>
-          <div className="text-3xl font-black tracking-[0.24em]">SONARA</div>
-          <div className="mt-2 text-[10px] font-bold uppercase tracking-[0.34em] text-purple-300">ENTERPRISE</div>
-          <div className="mt-8 flex items-center gap-2 text-[10px] font-semibold tracking-[0.15em] text-slate-500">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            {t('bootInitializing')}
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // No boot animation or splash screen: once Firebase resolves the session,
+  // authenticated users go directly to the SONARA violet landing page.
+  if (!authReady) return null;
 
   if (allowed) return <>{children}</>;
 
