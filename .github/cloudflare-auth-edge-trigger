@@ -1,6 +1,6 @@
-trigger: 2026-08-31T20:13:00+02:00
+trigger: 2026-08-31T20:18:00+02:00
 expected_auth_edge: sonara-native-auth-v1
 expected_auth_store: SonaraAuthStore
 expected_frontend: cloudflare-static-assets
-verification: register-login-session
-source_commit: 483f09e2c38c2b4691dc3192b44f38dcef1e5dda
+verification: register-login-session-diagnostics
+source_commit: 54082ea5c2629727c1ad93a71a3f8eb5b828ed33
