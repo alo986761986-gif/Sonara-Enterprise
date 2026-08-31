@@ -2,7 +2,7 @@ const VERSION = 'sonara-native-auth-v1';
 const COOKIE_NAME = 'sonara_session';
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const SESSION_MAX_AGE = 30 * 24 * 60 * 60;
-const PASSWORD_ITERATIONS = 210000;
+const PASSWORD_ITERATIONS = 100000;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_ATTEMPTS = 8;
 
