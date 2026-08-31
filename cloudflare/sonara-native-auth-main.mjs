@@ -15,6 +15,27 @@ const ALLOWED_AUDIO_HOSTS = new Set([
   'molab.sonaraenterprise.com'
 ]);
 
+const STUDIO_AUDIO_OPERATIONS = new Set([
+  '/api/studio/replace',
+  '/api/studio/inpaint',
+  '/api/studio/extend',
+  '/api/studio/remix',
+  '/api/studio/audio-to-audio',
+  '/api/studio/style-dna',
+  '/api/studio/voice-dna',
+  '/api/studio/stems-pro',
+  '/api/studio/regenerate-stem-section',
+  '/api/studio/repaint',
+  '/api/studio/cover',
+  '/api/studio/reference',
+  '/api/studio/persona',
+  '/api/studio/voice',
+  '/api/studio/stems',
+  '/api/studio/regenerate-stem',
+  '/api/studio/complete',
+  '/api/studio/repair'
+]);
+
 const clean = value => String(value ?? '').trim();
 const numeric = value => Number.isFinite(Number(value)) ? Number(value) : null;
 
@@ -84,6 +105,74 @@ async function qualityFetch(input, init = {}, env) {
   });
 }
 
+function isMolabProxyAudio(value) {
+  try {
+    const url = new URL(clean(value));
+    return ['api.sonaraenterprise.com', 'molab.sonaraenterprise.com'].includes(url.hostname)
+      && ['/api/molab/audio', '/v1/audio'].includes(url.pathname)
+      && Boolean(clean(url.searchParams.get('path')));
+  } catch {
+    return false;
+  }
+}
+
+function appendFormValue(form, key, value) {
+  if (value === undefined || value === null || value === '') return;
+  form.append(key, typeof value === 'object' ? JSON.stringify(value) : String(value));
+}
+
+async function hydrateStudioAudioRequest(request, env) {
+  const contentType = clean(request.headers.get('content-type')).toLowerCase();
+  if (!contentType.includes('application/json')) return request;
+
+  let body;
+  try { body = await request.clone().json(); }
+  catch { return request; }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return request;
+
+  const sourceUrl = clean(body.sourceAudioUrl || body.srcAudioUrl || body.audioUrl || body.source_audio_url);
+  const referenceUrl = clean(body.referenceAudioUrl || body.reference_audio_url);
+  const sourceNeedsUpload = isMolabProxyAudio(sourceUrl);
+  const referenceNeedsUpload = isMolabProxyAudio(referenceUrl);
+  if (!sourceNeedsUpload && !referenceNeedsUpload) return request;
+
+  const form = new FormData();
+  for (const [key, value] of Object.entries(body)) {
+    if (['sourceAudioUrl', 'srcAudioUrl', 'audioUrl', 'source_audio_url', 'referenceAudioUrl', 'reference_audio_url'].includes(key)) continue;
+    appendFormValue(form, key, value);
+  }
+
+  if (sourceNeedsUpload) {
+    const response = await qualityFetch(sourceUrl, { headers: { Accept: 'audio/wav,audio/*;q=0.9,*/*;q=0.1' } }, env);
+    if (!response.ok) throw new Error(`Impossibile preparare l'audio sorgente SONARA per Studio (HTTP ${response.status}).`);
+    const blob = await response.blob();
+    if (!blob.size) throw new Error('Audio sorgente SONARA vuoto.');
+    form.append('src_audio', blob, 'sonara-source.wav');
+  } else if (sourceUrl) {
+    form.append('sourceAudioUrl', sourceUrl);
+  }
+
+  if (referenceNeedsUpload) {
+    const response = await qualityFetch(referenceUrl, { headers: { Accept: 'audio/wav,audio/*;q=0.9,*/*;q=0.1' } }, env);
+    if (!response.ok) throw new Error(`Impossibile preparare la reference SONARA per Studio (HTTP ${response.status}).`);
+    const blob = await response.blob();
+    if (!blob.size) throw new Error('Audio reference SONARA vuoto.');
+    form.append('reference_audio', blob, 'sonara-reference.wav');
+  } else if (referenceUrl) {
+    form.append('referenceAudioUrl', referenceUrl);
+  }
+
+  const headers = new Headers(request.headers);
+  headers.delete('content-type');
+  headers.delete('content-length');
+  return new Request(request.url, {
+    method: request.method,
+    headers,
+    body: form,
+    redirect: request.redirect
+  });
+}
+
 async function handleQualityV2(request, env) {
   let body = {};
   try { body = await request.json(); }
@@ -141,6 +230,17 @@ export default {
     }
     if (request.method === 'POST' && url.pathname === '/api/studio/quality-v2') {
       return handleQualityV2(request, env);
+    }
+    if (request.method === 'POST' && STUDIO_AUDIO_OPERATIONS.has(url.pathname)) {
+      try {
+        request = await hydrateStudioAudioRequest(request, env);
+      } catch (error) {
+        return qualityJson(request, {
+          status: 'FAILED',
+          error: error instanceof Error ? error.message : String(error),
+          operation: url.pathname.split('/').pop()
+        }, 400);
+      }
     }
     return worker.fetch(request, env, ctx);
   }
