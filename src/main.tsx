@@ -17,6 +17,7 @@ import GlobalMusicSuggestionControl from './components/generator/GlobalMusicSugg
 import SonaraInteractiveMiniGuide from './components/generator/SonaraInteractiveMiniGuide';
 import SonaraSunoLanding from './components/home/SonaraSunoLanding';
 import LandingPromptGuard from './components/home/LandingPromptGuard';
+import SonaraProfessionalFixedPlayer from './components/player/SonaraProfessionalFixedPlayer';
 import StudioSectionControl from './components/studio/StudioSectionControl';
 import VideoAISectionControl from './components/video/VideoAISectionControl';
 import DJSectionControl from './components/dj/DJSectionControl';
@@ -36,6 +37,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <>
             <App />
             <SonaraSunoLanding />
+            <SonaraProfessionalFixedPlayer />
           </>
         </BootAuth>
         <LandingPromptGuard />
