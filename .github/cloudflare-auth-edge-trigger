@@ -1,4 +1,4 @@
-trigger: 2026-08-31T19:29:00+02:00
+trigger: 2026-08-31T19:41:00+02:00
 expected_auth_edge: sonara-auth-email-password-only-v2
 expected_firebase_edge: sonara-firebase-auth-edge-v2
-source_commit: 71d7847ad5d54bd0bfe4010df538be7e2b2c66f8
+source_commit: 8d3da447c772571ff7027f1489bee2c7ef7e96bb
