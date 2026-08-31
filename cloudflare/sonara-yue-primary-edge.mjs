@@ -3,7 +3,7 @@ import yueRuntime from './sonara-yue-router.mjs';
 
 export { SonaraJobState };
 
-const VERSION = 'sonara-yue-v10-turbo-primary';
+const VERSION = 'sonara-yue-v10.4-dual-fidelity-primary';
 const BILLING_GENERATE_PATH = '/api/billing/generate';
 const ENGINE_GENERATE_PATH = '/api/engine/generate';
 const YUE_JOB_PATH = /^\/api\/music\/job\/yue_[^/]+$/;
@@ -12,6 +12,18 @@ const YUE_AUDIO_PATH = '/api/yue/audio';
 function requestedProfile(body = {}) {
   const raw = String(body.qualityProfile || body.generationProfile || body.yueProfile || 'fast').trim().toLowerCase();
   return raw === 'quality' ? 'quality' : 'fast';
+}
+
+function clean(value) {
+  return String(value ?? '').trim();
+}
+
+function extractCreatorBrief(body = {}) {
+  const explicit = clean(body.sonaraCreatorPromptAuthoritative || body.sonaraOriginalCreatorBrief || body.rawPrompt || body.creatorPrompt || body.creator_prompt || body.musicPrompt);
+  if (explicit) return explicit.slice(0, 2400);
+  const prompt = clean(body.prompt);
+  const match = prompt.match(/CREATOR BRIEF\s*—?\s*VERBATIM:\s*<<<\s*([\s\S]*?)\s*>>>/i);
+  return clean(match?.[1] || prompt).slice(0, 2400);
 }
 
 async function forceYueRequest(request) {
@@ -27,6 +39,8 @@ async function forceYueRequest(request) {
 
   const profile = requestedProfile(body);
   const quality = profile === 'quality';
+  const creatorPrompt = extractCreatorBrief(body);
+  const language = clean(body.language || body.vocalLanguage || body.lyricsLanguage || body.lyrics_language) || 'auto';
   const nextBody = {
     ...body,
     forceYue: true,
@@ -37,18 +51,26 @@ async function forceYueRequest(request) {
     generationProfile: profile,
     yueProfile: profile,
     dualFast: false,
-    candidateCount: 1,
-    candidate_count: 1,
-    stage2_batch_size: quality ? 16 : 16,
-    max_new_tokens: quality ? 3000 : Number(body.max_new_tokens || 3000),
+    candidateCount: quality ? 1 : 2,
+    candidate_count: quality ? 1 : 2,
+    sonaraCreatorPromptAuthoritative: creatorPrompt,
+    sonaraOriginalCreatorBrief: creatorPrompt,
+    rawPrompt: creatorPrompt,
+    creatorPrompt,
+    language,
+    vocalLanguage: language,
+    lyricsLanguage: language,
+    stage2_batch_size: 16,
+    max_new_tokens: quality ? 3000 : Math.max(3200, Number(body.max_new_tokens || 3200)),
     repetition_penalty: 1.1
   };
 
   const headers = new Headers(request.headers);
   headers.delete('content-length');
   headers.set('content-type', 'application/json');
-  headers.set('x-sonara-generation-profile', `yue-v10-${profile}`);
+  headers.set('x-sonara-generation-profile', `yue-v10.4-${profile}`);
   headers.set('x-sonara-yue-primary', VERSION);
+  headers.set('x-sonara-candidate-count', String(nextBody.candidateCount));
 
   return new Request(request.url, {
     method: request.method,
