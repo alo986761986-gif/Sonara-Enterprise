@@ -1,4 +1,4 @@
-SONARA_VERCEL_RELEASE=2026-08-31-EMAIL-PASSWORD-ONLY
-REASON=Publish auth hotfix removing Google Login and suspended Firebase fallback
+SONARA_VERCEL_RELEASE=2026-08-31-EMAIL-PASSWORD-ONLY-R2
+REASON=Publish auth hotfix removing Google Login and bypass retired Google service account build blocker
 EXPECTED_AUTH=email_password_only
-SOURCE_COMMIT=5ccc330d12f17f9224f48629b0f4a2338954193b
+SOURCE_COMMIT=7932413bb43571959b7ee77b5d09b53ad782eddc
