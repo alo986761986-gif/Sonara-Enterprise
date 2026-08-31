@@ -1,4 +1,4 @@
-trigger: 2026-08-31T19:49:00+02:00
-expected_auth_edge: sonara-auth-email-password-only-v3
-expected_firebase_edge: sonara-firebase-public-config-edge-v1
-source_commit: 3f48b1c4ad953e3ec9a53e8d2ce0c500db61a0df
+trigger: 2026-08-31T19:58:00+02:00
+expected_auth_edge: sonara-native-auth-v1
+expected_auth_store: SonaraAuthStore
+source_commit: f5ba04ab48584e2656e1e362c2cac50034c12f59
