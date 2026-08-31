@@ -1,0 +1,5 @@
+trigger: 2026-08-31
+provider: eleven_music
+model: music_v2
+primary: true
+fallback: yue
