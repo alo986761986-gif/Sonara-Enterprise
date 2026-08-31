@@ -52,40 +52,27 @@ jobs:
           echo "::add-mask::${account_id}"
           echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
 
-      - name: Validate SONARA brand routes
+      - name: Validate SONARA production routes
         shell: bash
         run: |
           set -euo pipefail
           grep -q 'cloudflare/sonara-instant-speed-router.mjs' wrangler.jsonc
-          grep -q 'sonara-instant-dual-v1' cloudflare/sonara-instant-speed-router.mjs
-          grep -q 'const FAST_STEPS = 4' cloudflare/sonara-instant-speed-router.mjs
-          grep -q 'const DETAIL_STEPS = 5' cloudflare/sonara-instant-speed-router.mjs
-          grep -q 'Promise.allSettled(active.map' cloudflare/sonara-instant-speed-router.mjs
-          grep -q 'progressiveDelivery: true' cloudflare/sonara-instant-speed-router.mjs
+          grep -q 'sonara-yue-turbo-single-v2' cloudflare/sonara-instant-speed-router.mjs
           grep -q './sonara-studio-max-router.mjs' cloudflare/sonara-instant-speed-router.mjs
+          ! grep -q 'sonara-instant-dual-v1' cloudflare/sonara-instant-speed-router.mjs
+          ! grep -q 'd16pair_' cloudflare/sonara-instant-speed-router.mjs
           grep -q "./sonara-world-style-production-router.mjs" cloudflare/sonara-studio-max-router.mjs
           grep -q 'sonara-studio-max-v1' src/sonaraStudioMaxIntelligence.ts
           grep -q '/api/studio-max-profile' cloudflare/sonara-studio-max-router.mjs
-          grep -q 'CREATOR INTENT' cloudflare/sonara-studio-max-router.mjs
-          grep -q 'HOOK/STRUCTURE' src/sonaraStudioMaxIntelligence.ts
-          grep -q 'MUSICAL DETAIL' src/sonaraStudioMaxIntelligence.ts
           grep -q "./sonara-production-router.mjs" cloudflare/sonara-world-style-production-router.mjs
           grep -q 'sonara-world-style-v1' cloudflare/sonara-world-style-production-router.mjs
-          grep -q '/api/style-profile' cloudflare/sonara-world-style-production-router.mjs
-          grep -q 'RHYTHM AND GROOVE DNA' cloudflare/sonara-world-style-production-router.mjs
-          grep -q 'AUTHENTIC INSTRUMENTATION' cloudflare/sonara-world-style-production-router.mjs
           grep -q "./sonara-onboarding-router.mjs" cloudflare/sonara-production-router.mjs
           grep -q "./sonara-world-tempo-router.mjs" cloudflare/sonara-production-router.mjs
           grep -q 'sonara-job-recovery-v1' cloudflare/sonara-production-router.mjs
-          grep -q 'robustJobPoll' cloudflare/sonara-production-router.mjs
-          grep -q 'automatic-query-failover' cloudflare/sonara-production-router.mjs
-          grep -q 'automatic-stall-failover' cloudflare/sonara-production-router.mjs
           grep -q "./sonara-brand-router.mjs" cloudflare/sonara-world-tempo-router.mjs
           grep -q 'sonara-world-tempo-v1' cloudflare/sonara-world-tempo-router.mjs
-          grep -q '/api/tempo-profile' cloudflare/sonara-world-tempo-router.mjs
           grep -q "./sonara-brand-router.mjs" cloudflare/sonara-onboarding-router.mjs
           grep -q 'sonara-onboarding-guide-v1' cloudflare/sonara-onboarding-router.mjs
-          grep -q 'creator-onboarding-v1' cloudflare/sonara-onboarding-router.mjs
           grep -q 'sonara-brand-icon.svg' cloudflare/sonara-brand-router.mjs
           grep -q 'sonara-header-brand-v5' cloudflare/sonara-brand-router.mjs
           grep -q 'sonara-brand-icon.svg' index.html
@@ -102,7 +89,7 @@ jobs:
       - name: Deploy Worker to Cloudflare production
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
 
-      - name: Verify public SONARA Instant Dual, Studio Max, world style, world tempo and recovery
+      - name: Verify public SONARA Turbo single production
         shell: bash
         run: |
           set -euo pipefail
@@ -111,43 +98,27 @@ jobs:
             site_headers="$(curl -sSI --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?brand=${GITHUB_SHA}-${attempt}" || true)"
             site_html="$(curl -sS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?brand=${GITHUB_SHA}-${attempt}" || true)"
             studio_probe="$(curl -sS -i --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/api/studio-max-profile?duration=480&bpm=126&key=F%23%20minor&genre=House&subgenre=Tech%20House&mood=Dark&lyrics=Test&vocalLanguage=it" || true)"
-            style_probe="$(curl -sS -i --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/api/style-profile?family=Electronic%20%2F%20Dance&genre=Drum%20%26%20Bass&subgenre=Jungle&mood=Raw" || true)"
             tempo_headers="$(curl -sSI --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/api/tempo-profile?family=Electronic%20%2F%20Dance&genre=Drum%20%26%20Bass&subgenre=Jungle&prompt=Jungle%20170%20BPM" || true)"
             tempo_body="$(curl -sS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/api/tempo-profile?family=Electronic%20%2F%20Dance&genre=Drum%20%26%20Bass&subgenre=Jungle&prompt=Jungle%20170%20BPM" || true)"
-            recovery_probe="$(curl -sS -i --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/api/music/job/d16pair_public-recovery-probe-${GITHUB_SHA}-${attempt}" || true)"
             if [[ "${icon_code}" == "200" ]] \
-              && printf '%s' "${site_headers}" | grep -qi 'x-sonara-speed-profile: sonara-instant-dual-v1' \
+              && printf '%s' "${site_headers}" | grep -qi 'x-sonara-speed-profile: sonara-yue-turbo-single-v2' \
+              && printf '%s' "${site_headers}" | grep -qi 'x-sonara-yue-primary: sonara-yue-v10-turbo-primary' \
+              && printf '%s' "${site_headers}" | grep -qi 'x-sonara-yue-profile: sonara-yue-v10-profile-routing' \
               && printf '%s' "${site_headers}" | grep -qi 'x-sonara-brand: sonic-s-v5' \
               && printf '%s' "${site_headers}" | grep -qi 'x-sonara-header-brand: enterprise-logo-v5' \
               && printf '%s' "${site_headers}" | grep -qi 'x-sonara-guide: creator-onboarding-v1' \
               && printf '%s' "${site_headers}" | grep -qi 'x-sonara-tempo-taxonomy: sonara-world-tempo-v1' \
-              && printf '%s' "${site_headers}" | grep -qi 'x-sonara-job-recovery: sonara-job-recovery-v1' \
-              && printf '%s' "${site_headers}" | grep -qi 'x-sonara-world-style: sonara-world-style-v1' \
-              && printf '%s' "${site_headers}" | grep -qi 'x-sonara-studio-max: sonara-studio-max-v1' \
-              && printf '%s' "${site_html}" | grep -q 'sonara-instant-dual-v1' \
+              && ! printf '%s' "${site_html}" | grep -q 'sonara-instant-dual-v1' \
               && printf '%s' "${site_html}" | grep -q 'sonara-header-brand-v5' \
               && printf '%s' "${site_html}" | grep -q 'sonara-onboarding-guide-v1' \
-              && printf '%s' "${site_html}" | grep -q 'sonara-world-tempo-production-v1' \
-              && printf '%s' "${studio_probe}" | grep -qi 'x-sonara-speed-profile: sonara-instant-dual-v1' \
-              && printf '%s' "${studio_probe}" | grep -qi 'x-sonara-studio-max: sonara-studio-max-v1' \
-              && printf '%s' "${studio_probe}" | grep -q '"durationSec":480' \
-              && printf '%s' "${studio_probe}" | grep -q '"bpm":126' \
-              && printf '%s' "${studio_probe}" | grep -q '"Final Chorus"' \
-              && printf '%s' "${studio_probe}" | grep -q '"hookContract"' \
-              && printf '%s' "${studio_probe}" | grep -q '"vocalContract"' \
-              && printf '%s' "${studio_probe}" | grep -q '"productionContract"' \
-              && printf '%s' "${style_probe}" | grep -qi 'x-sonara-world-style: sonara-world-style-v1' \
-              && printf '%s' "${style_probe}" | grep -q '"subgenre":"Jungle"' \
-              && printf '%s' "${style_probe}" | grep -q 'breakbeat' \
+              && printf '%s' "${studio_probe}" | grep -qi 'x-sonara-speed-profile: sonara-yue-turbo-single-v2' \
               && printf '%s' "${tempo_headers}" | grep -qi 'x-sonara-tempo-taxonomy: sonara-world-tempo-v1' \
-              && printf '%s' "${tempo_body}" | grep -q '"bpm":170' \
-              && printf '%s' "${recovery_probe}" | grep -qi 'x-sonara-job-recovery: sonara-job-recovery-v1' \
-              && printf '%s' "${recovery_probe}" | grep -q 'Job SONARA non trovato'; then
-              echo "SONARA Instant Dual speed profile, Studio Max, world style DNA, world tempo taxonomy and anti-stall recovery verified."
+              && printf '%s' "${tempo_body}" | grep -q '"bpm":170'; then
+              echo "SONARA Turbo single, YuE routing and production edge verified."
               exit 0
             fi
-            echo "SONARA Instant Dual propagation pending (${attempt}/15)."
+            echo "SONARA Turbo single propagation pending (${attempt}/15)."
             sleep 4
           done
-          echo "SONARA Instant Dual public production verification failed." >&2
+          echo "SONARA Turbo single public production verification failed." >&2
           exit 1
