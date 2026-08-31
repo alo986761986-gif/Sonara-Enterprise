@@ -53,8 +53,7 @@ type JobResponse = {
 };
 
 const INITIAL: CandidateState[] = [
-  { id: 'A', status: 'IDLE', progress: 0, stage: 'Pronto', audioUrl: '', audioFormat: 'wav', jobId: '', error: '' },
-  { id: 'B', status: 'IDLE', progress: 0, stage: 'Pronto', audioUrl: '', audioFormat: 'wav', jobId: '', error: '' }
+  { id: 'A', status: 'IDLE', progress: 0, stage: 'Pronto', audioUrl: '', audioFormat: 'wav', jobId: '', error: '' }
 ];
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -62,9 +61,6 @@ const JOB_POLL_INTERVAL_MS = 2_000;
 const MIN_JOB_TIMEOUT_MS = 30 * 60 * 1_000;
 
 function generationTimeoutMs(durationSec: number): number {
-  // Long-form audio can legitimately take several times its playback duration,
-  // especially after a cold GPU start. Never expire an active 4-8 minute job
-  // at the old fixed eight-minute client boundary.
   return Math.max(MIN_JOB_TIMEOUT_MS, Math.round(durationSec * 6 * 1_000));
 }
 
@@ -190,7 +186,7 @@ export default function DualTrackGenerationControl() {
       if (context.vocalMode !== 'instrumental' && !context.lyrics) throw new Error('Inserisci il testo prima della generazione vocale.');
 
       const finalPrompt = buildGenerationPrompt({
-        rawPrompt: `${context.rawPrompt}\n\nSONARA DUAL VARIATION ORDER: Generate two clearly distinct musical interpretations in the same batch. Candidate A and Candidate B must preserve genre, subgenre, BPM, key, duration, vocal mode and supplied lyrics, but must differ materially in melodic contour, groove details, voicing, transitions, sound-palette balance and arrangement development. Never return near-duplicates.`,
+        rawPrompt: context.rawPrompt,
         genreFamily: context.genreFamily,
         genre: context.genre,
         subgenre: context.subgenre,
@@ -207,8 +203,8 @@ export default function DualTrackGenerationControl() {
       });
 
       const token = await getFirebaseIdToken(true);
-      const pairId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `pair-${Date.now()}`;
-      setAllProcessing('', 5, 'SONARA: avvio batch doppio ultra-fast');
+      const generationId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `generation-${Date.now()}`;
+      setAllProcessing('', 5, 'SONARA TURBO: avvio generazione');
 
       const response = await fetch('/api/billing/generate', {
         method: 'POST',
@@ -232,20 +228,23 @@ export default function DualTrackGenerationControl() {
           styleInfluence: context.styleInfluence,
           outputFormat: 'wav',
           audioQuality: 'lossless',
-          engineId: 'sonara_ace_step_v15_modal',
-          dualFast: true,
-          candidateCount: 2,
-          generationPairId: pairId,
-          variationPolicy: 'native-batch-distinct-candidates'
+          engineId: 'sonara_yue_v10_turbo',
+          qualityProfile: 'fast',
+          generationProfile: 'fast',
+          yueProfile: 'fast',
+          dualFast: false,
+          candidateCount: 1,
+          generationPairId: generationId,
+          variationPolicy: 'turbo-single-candidate'
         })
       });
 
       const initialResponse = await readJson<JobResponse>(response);
-      if (!response.ok) throw new Error(readError(initialResponse, `Generazione doppia non avviata (HTTP ${response.status}).`));
+      if (!response.ok) throw new Error(readError(initialResponse, `Generazione TURBO non avviata (HTTP ${response.status}).`));
       const initial = normalizeJob(initialResponse);
       const jobId = initialResponse.jobId || initialResponse.result?.jobId || initial.jobId;
-      if (!jobId) throw new Error('SONARA non ha restituito il job ID doppio.');
-      setAllProcessing(jobId, Math.max(10, Number(initial.progress || 10)), String(initial.metadata?.currentStage || 'SONARA: 2 brani nello stesso batch GPU'));
+      if (!jobId) throw new Error('SONARA non ha restituito il job ID TURBO.');
+      setAllProcessing(jobId, Math.max(10, Number(initial.progress || 10)), String(initial.metadata?.currentStage || 'SONARA TURBO: generazione GPU'));
 
       const pollDeadline = Date.now() + generationTimeoutMs(context.durationSec);
       while (Date.now() < pollDeadline) {
@@ -254,24 +253,27 @@ export default function DualTrackGenerationControl() {
         if (!poll.ok && poll.status !== 410) continue;
         const current = normalizeJob(await readJson<JobResponse>(poll));
         const status = String(current.status || 'PROCESSING').toUpperCase();
-        if (status === 'FAILED') throw new Error(readError(current, 'Generazione doppia fallita.'));
+        if (status === 'FAILED') throw new Error(readError(current, 'Generazione TURBO fallita.'));
         if (status !== 'COMPLETED') {
-          setAllProcessing(jobId, Math.max(10, Number(current.progress || 10)), String(current.metadata?.currentStage || 'SONARA: rendering A + B insieme'));
+          setAllProcessing(jobId, Math.max(10, Number(current.progress || 10)), String(current.metadata?.currentStage || 'SONARA TURBO: rendering del brano'));
           continue;
         }
 
-        const outputCandidates = Array.isArray(current.candidates) && current.candidates.length >= 2
-          ? current.candidates.slice(0, 2)
-          : (current.audioUrls || current.metadata?.audioUrls || []).slice(0, 2).map((audioUrl: string, index: number) => ({ id: index === 0 ? 'A' : 'B', audioUrl, audioFormat: 'wav' }));
-        if (outputCandidates.length < 2 || outputCandidates.some(candidate => !candidate.audioUrl)) {
-          throw new Error('SONARA ha completato il batch ma non ha restituito entrambi i brani.');
+        const outputCandidates = Array.isArray(current.candidates) && current.candidates.length >= 1
+          ? current.candidates.slice(0, 1)
+          : (current.audioUrls || current.metadata?.audioUrls || (current.audioUrl ? [current.audioUrl] : []))
+              .slice(0, 1)
+              .map((audioUrl: string) => ({ id: 'A', audioUrl, audioFormat: 'wav' }));
+
+        if (outputCandidates.length < 1 || !outputCandidates[0]?.audioUrl) {
+          throw new Error('SONARA ha completato la generazione ma non ha restituito il brano audio.');
         }
 
         const completed = outputCandidates.map((candidate, index) => ({
           id: (index === 0 ? 'A' : 'B') as CandidateId,
           status: 'COMPLETED' as CandidateStatus,
           progress: 100,
-          stage: `Brano ${index === 0 ? 'A' : 'B'} pronto`,
+          stage: 'Brano TURBO pronto',
           audioUrl: String(candidate.audioUrl),
           audioFormat: String(candidate.audioFormat || 'wav').toLowerCase(),
           jobId,
@@ -281,7 +283,7 @@ export default function DualTrackGenerationControl() {
 
         await Promise.allSettled(completed.map(candidate => archiveGeneratedProject({
           jobId: `${jobId}-${candidate.id}`,
-          title: `${context.title} · Versione ${candidate.id}`,
+          title: context.title,
           genre: context.genre,
           subgenre: context.subgenre,
           bpm: context.bpm,
@@ -290,10 +292,10 @@ export default function DualTrackGenerationControl() {
           primaryAudioUrl: candidate.audioUrl,
           audioFormat: candidate.audioFormat,
           response: {
-            generationPairId: pairId,
+            generationPairId: generationId,
             variationId: candidate.id,
             completedJob: current,
-            performanceProfile: 'dual-ultra-fast-v9',
+            performanceProfile: 'yue-v10-turbo-single',
             creativeControls: { weirdness: context.weirdness, styleInfluence: context.styleInfluence }
           }
         })));
@@ -321,8 +323,8 @@ export default function DualTrackGenerationControl() {
   const downloadCandidate = async (candidate: CandidateState) => {
     if (!candidate.audioUrl) return;
     const textarea = document.getElementById('sonara-prompt') as HTMLTextAreaElement | null;
-    let title = `sonara-versione-${candidate.id}`;
-    try { if (textarea) title = `${readGeneratorContext(textarea).title}-Versione-${candidate.id}`; } catch {}
+    let title = 'sonara-track';
+    try { if (textarea) title = readGeneratorContext(textarea).title; } catch {}
     try {
       const response = await fetch(candidate.audioUrl, { cache: 'no-store' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -345,24 +347,24 @@ export default function DualTrackGenerationControl() {
   return createPortal(
     <div className="mt-6 space-y-4">
       <button type="button" onClick={() => void generatePair()} disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-fuchsia-600 via-purple-600 to-indigo-600 px-6 py-4 font-bold text-white shadow-lg shadow-purple-950/30 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50">
-        {busy ? <><RefreshCw className="h-5 w-5 animate-spin" />GENERAZIONE ULTRA-FAST A + B...</> : <><Sparkles className="h-5 w-5" />GENERA 2 BRANI VELOCISSIMI</>}
+        {busy ? <><RefreshCw className="h-5 w-5 animate-spin" />GENERAZIONE TURBO...</> : <><Sparkles className="h-5 w-5" />GENERA BRANO TURBO</>}
       </button>
       <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-4 py-3 text-[11px] leading-5 text-slate-400">
-        Modalità <strong className="text-cyan-200">Dual Ultra-Fast</strong>: un solo job, un solo passaggio GPU, due brani differenti prodotti nello stesso batch ACE-Step XL-Turbo.
+        Modalità <strong className="text-cyan-200">YuE Turbo</strong>: un solo brano per richiesta per ridurre al minimo il tempo di generazione. Il render QUALITY resta separato dal percorso rapido.
       </div>
       {globalError && <div className="rounded-xl border border-rose-500/25 bg-rose-500/10 p-4 text-xs text-rose-300">{globalError}</div>}
       {candidates.some(candidate => candidate.status !== 'IDLE') && (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-1">
           {candidates.map(candidate => {
             const completed = candidate.status === 'COMPLETED' && Boolean(candidate.audioUrl);
             const chosen = selected === candidate.id;
             return (
               <article key={candidate.id} className={`rounded-2xl border p-4 transition ${chosen ? 'border-emerald-400/60 bg-emerald-500/10' : 'border-slate-800 bg-slate-950/70'}`}>
                 <div className="flex items-start justify-between gap-3">
-                  <div><div className="font-black text-white">Brano {candidate.id}</div><div className="mt-1 text-[10px] text-slate-500">{candidate.stage}</div></div>
+                  <div><div className="font-black text-white">Brano TURBO</div><div className="mt-1 text-[10px] text-slate-500">{candidate.stage}</div></div>
                   {chosen && <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-1 text-[9px] font-black text-emerald-300"><CheckCircle2 className="h-3 w-3" />SCELTO</span>}
                 </div>
-                {candidate.status === 'PROCESSING' && <div className="mt-4"><div className="mb-1 flex justify-between text-[10px] text-slate-500"><span>Batch unico</span><span>{candidate.progress}%</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-900"><div className="h-full rounded-full bg-gradient-to-r from-purple-500 to-cyan-400 transition-all" style={{ width: `${candidate.progress}%` }} /></div></div>}
+                {candidate.status === 'PROCESSING' && <div className="mt-4"><div className="mb-1 flex justify-between text-[10px] text-slate-500"><span>Generazione</span><span>{candidate.progress}%</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-900"><div className="h-full rounded-full bg-gradient-to-r from-purple-500 to-cyan-400 transition-all" style={{ width: `${candidate.progress}%` }} /></div></div>}
                 {candidate.error && <div className="mt-4 rounded-lg border border-rose-500/20 bg-rose-500/10 p-3 text-[11px] text-rose-300">{candidate.error}</div>}
                 {completed && <div className="mt-4 space-y-3"><audio controls preload="metadata" src={candidate.audioUrl} className="w-full" /><div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => chooseCandidate(candidate)} className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-[11px] font-black text-emerald-200"><Music2 className="h-4 w-4" />{chosen ? 'BRANO SCELTO' : 'SCEGLI BRANO'}</button><button type="button" onClick={() => void downloadCandidate(candidate)} className="inline-flex items-center justify-center gap-2 rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-2.5 text-[11px] font-black text-purple-200"><Download className="h-4 w-4" />SCARICA {candidate.audioFormat.toUpperCase()}</button></div></div>}
               </article>
