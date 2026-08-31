@@ -52,16 +52,24 @@ type JobResponse = {
   data?: JobResponse;
 };
 
-const INITIAL: CandidateState[] = [
-  { id: 'A', status: 'IDLE', progress: 0, stage: 'Pronto', audioUrl: '', audioFormat: 'wav', jobId: '', error: '' }
-];
+const EMPTY_CANDIDATE = (id: CandidateId): CandidateState => ({
+  id,
+  status: 'IDLE',
+  progress: 0,
+  stage: 'Pronto',
+  audioUrl: '',
+  audioFormat: 'wav',
+  jobId: '',
+  error: ''
+});
+const INITIAL: CandidateState[] = [EMPTY_CANDIDATE('A'), EMPTY_CANDIDATE('B')];
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const JOB_POLL_INTERVAL_MS = 2_000;
 const MIN_JOB_TIMEOUT_MS = 30 * 60 * 1_000;
 
 function generationTimeoutMs(durationSec: number): number {
-  return Math.max(MIN_JOB_TIMEOUT_MS, Math.round(durationSec * 6 * 1_000));
+  return Math.max(MIN_JOB_TIMEOUT_MS, Math.round(durationSec * 8 * 1_000));
 }
 
 function normalizeJob(value: JobResponse): JobResponse {
@@ -121,6 +129,12 @@ function safeFileName(value: string): string {
   return value.normalize('NFKD').replace(/[^a-zA-Z0-9-_ ]+/g, '').trim().replace(/\s+/g, '-') || 'sonara-track';
 }
 
+function readCandidates(current: JobResponse): Array<{ id?: string; audioUrl?: string; audioFormat?: string }> {
+  if (Array.isArray(current.candidates) && current.candidates.length) return current.candidates.slice(0, 2);
+  const urls = current.audioUrls || current.metadata?.audioUrls || (current.audioUrl ? [current.audioUrl] : []);
+  return urls.slice(0, 2).map((audioUrl: string, index: number) => ({ id: index === 0 ? 'A' : 'B', audioUrl, audioFormat: 'wav' }));
+}
+
 export default function DualTrackGenerationControl() {
   const [mountNode, setMountNode] = useState<HTMLElement | null>(null);
   const [busy, setBusy] = useState(false);
@@ -159,7 +173,26 @@ export default function DualTrackGenerationControl() {
   }, []);
 
   const setAllProcessing = (jobId: string, progress: number, stage: string) => {
-    setCandidates(previous => previous.map(candidate => ({ ...candidate, status: 'PROCESSING', progress, stage, jobId, error: '' })));
+    setCandidates(previous => previous.map(candidate => ({ ...candidate, status: candidate.audioUrl ? 'COMPLETED' : 'PROCESSING', progress: candidate.audioUrl ? 100 : progress, stage: candidate.audioUrl ? candidate.stage : stage, jobId, error: '' })));
+  };
+
+  const mergeReadyCandidates = (jobId: string, current: JobResponse) => {
+    const ready = readCandidates(current);
+    if (!ready.length) return;
+    setCandidates(previous => previous.map((candidate, index) => {
+      const output = ready[index];
+      if (!output?.audioUrl) return candidate;
+      return {
+        ...candidate,
+        status: 'COMPLETED',
+        progress: 100,
+        stage: `Brano ${candidate.id} YuE pronto`,
+        audioUrl: String(output.audioUrl),
+        audioFormat: String(output.audioFormat || 'wav').toLowerCase(),
+        jobId,
+        error: ''
+      };
+    }));
   };
 
   const refreshBilling = async (token: string) => {
@@ -176,7 +209,7 @@ export default function DualTrackGenerationControl() {
     setBusy(true);
     setSelected(null);
     setGlobalError('');
-    setCandidates(INITIAL.map(candidate => ({ ...candidate })));
+    setCandidates([EMPTY_CANDIDATE('A'), EMPTY_CANDIDATE('B')]);
 
     try {
       const textarea = document.getElementById('sonara-prompt') as HTMLTextAreaElement | null;
@@ -204,7 +237,7 @@ export default function DualTrackGenerationControl() {
 
       const token = await getFirebaseIdToken(true);
       const generationId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `generation-${Date.now()}`;
-      setAllProcessing('', 5, 'SONARA TURBO: avvio generazione');
+      setAllProcessing('', 5, 'SONARA YuE: avvio dei 2 brani');
 
       const response = await fetch('/api/billing/generate', {
         method: 'POST',
@@ -212,15 +245,20 @@ export default function DualTrackGenerationControl() {
         body: JSON.stringify({
           prompt: finalPrompt,
           rawPrompt: context.rawPrompt,
+          creatorPrompt: context.rawPrompt,
+          sonaraOriginalCreatorBrief: context.rawPrompt,
           genreFamily: context.genreFamily,
           genre: context.genre,
           subgenre: context.subgenre,
           mood: context.mood,
           vocalMode: context.vocalMode,
           vocalLanguage: context.vocalLanguageCode,
+          lyricsLanguage: context.vocalLanguageCode,
+          language: context.vocalLanguageCode,
           lyrics: context.lyrics,
           title: context.title,
           bpm: context.bpm,
+          requestedBpm: context.bpm,
           key: context.keySignature,
           durationSec: context.durationSec,
           duration: context.durationSec,
@@ -228,23 +266,24 @@ export default function DualTrackGenerationControl() {
           styleInfluence: context.styleInfluence,
           outputFormat: 'wav',
           audioQuality: 'lossless',
-          engineId: 'sonara_yue_v10_turbo',
+          engineId: 'sonara_yue_v104_dual_fidelity',
           qualityProfile: 'fast',
           generationProfile: 'fast',
           yueProfile: 'fast',
           dualFast: false,
-          candidateCount: 1,
+          candidateCount: 2,
+          candidate_count: 2,
           generationPairId: generationId,
-          variationPolicy: 'turbo-single-candidate'
+          variationPolicy: 'yue-dual-fidelity-safe'
         })
       });
 
       const initialResponse = await readJson<JobResponse>(response);
-      if (!response.ok) throw new Error(readError(initialResponse, `Generazione TURBO non avviata (HTTP ${response.status}).`));
+      if (!response.ok) throw new Error(readError(initialResponse, `Generazione YuE non avviata (HTTP ${response.status}).`));
       const initial = normalizeJob(initialResponse);
       const jobId = initialResponse.jobId || initialResponse.result?.jobId || initial.jobId;
-      if (!jobId) throw new Error('SONARA non ha restituito il job ID TURBO.');
-      setAllProcessing(jobId, Math.max(10, Number(initial.progress || 10)), String(initial.metadata?.currentStage || 'SONARA TURBO: generazione GPU'));
+      if (!jobId) throw new Error('SONARA non ha restituito il job ID YuE.');
+      setAllProcessing(jobId, Math.max(10, Number(initial.progress || 10)), String(initial.metadata?.currentStage || 'SONARA YuE: generazione brano A'));
 
       const pollDeadline = Date.now() + generationTimeoutMs(context.durationSec);
       while (Date.now() < pollDeadline) {
@@ -253,27 +292,23 @@ export default function DualTrackGenerationControl() {
         if (!poll.ok && poll.status !== 410) continue;
         const current = normalizeJob(await readJson<JobResponse>(poll));
         const status = String(current.status || 'PROCESSING').toUpperCase();
-        if (status === 'FAILED') throw new Error(readError(current, 'Generazione TURBO fallita.'));
+        mergeReadyCandidates(jobId, current);
+        if (status === 'FAILED') throw new Error(readError(current, 'Generazione YuE fallita.'));
         if (status !== 'COMPLETED') {
-          setAllProcessing(jobId, Math.max(10, Number(current.progress || 10)), String(current.metadata?.currentStage || 'SONARA TURBO: rendering del brano'));
+          setAllProcessing(jobId, Math.max(10, Number(current.progress || 10)), String(current.metadata?.currentStage || 'SONARA YuE: rendering dei 2 brani'));
           continue;
         }
 
-        const outputCandidates = Array.isArray(current.candidates) && current.candidates.length >= 1
-          ? current.candidates.slice(0, 1)
-          : (current.audioUrls || current.metadata?.audioUrls || (current.audioUrl ? [current.audioUrl] : []))
-              .slice(0, 1)
-              .map((audioUrl: string) => ({ id: 'A', audioUrl, audioFormat: 'wav' }));
-
-        if (outputCandidates.length < 1 || !outputCandidates[0]?.audioUrl) {
-          throw new Error('SONARA ha completato la generazione ma non ha restituito il brano audio.');
+        const outputCandidates = readCandidates(current);
+        if (outputCandidates.length < 2 || !outputCandidates[0]?.audioUrl || !outputCandidates[1]?.audioUrl) {
+          throw new Error('SONARA YuE ha completato il job ma non ha restituito entrambi i brani.');
         }
 
-        const completed = outputCandidates.map((candidate, index) => ({
+        const completed = outputCandidates.slice(0, 2).map((candidate, index) => ({
           id: (index === 0 ? 'A' : 'B') as CandidateId,
           status: 'COMPLETED' as CandidateStatus,
           progress: 100,
-          stage: 'Brano TURBO pronto',
+          stage: `Brano ${index === 0 ? 'A' : 'B'} YuE pronto`,
           audioUrl: String(candidate.audioUrl),
           audioFormat: String(candidate.audioFormat || 'wav').toLowerCase(),
           jobId,
@@ -295,18 +330,18 @@ export default function DualTrackGenerationControl() {
             generationPairId: generationId,
             variationId: candidate.id,
             completedJob: current,
-            performanceProfile: 'yue-v10-turbo-single',
+            performanceProfile: 'yue-v10.4-dual-fidelity-fast',
             creativeControls: { weirdness: context.weirdness, styleInfluence: context.styleInfluence }
           }
         })));
         await refreshBilling(token);
         return;
       }
-      throw new Error('La generazione sta impiegando più del previsto. Riprova il controllo del brano senza avviare un nuovo addebito.');
+      throw new Error('La generazione sta impiegando più del previsto. Riprova il controllo dei brani senza avviare un nuovo addebito.');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setGlobalError(message);
-      setCandidates(previous => previous.map(candidate => ({ ...candidate, status: 'FAILED', progress: 0, stage: 'Errore', error: message })));
+      setCandidates(previous => previous.map(candidate => candidate.audioUrl ? candidate : ({ ...candidate, status: 'FAILED', progress: 0, stage: 'Errore', error: message })));
     } finally {
       setBusy(false);
     }
@@ -332,7 +367,7 @@ export default function DualTrackGenerationControl() {
       const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = objectUrl;
-      link.download = `${safeFileName(title)}.${candidate.audioFormat || 'wav'}`.toLowerCase();
+      link.download = `${safeFileName(title)}-${candidate.id}.${candidate.audioFormat || 'wav'}`.toLowerCase();
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -347,21 +382,21 @@ export default function DualTrackGenerationControl() {
   return createPortal(
     <div className="mt-6 space-y-4">
       <button type="button" onClick={() => void generatePair()} disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-fuchsia-600 via-purple-600 to-indigo-600 px-6 py-4 font-bold text-white shadow-lg shadow-purple-950/30 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50">
-        {busy ? <><RefreshCw className="h-5 w-5 animate-spin" />GENERAZIONE TURBO...</> : <><Sparkles className="h-5 w-5" />GENERA BRANO TURBO</>}
+        {busy ? <><RefreshCw className="h-5 w-5 animate-spin" />GENERAZIONE 2 BRANI YuE...</> : <><Sparkles className="h-5 w-5" />GENERA 2 BRANI YuE</>}
       </button>
       <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-4 py-3 text-[11px] leading-5 text-slate-400">
-        Modalità <strong className="text-cyan-200">YuE Turbo</strong>: un solo brano per richiesta per ridurre al minimo il tempo di generazione. Il render QUALITY resta separato dal percorso rapido.
+        <strong className="text-cyan-200">YuE Dual Fidelity</strong>: due variazioni reali dello stesso prompt. Il brano A diventa ascoltabile appena pronto mentre SONARA completa il brano B. Prompt, BPM, lingua e durata selezionata restano vincoli della generazione.
       </div>
       {globalError && <div className="rounded-xl border border-rose-500/25 bg-rose-500/10 p-4 text-xs text-rose-300">{globalError}</div>}
       {candidates.some(candidate => candidate.status !== 'IDLE') && (
-        <div className="grid gap-4 lg:grid-cols-1">
+        <div className="grid gap-4 lg:grid-cols-2">
           {candidates.map(candidate => {
             const completed = candidate.status === 'COMPLETED' && Boolean(candidate.audioUrl);
             const chosen = selected === candidate.id;
             return (
               <article key={candidate.id} className={`rounded-2xl border p-4 transition ${chosen ? 'border-emerald-400/60 bg-emerald-500/10' : 'border-slate-800 bg-slate-950/70'}`}>
                 <div className="flex items-start justify-between gap-3">
-                  <div><div className="font-black text-white">Brano TURBO</div><div className="mt-1 text-[10px] text-slate-500">{candidate.stage}</div></div>
+                  <div><div className="font-black text-white">Brano {candidate.id}</div><div className="mt-1 text-[10px] text-slate-500">{candidate.stage}</div></div>
                   {chosen && <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-2 py-1 text-[9px] font-black text-emerald-300"><CheckCircle2 className="h-3 w-3" />SCELTO</span>}
                 </div>
                 {candidate.status === 'PROCESSING' && <div className="mt-4"><div className="mb-1 flex justify-between text-[10px] text-slate-500"><span>Generazione</span><span>{candidate.progress}%</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-900"><div className="h-full rounded-full bg-gradient-to-r from-purple-500 to-cyan-400 transition-all" style={{ width: `${candidate.progress}%` }} /></div></div>}
