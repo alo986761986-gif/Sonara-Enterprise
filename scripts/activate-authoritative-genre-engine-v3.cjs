@@ -15,6 +15,13 @@ function replaceRequired(source, from, to, label) {
   if (!source.includes(from)) throw new Error(`[SONARA] authoritative genre v3 patch failed: ${label}`);
   return source.replace(from, to);
 }
+function replaceOneOfRequired(source, candidates, to, label) {
+  if (source.includes(to)) return source;
+  for (const from of candidates) {
+    if (source.includes(from)) return source.replace(from, to);
+  }
+  throw new Error(`[SONARA] authoritative genre v3 patch failed: ${label}`);
+}
 
 function patchPromptEngine() {
   let source = read(promptEnginePath);
@@ -29,70 +36,107 @@ function patchPromptEngine() {
 
 function patchRoute() {
   let source = read(routePath);
-  source = replaceRequired(
+  source = replaceOneOfRequired(
     source,
-    "    const { prompt, durationSec, genre, bpm, key, engineId, title, mood, lyrics } = req.body;",
+    [
+      "    const { prompt, durationSec, genre, bpm, key, engineId, title, mood, lyrics } = req.body;",
+      "    const { prompt, durationSec, genre, genreFamily, subgenre, bpm, key, engineId, title, mood, lyrics, weirdness, styleInfluence } = req.body;"
+    ],
     "    const { prompt, durationSec, genre, genreFamily, subgenre, bpm, key, engineId, title, mood, lyrics, weirdness, styleInfluence } = req.body;\n    const selectedStyle = String(subgenre || genre || 'Music').trim();",
     'read selected subgenre'
   );
-  source = replaceRequired(
+  source = replaceOneOfRequired(
     source,
-    '    const optimizationResult = await AceStepPromptEngine.generatePrompt(prompt, genre);',
+    [
+      '    const optimizationResult = await AceStepPromptEngine.generatePrompt(prompt, genre);',
+      '    const optimizationResult = await AceStepPromptEngine.generatePrompt(prompt, selectedStyle);'
+    ],
     '    const optimizationResult = await AceStepPromptEngine.generatePrompt(prompt, selectedStyle);',
     'optimize against selected subgenre'
   );
-  source = replaceRequired(
-    source,
-    "      genre: genre || optimizationResult.genreLock.subgenre || 'Melodic House',\n      mood: mood || 'Energetic',\n      lyrics: lyrics || '',\n      prompt: prompt,\n      bpm: bpm || optimizationResult.genreLock.targetBpm || 124,\n      duration: durationSec || 30",
-    "      genre: selectedStyle,\n      genreFamily: genreFamily || '',\n      subgenre: selectedStyle,\n      mood: mood || 'Energetic',\n      lyrics: lyrics || '',\n      prompt: prompt,\n      bpm: bpm || optimizationResult.genreLock.targetBpm || 124,\n      duration: durationSec || 30,\n      weirdness,\n      styleInfluence",
-    'enqueue authoritative style payload'
-  );
+
+  const modernLevoBlock = "      genre: genre || optimizationResult.genreLock.subgenre || 'Melodic House',\n      mood: mood || 'Energetic',\n      lyrics: lyrics || '',\n      prompt,\n      bpm: bpm || optimizationResult.genreLock.targetBpm || 124,\n      duration: durationSec || 30,\n      engineId: engineSelectorForId(plugin.id)";
+  const legacyBlock = "      genre: genre || optimizationResult.genreLock.subgenre || 'Melodic House',\n      mood: mood || 'Energetic',\n      lyrics: lyrics || '',\n      prompt: prompt,\n      bpm: bpm || optimizationResult.genreLock.targetBpm || 124,\n      duration: durationSec || 30";
+  const authoritativeLegacy = "      genre: selectedStyle,\n      genreFamily: genreFamily || '',\n      subgenre: selectedStyle,\n      mood: mood || 'Energetic',\n      lyrics: lyrics || '',\n      prompt: prompt,\n      bpm: bpm || optimizationResult.genreLock.targetBpm || 124,\n      duration: durationSec || 30,\n      weirdness,\n      styleInfluence";
+  const authoritativeLevo = "      genre: selectedStyle,\n      genreFamily: genreFamily || '',\n      subgenre: selectedStyle,\n      mood: mood || 'Energetic',\n      lyrics: lyrics || '',\n      prompt,\n      bpm: bpm || optimizationResult.genreLock.targetBpm || 124,\n      duration: durationSec || 30,\n      weirdness,\n      styleInfluence,\n      engineId: engineSelectorForId(plugin.id)";
+
+  if (!source.includes(authoritativeLevo) && !source.includes(authoritativeLegacy)) {
+    if (source.includes(modernLevoBlock)) source = source.replace(modernLevoBlock, authoritativeLevo);
+    else if (source.includes(legacyBlock)) source = source.replace(legacyBlock, authoritativeLegacy);
+    else throw new Error('[SONARA] authoritative genre v3 patch failed: enqueue authoritative style payload');
+  }
   write(routePath, source);
 }
 
 function patchWorker() {
   let source = read(workerPath);
-  source = replaceRequired(
+
+  const extendedPayload = "  bpm?: number;\n  duration?: number;\n  genreFamily?: string;\n  subgenre?: string;\n  weirdness?: number;\n  styleInfluence?: number;";
+  if (!source.includes(extendedPayload)) {
+    source = replaceOneOfRequired(
+      source,
+      [
+        "  bpm?: number;\n  duration?: number;\n  engineId?: string;",
+        "  bpm?: number;\n  duration?: number;"
+      ],
+      source.includes("  engineId?: string;")
+        ? extendedPayload + "\n  engineId?: string;"
+        : extendedPayload,
+      'extend generation payload'
+    );
+  }
+
+  source = replaceOneOfRequired(
     source,
-    "  bpm?: number;\n  duration?: number;",
-    "  bpm?: number;\n  duration?: number;\n  genreFamily?: string;\n  subgenre?: string;\n  weirdness?: number;\n  styleInfluence?: number;",
-    'extend generation payload'
-  );
-  source = replaceRequired(
-    source,
-    "      const userGenre = payload.genre || 'House';",
+    [
+      "      const userGenre = payload.genre || 'House';",
+      "      const userGenre = payload.subgenre || payload.genre || 'Music';"
+    ],
     "      const userGenre = payload.subgenre || payload.genre || 'Music';",
     'worker selected style'
   );
-  source = replaceRequired(
+  source = replaceOneOfRequired(
     source,
-    "      const targetGenre = genreLock.subgenre || genreLock.primaryGenre || 'Melodic House';",
+    [
+      "      const targetGenre = genreLock.subgenre || genreLock.primaryGenre || 'Melodic House';",
+      "      const targetGenre = payload.subgenre || genreLock.subgenre || userGenre;"
+    ],
     "      const targetGenre = payload.subgenre || genreLock.subgenre || userGenre;",
     'worker target style lock'
   );
-  source = replaceRequired(
-    source,
-    "        durationSec,\n        targetBpm\n      );",
-    "        durationSec,\n        targetBpm,\n        payload.weirdness,\n        payload.styleInfluence\n      );",
-    'forward creative controls'
-  );
+
+  const modernCall = "        durationSec,\n        targetBpm,\n        requestedEngine\n      );";
+  const modernCallPatched = "        durationSec,\n        targetBpm,\n        payload.weirdness,\n        payload.styleInfluence,\n        requestedEngine\n      );";
+  const legacyCall = "        durationSec,\n        targetBpm\n      );";
+  const legacyCallPatched = "        durationSec,\n        targetBpm,\n        payload.weirdness,\n        payload.styleInfluence\n      );";
+
+  if (!source.includes(modernCallPatched) && !source.includes(legacyCallPatched)) {
+    if (source.includes(modernCall)) source = source.replace(modernCall, modernCallPatched);
+    else if (source.includes(legacyCall)) source = source.replace(legacyCall, legacyCallPatched);
+    else throw new Error('[SONARA] authoritative genre v3 patch failed: forward creative controls');
+  }
   write(workerPath, source);
 }
 
 function patchGenerationService() {
   let source = read(generationPath);
-  source = replaceRequired(
-    source,
-    "    durationSec: number = 15,\n    bpm: number = 128\n  ):",
-    "    durationSec: number = 15,\n    bpm: number = 128,\n    weirdness: number = 50,\n    styleInfluence: number = 50\n  ):",
-    'accept creative controls'
-  );
-  source = replaceRequired(
-    source,
-    "      durationSec,\n      bpm\n    });",
-    "      durationSec,\n      bpm,\n      weirdness,\n      styleInfluence\n    });",
-    'send creative controls to ACE-Step engine'
-  );
+
+  const modernSig = "    durationSec: number = 15,\n    bpm: number = 128,\n    engineSelector?: string";
+  const modernSigPatched = "    durationSec: number = 15,\n    bpm: number = 128,\n    weirdness: number = 50,\n    styleInfluence: number = 50,\n    engineSelector?: string";
+  const legacySig = "    durationSec: number = 15,\n    bpm: number = 128\n  ):";
+  const legacySigPatched = "    durationSec: number = 15,\n    bpm: number = 128,\n    weirdness: number = 50,\n    styleInfluence: number = 50\n  ):";
+
+  if (!source.includes(modernSigPatched) && !source.includes(legacySigPatched)) {
+    if (source.includes(modernSig)) source = source.replace(modernSig, modernSigPatched);
+    else if (source.includes(legacySig)) source = source.replace(legacySig, legacySigPatched);
+    else throw new Error('[SONARA] authoritative genre v3 patch failed: accept creative controls');
+  }
+
+  const generateOld = "      durationSec,\n      bpm\n    });";
+  const generateNew = "      durationSec,\n      bpm,\n      weirdness,\n      styleInfluence\n    });";
+  if (!source.includes(generateNew)) {
+    source = replaceRequired(source, generateOld, generateNew, 'send creative controls to audio engine');
+  }
   write(generationPath, source);
 }
 
@@ -112,4 +156,4 @@ patchRoute();
 patchWorker();
 patchGenerationService();
 patchAceStep();
-console.log('[SONARA] Authoritative genre engine v3 activated: selected subgenre preserved through backend and ACE-Step.');
+console.log('[SONARA] Authoritative genre engine v3 activated: selected subgenre preserved through backend and ACE-Step/LeVo routing.');
