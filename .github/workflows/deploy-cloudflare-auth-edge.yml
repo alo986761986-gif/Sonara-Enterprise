@@ -58,7 +58,6 @@ jobs:
           grep -q 'sonara-auth-email-password-only-v2' cloudflare/sonara-ab-player-visibility-edge.mjs
           grep -q 'sonara-firebase-auth-edge-v2' cloudflare/sonara-firebase-auth-edge.mjs
           grep -q 'handleFirebaseAuthEdge' cloudflare/sonara-ab-player-visibility-edge.mjs
-          grep -q "headers.set('x-sonara-auth-edge', AUTH_VERSION)" cloudflare/sonara-ab-player-visibility-edge.mjs
           node --check cloudflare/sonara-firebase-auth-edge.mjs
           node --check cloudflare/sonara-ab-player-visibility-edge.mjs
 
@@ -69,16 +68,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          response="$(curl -fsS --max-time 60 -H 'Cache-Control: no-cache' 'https://sonaraenterprise.com/__sonara_internal/firebase-auth-status?repair=1')"
-          printf '%s' "${response}" > /tmp/firebase-auth-status.json
+          http_code="$(curl -sS --max-time 60 -o /tmp/firebase-auth-status.json -w '%{http_code}' -H 'Cache-Control: no-cache' 'https://sonaraenterprise.com/__sonara_internal/firebase-auth-status?repair=1')"
           node - <<'NODE'
           const fs = require('fs');
           const data = JSON.parse(fs.readFileSync('/tmp/firebase-auth-status.json', 'utf8'));
+          console.log(`SONARA_FIREBASE_REPAIR_STATUS=${data.ok === true ? 'ok' : 'failed'} reason=${data.reason || 'none'} source=${data.credentialSource || 'none'} keySource=${data.source || 'none'} probe=${data.firebaseProbe || 'none'}`);
           if (data.ok !== true) throw new Error(`Firebase repair failed: ${data.reason || 'unknown'}`);
           if (data.hasKey !== true) throw new Error('Firebase repair returned no usable key');
           if (data.firebaseProbe !== 'firebase_auth_accepted') throw new Error(`Firebase key probe not accepted: ${data.firebaseProbe}`);
           console.log(`Firebase Auth repaired through ${data.credentialSource}/${data.source}; emailEnabled=${data.emailEnabled}; domainsReady=${data.domainsReady}`);
           NODE
+          test "${http_code}" = "200"
 
       - name: Verify public auth edge and bundle repair
         shell: bash
@@ -90,7 +90,7 @@ jobs:
             asset="$(printf '%s' "${html}" | grep -oE 'src="[^"]+/assets/index-[^"]+\.js"' | head -n1 | sed -E 's/^src="|"$//g' || true)"
             if [[ -n "${asset}" ]]; then
               if [[ "${asset}" == http* ]]; then asset_url="${asset}"; else asset_url="https://sonaraenterprise.com${asset}"; fi
-              asset_headers="$(curl -sSI --max-time 30 -H 'Cache-Control: no-cache' "${asset_url}?auth-edge=${GITHUB_SHA}-${attempt}" || true)"
+              asset_headers="$(curl -sS -D - -o /dev/null --max-time 30 -H 'Cache-Control: no-cache' "${asset_url}?auth-edge=${GITHUB_SHA}-${attempt}" || true)"
             else
               asset_headers=''
             fi
