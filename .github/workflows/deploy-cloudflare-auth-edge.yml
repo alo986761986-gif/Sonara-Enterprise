@@ -65,7 +65,7 @@ jobs:
           node --check cloudflare/sonara-ab-player-visibility-edge.mjs
 
       - name: Install frontend dependencies
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Build SONARA frontend
         run: npx vite build
