@@ -6,7 +6,7 @@ export const PROFESSIONAL_REVIEW_SCORE = 78;
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, Number(value) || 0));
 const round = (value, digits = 1) => Number(Number(value || 0).toFixed(digits));
-const finite = value => Number.isFinite(Number(value)) ? Number(value) : null;
+const finite = value => value === null || value === undefined || String(value).trim() === '' ? null : Number.isFinite(Number(value)) ? Number(value) : null;
 const clean = value => String(value ?? '').trim();
 
 function rangeScore(value, idealMin, idealMax, outerMin, outerMax, maxPoints) {
