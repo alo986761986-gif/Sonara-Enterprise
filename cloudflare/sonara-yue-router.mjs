@@ -2,7 +2,7 @@ import molabRuntime, { SonaraJobState } from './sonara-molab-xl-router.mjs';
 
 export { SonaraJobState };
 
-const VERSION = 'sonara-yue-fullsong-v2-live-progress';
+const VERSION = 'sonara-yue-v10-profile-routing';
 const PUBLIC_API_ORIGIN = 'https://api.sonaraenterprise.com';
 const CACHE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/yue-v1/';
 const CACHE_TTL = 12 * 60 * 60;
@@ -66,9 +66,15 @@ function requestedDuration(body = {}) {
   return Math.round(clamp(body.durationSec ?? body.duration, 180, 30, 480));
 }
 
+function requestedProfile(body = {}) {
+  const raw = text(body.qualityProfile || body.generationProfile || body.yueProfile, 'fast').toLowerCase();
+  return raw === 'quality' ? 'quality' : 'fast';
+}
+
 function requestedCandidates(body = {}) {
-  if (body.dualFast === true) return 2;
-  return Math.round(clamp(body.candidateCount, 1, 1, 2));
+  const profile = requestedProfile(body);
+  if (profile === 'quality') return 1;
+  return Math.round(clamp(body.candidateCount ?? body.candidate_count, 1, 1, 1));
 }
 
 function shouldUseYue(body = {}) {
@@ -81,6 +87,8 @@ function shouldUseYue(body = {}) {
 }
 
 function buildYuePayload(body = {}) {
+  const profile = requestedProfile(body);
+  const quality = profile === 'quality';
   const genre = [
     body.sonaraSelectedFamily || body.genreFamily || body.genre_family,
     body.sonaraSelectedGenre || body.genre,
@@ -101,16 +109,20 @@ function buildYuePayload(body = {}) {
     key: text(body.key || body.key_scale),
     duration_sec: requestedDuration(body),
     candidate_count: requestedCandidates(body),
+    qualityProfile: profile,
+    generationProfile: profile,
+    yueProfile: profile,
     seed: Math.max(1, Number(body.seed) > 0 ? Math.floor(Number(body.seed)) : Math.floor(Date.now() % 2_000_000_000)),
     weirdness: Math.round(clamp(body.weirdness, 50, 0, 100)),
     style_influence: Math.round(clamp(body.styleInfluence ?? body.style_influence, 50, 0, 100)),
-    stage2_batch_size: 8,
-    max_new_tokens: 3000,
-    repetition_penalty: 1.1,
+    stage2_batch_size: quality ? 24 : 16,
+    max_new_tokens: Math.round(clamp(body.max_new_tokens, 3000, 1200, 5000)),
+    repetition_penalty: Number(clamp(body.repetition_penalty, 1.1, 1.0, 1.3).toFixed(2)),
     sonara_contract: {
       taxonomy: [body.genreFamily || body.genre_family, body.genre, body.subgenre].filter(Boolean).join(' > '),
       exact_bpm: body.sonaraExactRequestedBpm ?? body.requestedBpm ?? body.bpm,
       duration_sec: requestedDuration(body),
+      profile,
       clean_prompt_v4: body.sonaraCleanPromptV4 === true
     }
   };
@@ -243,7 +255,10 @@ function estimatedProgress(state, task) {
   const createdAt = Number(state?.createdAt || Date.now());
   const elapsedMs = Math.max(0, Date.now() - createdAt);
   const durationSec = Math.max(30, Number(state?.payload?.duration_sec || 180));
-  const expectedMs = Math.max(180_000, durationSec * 1500);
+  const profile = text(state?.payload?.qualityProfile, 'fast');
+  const expectedMs = profile === 'quality'
+    ? Math.max(120_000, durationSec * 1100)
+    : Math.max(45_000, durationSec * 650);
   const estimated = Math.min(92, 8 + Math.floor((elapsedMs / expectedMs) * 84));
   return Math.max(reported, estimated);
 }
@@ -277,9 +292,10 @@ async function startYue(request, env) {
       engine: 'SONARA YuE RTX PRO 6000 Full Song',
       provider: 'yue',
       speedProfile: VERSION,
+      generationProfile: payload.qualityProfile,
       candidateCount: payload.candidate_count,
       requestedDurationSec: payload.duration_sec,
-      currentStage: 'YuE full-song job avviato'
+      currentStage: payload.qualityProfile === 'quality' ? 'YuE QUALITY resident job avviato' : 'YuE TURBO job avviato'
     }
   });
 }
@@ -313,9 +329,16 @@ async function pollYue(request, env, ctx, jobId) {
           engine: 'SONARA YuE RTX PRO 6000 Full Song',
           provider: 'yue',
           speedProfile: VERSION,
+          generationProfile: state?.payload?.qualityProfile || 'fast',
           readyCount: candidates.length,
           candidateCount: candidates.length,
           requestedDurationSec: state?.payload?.duration_sec,
+          elapsedSec: task?.elapsed_sec,
+          measuredBpm: task?.measured_bpm,
+          qualityScore: task?.quality_score,
+          qualityGatePass: task?.quality_gate_pass,
+          resident: task?.resident === true,
+          stage2BatchSize: task?.stage2_batch_size,
           currentStage: candidates.length === 2 ? '2 brani YuE pronti' : 'Brano YuE pronto'
         }
       });
@@ -342,6 +365,7 @@ async function pollYue(request, env, ctx, jobId) {
         engine: 'SONARA YuE RTX PRO 6000 Full Song',
         provider: 'yue',
         speedProfile: VERSION,
+        generationProfile: state?.payload?.qualityProfile || 'fast',
         candidateCount: state?.payload?.candidate_count || 1,
         requestedDurationSec: state?.payload?.duration_sec,
         currentStage: stage,
