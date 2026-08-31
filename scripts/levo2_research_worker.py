@@ -17,7 +17,7 @@ MODEL = ROOT / 'songgeneration_v2_large'
 VENV = ROOT / 'venv'
 PYTHON = VENV / 'bin/python'
 OUTPUT_ROOT = ROOT / 'SONARA-RESEARCH-WORKER'
-PORT = int(os.environ.get('LEVO2_RESEARCH_PORT', '8012'))
+PORT = int(os.environ.get('LEVO2_RESEARCH_PORT', '8022'))
 API_KEY = os.environ.get('LEVO2_RESEARCH_API_KEY', '').strip()
 MAX_DURATION = 270
 LICENSE_MODE = 'RESEARCH_ONLY'
@@ -222,17 +222,14 @@ class Handler(BaseHTTPRequestHandler):
                 return json_response(self, 403, {'status': 'error', 'detail': 'Forbidden'})
             if not target.exists() or not target.is_file():
                 return json_response(self, 404, {'status': 'error', 'detail': 'Audio not found'})
-            data = target.read_bytes()
-            suffix = target.suffix.lower()
-            content_type = {
-                '.flac': 'audio/flac', '.wav': 'audio/wav', '.mp3': 'audio/mpeg',
-                '.ogg': 'audio/ogg', '.m4a': 'audio/mp4'
-            }.get(suffix, 'application/octet-stream')
+            content_type = 'audio/flac' if target.suffix.lower() == '.flac' else 'audio/wav' if target.suffix.lower() == '.wav' else 'audio/mpeg'
             self.send_response(200)
             self.send_header('Content-Type', content_type)
-            self.send_header('Content-Length', str(len(data)))
+            self.send_header('Content-Length', str(target.stat().st_size))
+            self.send_header('Content-Disposition', f'inline; filename="{target.name}"')
             self.end_headers()
-            self.wfile.write(data)
+            with target.open('rb') as f:
+                shutil.copyfileobj(f, self.wfile)
             return
 
         return json_response(self, 404, {'status': 'error', 'detail': 'Not found'})
@@ -240,55 +237,74 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not auth_ok(self):
             return json_response(self, 401, {'status': 'error', 'detail': 'Unauthorized'})
+
         if self.path != '/generate':
             return json_response(self, 404, {'status': 'error', 'detail': 'Not found'})
+
         try:
             length = int(self.headers.get('Content-Length', '0'))
-            if length <= 0 or length > 1_000_000:
-                return json_response(self, 400, {'status': 'error', 'detail': 'Invalid request size'})
-            payload = json.loads(self.rfile.read(length).decode('utf-8'))
-            if payload.get('research_only') is not True:
-                return json_response(self, 403, {
-                    'status': 'error',
-                    'detail': 'LeVo 2 worker is research-only. Set research_only=true for R&D tests.'
-                })
+            raw = self.rfile.read(length) if length else b'{}'
+            payload = json.loads(raw.decode('utf-8'))
+        except Exception as exc:
+            return json_response(self, 400, {'status': 'error', 'detail': f'Invalid JSON: {exc}'})
+
+        if payload.get('research_only') is not True:
+            return json_response(self, 403, {
+                'status': 'error',
+                'detail': 'LeVo 2 worker is research-only. Set research_only=true explicitly.'
+            })
+
+        try:
             result = run_generation(payload)
             return json_response(self, 200, result)
         except Exception as exc:
-            return json_response(self, 500, {
-                'status': 'error',
-                'detail': str(exc),
-                'license_mode': LICENSE_MODE,
-                'research_only': True,
-            })
+            return json_response(self, 500, {'status': 'error', 'detail': str(exc)})
+
+
+def check_only():
+    required, missing = environment_status()
+    print(json.dumps({
+        'root': str(ROOT),
+        'model': str(MODEL),
+        'ready': not missing,
+        'missing': missing,
+        'paths': {k: str(v) for k, v in required.items()},
+        'license_mode': LICENSE_MODE,
+    }, indent=2))
+    return 0 if not missing else 1
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Sonara LeVo 2 research worker')
-    parser.add_argument('--host', default=os.environ.get('LEVO2_RESEARCH_HOST', '0.0.0.0'))
+    parser = argparse.ArgumentParser(description='SONARA LeVo 2 research-only worker')
+    parser.add_argument('--host', default='0.0.0.0')
     parser.add_argument('--port', type=int, default=PORT)
     parser.add_argument('--check-only', action='store_true')
     args = parser.parse_args()
 
-    required, missing = environment_status()
-    print('=' * 80)
-    print('SONARA LEVO 2 RESEARCH WORKER')
-    print('ROOT:', ROOT)
-    print('MODEL:', MODEL)
-    print('LICENSE MODE:', LICENSE_MODE)
-    print('MISSING:', missing or 'none')
-    print('=' * 80)
-
     if args.check_only:
-        raise SystemExit(1 if missing else 0)
-    if missing:
-        raise SystemExit('Cannot start worker: missing ' + ', '.join(missing))
+        raise SystemExit(check_only())
 
-    OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
+    _, missing = environment_status()
+    if missing:
+        print('LeVo 2 worker cannot start. Missing:', ', '.join(missing), flush=True)
+        raise SystemExit(1)
+
+    print('=' * 80, flush=True)
+    print('SONARA LEVO 2 RESEARCH WORKER', flush=True)
+    print(f'ROOT={ROOT}', flush=True)
+    print(f'MODEL={MODEL}', flush=True)
+    print(f'URL=http://{args.host}:{args.port}', flush=True)
+    print(f'LICENSE={LICENSE_MODE}', flush=True)
+    print(f'AUTH={"ON" if API_KEY else "OFF"}', flush=True)
+    print('=' * 80, flush=True)
+
     server = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f'LEVO2_RESEARCH_URL=http://{args.host}:{args.port}', flush=True)
-    print('Worker ready. Research use only.', flush=True)
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
 
 
 if __name__ == '__main__':
