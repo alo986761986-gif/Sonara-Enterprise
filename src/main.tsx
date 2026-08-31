@@ -18,6 +18,7 @@ import SonaraInteractiveMiniGuide from './components/generator/SonaraInteractive
 import SonaraSunoLanding from './components/home/SonaraSunoLanding';
 import LandingPromptGuard from './components/home/LandingPromptGuard';
 import SonaraProfessionalFixedPlayer from './components/player/SonaraProfessionalFixedPlayer';
+import SonaraUniversalPlayerBridge from './components/player/SonaraUniversalPlayerBridge';
 import StudioSectionControl from './components/studio/StudioSectionControl';
 import VideoAISectionControl from './components/video/VideoAISectionControl';
 import DJSectionControl from './components/dj/DJSectionControl';
@@ -38,6 +39,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <App />
             <SonaraSunoLanding />
             <SonaraProfessionalFixedPlayer />
+            <SonaraUniversalPlayerBridge />
           </>
         </BootAuth>
         <LandingPromptGuard />
