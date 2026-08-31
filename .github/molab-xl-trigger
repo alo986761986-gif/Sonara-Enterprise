@@ -1,5 +1,5 @@
 SONARA_MOLAB_XL_URL=https://molab.sonaraenterprise.com
 MODEL=acestep-v15-xl-turbo
 MODE=MOLAB_XL_ONLY
-ACTION=activate-sonara-release-quality-gate-v2
-VERIFY=20260830-SUNO-LEVEL-CORE-QUALITY-GATE-V2
+ACTION=activate-ace-step-xl-turbo-production
+VERIFY=20260831-ACE-STEP-XL-TURBO-PRODUCTION
