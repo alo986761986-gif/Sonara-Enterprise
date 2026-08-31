@@ -80,26 +80,68 @@ def materialize_git_lfs_files():
     print(f'Git LFS files materialized: {fixed}', flush=True)
 
 
+def _venv_is_python310():
+    if not PY.exists():
+        return False
+    check = subprocess.run(
+        [str(PY), '-c', 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")'],
+        capture_output=True,
+        text=True,
+    )
+    return check.returncode == 0 and check.stdout.strip() == '3.10'
+
+
 def make_venv():
-    if PY.exists():
+    if PY.exists() and not _venv_is_python310():
+        print('Venv esistente non Python 3.10: lo ricreo.', flush=True)
+        shutil.rmtree(VENV)
+
+    if not PY.exists():
+        uv = shutil.which('uv')
+        if uv:
+            # --seed installs pip/setuptools into the venv when supported by this uv version.
+            result = subprocess.run([uv, 'venv', '--python', '3.10', '--seed', str(VENV)])
+            if result.returncode != 0:
+                # Older uv versions may not support --seed; the venv is still useful because
+                # dependency installation below uses `uv pip --python` directly.
+                if VENV.exists():
+                    shutil.rmtree(VENV)
+                result = subprocess.run([uv, 'venv', '--python', '3.10', str(VENV)])
+            if result.returncode == 0 and PY.exists():
+                return
+
+        py310 = shutil.which('python3.10')
+        if not py310:
+            raise RuntimeError('Python 3.10 non disponibile. Installa Python 3.10 oppure uv e rilancia.')
+        run([py310, '-m', 'venv', str(VENV)])
+
+    if not _venv_is_python310():
+        raise RuntimeError(f'Il venv LeVo2 non usa Python 3.10: {PY}')
+
+
+def ensure_pip_fallback():
+    test = subprocess.run([str(PY), '-m', 'pip', '--version'], capture_output=True, text=True)
+    if test.returncode == 0:
         return
-    uv = shutil.which('uv')
-    if uv:
-        # uv can provision Python 3.10 in a clean notebook if it is not preinstalled.
-        result = subprocess.run([uv, 'venv', '--python', '3.10', str(VENV)])
-        if result.returncode == 0 and PY.exists():
-            return
-    py310 = shutil.which('python3.10')
-    if not py310:
-        raise RuntimeError('Python 3.10 non disponibile. Installa Python 3.10 oppure uv e rilancia.')
-    run([py310, '-m', 'venv', str(VENV)])
+    print('pip non presente nel venv: bootstrap con ensurepip...', flush=True)
+    subprocess.run([str(PY), '-m', 'ensurepip', '--upgrade'], check=False)
+    test = subprocess.run([str(PY), '-m', 'pip', '--version'], capture_output=True, text=True)
+    if test.returncode != 0:
+        raise RuntimeError('Impossibile inizializzare pip nel venv Python 3.10.')
 
 
 def pip_install(*args, timeout=1800):
+    uv = shutil.which('uv')
+    if uv:
+        # This works even when a freshly-created uv venv has no pip module installed yet.
+        run([uv, 'pip', 'install', '--python', str(PY), *args], timeout=timeout)
+        return
+    ensure_pip_fallback()
     run([str(PY), '-m', 'pip', 'install', *args], timeout=timeout)
 
 
 def install_dependencies():
+    # Installing pip itself also makes the venv convenient for later manual diagnostics.
     pip_install('--upgrade', 'pip', 'wheel', 'setuptools==80.9.0')
 
     # RTX PRO 6000 Blackwell-safe stack used by the successful SONARA R&D setup.
