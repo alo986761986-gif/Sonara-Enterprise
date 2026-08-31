@@ -1,5 +1,5 @@
-SONARA_MOLAB_XL_URL=https://molab.sonaraenterprise.com
+SONARA_MOLAB_XL_URL=https://awareness-here-collect-psp.trycloudflare.com
 MODEL=acestep-v15-xl-turbo
 MODE=MOLAB_XL_ONLY
 ACTION=activate-ace-step-xl-turbo-production
-VERIFY=20260831-ACE-STEP-XL-TURBO-PRODUCTION
+VERIFY=20260831-ACE-STEP-XL-TURBO-PRODUCTION-145906
