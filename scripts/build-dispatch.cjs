@@ -44,6 +44,8 @@ console.log('[SONARA] Enforcing absolute selected-style precedence.');
 runCommand(node, ['scripts/activate-authoritative-style-precedence-v3.cjs']);
 console.log('[SONARA] Activating LeVo 2 R&D only for Vercel preview builds.');
 runCommand(node, ['scripts/activate-levo2-rd-preview.cjs']);
+console.log('[SONARA] Locking Vercel preview generation to LeVo 2 only.');
+runCommand(node, ['scripts/force-levo2-preview-only.cjs']);
 console.log('[SONARA] Validating professional music taxonomy.');
 run(['tsx', 'src/musicStyleIntelligence.professional.test.ts']);
 console.log('[SONARA] Validating canonical real family > genre > subgenre taxonomy v4.');
