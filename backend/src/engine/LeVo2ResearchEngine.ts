@@ -47,7 +47,7 @@ export class LeVo2ResearchEngine extends IAudioGenerationEngine {
   private lastError: string | null = null;
 
   private readonly apiBaseUrl =
-    (process.env.LEVO2_RESEARCH_API_URL || 'http://127.0.0.1:8012').replace(/\/+$/, '');
+    (process.env.LEVO2_RESEARCH_API_URL || 'http://127.0.0.1:8022').replace(/\/+$/, '');
 
   private readonly apiKey = (process.env.LEVO2_RESEARCH_API_KEY || '').trim();
 
