@@ -2,8 +2,7 @@ name: SONARA Studio Reliability Duration Patch
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
     paths:
       - ".github/workflows/sonara-studio-reliability-duration-patch.yml"
 
@@ -28,23 +27,26 @@ jobs:
           from pathlib import Path
           import re
 
-          quality_path = Path('cloudflare/sonara-audio-quality-engine.mjs')
-          quality = quality_path.read_text()
+          def replace_once(text, old, new, label):
+              if old not in text:
+                  raise SystemExit(f'{label} marker missing')
+              return text.replace(old, new, 1)
 
-          old = "const db = value => value > 0 ? 20 * Math.log10(value) : -120;"
-          new = """const db = value => value > 0 ? 20 * Math.log10(value) : -120;
+          # 1) Missing BPM must be neutral for stems, never interpreted as BPM 0.
+          qp = Path('cloudflare/sonara-audio-quality-engine.mjs')
+          q = qp.read_text()
+          q = replace_once(q,
+              "const db = value => value > 0 ? 20 * Math.log10(value) : -120;",
+              """const db = value => value > 0 ? 20 * Math.log10(value) : -120;
           const optionalBpm = value => {
             if (value === null || value === undefined || String(value).trim() === '') return null;
             const number = Number(value);
             return Number.isFinite(number) && number >= BPM_MIN && number <= BPM_MAX ? number : null;
-          };"""
-          if old not in quality:
-            raise SystemExit('quality optionalBpm insertion marker missing')
-          quality = quality.replace(old, new, 1)
-
-          quality = quality.replace('const requested = Number(requestedBpm);', 'const requested = optionalBpm(requestedBpm);', 1)
-
-          old = """  const requestedBpm = Number(requested.bpm);
+          };""",
+              'optionalBpm')
+          q = replace_once(q, 'const requested = Number(requestedBpm);', 'const requested = optionalBpm(requestedBpm);', 'detectBpm optional')
+          q = replace_once(q,
+              """  const requestedBpm = Number(requested.bpm);
             const bpmError = Number.isFinite(requestedBpm) && bpmReport.detectedBpm
               ? Math.abs(bpmReport.detectedBpm - requestedBpm)
               : null;
@@ -52,8 +54,8 @@ jobs:
             const bpmPassed = bpmError === null ? false : bpmError <= bpmTolerance;
 
             let bpmPoints = bpmError === null ? 8 : clamp(35 - bpmError * 3.5, 0, 35);
-            if (bpmPassed) bpmPoints = Math.max(bpmPoints, 32);"""
-          new = """  const requestedBpm = optionalBpm(requested.bpm);
+            if (bpmPassed) bpmPoints = Math.max(bpmPoints, 32);""",
+              """  const requestedBpm = optionalBpm(requested.bpm);
             const hasRequestedBpm = requestedBpm !== null;
             const bpmError = hasRequestedBpm && bpmReport.detectedBpm
               ? Math.abs(bpmReport.detectedBpm - requestedBpm)
@@ -62,33 +64,26 @@ jobs:
             const bpmPassed = !hasRequestedBpm ? null : (bpmError !== null && bpmError <= bpmTolerance);
 
             let bpmPoints = !hasRequestedBpm ? 35 : bpmError === null ? 8 : clamp(35 - bpmError * 3.5, 0, 35);
-            if (bpmPassed === true) bpmPoints = Math.max(bpmPoints, 32);"""
-          if old not in quality:
-            raise SystemExit('quality BPM scoring marker missing')
-          quality = quality.replace(old, new, 1)
+            if (bpmPassed === true) bpmPoints = Math.max(bpmPoints, 32);""",
+              'quality BPM score')
+          q = replace_once(q,
+              'const hardGate = bpmPassed && metrics.clippingRatio < 0.001 && metrics.silenceRatio < 0.18 && metrics.peak > 0.15 && metrics.rms > 0.01;',
+              'const hardGate = bpmPassed !== false && metrics.clippingRatio < 0.001 && metrics.silenceRatio < 0.18 && metrics.peak > 0.15 && metrics.rms > 0.01;',
+              'quality hardGate')
+          q = replace_once(q, 'bpmTolerance: round(bpmTolerance, 1),', 'bpmTolerance: bpmTolerance === null ? null : round(bpmTolerance, 1),', 'bpmTolerance output')
+          q = replace_once(q, "requestedBpm: Number.isFinite(Number(requested.bpm)) ? Number(requested.bpm) : null,", "requestedBpm: optionalBpm(requested.bpm),", 'requestedBpm output')
+          qp.write_text(q)
 
-          old = "const hardGate = bpmPassed && metrics.clippingRatio < 0.001 && metrics.silenceRatio < 0.18 && metrics.peak > 0.15 && metrics.rms > 0.01;"
-          new = "const hardGate = bpmPassed !== false && metrics.clippingRatio < 0.001 && metrics.silenceRatio < 0.18 && metrics.peak > 0.15 && metrics.rms > 0.01;"
-          if old not in quality:
-            raise SystemExit('quality hardGate marker missing')
-          quality = quality.replace(old, new, 1)
-
-          quality = quality.replace('bpmTolerance: round(bpmTolerance, 1),', 'bpmTolerance: bpmTolerance === null ? null : round(bpmTolerance, 1),', 1)
-          quality = quality.replace("requestedBpm: Number.isFinite(Number(requested.bpm)) ? Number(requested.bpm) : null,", "requestedBpm: optionalBpm(requested.bpm),", 1)
-          quality_path.write_text(quality)
-
-          router_path = Path('cloudflare/sonara-studio-ai-router.mjs')
-          router = router_path.read_text()
-
-          state_pattern = re.compile(r"async function saveState\(jobId, state\) \{.*?\n\}\n\nasync function loadState\(jobId\) \{.*?\n\}\n", re.S)
-          state_replacement = """function studioStateStub(env, jobId) {
+          # 2) Studio jobs use the already-bound Durable Object, with cache fallback.
+          rp = Path('cloudflare/sonara-studio-ai-router.mjs')
+          r = rp.read_text()
+          state_rx = re.compile(r"async function saveState\(jobId, state\) \{.*?\n\}\n\nasync function loadState\(jobId\) \{.*?\n\}\n", re.S)
+          state_code = """function studioStateStub(env, jobId) {
             try {
-              const namespace = env?.SONARA_JOB_STATE;
-              if (!namespace || typeof namespace.idFromName !== 'function' || typeof namespace.get !== 'function') return null;
-              return namespace.get(namespace.idFromName(`studio-ai:${jobId}`));
-            } catch {
-              return null;
-            }
+              const ns = env?.SONARA_JOB_STATE;
+              if (!ns || typeof ns.idFromName !== 'function' || typeof ns.get !== 'function') return null;
+              return ns.get(ns.idFromName(`studio-ai:${jobId}`));
+            } catch { return null; }
           }
 
           async function saveState(jobId, state, env) {
@@ -96,9 +91,7 @@ jobs:
             if (stub) {
               try {
                 const response = await stub.fetch('https://sonara.internal/state', {
-                  method: 'PUT',
-                  headers: { 'content-type': 'application/json' },
-                  body: JSON.stringify(state)
+                  method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(state)
                 });
                 if (response.ok) return;
               } catch {}
@@ -121,40 +114,19 @@ jobs:
             try {
               const response = await caches.default.match(stateRequest(jobId));
               return response ? await response.json() : null;
-            } catch {
-              return null;
-            }
+            } catch { return null; }
           }
           """
-          router, count = state_pattern.subn(state_replacement, router, count=1)
-          if count != 1:
-            raise SystemExit(f'Studio state block replacement count={count}')
-          router = router.replace('await saveState(jobId, state);', 'await saveState(jobId, state, env);')
-          router = router.replace('const state = await loadState(jobId);', 'const state = await loadState(jobId, env);', 1)
-          if router.count('await saveState(jobId, state, env);') < 2:
-            raise SystemExit('Studio saveState env replacements incomplete')
+          r, n = state_rx.subn(state_code, r, count=1)
+          if n != 1: raise SystemExit(f'state replacement count={n}')
+          r = r.replace('await saveState(jobId, state);', 'await saveState(jobId, state, env);')
+          r = replace_once(r, 'const state = await loadState(jobId);', 'const state = await loadState(jobId, env);', 'loadState env')
+          if r.count('await saveState(jobId, state, env);') < 2: raise SystemExit('saveState env replacements incomplete')
 
-          marker = """function directAudioFetch(baseUrl, env) {
-            return async (input, init = {}) => {
-              try {
-                const inputUrl = input instanceof Request ? input.url : String(input);
-                const url = new URL(inputUrl, PUBLIC_API_ORIGIN);
-                if ((url.hostname === 'api.sonaraenterprise.com' || url.hostname === 'molab.sonaraenterprise.com') && (url.pathname === '/api/molab/audio' || url.pathname === '/v1/audio')) {
-                  const path = clean(url.searchParams.get('path'));
-                  if (path) {
-                    const headers = new Headers(init.headers || {});
-                    for (const [key, value] of Object.entries(authHeaders(env))) if (!headers.has(key)) headers.set(key, value);
-                    return fetch(`${baseUrl}/v1/audio?path=${encodeURIComponent(path)}`, { ...init, headers });
-                  }
-                }
-              } catch {}
-              return fetch(input, init);
-            };
-          }
-          """
-          if marker not in router:
-            raise SystemExit('directAudioFetch marker missing')
-          helpers = marker + """
+          # 3) Extend gets a real target-length WAV canvas; ACE-Step completes the padded tail.
+          anchor = '\nasync function createStudioJob(request, env, operation) {'
+          if anchor not in r: raise SystemExit('createStudioJob anchor missing')
+          helpers = """
           async function mapWithConcurrency(items, limit, mapper) {
             const source = Array.from(items || []);
             const results = new Array(source.length);
@@ -180,27 +152,13 @@ jobs:
             const view = new DataView(buffer);
             const ascii = (offset, length) => String.fromCharCode(...bytes.slice(offset, offset + length));
             if (ascii(0, 4) !== 'RIFF' || ascii(8, 4) !== 'WAVE') return input;
-
-            let offset = 12;
-            let sampleRate = 0;
-            let blockAlign = 0;
-            let dataHeader = -1;
-            let dataOffset = -1;
-            let dataSize = 0;
+            let offset = 12, sampleRate = 0, blockAlign = 0, dataHeader = -1, dataOffset = -1, dataSize = 0;
             while (offset + 8 <= view.byteLength) {
-              const id = ascii(offset, 4);
-              const size = view.getUint32(offset + 4, true);
-              const payload = offset + 8;
+              const id = ascii(offset, 4), size = view.getUint32(offset + 4, true), payload = offset + 8;
               if (id === 'fmt ' && payload + 16 <= view.byteLength) {
-                sampleRate = view.getUint32(payload + 4, true);
-                blockAlign = view.getUint16(payload + 12, true);
+                sampleRate = view.getUint32(payload + 4, true); blockAlign = view.getUint16(payload + 12, true);
               }
-              if (id === 'data') {
-                dataHeader = offset;
-                dataOffset = payload;
-                dataSize = Math.max(0, Math.min(size, view.byteLength - dataOffset));
-                break;
-              }
+              if (id === 'data') { dataHeader = offset; dataOffset = payload; dataSize = Math.max(0, Math.min(size, view.byteLength - payload)); break; }
               offset = payload + size + (size % 2);
             }
             if (!sampleRate || !blockAlign || dataHeader < 0 || dataOffset < 0) return input;
@@ -210,88 +168,53 @@ jobs:
             const targetDataSize = targetFrames * blockAlign;
             const outputSize = dataOffset + targetDataSize;
             if (outputSize > MAX_UPLOAD_BYTES) throw new Error('Audio Extend troppo grande dopo il padding di continuazione.');
-
             const output = new Uint8Array(outputSize);
             output.set(bytes.slice(0, dataOffset + dataSize), 0);
-            const outputView = new DataView(output.buffer);
-            outputView.setUint32(4, output.byteLength - 8, true);
-            outputView.setUint32(dataHeader + 4, targetDataSize, true);
-            return {
-              ...input,
-              blob: new Blob([output], { type: 'audio/wav' }),
-              filename: 'sonara-extend-source.wav',
-              type: 'audio/wav',
-              paddedFromSec: currentFrames / sampleRate,
-              paddedToSec: targetFrames / sampleRate
-            };
+            const out = new DataView(output.buffer);
+            out.setUint32(4, output.byteLength - 8, true);
+            out.setUint32(dataHeader + 4, targetDataSize, true);
+            return { ...input, blob: new Blob([output], { type: 'audio/wav' }), filename: 'sonara-extend-source.wav', type: 'audio/wav' };
           }
           """
-          router = router.replace(marker, helpers, 1)
+          r = r.replace(anchor, helpers + anchor, 1)
 
-          old = """    } else if (operation === 'complete') {
-                if (!sourceInput) throw new Error('Seleziona il materiale audio da completare.');
-                const classes = parseList(body.trackClasses || body.tracks || body.stems, ['drums', 'bass', 'keys']).map(normalizeStem).slice(0, 8);
-                const labels = classes.map(humanStem);
-                const payload = {
-                  ...commonPayload(body, BASE_MODEL),
-                  task_type: 'complete',
-                  prompt: clean(body.prompt || body.instruction || `Complete the arrangement with ${labels.join(', ')}.`),
-                  instruction: `Complete the source arrangement with ${labels.join(', ')}. Preserve exact BPM ${bpm}${key ? ` and key ${key}` : ''}; match the existing groove, bar grid, harmony, ambience and production quality. ${clean(body.prompt || body.instruction)}`
-                };
-                tasks.push({ taskId: await submitTask(baseUrl, env, payload, sourceInput, referenceInput), label: 'Arrangement Complete', kind: 'master' });"""
-          new = """    } else if (operation === 'complete') {
-                if (!sourceInput) throw new Error('Seleziona il materiale audio da completare.');
+          start = r.find("    } else if (operation === 'complete') {")
+          end = r.find("    } else if (operation === 'extract') {", start)
+          if start < 0 or end < 0: raise SystemExit('complete operation block missing')
+          block = r[start:end]
+          block = replace_once(block,
+              "      if (!sourceInput) throw new Error('Seleziona il materiale audio da completare.');",
+              """      if (!sourceInput) throw new Error('Seleziona il materiale audio da completare.');
                 const targetDuration = clamp(body.durationSec ?? body.duration ?? body.audio_duration, 60, 5, 600);
-                const continuationInput = await padWavInputToDuration(sourceInput, targetDuration);
-                const classes = parseList(body.trackClasses || body.tracks || body.stems, ['drums', 'bass', 'keys']).map(normalizeStem).slice(0, 8);
-                const labels = classes.map(humanStem);
-                const payload = {
-                  ...commonPayload({ ...body, durationSec: targetDuration }, BASE_MODEL),
-                  task_type: 'complete',
-                  prompt: clean(body.prompt || body.instruction || `Complete the arrangement with ${labels.join(', ')}.`),
-                  instruction: `Continue and complete the source arrangement through the full ${round(targetDuration, 2)} seconds. Fill any padded silent tail with a coherent musical continuation; do not leave the continuation silent. Preserve exact BPM ${bpm}${key ? ` and key ${key}` : ''}; match the existing groove, bar grid, harmony, ambience and production quality. ${clean(body.prompt || body.instruction)}`
-                };
-                tasks.push({ taskId: await submitTask(baseUrl, env, payload, continuationInput, referenceInput), label: 'Arrangement Complete', kind: 'master' });"""
-          if old not in router:
-            raise SystemExit('Studio complete block marker missing')
-          router = router.replace(old, new, 1)
+                const continuationInput = await padWavInputToDuration(sourceInput, targetDuration);""",
+              'complete target duration')
+          block = replace_once(block, '...commonPayload(body, BASE_MODEL),', '...commonPayload({ ...body, durationSec: targetDuration }, BASE_MODEL),', 'complete payload duration')
+          block = replace_once(block, 'submitTask(baseUrl, env, payload, sourceInput, referenceInput)', 'submitTask(baseUrl, env, payload, continuationInput, referenceInput)', 'complete continuation input')
+          block = block.replace('Complete the source arrangement with ${labels.join(\', \')}.', 'Continue the source through the full ${round(targetDuration, 2)} seconds and fill the silent tail musically with ${labels.join(\', \')}.', 1)
+          r = r[:start] + block + r[end:]
 
-          old = "const qualityReports = await Promise.all(outputs.slice(0, 12).map(async (output, index) => {"
-          new = "const qualityReports = await mapWithConcurrency(outputs.slice(0, 12), 2, async (output, index) => {"
-          if old not in router:
-            raise SystemExit('Studio quality Promise.all marker missing')
-          router = router.replace(old, new, 1)
-          old_close = """      }
-            }));
+          # 4) Avoid 12 simultaneous WAV analyzers exhausting the Worker.
+          r = replace_once(r,
+              'const qualityReports = await Promise.all(outputs.slice(0, 12).map(async (output, index) => {',
+              'const qualityReports = await mapWithConcurrency(outputs.slice(0, 12), 2, async (output, index) => {',
+              'quality concurrency opening')
+          qstart = r.find('const qualityReports = await mapWithConcurrency')
+          qend = r.find('const ranked = rankQualityReports(qualityReports);', qstart)
+          if qstart < 0 or qend < 0: raise SystemExit('quality block bounds missing')
+          segment = r[qstart:qend]
+          segment, n = re.subn(r'\}\)\);\s*$', '});\n\n    ', segment, count=1)
+          if n != 1: raise SystemExit('quality concurrency closing missing')
+          r = r[:qstart] + segment + r[qend:]
+          rp.write_text(r)
 
-            const ranked = rankQualityReports(qualityReports);"""
-          new_close = """      }
-            });
-
-            const ranked = rankQualityReports(qualityReports);"""
-          if old_close not in router:
-            raise SystemExit('Studio quality Promise.all closing marker missing')
-          router = router.replace(old_close, new_close, 1)
-          router_path.write_text(router)
-
-          canary_path = Path('scripts/sonara-real-music-e2e.mjs')
-          canary = canary_path.read_text()
-          marker = """function audioFormatFromUrl(value) {
-            try {
-              const url = new URL(String(value || ''));
-              const path = String(url.searchParams.get('path') || url.pathname).toLowerCase();
-              if (path.endsWith('.wav') || path.endsWith('.wav32')) return 'wav';
-              if (path.endsWith('.flac')) return 'flac';
-              if (path.endsWith('.mp3')) return 'mp3';
-              if (path.endsWith('.aac') || path.endsWith('.m4a')) return 'aac';
-              if (path.endsWith('.opus') || path.endsWith('.ogg')) return 'opus';
-            } catch {}
-            return 'unknown';
-          }
-          """
-          if marker not in canary:
-            raise SystemExit('canary audioFormat marker missing')
-          canary_helpers = marker + """
+          # 5) Make the production canary strict: WAV + release gate + 12 distinct stems.
+          cp = Path('scripts/sonara-real-music-e2e.mjs')
+          c = cp.read_text()
+          format_end = "  return 'unknown';\n}\n"
+          idx = c.find(format_end)
+          if idx < 0: raise SystemExit('audioFormat function end missing')
+          insert_at = idx + len(format_end)
+          strict_helpers = """
           function requireWavOutputs(urls, label, exactCount = null) {
             const formats = urls.map(audioFormatFromUrl);
             if (exactCount !== null && urls.length !== exactCount) throw new Error(`${label}: attesi ${exactCount} WAV, ricevuti ${urls.length}.`);
@@ -304,44 +227,34 @@ jobs:
             if (Number(summary?.passed || 0) < 1) throw new Error(`${label}: release gate 88 non superato (${snapshot.bestScore ?? 'n/a'}/100).`);
           }
           """
-          canary = canary.replace(marker, canary_helpers, 1)
-
-          old = """    const baseSummary = await quality2(base, 'base-generation', { bpm: 122, key: 'A Minor', durationSec: 30 });
-                const bestIndex = Number.isInteger(Number(baseSummary.bestCandidateIndex)) ? Number(baseSummary.bestCandidateIndex) : 0;"""
-          new = """    requireWavOutputs(base, 'base-generation', 2);
+          c = c[:insert_at] + strict_helpers + c[insert_at:]
+          c = replace_once(c,
+              "    const baseSummary = await quality2(base, 'base-generation', { bpm: 122, key: 'A Minor', durationSec: 30 });",
+              """    requireWavOutputs(base, 'base-generation', 2);
                 const baseSummary = await quality2(base, 'base-generation', { bpm: 122, key: 'A Minor', durationSec: 30 });
-                requireReleasePass('base-generation', baseSummary);
-                const bestIndex = Number.isInteger(Number(baseSummary.bestCandidateIndex)) ? Number(baseSummary.bestCandidateIndex) : 0;"""
-          if old not in canary:
-            raise SystemExit('canary base strict marker missing')
-          canary = canary.replace(old, new, 1)
-
-          old = """    await quality2([replaced[0]], 'replace', { bpm: 122, key: 'A Minor', durationSec: 30 });"""
-          new = """    requireWavOutputs(replaced, 'replace');
+                requireReleasePass('base-generation', baseSummary);""",
+              'base strict')
+          c = replace_once(c,
+              "    await quality2([replaced[0]], 'replace', { bpm: 122, key: 'A Minor', durationSec: 30 });",
+              """    requireWavOutputs(replaced, 'replace');
                 const replaceSummary = await quality2([replaced[0]], 'replace', { bpm: 122, key: 'A Minor', durationSec: 30 });
-                requireReleasePass('replace', replaceSummary);"""
-          if old not in canary:
-            raise SystemExit('canary replace strict marker missing')
-          canary = canary.replace(old, new, 1)
-
-          old = """    await quality2([extended[0]], 'extend', { bpm: 122, key: 'A Minor', durationSec: 45 });"""
-          new = """    requireWavOutputs(extended, 'extend');
+                requireReleasePass('replace', replaceSummary);""",
+              'replace strict')
+          c = replace_once(c,
+              "    await quality2([extended[0]], 'extend', { bpm: 122, key: 'A Minor', durationSec: 45 });",
+              """    requireWavOutputs(extended, 'extend');
                 const extendSummary = await quality2([extended[0]], 'extend', { bpm: 122, key: 'A Minor', durationSec: 45 });
-                requireReleasePass('extend', extendSummary);"""
-          if old not in canary:
-            raise SystemExit('canary extend strict marker missing')
-          canary = canary.replace(old, new, 1)
-
-          old = """    if (stems.length < 2) report.diagnostics.push(`Stems Pro: ${stems.length} URL audio direttamente enumerabili; verificare eventuale bundle/metadata multi-stem.`);"""
-          new = """    requireWavOutputs(stems, 'Stems Pro', 12);
+                requireReleasePass('extend', extendSummary);""",
+              'extend strict')
+          c = replace_once(c,
+              "    if (stems.length < 2) report.diagnostics.push(`Stems Pro: ${stems.length} URL audio direttamente enumerabili; verificare eventuale bundle/metadata multi-stem.`);",
+              """    requireWavOutputs(stems, 'Stems Pro', 12);
                 const expectedStemLabels = ['Vocals','Drums','Bass','Guitar','Keys','Synth','Strings','Brass','Woodwinds','Percussion','Pads','FX'];
                 const stemLabels = (report.outputs['stems-pro']?.qualityJudge?.reports || []).map(item => String(item?.label || '')).filter(Boolean);
                 const missingLabels = expectedStemLabels.filter(label => !stemLabels.includes(label));
-                if (missingLabels.length) throw new Error(`Stems Pro: stem distinti mancanti: ${missingLabels.join(', ')}.`);"""
-          if old not in canary:
-            raise SystemExit('canary stems strict marker missing')
-          canary = canary.replace(old, new, 1)
-          canary_path.write_text(canary)
+                if (missingLabels.length) throw new Error(`Stems Pro: stem distinti mancanti: ${missingLabels.join(', ')}.`);""",
+              'stems strict')
+          cp.write_text(c)
           PY
 
           node --check cloudflare/sonara-audio-quality-engine.mjs
@@ -349,10 +262,10 @@ jobs:
           node --check scripts/sonara-real-music-e2e.mjs
           node --test cloudflare/sonara-studio-v2-contract.test.mjs
           git diff --check
-          grep -q "studioStateStub" cloudflare/sonara-studio-ai-router.mjs
-          grep -q "padWavInputToDuration" cloudflare/sonara-studio-ai-router.mjs
-          grep -q "mapWithConcurrency(outputs.slice(0, 12), 2" cloudflare/sonara-studio-ai-router.mjs
-          grep -q "const optionalBpm" cloudflare/sonara-audio-quality-engine.mjs
+          grep -q 'studioStateStub' cloudflare/sonara-studio-ai-router.mjs
+          grep -q 'padWavInputToDuration' cloudflare/sonara-studio-ai-router.mjs
+          grep -q 'mapWithConcurrency(outputs.slice(0, 12), 2' cloudflare/sonara-studio-ai-router.mjs
+          grep -q 'const optionalBpm' cloudflare/sonara-audio-quality-engine.mjs
           grep -q "requireReleasePass('extend'" scripts/sonara-real-music-e2e.mjs
           grep -q "requireWavOutputs(stems, 'Stems Pro', 12)" scripts/sonara-real-music-e2e.mjs
 
@@ -361,11 +274,11 @@ jobs:
         run: |
           set -euo pipefail
           if git diff --quiet; then
-            echo "No patch needed."
+            echo 'No patch needed.'
             exit 0
           fi
-          git config user.name "sonara-ci"
-          git config user.email "sonara-ci@users.noreply.github.com"
+          git config user.name 'sonara-ci'
+          git config user.email 'sonara-ci@users.noreply.github.com'
           git add cloudflare/sonara-audio-quality-engine.mjs cloudflare/sonara-studio-ai-router.mjs scripts/sonara-real-music-e2e.mjs
-          git commit -m "fix(studio): persist jobs and enforce real Extend duration"
+          git commit -m 'fix(studio): persist jobs and enforce real Extend duration'
           git push origin HEAD:main
