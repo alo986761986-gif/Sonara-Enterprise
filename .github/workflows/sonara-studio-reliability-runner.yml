@@ -1,0 +1,70 @@
+name: SONARA Studio Reliability Runner
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/sonara-studio-reliability-runner.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Execute corrected reliability patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import textwrap
+
+          workflow = Path('.github/workflows/sonara-studio-reliability-duration-patch.yml').read_text()
+          old = 'end = r.find("    } else if (operation === \'extract\') {", start)'
+          new = 'end = r.find("    } else if (operation === \'repair\') {", start)'
+          if old not in workflow:
+              raise SystemExit('Reliability patch boundary marker not found')
+          workflow = workflow.replace(old, new, 1)
+
+          begin_marker = "          python - <<'PY'\n"
+          end_marker = "\n          PY\n"
+          begin = workflow.find(begin_marker)
+          if begin < 0:
+              raise SystemExit('Embedded patch start not found')
+          begin += len(begin_marker)
+          end = workflow.find(end_marker, begin)
+          if end < 0:
+              raise SystemExit('Embedded patch end not found')
+          code = textwrap.dedent(workflow[begin:end])
+          exec(compile(code, '<sonara-studio-reliability-patch>', 'exec'), {'__name__': '__main__'})
+          PY
+
+          node --check cloudflare/sonara-audio-quality-engine.mjs
+          node --check cloudflare/sonara-studio-ai-router.mjs
+          node --check scripts/sonara-real-music-e2e.mjs
+          node --test cloudflare/sonara-studio-v2-contract.test.mjs
+          git diff --check
+          grep -q 'studioStateStub' cloudflare/sonara-studio-ai-router.mjs
+          grep -q 'padWavInputToDuration' cloudflare/sonara-studio-ai-router.mjs
+          grep -q 'mapWithConcurrency(outputs.slice(0, 12), 2' cloudflare/sonara-studio-ai-router.mjs
+          grep -q 'const optionalBpm' cloudflare/sonara-audio-quality-engine.mjs
+          grep -q "requireReleasePass('extend'" scripts/sonara-real-music-e2e.mjs
+          grep -q "requireWavOutputs(stems, 'Stems Pro', 12)" scripts/sonara-real-music-e2e.mjs
+
+      - name: Commit production fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'sonara-ci'
+          git config user.email 'sonara-ci@users.noreply.github.com'
+          git add cloudflare/sonara-audio-quality-engine.mjs cloudflare/sonara-studio-ai-router.mjs scripts/sonara-real-music-e2e.mjs
+          git commit -m 'fix(studio): persist jobs and enforce real Extend duration'
+          git push origin HEAD:main
