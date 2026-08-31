@@ -3,15 +3,15 @@ import yueRuntime from './sonara-yue-router.mjs';
 
 export { SonaraJobState };
 
-const VERSION = 'sonara-yue-v10-quality-primary';
+const VERSION = 'sonara-yue-v10-turbo-primary';
 const BILLING_GENERATE_PATH = '/api/billing/generate';
 const ENGINE_GENERATE_PATH = '/api/engine/generate';
 const YUE_JOB_PATH = /^\/api\/music\/job\/yue_[^/]+$/;
 const YUE_AUDIO_PATH = '/api/yue/audio';
 
 function requestedProfile(body = {}) {
-  const raw = String(body.qualityProfile || body.generationProfile || body.yueProfile || 'quality').trim().toLowerCase();
-  return raw === 'fast' ? 'fast' : 'quality';
+  const raw = String(body.qualityProfile || body.generationProfile || body.yueProfile || 'fast').trim().toLowerCase();
+  return raw === 'quality' ? 'quality' : 'fast';
 }
 
 async function forceYueRequest(request) {
@@ -36,10 +36,10 @@ async function forceYueRequest(request) {
     qualityProfile: profile,
     generationProfile: profile,
     yueProfile: profile,
-    dualFast: !quality,
-    candidateCount: quality ? 1 : Math.max(1, Math.min(2, Number(body.candidateCount || 2))),
-    candidate_count: quality ? 1 : Math.max(1, Math.min(2, Number(body.candidate_count || body.candidateCount || 2))),
-    stage2_batch_size: quality ? 8 : 16,
+    dualFast: false,
+    candidateCount: 1,
+    candidate_count: 1,
+    stage2_batch_size: quality ? 16 : 16,
     max_new_tokens: quality ? 3000 : Number(body.max_new_tokens || 3000),
     repetition_penalty: 1.1
   };
