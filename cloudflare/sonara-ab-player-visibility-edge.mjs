@@ -1,10 +1,11 @@
 import runtime, { SonaraJobState } from './sonara-molab-xl-router.mjs';
 import { handleFirebaseAuthEdge } from './sonara-firebase-auth-edge.mjs';
+import { handleFirebasePublicConfigEdge } from './sonara-firebase-public-config-edge.mjs';
 
 export { SonaraJobState };
 
 const VERSION = 'sonara-ab-player-playback-edge-v2';
-const AUTH_VERSION = 'sonara-auth-email-password-only-v2';
+const AUTH_VERSION = 'sonara-auth-email-password-only-v3';
 
 const AB_VISIBILITY_SCRIPT = `<script id="sonara-ab-player-playback-edge-v2">(()=>{
 if(window.__sonaraABPlayerPlaybackEdgeV2)return;
@@ -49,9 +50,9 @@ const start=()=>{schedule();new MutationObserver(schedule).observe(document.body
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
 })();</script>`;
 
-const AUTH_EMAIL_ONLY_SCRIPT = `<script id="sonara-auth-email-password-only-v2">(()=>{
-if(window.__sonaraAuthEmailPasswordOnlyV2)return;
-window.__sonaraAuthEmailPasswordOnlyV2=true;
+const AUTH_EMAIL_ONLY_SCRIPT = `<script id="sonara-auth-email-password-only-v3">(()=>{
+if(window.__sonaraAuthEmailPasswordOnlyV3)return;
+window.__sonaraAuthEmailPasswordOnlyV3=true;
 const google=/google/i;
 const suspended=/consumer[^\n]*api-key|api-key[^\n]*suspend|has-been-suspended/i;
 const removeGoogle=()=>{
@@ -128,6 +129,11 @@ export default {
     const url = new URL(request.url);
     const publicHost = url.hostname === 'sonaraenterprise.com' || url.hostname === 'www.sonaraenterprise.com';
 
+    if (publicHost && url.pathname === '/__sonara_internal/firebase-public-config-status') {
+      const publicStatus = await handleFirebasePublicConfigEdge(request, new Response(null));
+      if (publicStatus) return publicStatus;
+    }
+
     if (publicHost && url.pathname === '/__sonara_internal/firebase-auth-status') {
       const authStatus = await handleFirebaseAuthEdge(request, env, new Response(null));
       if (authStatus) return authStatus;
@@ -135,6 +141,9 @@ export default {
 
     const response = await runtime.fetch(request, env, ctx);
     if (!publicHost) return response;
+
+    const publicConfigResponse = await handleFirebasePublicConfigEdge(request, response);
+    if (publicConfigResponse) return publicConfigResponse;
 
     const authResponse = await handleFirebaseAuthEdge(request, env, response);
     if (authResponse) return authResponse;
