@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "sonara-enterprise",
-  "main": "cloudflare/sonara-molab-xl-router.mjs",
+  "main": "cloudflare/sonara-ab-player-visibility-edge.mjs",
   "compatibility_date": "2026-08-23",
   "workers_dev": true,
   "keep_vars": true,
