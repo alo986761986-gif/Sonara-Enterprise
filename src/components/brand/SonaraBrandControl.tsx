@@ -1,10 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
 
 const BRAND_ICON = '/sonara-brand-icon.svg?v=20260829-5';
-const BRAND_BOOT = '/sonara-brand-boot.svg?v=20260829-4';
 const BRAND_ALT = 'SONARA Enterprise';
-const BOOT_DURATION_MS = 1900;
-const BOOT_FAILSAFE_MS = 2600;
 
 function isSonaraBrandIcon(src: string) {
   try {
@@ -17,9 +14,7 @@ function isSonaraBrandIcon(src: string) {
 function setBrandImage(image: HTMLImageElement) {
   const current = image.getAttribute('src') || '';
 
-  // Do not rewrite an already branded image. The Cloudflare edge layer may
-  // append its own cache-busting version, and repeatedly replacing that src
-  // can create a MutationObserver feedback loop that blocks the main thread.
+  // Keep the SONARA branding synchronized without showing any startup overlay.
   if (!isSonaraBrandIcon(current)) {
     image.src = BRAND_ICON;
   }
@@ -74,8 +69,6 @@ function installBrandBesideEnterpriseTitle() {
 }
 
 export default function SonaraBrandControl() {
-  const [showBoot, setShowBoot] = useState(true);
-
   useEffect(() => {
     let scheduled = false;
     const applyBrand = () => {
@@ -89,52 +82,14 @@ export default function SonaraBrandControl() {
 
     applyBrand();
 
-    // Observe structural changes only. Watching src/alt attributes caused the
-    // app-side brand control and the edge-side brand control to rewrite each
-    // other indefinitely, starving the boot timeout.
     const observer = new MutationObserver(applyBrand);
     observer.observe(document.documentElement, {
       subtree: true,
       childList: true
     });
 
-    const normalTimer = window.setTimeout(() => setShowBoot(false), BOOT_DURATION_MS);
-    const failsafeTimer = window.setTimeout(() => setShowBoot(false), BOOT_FAILSAFE_MS);
-
-    return () => {
-      window.clearTimeout(normalTimer);
-      window.clearTimeout(failsafeTimer);
-      observer.disconnect();
-    };
+    return () => observer.disconnect();
   }, []);
 
-  if (!showBoot) return null;
-
-  return (
-    <div
-      className="fixed inset-0 z-[2147483647] flex items-center justify-center overflow-hidden bg-black"
-      aria-label="SONARA boot animation"
-      data-sonara-boot="active"
-      onClick={() => setShowBoot(false)}
-    >
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(0,115,255,0.13),transparent_48%)]" />
-      <img
-        src={BRAND_BOOT}
-        alt="SONARA Creative AI Platform"
-        className="relative h-full w-full object-contain animate-[sonaraBrandBoot_1.9s_ease-out_forwards]"
-        loading="eager"
-        decoding="async"
-        onAnimationEnd={() => setShowBoot(false)}
-        onError={() => setShowBoot(false)}
-      />
-      <style>{`
-        @keyframes sonaraBrandBoot {
-          0% { opacity: 0; transform: scale(.965); filter: blur(8px); }
-          22% { opacity: 1; transform: scale(1); filter: blur(0); }
-          78% { opacity: 1; transform: scale(1.01); filter: blur(0); }
-          100% { opacity: 0; transform: scale(1.025); filter: blur(1px); }
-        }
-      `}</style>
-    </div>
-  );
+  return null;
 }
