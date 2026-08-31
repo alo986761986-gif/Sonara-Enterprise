@@ -1,3 +1,3 @@
-SONARA_VERCEL_RELEASE=2026-08-31-ELEVEN-MUSIC
-REASON=Reload production environment after ELEVENLABS_API_KEY configuration
-EXPECTED_PROVIDER=eleven_music
+SONARA_VERCEL_RELEASE=2026-08-31-ACE-STEP-XL-TURBO
+REASON=Switch production music generation from Eleven to ACE-Step 1.5 XL-Turbo
+EXPECTED_PROVIDER=ace_step_xl
