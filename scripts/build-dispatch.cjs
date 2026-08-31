@@ -54,6 +54,8 @@ if (process.env.VERCEL === '1' && process.env.VERCEL_ENV === 'production') {
 
 console.log('[SONARA] Activating production audio suite.');
 runCommand(node, ['scripts/activate-production-suite.cjs']);
+console.log('[SONARA] Activating native SONARA Sessions 2.0 timeline editing.');
+runCommand(node, ['scripts/activate-studio-sessions-native.cjs']);
 console.log('[SONARA] Activating electronic genre-specific lyric engines.');
 runCommand(node, ['scripts/activate-electronic-genres.cjs']);
 console.log('[SONARA] Activating universal taxonomy generation.');
