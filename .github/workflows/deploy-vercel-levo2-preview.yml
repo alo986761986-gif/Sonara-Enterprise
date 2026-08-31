@@ -61,7 +61,7 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: vercel pull --yes --environment=preview --git-branch="${LEVO_BRANCH}" --token="${VERCEL_TOKEN}"
 
-      - name: Verify LeVo2 preview variables exist
+      - name: Verify LeVo2 preview credential exists
         shell: bash
         run: |
           set -euo pipefail
@@ -70,15 +70,15 @@ jobs:
             echo "Preview environment file was not created." >&2
             exit 1
           fi
-          if ! grep -q '^LEVO2_RESEARCH_API_URL=' "${ENV_FILE}"; then
-            echo "LEVO2_RESEARCH_API_URL is missing from Vercel Preview environment." >&2
-            exit 1
-          fi
           if ! grep -q '^LEVO2_RESEARCH_API_KEY=' "${ENV_FILE}"; then
             echo "LEVO2_RESEARCH_API_KEY is missing from Vercel Preview environment." >&2
             exit 1
           fi
-          echo "LeVo2 preview URL and credential are configured."
+          if grep -q '^LEVO2_RESEARCH_API_URL=' "${ENV_FILE}"; then
+            echo "LeVo2 preview URL and credential are configured."
+          else
+            echo "LEVO2_RESEARCH_API_URL is not set in Preview; using the R&D branch fallback tunnel URL."
+          fi
 
       - name: Build SONARA LeVo2 preview locally
         env:
