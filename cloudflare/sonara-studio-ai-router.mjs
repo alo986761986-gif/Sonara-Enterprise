@@ -26,7 +26,7 @@ const ALLOWED_AUDIO_HOSTS = new Set([
   'api.sonaraenterprise.com',
   'molab.sonaraenterprise.com'
 ]);
-const DEFAULT_STEMS = ['vocals', 'drums', 'bass', 'guitar', 'keys', 'synth', 'strings', 'fx'];
+const DEFAULT_STEMS = ['vocals', 'drums', 'bass', 'guitar', 'keys', 'synth', 'strings', 'brass', 'woodwinds', 'percussion', 'pads', 'fx'];
 
 const clean = value => String(value ?? '').trim();
 const cleanUrl = value => clean(value).replace(/\/$/, '');
@@ -123,7 +123,7 @@ function normalizeStem(value) {
   const text = clean(value).toLowerCase();
   const aliases = {
     voice: 'vocals', vocal: 'vocals', vocals: 'vocals', vox: 'vocals',
-    drum: 'drums', drums: 'drums', percussion: 'drums',
+    drum: 'drums', drums: 'drums', percussion: 'percussion',
     bass: 'bass', bassline: 'bass',
     guitar: 'guitar', guitars: 'guitar',
     piano: 'keys', keyboard: 'keys', keyboards: 'keys', keys: 'keys',
@@ -137,7 +137,7 @@ function normalizeStem(value) {
 
 function humanStem(value) {
   const stem = normalizeStem(value);
-  const names = { vocals: 'Vocals', drums: 'Drums', bass: 'Bass', guitar: 'Guitar', keys: 'Keys', synth: 'Synth', strings: 'Strings', fx: 'FX', other: 'Other' };
+  const names = { vocals: 'Vocals', drums: 'Drums', bass: 'Bass', guitar: 'Guitar', keys: 'Keys', synth: 'Synth', strings: 'Strings', brass: 'Brass', woodwinds: 'Woodwinds', percussion: 'Percussion', pads: 'Pads', fx: 'FX', other: 'Other' };
   return names[stem] || stem.replace(/(^|-)([a-z])/g, (_, prefix, letter) => `${prefix ? ' ' : ''}${letter.toUpperCase()}`);
 }
 
@@ -236,6 +236,7 @@ function commonPayload(body = {}, model = PRIMARY_MODEL) {
     time_signature: clean(body.timeSignature || body.time_signature || '4'),
     vocal_language: clean(body.vocalLanguage || body.vocal_language || 'en').slice(0, 12),
     audio_duration: duration,
+    audio_format: 'wav',
     inference_steps: isBase ? 50 : 8,
     guidance_scale: isBase ? 7.0 : 1.0,
     batch_size: 1,
@@ -291,7 +292,7 @@ async function submitTask(baseUrl, env, payload, sourceInput = null, referenceIn
   try { data = raw ? JSON.parse(raw) : {}; }
   catch { throw new Error(`MoLab Studio ha restituito una risposta non JSON (HTTP ${response.status}).`); }
   if (!response.ok || Number(data?.code || 200) >= 400) {
-    throw new Error(clean(data?.error?.message || data?.error || data?.message || `MoLab Studio HTTP ${response.status}`));
+    throw new Error(clean(data?.detail || data?.error?.message || data?.error || data?.message || `MoLab Studio HTTP ${response.status}`));
   }
   const taskId = clean(data?.data?.task_id || data?.task_id);
   if (!taskId) throw new Error('MoLab Studio non ha restituito task_id.');
@@ -369,6 +370,24 @@ function progressFromTask(task) {
 
 function publicAudioUrl(path) {
   return `${PUBLIC_API_ORIGIN}/api/molab/audio?path=${encodeURIComponent(path)}`;
+}
+
+function directAudioFetch(baseUrl, env) {
+  return async (input, init = {}) => {
+    try {
+      const inputUrl = input instanceof Request ? input.url : String(input);
+      const url = new URL(inputUrl, PUBLIC_API_ORIGIN);
+      if ((url.hostname === 'api.sonaraenterprise.com' || url.hostname === 'molab.sonaraenterprise.com') && (url.pathname === '/api/molab/audio' || url.pathname === '/v1/audio')) {
+        const path = clean(url.searchParams.get('path'));
+        if (path) {
+          const headers = new Headers(init.headers || {});
+          for (const [key, value] of Object.entries(authHeaders(env))) if (!headers.has(key)) headers.set(key, value);
+          return fetch(`${baseUrl}/v1/audio?path=${encodeURIComponent(path)}`, { ...init, headers });
+        }
+      }
+    } catch {}
+    return fetch(input, init);
+  };
 }
 
 async function createStudioJob(request, env, operation) {
@@ -566,13 +585,14 @@ async function studioJob(request, env, jobId) {
       return json(request, { jobId, operation: state.operation, status: 'FAILED', error: 'MoLab ha completato il job ma non ha restituito file audio.' }, 502);
     }
 
+    const qualityFetch = directAudioFetch(baseUrl, env);
     const qualityReports = await Promise.all(outputs.slice(0, 12).map(async (output, index) => {
       try {
         const verifyMusicalGrid = !['stems', 'regenerate-stem'].includes(state.operation);
         const report = await analyzeAudioCandidate(output.audioUrl, {
           bpm: verifyMusicalGrid ? state.requested?.bpm : null,
           key: verifyMusicalGrid ? state.requested?.key : null
-        });
+        }, qualityFetch);
         return { ...report, outputIndex: index, label: output.label, audioUrl: output.audioUrl };
       } catch (error) {
         return {
@@ -696,7 +716,7 @@ const STUDIO_UI = String.raw`(() => {
   const referenceInputB = q('#sonara-ai-reference-file-2');
   const statusBox = q('#sonara-ai-status');
   const results = q('#sonara-ai-results');
-  const stems = ['vocals','drums','bass','guitar','keys','synth','strings','fx'];
+  const stems = ['vocals','drums','bass','guitar','keys','synth','strings','brass','woodwinds','percussion','pads','fx'];
   const stemChecks = q('#sonara-ai-stem-checks');
   const stemSelect = q('#sonara-ai-stem-select');
   stems.forEach(function(stem){
@@ -738,7 +758,7 @@ const STUDIO_UI = String.raw`(() => {
     const form = new FormData();
     if (sourceFile) form.append('src_audio', sourceFile, sourceFile.name || 'source.wav'); else if (sourceUrl) form.append('sourceAudioUrl', sourceUrl);
     if (referenceFile) form.append('reference_audio', referenceFile, referenceFile.name || 'reference.wav');
-    form.append('bpm', String(bpmValue())); form.append('key', keyValue());
+    form.append('bpm', String(bpmValue())); form.append('key', keyValue()); form.append('audio_format', 'wav');
     if (action === 'repaint') { form.append('start', q('#sonara-ai-start').value); form.append('end', q('#sonara-ai-end').value); form.append('prompt', q('#sonara-ai-edit-prompt').value); }
     if (action === 'complete') { form.append('prompt', q('#sonara-ai-edit-prompt').value || 'Complete the arrangement naturally.'); form.append('trackClasses', JSON.stringify(['drums','bass','keys','guitar'])); }
     if (action === 'stems') { const selected = Array.from(stemChecks.querySelectorAll("input[type='checkbox']:checked")).map(function(input){ return input.value; }); form.append('stems', JSON.stringify(selected)); }
