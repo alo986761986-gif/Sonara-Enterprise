@@ -164,11 +164,11 @@ function onsetEnvelope(samples, sampleRate) {
 
 function detectBpm(samples, sampleRate, requestedBpm = null) {
   const { flux, rate } = onsetEnvelope(samples, sampleRate);
-  if (flux.length < 32) return { detectedBpm: null, rawDetectedBpm: null, confidence: 0 };
+  if (flux.length < 32) return { detectedBpm: null, rawDetectedBpm: null, confidence: 0, tempoOctaveCorrected: false };
 
   let energy = 0;
   for (const value of flux) energy += value * value;
-  if (energy <= 1e-12) return { detectedBpm: null, rawDetectedBpm: null, confidence: 0 };
+  if (energy <= 1e-12) return { detectedBpm: null, rawDetectedBpm: null, confidence: 0, tempoOctaveCorrected: false };
 
   const candidates = [];
   let maxScore = 0;
@@ -206,9 +206,23 @@ function detectBpm(samples, sampleRate, requestedBpm = null) {
     if (viable.length) chosen = viable[0];
   }
 
+  let detected = chosen.bpm;
+  let tempoOctaveCorrected = false;
+  if (chosen.bpm && Number.isFinite(requested) && requested >= BPM_MIN && requested <= BPM_MAX) {
+    const equivalentTempos = [chosen.bpm, chosen.bpm * 2, chosen.bpm / 2]
+      .filter(value => value >= BPM_MIN && value <= BPM_MAX)
+      .sort((a, b) => Math.abs(a - requested) - Math.abs(b - requested));
+    if (equivalentTempos.length) {
+      detected = equivalentTempos[0];
+      tempoOctaveCorrected = Math.abs(detected - chosen.bpm) >= 0.25;
+    }
+  }
+
   return {
-    detectedBpm: chosen.bpm ? round(chosen.bpm, 1) : null,
+    detectedBpm: detected ? round(detected, 1) : null,
     rawDetectedBpm: raw.bpm ? round(raw.bpm, 1) : null,
+    selectedAutocorrelationBpm: chosen.bpm ? round(chosen.bpm, 1) : null,
+    tempoOctaveCorrected,
     confidence: round(clamp(chosen.normalized, 0, 1), 3),
     autocorrelationStrength: round(maxScore, 3)
   };
@@ -370,6 +384,8 @@ export async function analyzeAudioCandidate(audioUrl, requested = {}, fetchImpl 
     requestedBpm: Number.isFinite(Number(requested.bpm)) ? Number(requested.bpm) : null,
     detectedBpm: bpmReport.detectedBpm,
     rawDetectedBpm: bpmReport.rawDetectedBpm,
+    selectedAutocorrelationBpm: bpmReport.selectedAutocorrelationBpm ?? null,
+    tempoOctaveCorrected: bpmReport.tempoOctaveCorrected === true,
     bpmConfidence: bpmReport.confidence,
     bpmError: verdict.bpmError,
     bpmTolerance: verdict.bpmTolerance,
