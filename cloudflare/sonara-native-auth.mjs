@@ -1,10 +1,40 @@
-const VERSION = 'sonara-native-auth-v1';
+const VERSION = 'sonara-native-auth-v2';
 const COOKIE_NAME = 'sonara_session';
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const SESSION_MAX_AGE = 30 * 24 * 60 * 60;
 const PASSWORD_ITERATIONS = 100000;
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_ATTEMPTS = 8;
+
+// One-time legacy Studio restoration. Only the SHA-256 digest is stored in source;
+// the claim secret itself is never committed to the repository.
+const STUDIO_RESTORE_HASH = '68db00c1d44d6615f47d76678bfe5706ae9c2f0637dfa2e1b5ec770ac371577f';
+const STUDIO_RESTORE_KEY = `claim:studio-year:${STUDIO_RESTORE_HASH}`;
+
+const PLAN_LIMITS = {
+  free: {
+    planId: 'free',
+    planName: 'Free',
+    includedSeconds: 10 * 60,
+    maxTrackSeconds: 60,
+    commercialUse: false,
+    videoCreditsPerMonth: 1,
+    videoClipSeconds: 8,
+    videoResolutions: ['720p'],
+    videoModelTier: 'lite'
+  },
+  studio: {
+    planId: 'studio',
+    planName: 'Studio',
+    includedSeconds: 500 * 60,
+    maxTrackSeconds: 480,
+    commercialUse: true,
+    videoCreditsPerMonth: 60,
+    videoClipSeconds: 480,
+    videoResolutions: ['720p', '1080p', '4k'],
+    videoModelTier: 'fast'
+  }
+};
 
 const encoder = new TextEncoder();
 
@@ -114,12 +144,78 @@ function allowedOrigin(request) {
   }
 }
 
+function monthPeriod(now = Date.now()) {
+  const date = new Date(now);
+  const start = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+  const end = Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1);
+  return { start, end };
+}
+
+function addOneYear(now = Date.now()) {
+  const date = new Date(now);
+  date.setUTCFullYear(date.getUTCFullYear() + 1);
+  return date.getTime();
+}
+
+function activeStudioEntitlement(user, now = Date.now()) {
+  const entitlement = user?.entitlement;
+  return Boolean(
+    entitlement?.planId === 'studio' &&
+    entitlement?.cadence === 'yearly' &&
+    entitlement?.status === 'active' &&
+    Number(entitlement?.expiresAt || 0) > now
+  );
+}
+
 function publicUser(user) {
   return {
     uid: user.uid,
     email: user.email,
     displayName: user.displayName || '',
-    createdAt: user.createdAt
+    createdAt: user.createdAt,
+    planId: activeStudioEntitlement(user) ? 'studio' : 'free'
+  };
+}
+
+function billingSnapshot(user, now = Date.now()) {
+  const isStudio = activeStudioEntitlement(user, now);
+  const plan = isStudio ? PLAN_LIMITS.studio : PLAN_LIMITS.free;
+  const period = monthPeriod(now);
+  const storedStart = Number(user?.usagePeriodStart || 0);
+  const storedEnd = Number(user?.usagePeriodEnd || 0);
+  const periodMatches = storedStart === period.start && storedEnd === period.end;
+  const usedSeconds = periodMatches ? Math.max(0, Number(user?.usageSeconds || 0)) : 0;
+  const videoCreditsUsed = periodMatches ? Math.max(0, Number(user?.videoCreditsUsed || 0)) : 0;
+  const entitlementEndsAt = isStudio ? Number(user?.entitlement?.expiresAt || 0) : 0;
+
+  return {
+    planId: plan.planId,
+    planName: plan.planName,
+    cadence: isStudio ? 'yearly' : null,
+    subscriptionStatus: isStudio ? 'active' : 'free',
+    cancelAtPeriodEnd: false,
+    usedSeconds,
+    includedSeconds: plan.includedSeconds,
+    remainingSeconds: Math.max(0, plan.includedSeconds - usedSeconds),
+    maxTrackSeconds: plan.maxTrackSeconds,
+    commercialUse: plan.commercialUse,
+    periodStart: new Date(period.start).toISOString(),
+    periodEnd: new Date(period.end).toISOString(),
+    checkoutReady: false,
+    billingConfigured: true,
+    portalAvailable: false,
+    enforcementMode: 'enforce',
+    limitsEnforced: true,
+    termsUrl: 'https://sonaraenterprise.com/terms',
+    privacyUrl: 'https://sonaraenterprise.com/privacy',
+    entitlementEndsAt: entitlementEndsAt ? new Date(entitlementEndsAt).toISOString() : null,
+    videoCreditsPerMonth: plan.videoCreditsPerMonth,
+    videoCreditsUsed,
+    videoCreditsRemaining: Math.max(0, plan.videoCreditsPerMonth - videoCreditsUsed),
+    videoClipSeconds: plan.videoClipSeconds,
+    videoResolutions: plan.videoResolutions,
+    videoModelTier: plan.videoModelTier,
+    providerConfigured: true
   };
 }
 
@@ -180,6 +276,39 @@ export class SonaraAuthStore {
     return token;
   }
 
+  async authenticatedSession(request) {
+    const token = parseCookies(request.headers.get('cookie'))[COOKIE_NAME];
+    if (!token) return null;
+    const sessionKey = await this.sessionKey(token);
+    const session = await this.ctx.storage.get(sessionKey);
+    if (!session || Number(session.expiresAt || 0) <= Date.now()) {
+      if (session) await this.ctx.storage.delete(sessionKey);
+      return null;
+    }
+    const userKey = String(session.userKey || '');
+    const user = userKey ? await this.ctx.storage.get(userKey) : null;
+    if (!user || user.status !== 'active') {
+      await this.ctx.storage.delete(sessionKey);
+      return null;
+    }
+    return { token, sessionKey, session, userKey, user };
+  }
+
+  async normalizeUsageWindow(record) {
+    const period = monthPeriod();
+    if (
+      Number(record.user.usagePeriodStart || 0) !== period.start ||
+      Number(record.user.usagePeriodEnd || 0) !== period.end
+    ) {
+      record.user.usagePeriodStart = period.start;
+      record.user.usagePeriodEnd = period.end;
+      record.user.usageSeconds = 0;
+      record.user.videoCreditsUsed = 0;
+      await this.ctx.storage.put(record.userKey, record.user);
+    }
+    return record;
+  }
+
   async register(request) {
     let body;
     try { body = await request.json(); } catch { return json({ ok: false, code: 'INVALID_JSON', message: 'Richiesta non valida.' }, 400); }
@@ -195,6 +324,7 @@ export class SonaraAuthStore {
     const salt = new Uint8Array(16);
     crypto.getRandomValues(salt);
     const digest = await passwordDigest(password, salt, PASSWORD_ITERATIONS);
+    const period = monthPeriod();
     const user = {
       uid: crypto.randomUUID(),
       email,
@@ -203,7 +333,11 @@ export class SonaraAuthStore {
       passwordSalt: bytesToBase64(salt),
       passwordIterations: PASSWORD_ITERATIONS,
       createdAt: Date.now(),
-      status: 'active'
+      status: 'active',
+      usagePeriodStart: period.start,
+      usagePeriodEnd: period.end,
+      usageSeconds: 0,
+      videoCreditsUsed: 0
     };
     await this.ctx.storage.put(key, user);
     const token = await this.createSession(user);
@@ -242,20 +376,92 @@ export class SonaraAuthStore {
   }
 
   async session(request) {
-    const token = parseCookies(request.headers.get('cookie'))[COOKIE_NAME];
-    if (!token) return json({ ok: true, authenticated: false, user: null });
-    const key = await this.sessionKey(token);
-    const session = await this.ctx.storage.get(key);
-    if (!session || Number(session.expiresAt || 0) <= Date.now()) {
-      if (session) await this.ctx.storage.delete(key);
-      return json({ ok: true, authenticated: false, user: null }, 200, { 'set-cookie': clearSessionCookie() });
+    const record = await this.authenticatedSession(request);
+    if (!record) return json({ ok: true, authenticated: false, user: null }, 200, { 'set-cookie': clearSessionCookie() });
+    await this.normalizeUsageWindow(record);
+    return json({ ok: true, authenticated: true, user: publicUser(record.user) });
+  }
+
+  async billingStatus(request, compatibility = false) {
+    const record = await this.authenticatedSession(request);
+    if (!record) {
+      return json({ ok: false, code: 'AUTH_REQUIRED', message: 'Accedi per visualizzare il piano SONARA.' }, 401, { 'set-cookie': clearSessionCookie() });
     }
-    const user = await this.ctx.storage.get(session.userKey);
-    if (!user || user.status !== 'active') {
-      await this.ctx.storage.delete(key);
-      return json({ ok: true, authenticated: false, user: null }, 200, { 'set-cookie': clearSessionCookie() });
+    await this.normalizeUsageWindow(record);
+    const billing = billingSnapshot(record.user);
+    return compatibility ? json({ billing }) : json({ ok: true, billing });
+  }
+
+  async videoStatus(request) {
+    const record = await this.authenticatedSession(request);
+    if (!record) {
+      return json({ ok: false, code: 'AUTH_REQUIRED', message: 'Accedi per usare SONARA Video AI.' }, 401, { 'set-cookie': clearSessionCookie() });
     }
-    return json({ ok: true, authenticated: true, user: publicUser(user) });
+    await this.normalizeUsageWindow(record);
+    const billing = billingSnapshot(record.user);
+    return json({
+      planId: billing.planId,
+      planName: billing.planName,
+      videoCreditsPerMonth: billing.videoCreditsPerMonth,
+      videoCreditsUsed: billing.videoCreditsUsed,
+      videoCreditsRemaining: billing.videoCreditsRemaining,
+      videoClipSeconds: billing.videoClipSeconds,
+      videoResolutions: billing.videoResolutions,
+      providerConfigured: billing.providerConfigured,
+      entitlementEndsAt: billing.entitlementEndsAt
+    });
+  }
+
+  async restoreStudio(request) {
+    const record = await this.authenticatedSession(request);
+    if (!record) {
+      return json({ ok: false, code: 'AUTH_REQUIRED', message: 'Accedi al tuo account SONARA prima di ripristinare Studio.' }, 401, { 'set-cookie': clearSessionCookie() });
+    }
+
+    let body;
+    try { body = await request.json(); } catch { return json({ ok: false, code: 'INVALID_JSON', message: 'Richiesta non valida.' }, 400); }
+    const code = String(body?.code || '').trim();
+    if (!code || await sha256(code) !== STUDIO_RESTORE_HASH) {
+      return json({ ok: false, code: 'INVALID_RESTORE_CODE', message: 'Codice di ripristino Studio non valido.' }, 403);
+    }
+
+    const existingClaim = await this.ctx.storage.get(STUDIO_RESTORE_KEY);
+    if (existingClaim && String(existingClaim.uid || '') !== String(record.user.uid || '')) {
+      return json({ ok: false, code: 'RESTORE_ALREADY_USED', message: 'Questo ripristino Studio è già stato utilizzato.' }, 409);
+    }
+
+    const now = Date.now();
+    const expiresAt = existingClaim?.expiresAt && String(existingClaim.uid || '') === String(record.user.uid || '')
+      ? Number(existingClaim.expiresAt)
+      : addOneYear(now);
+    const period = monthPeriod(now);
+
+    record.user.entitlement = {
+      planId: 'studio',
+      cadence: 'yearly',
+      status: 'active',
+      grantedAt: existingClaim?.claimedAt || now,
+      expiresAt,
+      source: 'legacy-studio-restoration-2026-08-31'
+    };
+    record.user.usagePeriodStart = period.start;
+    record.user.usagePeriodEnd = period.end;
+    record.user.usageSeconds = Math.max(0, Number(record.user.usageSeconds || 0));
+    record.user.videoCreditsUsed = Math.max(0, Number(record.user.videoCreditsUsed || 0));
+
+    await this.ctx.storage.put(record.userKey, record.user);
+    await this.ctx.storage.put(STUDIO_RESTORE_KEY, {
+      uid: record.user.uid,
+      claimedAt: existingClaim?.claimedAt || now,
+      expiresAt
+    });
+
+    return json({
+      ok: true,
+      message: 'SONARA Studio annuale ripristinato.',
+      user: publicUser(record.user),
+      billing: billingSnapshot(record.user)
+    });
   }
 
   async logout(request) {
@@ -270,6 +476,10 @@ export class SonaraAuthStore {
     if (request.method === 'POST' && url.pathname.endsWith('/register')) return this.register(request);
     if (request.method === 'POST' && url.pathname.endsWith('/login')) return this.login(request);
     if (request.method === 'GET' && url.pathname.endsWith('/session')) return this.session(request);
+    if (request.method === 'GET' && url.pathname.endsWith('/entitlement')) return this.billingStatus(request, false);
+    if (request.method === 'POST' && url.pathname.endsWith('/restore-studio')) return this.restoreStudio(request);
+    if (request.method === 'GET' && url.pathname === '/api/billing/status') return this.billingStatus(request, true);
+    if (request.method === 'GET' && url.pathname === '/api/video/status') return this.videoStatus(request);
     if (request.method === 'POST' && url.pathname.endsWith('/logout')) return this.logout(request);
     if (request.method === 'POST' && url.pathname.endsWith('/reset')) {
       return json({ ok: false, code: 'RESET_EMAIL_NOT_CONFIGURED', message: 'Recupero password via email momentaneamente non disponibile.' }, 503);
@@ -283,7 +493,10 @@ export class SonaraAuthStore {
 
 export async function handleSonaraNativeAuth(request, env) {
   const url = new URL(request.url);
-  if (!url.pathname.startsWith('/api/sonara-auth/')) return null;
+  const nativePath = url.pathname.startsWith('/api/sonara-auth/');
+  const billingStatusPath = url.pathname === '/api/billing/status';
+  const videoStatusPath = url.pathname === '/api/video/status';
+  if (!nativePath && !billingStatusPath && !videoStatusPath) return null;
   if (!env?.SONARA_AUTH) return json({ ok: false, code: 'AUTH_STORE_UNAVAILABLE', message: 'Servizio account SONARA non disponibile.' }, 503);
   if (request.method === 'OPTIONS') {
     return new Response(null, {
@@ -296,5 +509,10 @@ export async function handleSonaraNativeAuth(request, env) {
   }
   const id = env.SONARA_AUTH.idFromName('sonara-auth-global-v1');
   const stub = env.SONARA_AUTH.get(id);
-  return stub.fetch(request);
+  try {
+    return await stub.fetch(request);
+  } catch (error) {
+    const diagnostic = String(error?.name || 'Error') + ': ' + String(error?.message || error || 'unknown').slice(0, 300);
+    return json({ ok: false, code: 'AUTH_INTERNAL_ERROR', message: 'Errore interno autenticazione SONARA.', diagnostic }, 500);
+  }
 }
