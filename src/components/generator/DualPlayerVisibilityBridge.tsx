@@ -2,15 +2,17 @@ import { useEffect } from 'react';
 
 function syncDualPlayers() {
   const hosts = Array.from(
-    document.querySelectorAll<HTMLElement>('[data-sonara-eleven-generator-host]')
+    document.querySelectorAll<HTMLElement>(
+      '[data-sonara-eleven-generator-host], [data-sonara-dual-generator-host]'
+    )
   );
 
   for (const host of hosts) {
-    // The active generation control already produces candidates A/B. The Creator
-    // skin expects this marker in order to place the result cards in Workspace.
     host.dataset.sonaraDualGeneratorHost = 'true';
+    host.dataset.sonaraCreatorDual = 'true';
 
-    const candidateGrid = Array.from(host.querySelectorAll<HTMLElement>('div')).find(node =>
+    const explicit = host.querySelector<HTMLElement>('[data-sonara-creator-results="true"]');
+    const candidateGrid = explicit || Array.from(host.querySelectorAll<HTMLElement>('div')).find(node =>
       Array.from(node.children).some(child => child.tagName === 'ARTICLE')
     );
 
@@ -18,21 +20,30 @@ function syncDualPlayers() {
 
     candidateGrid.dataset.sonaraCreatorResults = 'true';
 
+    // Permanent safeguard against legacy Creator CSS that used to hide the
+    // first div after the Create button. Inline !important intentionally wins.
+    candidateGrid.style.setProperty('display', 'grid', 'important');
+    candidateGrid.style.setProperty('visibility', 'visible', 'important');
+    candidateGrid.style.setProperty('opacity', '1', 'important');
+    candidateGrid.style.setProperty('pointer-events', 'auto', 'important');
+
     for (const article of Array.from(candidateGrid.querySelectorAll<HTMLElement>('article'))) {
-      article.style.removeProperty('display');
-      article.style.removeProperty('visibility');
-      article.style.removeProperty('opacity');
+      article.style.setProperty('display', 'block', 'important');
+      article.style.setProperty('visibility', 'visible', 'important');
+      article.style.setProperty('opacity', '1', 'important');
+      article.style.setProperty('pointer-events', 'auto', 'important');
 
-      const audio = article.querySelector<HTMLAudioElement>('audio');
-      if (!audio) continue;
-
-      audio.controls = true;
-      audio.style.setProperty('display', 'block', 'important');
-      audio.style.setProperty('visibility', 'visible', 'important');
-      audio.style.setProperty('opacity', '1', 'important');
-      audio.style.setProperty('width', '100%', 'important');
-      audio.style.setProperty('min-height', '40px', 'important');
-      audio.style.setProperty('pointer-events', 'auto', 'important');
+      // Professional SONARA players use a hidden audio engine plus custom UI.
+      // Never expose the browser-native audio controls again.
+      const customAudio = article.querySelector<HTMLAudioElement>('audio[data-sonara-custom-audio="true"]');
+      if (customAudio) {
+        customAudio.controls = false;
+        customAudio.style.setProperty('display', 'none', 'important');
+        customAudio.style.setProperty('visibility', 'hidden', 'important');
+        customAudio.style.setProperty('width', '0', 'important');
+        customAudio.style.setProperty('height', '0', 'important');
+        customAudio.style.setProperty('pointer-events', 'none', 'important');
+      }
     }
   }
 }
@@ -47,13 +58,16 @@ export default function DualPlayerVisibilityBridge() {
       subtree: true
     });
 
-    window.addEventListener('sonara:billing-updated', syncDualPlayers);
-    window.addEventListener('sonara:generated-track-selected', syncDualPlayers);
+    const refresh = () => syncDualPlayers();
+    window.addEventListener('sonara:billing-updated', refresh);
+    window.addEventListener('sonara:generated-track-selected', refresh);
+    window.addEventListener('resize', refresh);
 
     return () => {
       observer.disconnect();
-      window.removeEventListener('sonara:billing-updated', syncDualPlayers);
-      window.removeEventListener('sonara:generated-track-selected', syncDualPlayers);
+      window.removeEventListener('sonara:billing-updated', refresh);
+      window.removeEventListener('sonara:generated-track-selected', refresh);
+      window.removeEventListener('resize', refresh);
     };
   }, []);
 
