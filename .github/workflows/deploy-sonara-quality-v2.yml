@@ -1,4 +1,4 @@
-name: Deploy SONARA Engine Quality 2.0
+name: Deploy SONARA Studio 2.0 + Quality 2.0
 
 on:
   workflow_dispatch:
@@ -7,21 +7,30 @@ on:
       - main
     paths:
       - "cloudflare/sonara-quality-director-v2.mjs"
-      - "cloudflare/sonara-next-studio-edge.mjs"
-      - "cloudflare/sonara-native-auth-main.mjs"
       - "cloudflare/sonara-quality-director-v2.test.mjs"
+      - "cloudflare/sonara-next-studio-edge.mjs"
+      - "cloudflare/sonara-studio-v2-contract.mjs"
+      - "cloudflare/sonara-studio-v2-contract.test.mjs"
+      - "cloudflare/sonara-native-auth-main.mjs"
+      - "src/components/studio/SonaraSessions2Timeline.tsx"
+      - "src/components/studio/StudioSectionControl.tsx"
+      - "src/components/studio/SonaraStudio.tsx"
+      - "scripts/activate-studio-sessions-native.cjs"
+      - "scripts/build-dispatch.cjs"
+      - "src/benchmark/sonaraProductCapability.test.ts"
+      - "index.html"
       - ".github/workflows/deploy-sonara-quality-v2.yml"
 
 permissions:
   contents: read
 
 concurrency:
-  group: sonara-quality-v2-production
+  group: sonara-studio-v2-production
   cancel-in-progress: true
 
 jobs:
   deploy:
-    name: Test, build, deploy and verify Quality 2.0
+    name: Test, build, deploy and verify Studio 2.0
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -43,17 +52,28 @@ jobs:
       - name: Test SONARA Engine Quality 2.0
         run: node --test cloudflare/sonara-quality-director-v2.test.mjs
 
+      - name: Test SONARA Studio 2.0 contract
+        run: node --test cloudflare/sonara-studio-v2-contract.test.mjs
+
+      - name: Validate Studio 2.0 edge syntax
+        run: node --check cloudflare/sonara-next-studio-edge.mjs
+
       - name: Build current production app
         run: npm run build
 
-      - name: Guard Quality 2.0 production source
+      - name: Guard complete Studio 2.0 production source
         shell: bash
         run: |
           set -euo pipefail
           grep -q 'sonara-engine-quality-2.0' cloudflare/sonara-quality-director-v2.mjs
-          grep -q 'sonara-next-studio-edge-v1' cloudflare/sonara-next-studio-edge.mjs
+          grep -q 'sonara-next-studio-edge-v2' cloudflare/sonara-next-studio-edge.mjs
+          grep -q 'sonara-studio-v2.0-production' cloudflare/sonara-studio-v2-contract.mjs
           grep -q 'sonara-next-studio-edge.mjs' cloudflare/sonara-native-auth-main.mjs
-          grep -q 'SONARA Sessions 2.0' cloudflare/sonara-next-studio-edge.mjs
+          grep -q 'SONARA_SESSIONS_NATIVE_V2' src/components/studio/SonaraStudio.tsx
+          grep -q 'data-sonara-sessions-timeline="2.0"' src/components/studio/SonaraSessions2Timeline.tsx
+          grep -q 'Stems Pro 12' src/components/studio/SonaraSessions2Timeline.tsx
+          grep -q 'sonara-studio-v2.0-production' dist/index.html
+          grep -q 'sonara-sessions-2-0' dist/index.html
 
       - name: Resolve Cloudflare account and zone
         shell: bash
@@ -83,7 +103,7 @@ jobs:
           echo "CLOUDFLARE_ZONE_ID=${zone_id}" >> "${GITHUB_ENV}"
           echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
 
-      - name: Deploy SONARA Quality 2.0 to official Cloudflare Worker
+      - name: Deploy official SONARA Studio 2.0 Worker and assets
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
 
       - name: Purge official site cache when permitted
@@ -109,21 +129,25 @@ jobs:
             echo "Cloudflare cache purge unavailable (HTTP ${status}); continuing with cache-busted public verification."
           fi
 
-      - name: Verify Quality 2.0 and Sessions 2.0 publicly
+      - name: Verify Studio 2.0 and Quality 2.0 publicly
         shell: bash
         run: |
           set -euo pipefail
           for attempt in {1..30}; do
-            health="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/health?quality=${GITHUB_SHA}-${attempt}" || true)"
-            page="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?quality=${GITHUB_SHA}-${attempt}" || true)"
-            if printf '%s' "${health}" | grep -q 'sonara-engine-quality-2.0' \
-              && printf '%s' "${health}" | grep -q 'sonara-next-studio-edge-v1' \
+            status_json="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/studio/release-status?release=${GITHUB_SHA}-${attempt}" || true)"
+            page="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?release=${GITHUB_SHA}-${attempt}" || true)"
+            if printf '%s' "${status_json}" | grep -q 'sonara-engine-quality-2.0' \
+              && printf '%s' "${status_json}" | grep -q 'sonara-next-studio-edge-v2' \
+              && printf '%s' "${status_json}" | grep -q 'sonara-studio-v2.0-production' \
+              && printf '%s' "${status_json}" | grep -q '"maxStems":12' \
+              && printf '%s' "${status_json}" | grep -q 'sonara-long-song-memory-v1' \
+              && printf '%s' "${page}" | grep -q 'sonara-studio-v2.0-production' \
               && printf '%s' "${page}" | grep -q 'sonara-sessions-2-0'; then
-              echo "SONARA Engine Quality 2.0 and Sessions 2.0 are live on the official site."
+              echo "SONARA Studio 2.0 + Quality 2.0 are live on the official site."
               exit 0
             fi
-            echo "Waiting for Quality 2.0 propagation (${attempt}/30)."
+            echo "Waiting for Studio 2.0 propagation (${attempt}/30)."
             sleep 4
           done
-          echo "Public Quality 2.0 verification failed." >&2
+          echo "Public Studio 2.0 verification failed." >&2
           exit 1
