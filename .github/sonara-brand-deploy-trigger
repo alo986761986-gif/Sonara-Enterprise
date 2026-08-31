@@ -1,6 +1,7 @@
-trigger: 2026-08-31T11:20:00+02:00
-reason: remove legacy SONARA Instant Dual and activate YuE Turbo single production edge
-router: cloudflare/sonara-instant-speed-router.mjs
-profile: sonara-yue-turbo-single-v2
-yue_primary: sonara-yue-v10-turbo-primary
-yue_router: sonara-yue-v10-profile-routing
+trigger: 2026-08-31T11:30:00+02:00
+reason: deploy SONARA YuE V10.4 Dual Fidelity with two candidates, creator-first prompt and exact output duration
+router: cloudflare/sonara-yue-primary-edge.mjs
+profile: sonara-yue-dual-fidelity-v3
+yue_primary: sonara-yue-v10.4-dual-fidelity-primary
+yue_router: sonara-yue-v10.4-dual-fidelity-routing
+source: 11338a018b01c28e5a34660d9a625dbd9cbb12ac
