@@ -10,10 +10,6 @@ const PROJECT_ID = `production-canary-${Date.now()}`;
 const PROFILE_ID = 'sonara-production-canary';
 const REPORT_PATH = process.env.SONARA_E2E_REPORT || 'sonara-real-music-e2e-report.json';
 
-if (!INTERNAL_SECRET) {
-  throw new Error('SONARA_INTERNAL_PROXY_SECRET is required for the real production music canary.');
-}
-
 const report = {
   startedAt: new Date().toISOString(),
   apiOrigin: API_ORIGIN,
@@ -45,7 +41,7 @@ function sleep(ms) {
 
 function secretHeaders(extra = {}) {
   return {
-    'X-Sonara-Internal-Secret': INTERNAL_SECRET,
+    ...(INTERNAL_SECRET ? { 'X-Sonara-Internal-Secret': INTERNAL_SECRET } : {}),
     'X-Sonara-Profile-Id': PROFILE_ID,
     'X-Sonara-Project-Id': PROJECT_ID,
     ...extra
