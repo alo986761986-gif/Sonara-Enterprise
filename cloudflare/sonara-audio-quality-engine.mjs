@@ -8,6 +8,11 @@ const MINOR_PROFILE = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.6
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const round = (value, digits = 2) => Number(Number(value || 0).toFixed(digits));
 const db = value => value > 0 ? 20 * Math.log10(value) : -120;
+const optionalBpm = value => {
+  if (value === null || value === undefined || String(value).trim() === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) && number >= BPM_MIN && number <= BPM_MAX ? number : null;
+};
 
 function readAscii(view, offset, length) {
   let text = '';
@@ -193,7 +198,7 @@ function detectBpm(samples, sampleRate, requestedBpm = null) {
   candidates.sort((a, b) => b.normalized - a.normalized);
   const raw = candidates[0] || { bpm: null, normalized: 0 };
   let chosen = raw;
-  const requested = Number(requestedBpm);
+  const requested = optionalBpm(requestedBpm);
   if (Number.isFinite(requested) && requested >= BPM_MIN && requested <= BPM_MAX) {
     const viable = candidates
       .filter(item => item.normalized >= raw.normalized * 0.86)
@@ -308,15 +313,16 @@ function normalizeKey(value) {
 }
 
 function qualityScore(metrics, bpmReport, keyReport, requested = {}) {
-  const requestedBpm = Number(requested.bpm);
-  const bpmError = Number.isFinite(requestedBpm) && bpmReport.detectedBpm
+  const requestedBpm = optionalBpm(requested.bpm);
+  const hasRequestedBpm = requestedBpm !== null;
+  const bpmError = hasRequestedBpm && bpmReport.detectedBpm
     ? Math.abs(bpmReport.detectedBpm - requestedBpm)
     : null;
-  const bpmTolerance = Number.isFinite(requestedBpm) ? Math.max(2, requestedBpm * 0.015) : 3;
-  const bpmPassed = bpmError === null ? false : bpmError <= bpmTolerance;
+  const bpmTolerance = hasRequestedBpm ? Math.max(2, requestedBpm * 0.015) : null;
+  const bpmPassed = !hasRequestedBpm ? null : (bpmError !== null && bpmError <= bpmTolerance);
 
-  let bpmPoints = bpmError === null ? 8 : clamp(35 - bpmError * 3.5, 0, 35);
-  if (bpmPassed) bpmPoints = Math.max(bpmPoints, 32);
+  let bpmPoints = !hasRequestedBpm ? 35 : bpmError === null ? 8 : clamp(35 - bpmError * 3.5, 0, 35);
+  if (bpmPassed === true) bpmPoints = Math.max(bpmPoints, 32);
 
   const clippingPoints = metrics.clippingRatio <= 0.0001 ? 20 : clamp(20 - metrics.clippingRatio * 18000, 0, 20);
   const silencePoints = metrics.silenceRatio <= 0.04 ? 10 : clamp(10 - (metrics.silenceRatio - 0.04) * 40, 0, 10);
@@ -333,13 +339,13 @@ function qualityScore(metrics, bpmReport, keyReport, requested = {}) {
   const keyPoints = !keyComparable ? 1.5 : keyPassed ? 3 : 0;
 
   const total = round(clamp(bpmPoints + clippingPoints + silencePoints + dynamicsPoints + rmsPoints + dcPoints + peakPoints + keyPoints, 0, 100), 1);
-  const hardGate = bpmPassed && metrics.clippingRatio < 0.001 && metrics.silenceRatio < 0.18 && metrics.peak > 0.15 && metrics.rms > 0.01;
+  const hardGate = bpmPassed !== false && metrics.clippingRatio < 0.001 && metrics.silenceRatio < 0.18 && metrics.peak > 0.15 && metrics.rms > 0.01;
   return {
     score: total,
     passed: hardGate && total >= 70,
     bpmPassed,
     bpmError: bpmError === null ? null : round(bpmError, 1),
-    bpmTolerance: round(bpmTolerance, 1),
+    bpmTolerance: bpmTolerance === null ? null : round(bpmTolerance, 1),
     requestedKey: requestedKey || null,
     keyPassed,
     keyComparable
@@ -381,7 +387,7 @@ export async function analyzeAudioCandidate(audioUrl, requested = {}, fetchImpl 
     silenceRatio: round(metrics.silenceRatio, 4),
     dcOffset: round(metrics.dcOffset, 5),
     zeroCrossingRate: round(metrics.zeroCrossingRate, 4),
-    requestedBpm: Number.isFinite(Number(requested.bpm)) ? Number(requested.bpm) : null,
+    requestedBpm: optionalBpm(requested.bpm),
     detectedBpm: bpmReport.detectedBpm,
     rawDetectedBpm: bpmReport.rawDetectedBpm,
     selectedAutocorrelationBpm: bpmReport.selectedAutocorrelationBpm ?? null,

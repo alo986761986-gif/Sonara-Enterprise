@@ -83,7 +83,24 @@ function stateRequest(jobId) {
   return new Request(`${STATE_PREFIX}${encodeURIComponent(jobId)}`);
 }
 
-async function saveState(jobId, state) {
+function studioStateStub(env, jobId) {
+  try {
+    const ns = env?.SONARA_JOB_STATE;
+    if (!ns || typeof ns.idFromName !== 'function' || typeof ns.get !== 'function') return null;
+    return ns.get(ns.idFromName(`studio-ai:${jobId}`));
+  } catch { return null; }
+}
+
+async function saveState(jobId, state, env) {
+  const stub = studioStateStub(env, jobId);
+  if (stub) {
+    try {
+      const response = await stub.fetch('https://sonara.internal/state', {
+        method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(state)
+      });
+      if (response.ok) return;
+    } catch {}
+  }
   try {
     await caches.default.put(stateRequest(jobId), new Response(JSON.stringify(state), {
       headers: { 'content-type': 'application/json', 'cache-control': `public, max-age=${STATE_TTL}` }
@@ -91,13 +108,18 @@ async function saveState(jobId, state) {
   } catch {}
 }
 
-async function loadState(jobId) {
+async function loadState(jobId, env) {
+  const stub = studioStateStub(env, jobId);
+  if (stub) {
+    try {
+      const response = await stub.fetch('https://sonara.internal/state', { method: 'GET' });
+      if (response.ok) return await response.json();
+    } catch {}
+  }
   try {
     const response = await caches.default.match(stateRequest(jobId));
     return response ? await response.json() : null;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 function newJobId(operation) {
@@ -390,6 +412,55 @@ function directAudioFetch(baseUrl, env) {
   };
 }
 
+async function mapWithConcurrency(items, limit, mapper) {
+  const source = Array.from(items || []);
+  const results = new Array(source.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(Number(limit) || 1, source.length || 1)) }, async () => {
+    while (true) {
+      const index = cursor++;
+      if (index >= source.length) return;
+      results[index] = await mapper(source[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+async function padWavInputToDuration(input, targetDurationSec) {
+  if (!input?.blob) return input;
+  const targetSeconds = Number(targetDurationSec);
+  if (!Number.isFinite(targetSeconds) || targetSeconds <= 0) return input;
+  const buffer = await input.blob.arrayBuffer();
+  if (buffer.byteLength < 44) return input;
+  const bytes = new Uint8Array(buffer);
+  const view = new DataView(buffer);
+  const ascii = (offset, length) => String.fromCharCode(...bytes.slice(offset, offset + length));
+  if (ascii(0, 4) !== 'RIFF' || ascii(8, 4) !== 'WAVE') return input;
+  let offset = 12, sampleRate = 0, blockAlign = 0, dataHeader = -1, dataOffset = -1, dataSize = 0;
+  while (offset + 8 <= view.byteLength) {
+    const id = ascii(offset, 4), size = view.getUint32(offset + 4, true), payload = offset + 8;
+    if (id === 'fmt ' && payload + 16 <= view.byteLength) {
+      sampleRate = view.getUint32(payload + 4, true); blockAlign = view.getUint16(payload + 12, true);
+    }
+    if (id === 'data') { dataHeader = offset; dataOffset = payload; dataSize = Math.max(0, Math.min(size, view.byteLength - payload)); break; }
+    offset = payload + size + (size % 2);
+  }
+  if (!sampleRate || !blockAlign || dataHeader < 0 || dataOffset < 0) return input;
+  const currentFrames = Math.floor(dataSize / blockAlign);
+  const targetFrames = Math.ceil(targetSeconds * sampleRate);
+  if (targetFrames <= currentFrames + Math.ceil(sampleRate * 0.05)) return input;
+  const targetDataSize = targetFrames * blockAlign;
+  const outputSize = dataOffset + targetDataSize;
+  if (outputSize > MAX_UPLOAD_BYTES) throw new Error('Audio Extend troppo grande dopo il padding di continuazione.');
+  const output = new Uint8Array(outputSize);
+  output.set(bytes.slice(0, dataOffset + dataSize), 0);
+  const out = new DataView(output.buffer);
+  out.setUint32(4, output.byteLength - 8, true);
+  out.setUint32(dataHeader + 4, targetDataSize, true);
+  return { ...input, blob: new Blob([output], { type: 'audio/wav' }), filename: 'sonara-extend-source.wav', type: 'audio/wav' };
+}
+
 async function createStudioJob(request, env, operation) {
   if (!allowedStudioRequest(request)) return json(request, { error: 'Origin non autorizzata per SONARA Studio.' }, 403);
   const baseUrl = molabUrl(env);
@@ -476,15 +547,17 @@ async function createStudioJob(request, env, operation) {
       tasks.push({ taskId: await submitTask(baseUrl, env, payload, sourceInput, referenceInput), label: `${label} Regenerated`, kind: 'stem', stem });
     } else if (operation === 'complete') {
       if (!sourceInput) throw new Error('Seleziona il materiale audio da completare.');
+      const targetDuration = clamp(body.durationSec ?? body.duration ?? body.audio_duration, 60, 5, 600);
+      const continuationInput = await padWavInputToDuration(sourceInput, targetDuration);
       const classes = parseList(body.trackClasses || body.tracks || body.stems, ['drums', 'bass', 'keys']).map(normalizeStem).slice(0, 8);
       const labels = classes.map(humanStem);
       const payload = {
-        ...commonPayload(body, BASE_MODEL),
+        ...commonPayload({ ...body, durationSec: targetDuration }, BASE_MODEL),
         task_type: 'complete',
         prompt: clean(body.prompt || body.instruction || `Complete the arrangement with ${labels.join(', ')}.`),
-        instruction: `Complete the source arrangement with ${labels.join(', ')}. Preserve exact BPM ${bpm}${key ? ` and key ${key}` : ''}; match the existing groove, bar grid, harmony, ambience and production quality. ${clean(body.prompt || body.instruction)}`
+        instruction: `Continue the source through the full ${round(targetDuration, 2)} seconds and fill the silent tail musically with ${labels.join(', ')}. Preserve exact BPM ${bpm}${key ? ` and key ${key}` : ''}; match the existing groove, bar grid, harmony, ambience and production quality. ${clean(body.prompt || body.instruction)}`
       };
-      tasks.push({ taskId: await submitTask(baseUrl, env, payload, sourceInput, referenceInput), label: 'Arrangement Complete', kind: 'master' });
+      tasks.push({ taskId: await submitTask(baseUrl, env, payload, continuationInput, referenceInput), label: 'Arrangement Complete', kind: 'master' });
     } else if (operation === 'repair') {
       if (!sourceInput) throw new Error('Seleziona il master da riparare.');
       const issues = parseList(body.issues, ['BPM drift', 'artifacts', 'mix balance']);
@@ -509,7 +582,7 @@ async function createStudioJob(request, env, operation) {
       createdAt: Date.now(),
       model: tasks.some(task => task.kind === 'stem') || ['stems', 'regenerate-stem', 'complete'].includes(operation) ? BASE_MODEL : PRIMARY_MODEL
     };
-    await saveState(jobId, state);
+    await saveState(jobId, state, env);
     return json(request, {
       jobId,
       status: 'QUEUED',
@@ -526,7 +599,7 @@ async function createStudioJob(request, env, operation) {
 
 async function studioJob(request, env, jobId) {
   if (!allowedStudioRequest(request)) return json(request, { error: 'Origin non autorizzata.' }, 403);
-  const state = await loadState(jobId);
+  const state = await loadState(jobId, env);
   if (!state) return json(request, { status: 'NOT_FOUND', error: 'Job SONARA Studio non trovato o scaduto.' }, 404);
   if (state.completedResult) return json(request, state.completedResult);
 
@@ -586,7 +659,7 @@ async function studioJob(request, env, jobId) {
     }
 
     const qualityFetch = directAudioFetch(baseUrl, env);
-    const qualityReports = await Promise.all(outputs.slice(0, 12).map(async (output, index) => {
+    const qualityReports = await mapWithConcurrency(outputs.slice(0, 12), 2, async (output, index) => {
       try {
         const verifyMusicalGrid = !['stems', 'regenerate-stem'].includes(state.operation);
         const report = await analyzeAudioCandidate(output.audioUrl, {
@@ -606,7 +679,7 @@ async function studioJob(request, env, jobId) {
           error: error instanceof Error ? error.message : String(error)
         };
       }
-    }));
+    });
 
     const ranked = rankQualityReports(qualityReports);
     const reportByIndex = new Map(qualityReports.map(report => [report.outputIndex, report]));
@@ -631,7 +704,7 @@ async function studioJob(request, env, jobId) {
       }
     };
     state.completedResult = result;
-    await saveState(jobId, state);
+    await saveState(jobId, state, env);
     return json(request, result);
   } catch (error) {
     return json(request, { jobId, operation: state.operation, status: 'FAILED', error: error instanceof Error ? error.message : String(error) }, 502);

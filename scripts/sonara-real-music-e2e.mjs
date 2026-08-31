@@ -83,6 +83,18 @@ function audioFormatFromUrl(value) {
   return 'unknown';
 }
 
+function requireWavOutputs(urls, label, exactCount = null) {
+  const formats = urls.map(audioFormatFromUrl);
+  if (exactCount !== null && urls.length !== exactCount) throw new Error(`${label}: attesi ${exactCount} WAV, ricevuti ${urls.length}.`);
+  if (!formats.length || formats.some(format => format !== 'wav')) throw new Error(`${label}: output non interamente WAV (${formats.join(', ')}).`);
+}
+
+function requireReleasePass(label, summary) {
+  const snapshot = report.quality[label] || {};
+  if (snapshot.endpointMeasured !== true) throw new Error(`${label}: Quality 2.0 non ha misurato il WAV reale in produzione.`);
+  if (Number(summary?.passed || 0) < 1) throw new Error(`${label}: release gate 88 non superato (${snapshot.bestScore ?? 'n/a'}/100).`);
+}
+
 async function poll({ jobId, pollUrl, label, publicMusicJob = false }) {
   for (let i = 1; i <= MAX_POLLS; i += 1) {
     const url = pollUrl
@@ -257,7 +269,9 @@ async function main() {
 
     await projectMemory();
     const base = await generateAB();
-    const baseSummary = await quality2(base, 'base-generation', { bpm: 122, key: 'A Minor', durationSec: 30 });
+    requireWavOutputs(base, 'base-generation', 2);
+      const baseSummary = await quality2(base, 'base-generation', { bpm: 122, key: 'A Minor', durationSec: 30 });
+      requireReleasePass('base-generation', baseSummary);
     const bestIndex = Number.isInteger(Number(baseSummary.bestCandidateIndex)) ? Number(baseSummary.bestCandidateIndex) : 0;
     const bestSource = base[Math.max(0, Math.min(base.length - 1, bestIndex))];
     report.outputs.bestBaseCandidate = bestSource;
@@ -266,20 +280,28 @@ async function main() {
       start: 8, end: 16, durationSec: 30,
       prompt: 'Keep the same Deep House song and all surrounding material. Inside 8-16 seconds only, make percussion slightly more organic and detailed while preserving kick, bass, chords, motif, BPM, key, ambience and loudness. Boundaries must be inaudible.'
     });
-    await quality2([replaced[0]], 'replace', { bpm: 122, key: 'A Minor', durationSec: 30 });
+    requireWavOutputs(replaced, 'replace');
+      const replaceSummary = await quality2([replaced[0]], 'replace', { bpm: 122, key: 'A Minor', durationSec: 30 });
+      requireReleasePass('replace', replaceSummary);
 
     const extended = await studioOperation('extend', replaced[0], {
       durationSec: 45,
       prompt: 'Extend naturally by about 15 seconds. Preserve Deep House identity, exact 122 BPM, A minor, motif memory, groove, instrumentation, sound palette and mastering character. Develop the motif once, then create a deliberate musical ending.'
     });
-    await quality2([extended[0]], 'extend', { bpm: 122, key: 'A Minor', durationSec: 45 });
+    requireWavOutputs(extended, 'extend');
+      const extendSummary = await quality2([extended[0]], 'extend', { bpm: 122, key: 'A Minor', durationSec: 45 });
+      requireReleasePass('extend', extendSummary);
 
     const stems = await studioOperation('stems-pro', bestSource, {
       durationSec: 30,
       prompt: 'Create professional time-aligned stems with minimum bleed and artifacts.',
       body: { stems: ['vocals','drums','bass','guitar','keys','synth','strings','brass','woodwinds','percussion','pads','fx'] }
     });
-    if (stems.length < 2) report.diagnostics.push(`Stems Pro: ${stems.length} URL audio direttamente enumerabili; verificare eventuale bundle/metadata multi-stem.`);
+    requireWavOutputs(stems, 'Stems Pro', 12);
+      const expectedStemLabels = ['Vocals','Drums','Bass','Guitar','Keys','Synth','Strings','Brass','Woodwinds','Percussion','Pads','FX'];
+      const stemLabels = (report.outputs['stems-pro']?.qualityJudge?.reports || []).map(item => String(item?.label || '')).filter(Boolean);
+      const missingLabels = expectedStemLabels.filter(label => !stemLabels.includes(label));
+      if (missingLabels.length) throw new Error(`Stems Pro: stem distinti mancanti: ${missingLabels.join(', ')}.`);
 
     report.ok = true;
     stage('FINAL PASS', { baseCandidates: 2, replace: true, extend: true, stemsUrls: stems.length });
