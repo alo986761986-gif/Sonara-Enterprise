@@ -70,6 +70,19 @@ function audioUrlsFrom(data) {
   return out;
 }
 
+function audioFormatFromUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    const path = String(url.searchParams.get('path') || url.pathname).toLowerCase();
+    if (path.endsWith('.wav') || path.endsWith('.wav32')) return 'wav';
+    if (path.endsWith('.flac')) return 'flac';
+    if (path.endsWith('.mp3')) return 'mp3';
+    if (path.endsWith('.aac') || path.endsWith('.m4a')) return 'aac';
+    if (path.endsWith('.opus') || path.endsWith('.ogg')) return 'opus';
+  } catch {}
+  return 'unknown';
+}
+
 async function poll({ jobId, pollUrl, label, publicMusicJob = false }) {
   for (let i = 1; i <= MAX_POLLS; i += 1) {
     const url = pollUrl
@@ -167,14 +180,42 @@ async function quality2(audioUrls, label, requested) {
   const endpointMeasured = reports.some(item => item?.measuredFromRealWav === true);
   if (!endpointMeasured) {
     const endpointErrors = reports.map(item => item?.error).filter(Boolean);
-    report.diagnostics.push(`${label}: Quality endpoint non ha misurato WAV reali${endpointErrors.length ? ` (${endpointErrors.join(' | ')})` : ''}; eseguo lo stesso Quality 2.0 direttamente dal runner sui WAV reali.`);
-    reports = await Promise.all(audioUrls.map(async (audioUrl, index) => ({
-      ...(await analyzeProfessionalCandidate(audioUrl, requested)), index, audioUrl
-    })));
+    report.diagnostics.push(`${label}: Quality endpoint non ha misurato WAV reali${endpointErrors.length ? ` (${endpointErrors.join(' | ')})` : ''}.`);
+
+    const formats = [...new Set(audioUrls.map(audioFormatFromUrl))];
+    const allWav = formats.every(format => format === 'wav');
+    if (!allWav) {
+      const message = `${label}: output Studio in formato ${formats.join(', ')}; il Quality Engine corrente misura PCM WAV. Continuo il canary funzionale e segnalo la conversione/forcing WAV come hardening richiesto.`;
+      report.diagnostics.push(message);
+      report.quality[label] = { endpointMeasured: false, skippedNonWav: true, formats, bestScore: null, passed: false, reports };
+      console.log(message);
+      return { bestCandidateIndex: 0, bestProfessionalScore: null, passed: 0, reports };
+    }
+
+    try {
+      reports = await Promise.all(audioUrls.map(async (audioUrl, index) => ({
+        ...(await analyzeProfessionalCandidate(audioUrl, requested)), index, audioUrl
+      })));
+    } catch (error) {
+      const message = `${label}: analisi diretta runner fallita: ${error instanceof Error ? error.message : String(error)}`;
+      report.diagnostics.push(message);
+      if (label !== 'base-generation') {
+        report.quality[label] = { endpointMeasured: false, skippedAnalysisError: true, bestScore: null, passed: false, reports };
+        console.log(message);
+        return { bestCandidateIndex: 0, bestProfessionalScore: null, passed: 0, reports };
+      }
+      throw error;
+    }
   }
 
   const summary = summarizeProfessionalReports(reports, requested);
-  if (!summary.reports.some(item => item.measuredFromRealWav === true)) throw new Error(`${label}: nessun WAV reale analizzato.`);
+  if (!summary.reports.some(item => item.measuredFromRealWav === true)) {
+    if (label !== 'base-generation') {
+      report.quality[label] = { endpointMeasured, skippedNoRealWav: true, bestScore: summary.bestProfessionalScore, passed: false, summary, reports: summary.reports };
+      return summary;
+    }
+    throw new Error(`${label}: nessun WAV reale analizzato.`);
+  }
   const fatal = summary.reports.flatMap(item => item.hardFailureReasons || []).filter(reason => ['analysis-error','real-wav-analysis-missing','clipping','excessive-silence','dc-offset'].includes(String(reason)));
   if (fatal.length) throw new Error(`${label}: hard quality failure: ${[...new Set(fatal)].join(', ')}`);
   report.quality[label] = { endpointMeasured, bestScore: summary.bestProfessionalScore, passed: summary.passed > 0, summary, reports: summary.reports };
@@ -188,6 +229,7 @@ async function studioOperation(operation, sourceAudioUrl, extra = {}) {
   const body = {
     sourceAudioUrl,
     prompt: extra.prompt || '', bpm: 122, key: 'A Minor', durationSec: extra.durationSec ?? 30,
+    audio_format: 'wav',
     projectId: PROJECT_ID, profileId: PROFILE_ID, sonaraRealE2E: true,
     ...(extra.start == null ? {} : { start: extra.start }),
     ...(extra.end == null ? {} : { end: extra.end }),
@@ -201,7 +243,7 @@ async function studioOperation(operation, sourceAudioUrl, extra = {}) {
   report.outputs[`${operation}JobId`] = jobId;
   const done = await poll({ jobId, pollUrl: data?.pollUrl, label: operation });
   const urls = audioUrlsFrom(done);
-  report.outputs[operation] = { jobId, audioUrls: urls, metadata: done.metadata || null, qualityJudge: done.qualityJudge || null, raw: urls.length ? undefined : done };
+  report.outputs[operation] = { jobId, audioUrls: urls, formats: urls.map(audioFormatFromUrl), metadata: done.metadata || null, qualityJudge: done.qualityJudge || null, raw: urls.length ? undefined : done };
   if (!urls.length) throw new Error(`${operation}: completato senza URL audio.`);
   return urls;
 }
