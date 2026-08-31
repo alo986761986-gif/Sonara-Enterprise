@@ -1,0 +1,62 @@
+name: SONARA Studio Resource Stability Patch
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/sonara-studio-resource-stability-patch.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Apply resource stability fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          q = Path('cloudflare/sonara-quality-director-v2.mjs')
+          text = q.read_text()
+          old = "const finite = value => Number.isFinite(Number(value)) ? Number(value) : null;"
+          new = "const finite = value => value === null || value === undefined || String(value).trim() === '' ? null : Number.isFinite(Number(value)) ? Number(value) : null;"
+          if old not in text:
+            raise SystemExit('quality director finite marker missing')
+          q.write_text(text.replace(old, new, 1))
+
+          r = Path('cloudflare/sonara-studio-ai-router.mjs')
+          text = r.read_text()
+          old = 'const qualityReports = await mapWithConcurrency(outputs.slice(0, 12), 2, async (output, index) => {'
+          new = 'const qualityReports = await mapWithConcurrency(outputs.slice(0, 12), 1, async (output, index) => {'
+          if old not in text:
+            raise SystemExit('Studio quality concurrency marker missing')
+          r.write_text(text.replace(old, new, 1))
+          PY
+
+          node --check cloudflare/sonara-quality-director-v2.mjs
+          node --check cloudflare/sonara-studio-ai-router.mjs
+          node --test cloudflare/sonara-quality-director-v2.test.mjs
+          git diff --check
+          grep -q "String(value).trim() === ''" cloudflare/sonara-quality-director-v2.mjs
+          grep -q 'mapWithConcurrency(outputs.slice(0, 12), 1' cloudflare/sonara-studio-ai-router.mjs
+
+      - name: Commit fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "sonara-ci"
+          git config user.email "sonara-ci@users.noreply.github.com"
+          git add cloudflare/sonara-quality-director-v2.mjs cloudflare/sonara-studio-ai-router.mjs
+          git commit -m "fix(studio): stabilize stems quality analysis"
+          git push origin HEAD:main
