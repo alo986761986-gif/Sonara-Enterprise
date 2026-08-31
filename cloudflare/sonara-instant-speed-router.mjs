@@ -1,7 +1,7 @@
 import studioMaxRuntime from './sonara-studio-max-router.mjs';
 export { SonaraJobState } from './sonara-studio-max-router.mjs';
 
-const SPEED_VERSION = 'sonara-yue-turbo-single-v2';
+const SPEED_VERSION = 'sonara-yue-dual-fidelity-v3';
 
 function withSpeedHeaders(response) {
   const headers = new Headers(response.headers);
@@ -16,10 +16,9 @@ function withSpeedHeaders(response) {
 
 export default {
   async fetch(request, env, ctx) {
-    // Legacy SONARA Instant Dual (d16pair/A+B) is intentionally disabled.
-    // All generation requests now flow through the current production chain,
-    // where YuE FAST/TURBO is the default single-candidate low-latency profile
-    // and YuE QUALITY remains explicit/optional.
+    // Legacy d16pair/ACE-Step dual routing stays disabled.
+    // The active production path is YuE V10.4 Dual Fidelity: one YuE job,
+    // two safe candidates, creator-first prompt and exact output duration.
     const response = await studioMaxRuntime.fetch(request, env, ctx);
     return withSpeedHeaders(response);
   }
