@@ -16,6 +16,7 @@ import {
   X
 } from 'lucide-react';
 import SonaraStudio from './SonaraStudio';
+import SonaraSessions2Timeline from './SonaraSessions2Timeline';
 
 const NAV_HOST_ID = 'sonara-studio-nav-host';
 const DEFAULT_BPM = 124;
@@ -239,6 +240,11 @@ export default function StudioSectionControl() {
         </header>
 
         <div className={`sonara-pro-studio ${focusMode ? 'is-focus' : ''}`}>
+          <SonaraSessions2Timeline
+            sourceAudioUrl={audioUrl}
+            bpm={bpm}
+            keySignature="A Minor"
+          />
           <SonaraStudio
             audioUrl={audioUrl}
             title={title}
