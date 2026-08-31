@@ -38,12 +38,6 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Validate canary secret
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${SONARA_INTERNAL_PROXY_SECRET}"
-
       - name: Run real music + Studio 2.0 canary
         shell: bash
         run: node scripts/sonara-real-music-e2e.mjs
