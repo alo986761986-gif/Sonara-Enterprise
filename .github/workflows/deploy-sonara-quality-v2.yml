@@ -8,7 +8,11 @@ on:
     paths:
       - "cloudflare/sonara-quality-director-v2.mjs"
       - "cloudflare/sonara-quality-director-v2.test.mjs"
+      - "cloudflare/sonara-audio-quality-engine.mjs"
       - "cloudflare/sonara-next-studio-edge.mjs"
+      - "cloudflare/sonara-studio-ai-router.mjs"
+      - "cloudflare/sonara-ab-player-visibility-edge.mjs"
+      - "cloudflare/sonara-quality-gated-router.mjs"
       - "cloudflare/sonara-studio-v2-contract.mjs"
       - "cloudflare/sonara-studio-v2-contract.test.mjs"
       - "cloudflare/sonara-native-auth-main.mjs"
@@ -56,7 +60,10 @@ jobs:
         run: node --test cloudflare/sonara-studio-v2-contract.test.mjs
 
       - name: Validate Studio 2.0 edge syntax
-        run: node --check cloudflare/sonara-next-studio-edge.mjs
+        run: |
+          node --check cloudflare/sonara-next-studio-edge.mjs
+          node --check cloudflare/sonara-studio-ai-router.mjs
+          node --check cloudflare/sonara-audio-quality-engine.mjs
 
       - name: Build current production app
         run: npm run build
@@ -69,6 +76,9 @@ jobs:
           grep -q 'sonara-next-studio-edge-v2' cloudflare/sonara-next-studio-edge.mjs
           grep -q 'sonara-studio-v2.0-production' cloudflare/sonara-studio-v2-contract.mjs
           grep -q 'sonara-next-studio-edge.mjs' cloudflare/sonara-native-auth-main.mjs
+          grep -q "audio_format: 'wav'" cloudflare/sonara-studio-ai-router.mjs
+          grep -q "percussion: 'percussion'" cloudflare/sonara-studio-ai-router.mjs
+          grep -q 'directAudioFetch' cloudflare/sonara-studio-ai-router.mjs
           grep -q 'SONARA_SESSIONS_NATIVE_V2' src/components/studio/SonaraStudio.tsx
           grep -q 'data-sonara-sessions-timeline="2.0"' src/components/studio/SonaraSessions2Timeline.tsx
           grep -q 'Stems Pro 12' src/components/studio/SonaraSessions2Timeline.tsx
