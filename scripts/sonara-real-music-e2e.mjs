@@ -116,6 +116,7 @@ async function poll({ jobId, pollUrl, label, publicMusicJob = false }) {
     } catch (error) {
       const text = error instanceof Error ? error.message : String(error);
       if (/\b(FAILED|ERROR|CANCELLED)\b/.test(text)) throw error;
+      if (/Worker exceeded resources/i.test(text)) throw new Error(`${label}: Cloudflare Worker exceeded resources during polling.`);
       console.log(`${label} poll retry: ${text}`);
     }
     await sleep(POLL_MS);
@@ -255,7 +256,15 @@ async function studioOperation(operation, sourceAudioUrl, extra = {}) {
   report.outputs[`${operation}JobId`] = jobId;
   const done = await poll({ jobId, pollUrl: data?.pollUrl, label: operation });
   const urls = audioUrlsFrom(done);
-  report.outputs[operation] = { jobId, audioUrls: urls, formats: urls.map(audioFormatFromUrl), metadata: done.metadata || null, qualityJudge: done.qualityJudge || null, raw: urls.length ? undefined : done };
+  report.outputs[operation] = {
+    jobId,
+    audioUrls: urls,
+    formats: urls.map(audioFormatFromUrl),
+    outputs: Array.isArray(done.outputs) ? done.outputs.map(item => ({ id: item?.id || null, label: item?.label || null, kind: item?.kind || null, stem: item?.stem || null, audioUrl: item?.audioUrl || item?.url || null, model: item?.model || null })) : [],
+    metadata: done.metadata || null,
+    qualityJudge: done.qualityJudge || null,
+    raw: urls.length ? undefined : done
+  };
   if (!urls.length) throw new Error(`${operation}: completato senza URL audio.`);
   return urls;
 }
@@ -299,7 +308,7 @@ async function main() {
     });
     requireWavOutputs(stems, 'Stems Pro', 12);
       const expectedStemLabels = ['Vocals','Drums','Bass','Guitar','Keys','Synth','Strings','Brass','Woodwinds','Percussion','Pads','FX'];
-      const stemLabels = (report.outputs['stems-pro']?.qualityJudge?.reports || []).map(item => String(item?.label || '')).filter(Boolean);
+      const stemLabels = (report.outputs['stems-pro']?.outputs || []).map(item => String(item?.label || '')).filter(Boolean);
       const missingLabels = expectedStemLabels.filter(label => !stemLabels.includes(label));
       if (missingLabels.length) throw new Error(`Stems Pro: stem distinti mancanti: ${missingLabels.join(', ')}.`);
 

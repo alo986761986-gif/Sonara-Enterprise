@@ -659,7 +659,8 @@ async function studioJob(request, env, jobId) {
     }
 
     const qualityFetch = directAudioFetch(baseUrl, env);
-    const qualityReports = await mapWithConcurrency(outputs.slice(0, 12), 1, async (output, index) => {
+    const qualityTargets = state.operation === 'stems' ? [] : outputs.slice(0, 12);
+    const qualityReports = await mapWithConcurrency(qualityTargets, 1, async (output, index) => {
       try {
         const verifyMusicalGrid = !['stems', 'regenerate-stem'].includes(state.operation);
         const report = await analyzeAudioCandidate(output.audioUrl, {
