@@ -83,7 +83,7 @@ export function normalizeSongMemory(input = {}, previous = {}) {
     lyricsAnchor: first(source.lyricsAnchor, source.lyricsChorus, source.lyrics, old.lyricsAnchor).slice(0, 3000),
     creatorBrief: first(source.sonaraOriginalCreatorBrief, source.rawPrompt, source.creatorPrompt, source.prompt, old.creatorBrief).slice(0, 4000),
     durationSec: durationSec == null ? null : Math.max(1, Math.min(600, durationSec)),
-    lastOperation: first(source.sonaraSessionOperation, source.operation, old.lastOperation).slice(0, 80),
+    lastOperation: first(source.lastOperation, source.sonaraSessionOperation, source.operation, old.lastOperation).slice(0, 80),
     updatedAt: Date.now(),
     createdAt: Number(old.createdAt || Date.now())
   };
