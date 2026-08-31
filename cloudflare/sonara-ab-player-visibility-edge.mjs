@@ -44,7 +44,22 @@ const clean=()=>{
     if(/google/i.test(text)||/google/i.test(aria)||/google/i.test(title)) node.remove();
   });
 };
-const start=()=>{clean();new MutationObserver(clean).observe(document.body||document.documentElement,{childList:true,subtree:true});setTimeout(clean,700);};
+const studioRestore=async()=>{
+  const match=String(location.hash||'').match(/^#sonara-studio-restore=([^&]+)$/i);
+  if(!match)return;
+  const code=decodeURIComponent(match[1]||'').trim();
+  if(!code)return;
+  try{
+    const r=await fetch('/api/sonara-auth/restore-studio',{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})});
+    const p=await r.json().catch(()=>({}));
+    if(r.ok&&p?.ok){
+      history.replaceState({},'',location.pathname+location.search);
+      window.dispatchEvent(new CustomEvent('sonara:billing-updated',{detail:p.billing||null}));
+      setTimeout(()=>location.reload(),250);
+    }
+  }catch{}
+};
+const start=()=>{clean();void studioRestore();new MutationObserver(clean).observe(document.body||document.documentElement,{childList:true,subtree:true});setTimeout(clean,700);};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
 })();</script>`;
 
