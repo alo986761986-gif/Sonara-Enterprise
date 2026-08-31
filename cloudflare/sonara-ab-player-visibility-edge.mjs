@@ -3,7 +3,7 @@ import { SonaraAuthStore, handleSonaraNativeAuth } from './sonara-native-auth.mj
 
 export { SonaraJobState, SonaraAuthStore };
 
-const VERSION = 'sonara-ab-player-playback-edge-v2';
+const VERSION = 'sonara-ab-player-playback-edge-v3';
 const AUTH_VERSION = 'sonara-native-auth-v2';
 
 const AB_VISIBILITY_SCRIPT = `<script id="sonara-ab-player-playback-edge-v2">(()=>{
@@ -88,6 +88,56 @@ function inject(response) {
   }).transform(safe);
 }
 
+async function authorizeNativeMusicGeneration(request, env) {
+  const billingUrl = new URL('/api/billing/status', request.url);
+  const headers = new Headers(request.headers);
+  headers.delete('content-length');
+  headers.delete('content-type');
+
+  const statusRequest = new Request(billingUrl.toString(), {
+    method: 'GET',
+    headers,
+    redirect: 'manual'
+  });
+  const statusResponse = await handleSonaraNativeAuth(statusRequest, env);
+  if (!statusResponse) {
+    return new Response(JSON.stringify({ error: { code: 'AUTH_STORE_UNAVAILABLE', message: 'Servizio account SONARA non disponibile.' } }), {
+      status: 503,
+      headers: { 'content-type': 'application/json; charset=UTF-8', 'cache-control': 'no-store' }
+    });
+  }
+  if (!statusResponse.ok) return statusResponse;
+
+  const payload = await statusResponse.clone().json().catch(() => ({}));
+  const billing = payload?.billing || null;
+  if (!billing?.planId) {
+    return new Response(JSON.stringify({ error: { code: 'AUTH_TOKEN_INVALID', message: 'Accedi con un account SONARA valido.' } }), {
+      status: 401,
+      headers: { 'content-type': 'application/json; charset=UTF-8', 'cache-control': 'no-store' }
+    });
+  }
+
+  try {
+    const body = await request.clone().json();
+    const requestedSeconds = Math.max(30, Math.min(480, Math.round(Number(body?.durationSec ?? body?.duration ?? 30))));
+    const maxTrackSeconds = Math.max(1, Number(billing.maxTrackSeconds || 60));
+    if (requestedSeconds > maxTrackSeconds) {
+      return new Response(JSON.stringify({
+        error: { code: 'TRACK_DURATION_LIMIT', message: 'La durata richiesta supera il limite del piano attivo.' },
+        planId: billing.planId,
+        maxTrackSeconds
+      }), {
+        status: 403,
+        headers: { 'content-type': 'application/json; charset=UTF-8', 'cache-control': 'no-store' }
+      });
+    }
+  } catch {
+    // The downstream generator owns payload validation; authentication is valid.
+  }
+
+  return null;
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -102,6 +152,13 @@ export default {
     ) {
       const authResponse = await handleSonaraNativeAuth(request, env);
       if (authResponse) return authResponse;
+    }
+
+    if (publicHost && request.method === 'POST' && url.pathname === '/api/billing/generate') {
+      const denied = await authorizeNativeMusicGeneration(request, env);
+      if (denied) return denied;
+      const response = await runtime.fetch(request, env, ctx);
+      return withVersion(response);
     }
 
     const response = await runtime.fetch(request, env, ctx);
