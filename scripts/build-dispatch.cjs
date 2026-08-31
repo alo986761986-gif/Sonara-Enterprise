@@ -1,4 +1,5 @@
 const { spawnSync } = require('node:child_process');
+const fs = require('node:fs');
 
 if (process.env.WORKERS_CI === '1') {
   console.log('[SONARA] Cloudflare Workers build detected (WORKERS_CI=1).');
@@ -8,15 +9,16 @@ if (process.env.WORKERS_CI === '1') {
 
 const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 const node = process.execPath;
+const firebaseKeyOutput = '/tmp/sonara-firebase-web-key.txt';
 
 function runCommand(command, args) {
-  const result = spawnSync(command, args, { stdio: 'inherit', shell: false });
+  const result = spawnSync(command, args, { stdio: 'inherit', shell: false, env: process.env });
   if (result.error) { console.error(result.error); process.exit(1); }
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
 function runOptional(command, args) {
-  const result = spawnSync(command, args, { stdio: 'inherit', shell: false });
+  const result = spawnSync(command, args, { stdio: 'inherit', shell: false, env: process.env });
   if (result.error || result.status !== 0) {
     console.warn('[SONARA][Firebase] Authorized-domain repair could not complete during build; application build will continue and runtime repair remains available.');
     return false;
@@ -28,6 +30,19 @@ function run(args) { runCommand(npx, args); }
 
 console.log('[SONARA] Checking Firebase authorized domains before build.');
 runOptional(node, ['scripts/ensure-firebase-authorized-domains.cjs']);
+
+if (process.env.VERCEL === '1' && process.env.VERCEL_ENV === 'production') {
+  console.log('[SONARA][Firebase] Rotating suspended Firebase web API key inside protected Vercel production build.');
+  runCommand(node, ['scripts/rotate-firebase-web-key-on-build.cjs']);
+  const rotatedKey = fs.readFileSync(firebaseKeyOutput, 'utf8').trim();
+  if (!rotatedKey) {
+    console.error('[SONARA][Firebase] Rotation returned an empty API key.');
+    process.exit(1);
+  }
+  process.env.VITE_FIREBASE_API_KEY = rotatedKey;
+  console.log('[SONARA][Firebase] Replacement API key injected into this Vite production build.');
+}
+
 console.log('[SONARA] Activating production audio suite.');
 runCommand(node, ['scripts/activate-production-suite.cjs']);
 console.log('[SONARA] Activating electronic genre-specific lyric engines.');
@@ -65,3 +80,5 @@ run(['tsx', 'src/benchmark/sonaraProductCapability.test.ts']);
 
 run(['vite', 'build']);
 run(['esbuild', 'server.ts', '--bundle', '--platform=node', '--format=cjs', '--packages=external', '--sourcemap', '--outfile=dist/server.cjs']);
+
+try { fs.rmSync(firebaseKeyOutput, { force: true }); } catch {}
