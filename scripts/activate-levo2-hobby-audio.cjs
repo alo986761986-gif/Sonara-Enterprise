@@ -15,15 +15,8 @@ function replaceRequired(from, to, label) {
   source = source.replace(from, to);
 }
 
-replaceRequired(
-  "  const token = bearerToken(req);",
-  "  const token = bearerToken(req);",
-  'job bridge marker'
-);
-
-replaceRequired(
-  "  const internalSecret = String(process.env.SONARA_INTERNAL_PROXY_SECRET || '').trim();",
-  `  const publicAudioJobId = queryValue(req.query?.jobId).trim();
+const audioProxyMarker = "  const internalSecret = String(process.env.SONARA_INTERNAL_PROXY_SECRET || '').trim();";
+const audioProxyBlock = `  const publicAudioJobId = queryValue(req.query?.jobId).trim();
   const publicAudioMode = queryValue(req.query?.audio).trim() === '1';
   if (publicAudioMode && /^levo_[A-Za-z0-9-]{16,}$/.test(publicAudioJobId)) {
     const levoBaseUrl = String(process.env.LEVO2_RESEARCH_API_URL || 'https://symbols-readily-boolean-personalized.trycloudflare.com').replace(/\\/$/, '');
@@ -58,7 +51,11 @@ replaceRequired(
     }
   }
 
-  const internalSecret = String(process.env.SONARA_INTERNAL_PROXY_SECRET || '').trim();`,
+  const internalSecret = String(process.env.SONARA_INTERNAL_PROXY_SECRET || '').trim();`;
+
+replaceRequired(
+  audioProxyMarker,
+  audioProxyBlock,
   'reuse job function for LeVo2 audio'
 );
 
