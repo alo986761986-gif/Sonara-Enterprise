@@ -78,6 +78,20 @@ export const firebaseConfigured = Boolean(
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
 
+type NativeCompatUser = Pick<User, 'uid' | 'email' | 'displayName'>;
+
+async function nativeSessionUser(): Promise<NativeCompatUser | null> {
+  try {
+    const response = await fetch('/api/sonara-auth/session', { credentials: 'include', cache: 'no-store' });
+    const payload = await response.json().catch(() => ({}));
+    return response.ok && payload?.authenticated && payload?.user?.uid
+      ? payload.user as NativeCompatUser
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function getFirebaseAuth(): Auth {
   if (!firebaseConfigured) {
     throw new Error('Firebase production credentials are not configured.');
@@ -92,8 +106,11 @@ function getFirebaseAuth(): Auth {
 
 export function watchFirebaseUser(callback: (user: User | null) => void): () => void {
   if (!firebaseConfigured) {
-    callback(null);
-    return () => undefined;
+    let active = true;
+    void nativeSessionUser().then(user => {
+      if (active) callback(user as User | null);
+    });
+    return () => { active = false; };
   }
   return onAuthStateChanged(getFirebaseAuth(), callback);
 }
@@ -121,6 +138,13 @@ export async function logoutFirebase(): Promise<void> {
 }
 
 export async function getFirebaseIdToken(forceRefresh = false): Promise<string> {
+  if (!firebaseConfigured) {
+    const user = await nativeSessionUser();
+    if (!user) throw new Error('Accedi per usare SONARA.');
+    // Compatibility marker only. Native SONARA endpoints authenticate through
+    // the Secure/HttpOnly session cookie and ignore this legacy bearer value.
+    return 'sonara-native-session';
+  }
   const user = getFirebaseAuth().currentUser;
   if (!user) throw new Error('Accedi per usare Ember.');
   return user.getIdToken(forceRefresh);
