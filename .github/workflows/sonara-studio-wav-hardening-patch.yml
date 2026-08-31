@@ -1,0 +1,109 @@
+name: SONARA Studio WAV Hardening Patch
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/sonara-studio-wav-hardening-patch.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Apply Studio AI production hardening
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('cloudflare/sonara-studio-ai-router.mjs')
+          text = path.read_text()
+
+          replacements = [
+            (
+              "const DEFAULT_STEMS = ['vocals', 'drums', 'bass', 'guitar', 'keys', 'synth', 'strings', 'fx'];",
+              "const DEFAULT_STEMS = ['vocals', 'drums', 'bass', 'guitar', 'keys', 'synth', 'strings', 'brass', 'woodwinds', 'percussion', 'pads', 'fx'];"
+            ),
+            (
+              "    drum: 'drums', drums: 'drums', percussion: 'drums',",
+              "    drum: 'drums', drums: 'drums', percussion: 'percussion',"
+            ),
+            (
+              "  const names = { vocals: 'Vocals', drums: 'Drums', bass: 'Bass', guitar: 'Guitar', keys: 'Keys', synth: 'Synth', strings: 'Strings', fx: 'FX', other: 'Other' };",
+              "  const names = { vocals: 'Vocals', drums: 'Drums', bass: 'Bass', guitar: 'Guitar', keys: 'Keys', synth: 'Synth', strings: 'Strings', brass: 'Brass', woodwinds: 'Woodwinds', percussion: 'Percussion', pads: 'Pads', fx: 'FX', other: 'Other' };"
+            ),
+            (
+              "    audio_duration: duration,\n    inference_steps: isBase ? 50 : 8,",
+              "    audio_duration: duration,\n    audio_format: 'wav',\n    inference_steps: isBase ? 50 : 8,"
+            ),
+            (
+              "    throw new Error(clean(data?.error?.message || data?.error || data?.message || `MoLab Studio HTTP ${response.status}`));",
+              "    throw new Error(clean(data?.detail || data?.error?.message || data?.error || data?.message || `MoLab Studio HTTP ${response.status}`));"
+            ),
+            (
+              "  const stems = ['vocals','drums','bass','guitar','keys','synth','strings','fx'];",
+              "  const stems = ['vocals','drums','bass','guitar','keys','synth','strings','brass','woodwinds','percussion','pads','fx'];"
+            ),
+            (
+              "    form.append('bpm', String(bpmValue())); form.append('key', keyValue());",
+              "    form.append('bpm', String(bpmValue())); form.append('key', keyValue()); form.append('audio_format', 'wav');"
+            )
+          ]
+
+          for old, new in replacements:
+            if old not in text:
+              raise SystemExit(f'Missing expected Studio source fragment: {old[:120]}')
+            text = text.replace(old, new, 1)
+
+          marker = "function publicAudioUrl(path) {\n  return `${PUBLIC_API_ORIGIN}/api/molab/audio?path=${encodeURIComponent(path)}`;\n}\n"
+          if marker not in text:
+            raise SystemExit('Missing publicAudioUrl marker')
+          helper = marker + "\nfunction directAudioFetch(baseUrl, env) {\n  return async (input, init = {}) => {\n    try {\n      const inputUrl = input instanceof Request ? input.url : String(input);\n      const url = new URL(inputUrl, PUBLIC_API_ORIGIN);\n      if ((url.hostname === 'api.sonaraenterprise.com' || url.hostname === 'molab.sonaraenterprise.com') && (url.pathname === '/api/molab/audio' || url.pathname === '/v1/audio')) {\n        const path = clean(url.searchParams.get('path'));\n        if (path) {\n          const headers = new Headers(init.headers || {});\n          for (const [key, value] of Object.entries(authHeaders(env))) if (!headers.has(key)) headers.set(key, value);\n          return fetch(`${baseUrl}/v1/audio?path=${encodeURIComponent(path)}`, { ...init, headers });\n        }\n      }\n    } catch {}\n    return fetch(input, init);\n  };\n}\n"
+          text = text.replace(marker, helper, 1)
+
+          old = "    const qualityReports = await Promise.all(outputs.slice(0, 12).map(async (output, index) => {\n      try {"
+          new = "    const qualityFetch = directAudioFetch(baseUrl, env);\n    const qualityReports = await Promise.all(outputs.slice(0, 12).map(async (output, index) => {\n      try {"
+          if old not in text:
+            raise SystemExit('Missing qualityReports marker')
+          text = text.replace(old, new, 1)
+
+          old = "        const report = await analyzeAudioCandidate(output.audioUrl, {\n          bpm: verifyMusicalGrid ? state.requested?.bpm : null,\n          key: verifyMusicalGrid ? state.requested?.key : null\n        });"
+          new = "        const report = await analyzeAudioCandidate(output.audioUrl, {\n          bpm: verifyMusicalGrid ? state.requested?.bpm : null,\n          key: verifyMusicalGrid ? state.requested?.key : null\n        }, qualityFetch);"
+          if old not in text:
+            raise SystemExit('Missing analyzeAudioCandidate marker')
+          text = text.replace(old, new, 1)
+
+          path.write_text(text)
+          PY
+
+          node --check cloudflare/sonara-studio-ai-router.mjs
+          node --test cloudflare/sonara-studio-v2-contract.test.mjs
+          git diff --check
+          grep -q "audio_format: 'wav'" cloudflare/sonara-studio-ai-router.mjs
+          grep -q "percussion: 'percussion'" cloudflare/sonara-studio-ai-router.mjs
+          grep -q "const qualityFetch = directAudioFetch" cloudflare/sonara-studio-ai-router.mjs
+
+      - name: Commit hardened Studio router
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No patch needed."
+            exit 0
+          fi
+          git config user.name "sonara-ci"
+          git config user.email "sonara-ci@users.noreply.github.com"
+          git add cloudflare/sonara-studio-ai-router.mjs
+          git commit -m "fix(studio): force WAV quality and expose 12 distinct stems"
+          git push origin HEAD:main
