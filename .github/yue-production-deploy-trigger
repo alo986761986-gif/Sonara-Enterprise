@@ -1,6 +1,10 @@
-SONARA YuE production deploy
+SONARA YuE V10 QUALITY production deploy
 Worker: https://yue.sonaraenterprise.com
-Activated: 2026-08-30
-Verification: production-v18-yue-dual-candidate-v5
-Router commit: d71f75678259fb41f9fde6e9598d0728d9fdc3a7
-Candidates: 2
+Activated: 2026-08-31T09:19:00+02:00
+Profile: V10 QUALITY BF16 default + FAST EXL2 fallback
+Gateway: 8012
+Quality: 8014
+Fast: 8013
+Router commit: 6791885fbaa269b6b5b3092fc9a19ef158a843a4
+Workflow V10 health commit: 96b7a9483a179f0d1ebae63fd43b9521c3d3ea42
+Installer commit: 923ced21ae0360b2a020e6ae531efa44664bbcac
