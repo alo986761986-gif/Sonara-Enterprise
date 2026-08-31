@@ -1,16 +1,13 @@
-// Firebase public web configuration. Vercel values are used when valid; corrupted/redacted placeholders fall back to the real SONARA public config.
+// Firebase public web configuration. SONARA requires a valid runtime/build API key and never falls back to a suspended credential.
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
 import {
-  GoogleAuthProvider,
   createUserWithEmailAndPassword,
   deleteUser,
   getAuth,
-  linkWithPopup,
   onAuthStateChanged,
   sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
-  signInWithPopup,
   signOut,
   updateProfile,
   verifyBeforeUpdateEmail,
@@ -22,7 +19,7 @@ import { getDownloadURL, getStorage, ref, uploadBytes } from 'firebase/storage';
 const env = ((import.meta as any).env || {}) as Record<string, string | undefined>;
 
 const SONARA_FIREBASE_PUBLIC_CONFIG = {
-  apiKey: 'AIzaSyCumTBH88Mf6iJa9PCQy3Y8khbeW0EbppM',
+  apiKey: '',
   authDomain: 'sonara-enterprise.firebaseapp.com',
   projectId: 'sonara-enterprise',
   storageBucket: 'sonara-enterprise.firebasestorage.app',
@@ -112,10 +109,7 @@ export async function registerWithEmail(email: string, password: string): Promis
 }
 
 export async function loginWithGoogle(): Promise<User> {
-  const provider = new GoogleAuthProvider();
-  provider.setCustomParameters({ prompt: 'select_account' });
-  const result = await signInWithPopup(getFirebaseAuth(), provider);
-  return result.user;
+  throw new Error('Accesso Google disattivato. Usa email e password.');
 }
 
 export async function resetEmailPassword(email: string): Promise<void> {
@@ -251,12 +245,7 @@ export async function requestFirebaseEmailChange(email: string): Promise<void> {
 }
 
 export async function linkCurrentUserWithGoogle(): Promise<User> {
-  const user = getFirebaseAuth().currentUser;
-  if (!user) throw new Error('Accedi per collegare Google.');
-  const provider = new GoogleAuthProvider();
-  provider.setCustomParameters({ prompt: 'select_account' });
-  const result = await linkWithPopup(user, provider);
-  return result.user;
+  throw new Error('Collegamento Google disattivato. SONARA usa solo email e password.');
 }
 
 export async function deleteCurrentFirebaseAccount(): Promise<void> {
