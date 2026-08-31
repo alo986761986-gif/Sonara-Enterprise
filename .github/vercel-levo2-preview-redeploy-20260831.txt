@@ -1,0 +1,3 @@
+SONARA LeVo2 R&D preview redeploy trigger.
+Reason: deploy latest Hobby-safe integration after removing the extra LeVo2 serverless function.
+Branch: feature/levo2-research-engine-20260831
