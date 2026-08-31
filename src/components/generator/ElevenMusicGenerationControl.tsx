@@ -331,8 +331,14 @@ export default function ElevenMusicGenerationControl() {
       jobId,
       error: ''
     }));
+
+    // The generation is finished as soon as the playable masters are available.
+    // Archiving the audio and refreshing billing are secondary tasks and must never
+    // keep the Generate button spinning after the user can already play the tracks.
     setCandidates(completed);
-    await Promise.allSettled(completed.map(candidate => archiveGeneratedProject({
+    setBusy(false);
+
+    void Promise.allSettled(completed.map(candidate => archiveGeneratedProject({
       jobId: `${jobId}-${candidate.id}`,
       title: context.title,
       genre: context.genre,
@@ -350,13 +356,16 @@ export default function ElevenMusicGenerationControl() {
         creativeControls: { weirdness: context.weirdness, styleInfluence: context.styleInfluence }
       }
     })));
-    try {
-      const billing = await fetch('/api/billing/status', { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
-      if (billing.ok) {
-        const payload = await billing.json();
-        if (payload?.billing) window.dispatchEvent(new CustomEvent('sonara:billing-updated', { detail: payload.billing }));
-      }
-    } catch {}
+
+    void (async () => {
+      try {
+        const billing = await fetch('/api/billing/status', { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+        if (billing.ok) {
+          const payload = await billing.json();
+          if (payload?.billing) window.dispatchEvent(new CustomEvent('sonara:billing-updated', { detail: payload.billing }));
+        }
+      } catch {}
+    })();
   };
 
   const generate = async () => {
