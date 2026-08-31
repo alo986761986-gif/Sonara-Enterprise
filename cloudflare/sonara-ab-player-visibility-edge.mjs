@@ -3,7 +3,7 @@ import { SonaraAuthStore, handleSonaraNativeAuth } from './sonara-native-auth.mj
 
 export { SonaraJobState, SonaraAuthStore };
 
-const VERSION = 'sonara-ab-player-playback-edge-v3';
+const VERSION = 'sonara-ab-player-playback-edge-v4';
 const AUTH_VERSION = 'sonara-native-auth-v2';
 
 const AB_VISIBILITY_SCRIPT = `<script id="sonara-ab-player-playback-edge-v2">(()=>{
@@ -121,6 +121,7 @@ async function authorizeNativeMusicGeneration(request, env) {
     const body = await request.clone().json();
     const requestedSeconds = Math.max(30, Math.min(480, Math.round(Number(body?.durationSec ?? body?.duration ?? 30))));
     const maxTrackSeconds = Math.max(1, Number(billing.maxTrackSeconds || 60));
+    const remainingSeconds = Math.max(0, Number(billing.remainingSeconds ?? billing.includedSeconds ?? 0));
     if (requestedSeconds > maxTrackSeconds) {
       return new Response(JSON.stringify({
         error: { code: 'TRACK_DURATION_LIMIT', message: 'La durata richiesta supera il limite del piano attivo.' },
@@ -131,11 +132,50 @@ async function authorizeNativeMusicGeneration(request, env) {
         headers: { 'content-type': 'application/json; charset=UTF-8', 'cache-control': 'no-store' }
       });
     }
+    if (remainingSeconds > 0 && requestedSeconds > remainingSeconds) {
+      return new Response(JSON.stringify({
+        error: { code: 'USAGE_LIMIT_REACHED', message: 'Hai terminato i minuti inclusi nel piano corrente.' },
+        planId: billing.planId,
+        remainingSeconds
+      }), {
+        status: 402,
+        headers: { 'content-type': 'application/json; charset=UTF-8', 'cache-control': 'no-store' }
+      });
+    }
   } catch {
     // The downstream generator owns payload validation; authentication is valid.
   }
 
   return null;
+}
+
+async function forwardVerifiedMusicGeneration(request, env, ctx) {
+  const target = new URL('/api/engine/generate', request.url);
+  const headers = new Headers(request.headers);
+  headers.delete('content-length');
+  headers.set('content-type', request.headers.get('content-type') || 'application/json');
+  headers.set('x-sonara-native-auth', 'verified');
+
+  const internalSecret = String(env?.SONARA_INTERNAL_PROXY_SECRET || '').trim();
+  if (internalSecret) headers.set('X-Sonara-Internal-Secret', internalSecret);
+
+  const body = await request.arrayBuffer();
+  const engineRequest = new Request(target.toString(), {
+    method: 'POST',
+    headers,
+    body,
+    redirect: 'manual'
+  });
+
+  const response = await runtime.fetch(engineRequest, env, ctx);
+  const out = new Headers(response.headers);
+  out.set('x-sonara-billing', 'native-entitlement');
+  out.set('x-sonara-generation-route', 'native-to-molab');
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: out
+  });
 }
 
 export default {
@@ -156,8 +196,8 @@ export default {
 
     if (publicHost && request.method === 'POST' && url.pathname === '/api/billing/generate') {
       const denied = await authorizeNativeMusicGeneration(request, env);
-      if (denied) return denied;
-      const response = await runtime.fetch(request, env, ctx);
+      if (denied) return withVersion(denied);
+      const response = await forwardVerifiedMusicGeneration(request, env, ctx);
       return withVersion(response);
     }
 
