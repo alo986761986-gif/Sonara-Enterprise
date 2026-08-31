@@ -13,6 +13,7 @@ export const config = { api: { bodyParser: false } };
 
 const DEFAULT_APP_URL = 'https://sonaraenterprise.com';
 const DEFAULT_ENGINE_URL = 'https://api.sonaraenterprise.com';
+const DEFAULT_ELEVEN_MUSIC_URL = 'https://sonara-enterprise.vercel.app/api/eleven-music/generate';
 const DEFAULT_LEGAL_VERSION = '2026-08-24-v1';
 const DEFAULT_TERMS_URL = `${DEFAULT_APP_URL}/terms`;
 const DEFAULT_PRIVACY_URL = `${DEFAULT_APP_URL}/privacy`;
@@ -350,13 +351,9 @@ async function createCheckout(user: AuthenticatedUser, body: Record<string, any>
 }
 
 async function createPortal(user: AuthenticatedUser, res: any) {
-  if (!portalSessionReady()) {
-    return errorResponse(res, 503, 'BILLING_NOT_CONFIGURED', 'Il portale pagamenti non è ancora configurato.');
-  }
   const record = await getBillingRecord(user.uid);
-  if (!record?.stripeCustomerId) {
-    return errorResponse(res, 404, 'STRIPE_CUSTOMER_NOT_FOUND', 'Non esiste ancora un abbonamento da gestire.');
-  }
+  if (!record?.stripeCustomerId) return errorResponse(res, 404, 'STRIPE_CUSTOMER_NOT_FOUND', 'Profilo di fatturazione non trovato.');
+  if (!portalSessionReady()) return errorResponse(res, 503, 'BILLING_NOT_CONFIGURED', 'Il portale pagamenti non è configurato.');
   const appUrl = String(process.env.SONARA_APP_URL || DEFAULT_APP_URL).replace(/\/$/, '');
   const form = new URLSearchParams({ customer: record.stripeCustomerId, return_url: `${appUrl}/?billing=portal-return` });
   const session = await stripeRequest('/v1/billing_portal/sessions', { method: 'POST', form });
@@ -587,21 +584,31 @@ async function proxyGeneration(user: AuthenticatedUser, body: Record<string, any
     return errorResponse(res, 503, 'BILLING_STORE_NOT_CONFIGURED', 'Il controllo delle quote non è disponibile.');
   }
 
-  const engineBaseUrl = String(process.env.SONARA_ENGINE_API_URL || DEFAULT_ENGINE_URL).replace(/\/$/, '');
+  const provider = String(process.env.SONARA_MUSIC_PROVIDER || 'eleven_music').trim().toLowerCase();
+  const useEleven = provider === 'eleven' || provider === 'eleven_music' || provider === 'elevenlabs';
+  const targetUrl = useEleven
+    ? String(process.env.SONARA_ELEVEN_MUSIC_URL || DEFAULT_ELEVEN_MUSIC_URL).trim()
+    : `${String(process.env.SONARA_ENGINE_API_URL || DEFAULT_ENGINE_URL).replace(/\/$/, '')}/api/engine/generate`;
+
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const internalSecret = String(process.env.SONARA_INTERNAL_PROXY_SECRET || '').trim();
   if (internalSecret) headers['X-Sonara-Internal-Secret'] = internalSecret;
 
   try {
-    const engineResponse = await fetch(`${engineBaseUrl}/api/engine/generate`, {
+    const engineResponse = await fetch(targetUrl, {
       method: 'POST',
       headers,
       body: JSON.stringify({
         ...body,
+        sonaraUserUid: user.uid,
         durationSec: requestedSeconds,
         duration: requestedSeconds,
         weirdness,
-        styleInfluence
+        styleInfluence,
+        provider: useEleven ? 'eleven_music' : body.provider,
+        engineProvider: useEleven ? 'eleven_music' : body.engineProvider,
+        candidateCount: useEleven ? 2 : body.candidateCount,
+        candidate_count: useEleven ? 2 : body.candidate_count
       })
     });
     const raw = await engineResponse.text();
@@ -610,10 +617,13 @@ async function proxyGeneration(user: AuthenticatedUser, body: Record<string, any
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Content-Type', engineResponse.headers.get('content-type') || 'application/json; charset=utf-8');
     res.setHeader('X-Sonara-Billing', reservation ? 'metered' : 'observe');
+    res.setHeader('X-Sonara-Music-Provider', useEleven ? 'eleven-music-v2' : 'legacy-engine');
     return res.status(engineResponse.status).send(raw);
   } catch (error) {
     if (reservation) await finishReservation(user.uid, reservation.reservationId, 'released').catch(() => undefined);
-    return errorResponse(res, 502, 'ENGINE_PROXY_FAILED', 'SONARA non riesce a raggiungere il motore di generazione.');
+    return errorResponse(res, 502, 'ENGINE_PROXY_FAILED', useEleven
+      ? 'SONARA non riesce a raggiungere Eleven Music v2.'
+      : 'SONARA non riesce a raggiungere il motore di generazione.');
   }
 }
 
@@ -624,12 +634,14 @@ export default async function handler(req: any, res: any) {
       return json(res, 200, {
         service: 'sonara-billing',
         ready: webhookReady(),
+        musicProvider: String(process.env.SONARA_MUSIC_PROVIDER || 'eleven_music').trim().toLowerCase(),
         checks: {
           firebaseAdmin: billingStoreReady(),
           stripeSecret: Boolean(String(process.env.STRIPE_SECRET_KEY || '').trim()),
           webhookSecret: Boolean(String(process.env.STRIPE_WEBHOOK_SECRET || '').trim()),
           prices: configuredPriceIds().length === 4,
-          legal: legalPublicationReady() && Boolean(legalVersion() && termsUrl() && privacyUrl())
+          legal: legalPublicationReady() && Boolean(legalVersion() && termsUrl() && privacyUrl()),
+          elevenMusic: Boolean(String(process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_API_KEY || '').trim())
         }
       });
     }
