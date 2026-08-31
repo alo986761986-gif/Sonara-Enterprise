@@ -5,6 +5,7 @@ import { FirebaseStorageService } from '../storage/FirebaseStorage';
 import { AudioAnalyzer } from './AudioAnalyzer';
 import { MixingMasteringEngineService } from './MixingMasteringEngineService';
 import { AceStepEngine } from '../engine/AceStepEngine';
+import { LeVo2ResearchEngine } from '../engine/LeVo2ResearchEngine';
 import fs from 'fs';
 import path from 'path';
 
@@ -16,7 +17,8 @@ export class MusicGenerationService {
     if (!buffer || buffer.length < 100000) return false;
     const isWav = buffer.toString('utf8', 0, 4) === 'RIFF' && buffer.toString('utf8', 8, 12) === 'WAVE';
     const isMp3 = buffer.toString('utf8', 0, 3) === 'ID3' || (buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0);
-    return isWav || isMp3;
+    const isFlac = buffer.toString('utf8', 0, 4) === 'fLaC';
+    return isWav || isMp3 || isFlac;
   }
 
   public static createFallbackAudio(
@@ -178,7 +180,19 @@ export class MusicGenerationService {
     durationSec: number = 15,
     bpm: number = 128
   ): Promise<{ audioBuffer: Buffer | null; audioPath: string | null; metadata: Record<string, any> | null }> {
-    const engine = AceStepEngine.getInstance();
+    const requestedEngine = String(process.env.SONARA_MUSIC_ENGINE || 'ace-step').trim().toLowerCase();
+    const useLeVo2Research = ['levo2', 'levo2-research', 'levo'].includes(requestedEngine);
+
+    const engine = useLeVo2Research
+      ? LeVo2ResearchEngine.getInstance()
+      : AceStepEngine.getInstance();
+
+    const selectedEngine = useLeVo2Research ? 'levo2-research' : 'ace-step';
+
+    console.log(
+      `[ENTERPRISE_LOG] [MUSIC_GEN_SERVICE] Selected engine: ${selectedEngine}`
+    );
+
     const result = await engine.generate({
       prompt: promptStr,
       genre: genreStr,
@@ -193,7 +207,12 @@ export class MusicGenerationService {
     return {
       audioBuffer: result.audioBuffer,
       audioPath: result.audioPath,
-      metadata: result.metadata || { status: result.status, error: result.error }
+      metadata: {
+        ...(result.metadata || {}),
+        selectedEngine,
+        status: result.status,
+        ...(result.error ? { error: result.error } : {})
+      }
     };
   }
 
