@@ -10,6 +10,7 @@ on:
       - "cloudflare/sonara-music-director-v3-ultra-guard.mjs"
       - "cloudflare/sonara-studio-transient-poll-guard.mjs"
       - "cloudflare/sonara-vocal-refinement-guard.mjs"
+      - "cloudflare/sonara-vocal-safe-gate-report-aligner.mjs"
       - "cloudflare/sonara-native-auth-main.mjs"
       - "cloudflare/sonara-next-studio-edge.mjs"
       - "cloudflare/sonara-quality-director-v2.mjs"
@@ -65,6 +66,7 @@ jobs:
           node --check cloudflare/sonara-music-director-v3-ultra-guard.mjs
           node --check cloudflare/sonara-studio-transient-poll-guard.mjs
           node --check cloudflare/sonara-vocal-refinement-guard.mjs
+          node --check cloudflare/sonara-vocal-safe-gate-report-aligner.mjs
           node --check cloudflare/sonara-quality-director-v2.mjs
           node --check cloudflare/sonara-next-studio-edge.mjs
           node --check cloudflare/sonara-studio-ai-router.mjs
@@ -126,10 +128,18 @@ jobs:
           grep -q "MAX_TRANSIENT_POLLS = 4" cloudflare/sonara-studio-transient-poll-guard.mjs
           grep -q "isTransientQueryFailure" cloudflare/sonara-studio-transient-poll-guard.mjs
           grep -q "sonara-vocal-refinement-1" cloudflare/sonara-vocal-refinement-guard.mjs
+          grep -q "sonara-vocal-safe-gate-1" cloudflare/sonara-vocal-refinement-guard.mjs
           grep -q "'/api/studio/vocal-refine'" cloudflare/sonara-vocal-refinement-guard.mjs
+          grep -q "'/api/studio/vocal-refine-safe'" cloudflare/sonara-vocal-refinement-guard.mjs
+          grep -q "MIN_RELEASE_SCORE = 88" cloudflare/sonara-vocal-refinement-guard.mjs
+          grep -q "MAX_TECHNICAL_REGRESSION = 1" cloudflare/sonara-vocal-refinement-guard.mjs
+          grep -q "fallbackUsed" cloudflare/sonara-vocal-refinement-guard.mjs
           grep -q "singerIdentityLocked: true" cloudflare/sonara-vocal-refinement-guard.mjs
           grep -q "lyricsLocked: true" cloudflare/sonara-vocal-refinement-guard.mjs
-          grep -q "sonara-vocal-refinement-guard.mjs" wrangler.jsonc
+          grep -q "sonara-vocal-safe-report-aligner-1" cloudflare/sonara-vocal-safe-gate-report-aligner.mjs
+          grep -q "reportsMatchedByAudioUrl: true" cloudflare/sonara-vocal-safe-gate-report-aligner.mjs
+          grep -q "findReport" cloudflare/sonara-vocal-safe-gate-report-aligner.mjs
+          grep -q "sonara-vocal-safe-gate-report-aligner.mjs" wrangler.jsonc
           grep -q "sonara-engine-quality-2.0" cloudflare/sonara-quality-director-v2.mjs
           grep -q "acestep-v15-xl-base" cloudflare/sonara-studio-ai-router.mjs
 
@@ -177,21 +187,23 @@ jobs:
             exit 1
           fi
 
-      - name: Verify vocal refinement route
+      - name: Verify vocal refinement routes
         shell: bash
         run: |
           set -euo pipefail
-          response="$(curl -sS --max-time 12 -o /tmp/vocal-refine.json -w '%{http_code}' -X POST \
-            -H 'Content-Type: application/json' \
-            -H 'Origin: https://sonaraenterprise.com' \
-            -d '{}' \
-            "${WORKER_ORIGIN}/api/studio/vocal-refine?release=${GITHUB_SHA}" || true)"
-          body="$(cat /tmp/vocal-refine.json 2>/dev/null || true)"
-          if [[ "${response}" != "400" || "${body}" != *"sourceAudioUrl mancante"* ]]; then
-            echo "Vocal Refinement route contract verification failed: HTTP ${response} ${body}" >&2
-            exit 1
-          fi
-          echo "Vocal Refinement route verified on deployed Worker."
+          for route in vocal-refine vocal-refine-safe; do
+            response="$(curl -sS --max-time 12 -o "/tmp/${route}.json" -w '%{http_code}' -X POST \
+              -H 'Content-Type: application/json' \
+              -H 'Origin: https://sonaraenterprise.com' \
+              -d '{}' \
+              "${WORKER_ORIGIN}/api/studio/${route}?release=${GITHUB_SHA}" || true)"
+            body="$(cat "/tmp/${route}.json" 2>/dev/null || true)"
+            if [[ "${response}" != "400" || "${body}" != *"sourceAudioUrl mancante"* ]]; then
+              echo "${route} contract verification failed: HTTP ${response} ${body}" >&2
+              exit 1
+            fi
+            echo "${route} verified on deployed Worker."
+          done
 
       - name: Verify native profile bundle on Worker
         shell: bash
