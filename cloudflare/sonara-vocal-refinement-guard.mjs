@@ -44,7 +44,8 @@ function normalizeIssues(value) {
     : typeof value === 'string'
       ? value.split(',').map(clean).filter(Boolean)
       : [];
-  return [...new Set([...DEFAULT_ISSUES, ...custom])].slice(0, 12);
+  const selected = custom.length ? custom : DEFAULT_ISSUES;
+  return [...new Set(selected)].slice(0, 12);
 }
 
 function rankedUrls(data) {
@@ -151,7 +152,8 @@ async function vocalRefine(request, env, ctx) {
       lyricsLocked: true,
       singerIdentityLocked: true,
       arrangementLocked: true,
-      issues
+      issues,
+      customIssuesAuthoritative: Array.isArray(body.issues) || typeof body.issues === 'string'
     }
   }), { status: response.status, statusText: response.statusText, headers: outHeaders });
 }
