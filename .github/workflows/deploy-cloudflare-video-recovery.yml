@@ -135,9 +135,13 @@ jobs:
           if (!(count > 0 && workers.some(item => item?.kind === 'kaggle'))) {
             throw new Error(`Kaggle ACE-Step worker unavailable: ${JSON.stringify(health)}`);
           }
-          if (!(health.realPromptEngine === true && health.realPromptVersion === 'v21-dual-t4-max-speed' && health.realPromptLmThinking === true && health.resilientDualProfile === 'dual-t4-max-speed-v21')) {
-            throw new Error(`SONARA Real Prompt v21 not active: ${JSON.stringify(health)}`);
+          if (!(health.stableDual === true
+            && health.stableDualProfile === 'dual-t4-studio-max-8step-v25'
+            && health.sonaraMusicV17 === true
+            && health.audioQualityJudge === 'sonara-quality-gate-v2'
+            && health.sonaraNextStudio?.version === 'sonara-studio-v2.0-production')) {
+            throw new Error(`SONARA official dual T4 / Studio chain not active: ${JSON.stringify(health)}`);
           }
-          console.log(JSON.stringify({status: health.status, aceStepWorkerCount: count, aceStepWorkers: workers, realPromptVersion: health.realPromptVersion}));
-          console.log('Music remains healthy; the second T4 will be bound by Configure SONARA Dual T4 Music after Kaggle conversion.');
+          console.log(JSON.stringify({status: health.status, aceStepWorkerCount: count, aceStepWorkers: workers, stableDualProfile: health.stableDualProfile, audioQualityJudge: health.audioQualityJudge, studioVersion: health.sonaraNextStudio?.version}));
+          console.log('Music remains healthy with both Kaggle T4 workers, Quality Gate v2 and Studio 2.0 active.');
           NODE
