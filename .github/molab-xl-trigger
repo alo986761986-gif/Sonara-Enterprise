@@ -1,5 +1,5 @@
-SONARA_MOLAB_XL_URL=https://molab.sonaraenterprise.com
+SONARA_MOLAB_XL_URL=https://existed-cancel-epson-choices.trycloudflare.com
 MODEL=acestep-v15-xl-turbo
 MODE=MOLAB_XL_ONLY
-ACTION=bind-stable-notebook-xl-turbo-fix-530
-VERIFY=20260901-MOLAB-STABLE-530-RECOVERY
+ACTION=bind-fresh-notebook-xl-turbo-online
+VERIFY=20260901-FRESH-MOLAB-XL-ONLINE
