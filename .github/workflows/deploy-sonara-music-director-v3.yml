@@ -1,0 +1,118 @@
+name: Deploy SONARA Music Director V3
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "cloudflare/sonara-music-director-v3-entry.mjs"
+      - "cloudflare/sonara-native-auth-main.mjs"
+      - "cloudflare/sonara-next-studio-edge.mjs"
+      - "cloudflare/sonara-quality-director-v2.mjs"
+      - "cloudflare/sonara-quality-gated-router.mjs"
+      - "cloudflare/sonara-studio-ai-router.mjs"
+      - "cloudflare/sonara-molab-xl-router.mjs"
+      - "src/services/promptDirector.ts"
+      - "wrangler.jsonc"
+      - ".github/workflows/deploy-sonara-music-director-v3.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonara-music-director-v3-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Validate Music Director V3 syntax
+        run: |
+          node --check cloudflare/sonara-music-director-v3-entry.mjs
+          node --check cloudflare/sonara-quality-director-v2.mjs
+          node --check cloudflare/sonara-next-studio-edge.mjs
+          node --check cloudflare/sonara-studio-ai-router.mjs
+          node --check cloudflare/sonara-molab-xl-router.mjs
+
+      - name: Validate existing quality contracts
+        run: |
+          node --test cloudflare/sonara-quality-director-v2.test.mjs
+          node --test cloudflare/sonara-studio-v2-contract.test.mjs
+          npx tsx src/services/promptDirector.test.ts
+
+      - name: Build production app
+        run: npm run build
+
+      - name: Guard Music Director V3 production contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "sonara-music-director-v3" cloudflare/sonara-music-director-v3-entry.mjs
+          grep -q "internalBatches: 2" cloudflare/sonara-music-director-v3-entry.mjs
+          grep -q "automaticQualityRepair" cloudflare/sonara-music-director-v3-entry.mjs
+          grep -q "visibleCandidateTarget: 2" cloudflare/sonara-music-director-v3-entry.mjs
+          grep -q "sonara-music-director-v3-entry.mjs" wrangler.jsonc
+          grep -q "sonara-engine-quality-2.0" cloudflare/sonara-quality-director-v2.mjs
+          grep -q "acestep-v15-xl-base" cloudflare/sonara-studio-ai-router.mjs
+
+      - name: Resolve Cloudflare account
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN}"
+          zone_response="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H "Content-Type: application/json" "https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50")"
+          account_id="${CLOUDFLARE_ACCOUNT_ID}"
+          if [[ -z "${account_id}" ]]; then
+            account_id="$(CF_RESPONSE="${zone_response}" node - <<'NODE'
+          const payload = JSON.parse(process.env.CF_RESPONSE || '{}');
+          const zone = Array.isArray(payload.result) ? payload.result.find(item => item?.name === 'sonaraenterprise.com') : null;
+          process.stdout.write(String(zone?.account?.id || ''));
+          NODE
+            )"
+          fi
+          test -n "${account_id}"
+          echo "::add-mask::${account_id}"
+          echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
+
+      - name: Deploy Music Director V3
+        run: npx --yes wrangler@latest deploy --config wrangler.jsonc
+
+      - name: Verify Music Director V3 publicly
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..30}; do
+            payload="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/music/director/capabilities?release=${GITHUB_SHA}-${attempt}" || true)"
+            health="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/health?release=${GITHUB_SHA}-${attempt}" || true)"
+            page="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?release=${GITHUB_SHA}-${attempt}" || true)"
+            if printf '%s' "${payload}" | grep -q 'sonara-music-director-v3' \
+              && printf '%s' "${payload}" | grep -q '"internalCandidates":4' \
+              && printf '%s' "${payload}" | grep -q '"automaticQualityRepair":true' \
+              && printf '%s' "${health}" | grep -q 'sonara-music-director-v3' \
+              && printf '%s' "${page}" | grep -q 'sonara-director-v3-script'; then
+              echo "SONARA Music Director V3 is live."
+              exit 0
+            fi
+            echo "Waiting for Music Director V3 propagation (${attempt}/30)."
+            sleep 4
+          done
+          echo "Public Music Director V3 verification failed." >&2
+          exit 1
