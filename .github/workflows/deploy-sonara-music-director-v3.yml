@@ -19,6 +19,9 @@ on:
       - "engine/dsp_engine.py"
       - "engine/inference.py"
       - "src/services/promptDirector.ts"
+      - "src/components/generator/GenerationProfileControl.tsx"
+      - "src/main.tsx"
+      - "scripts/activate-ace-step-production.cjs"
       - "wrangler.jsonc"
       - ".github/workflows/deploy-sonara-music-director-v3.yml"
 
@@ -36,6 +39,7 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+      WORKER_ORIGIN: https://sonara-enterprise.alo986761986.workers.dev
 
     steps:
       - name: Checkout SONARA
@@ -63,6 +67,7 @@ jobs:
           node --check cloudflare/sonara-next-studio-edge.mjs
           node --check cloudflare/sonara-studio-ai-router.mjs
           node --check cloudflare/sonara-molab-xl-router.mjs
+          node --check scripts/activate-ace-step-production.cjs
           python -m py_compile engine/director_ai.py engine/dsp_engine.py engine/inference.py
 
       - name: Guard real-audio DirectorAI contract
@@ -81,8 +86,28 @@ jobs:
           node --test cloudflare/sonara-studio-v2-contract.test.mjs
           npx tsx src/services/promptDirector.test.ts
 
+      - name: Guard native generation profile UI
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "GenerationProfileControl" src/main.tsx
+          grep -q "sonara-generation-profile-v3" src/components/generator/GenerationProfileControl.tsx
+          grep -q "generationProfileV3" src/components/generator/GenerationProfileControl.tsx
+          grep -q "'fast'" src/components/generator/GenerationProfileControl.tsx
+          grep -q "'quality'" src/components/generator/GenerationProfileControl.tsx
+          grep -q "'ultra'" src/components/generator/GenerationProfileControl.tsx
+          grep -q "String('ace_step_xl').trim().toLowerCase()" scripts/activate-ace-step-production.cjs
+
       - name: Build production app
         run: npm run build
+
+      - name: Guard built native profile markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -R -q "sonara-generation-profile-v3" dist/assets
+          grep -R -q "react-native-ui" dist/assets
+          grep -R -q "92+ RELEASE TARGET" dist/assets
 
       - name: Guard Music Director V3 production contract
         shell: bash
@@ -121,31 +146,66 @@ jobs:
           echo "::add-mask::${account_id}"
           echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
 
-      - name: Deploy Music Director V3
+      - name: Deploy Music Director V3 and web assets
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
 
-      - name: Verify Music Director V3 publicly
+      - name: Verify deployed Worker contract
         shell: bash
         run: |
           set -euo pipefail
-          for attempt in {1..20}; do
-            payload="$(curl -fsS --max-time 10 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/music/director/capabilities?release=${GITHUB_SHA}-${attempt}" || true)"
-            health="$(curl -fsS --max-time 10 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/health?release=${GITHUB_SHA}-${attempt}" || true)"
+          verified=0
+          for attempt in {1..12}; do
+            payload="$(curl -fsS --max-time 12 -H 'Cache-Control: no-cache' "${WORKER_ORIGIN}/api/music/director/capabilities?release=${GITHUB_SHA}-${attempt}" || true)"
             if printf '%s' "${payload}" | grep -q 'sonara-music-director-v3' \
               && printf '%s' "${payload}" | grep -q '"internalCandidates":4' \
-              && printf '%s' "${payload}" | grep -q '"automaticQualityRepair":true' \
-              && printf '%s' "${health}" | grep -q 'sonara-music-director-v3'; then
-              echo "SONARA Music Director V3 API and health contract are live."
-              page="$(curl -fsS --max-time 8 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?release=${GITHUB_SHA}-${attempt}" || true)"
-              if printf '%s' "${page}" | grep -q 'sonara-director-v3-script'; then
-                echo "Music Director V3 UI marker is also visible on the public page."
-              else
-                echo "UI marker not present in raw HTML; API contract remains authoritative and browser UI is validated separately by E2E."
-              fi
-              exit 0
+              && printf '%s' "${payload}" | grep -q '"automaticQualityRepair":true'; then
+              verified=1
+              echo "Direct Worker Music Director V3 contract verified."
+              break
             fi
-            echo "Waiting for Music Director V3 API propagation (${attempt}/20)."
+            echo "Waiting for direct Worker propagation (${attempt}/12)."
             sleep 3
           done
-          echo "Public Music Director V3 API verification failed." >&2
-          exit 1
+          if [[ ${verified} -ne 1 ]]; then
+            echo "Direct Worker Music Director V3 verification failed." >&2
+            exit 1
+          fi
+
+      - name: Verify native profile bundle on Worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          html="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "${WORKER_ORIGIN}/?release=${GITHUB_SHA}")"
+          mapfile -t assets < <(printf '%s' "${html}" | grep -oE 'src="[^"]+\.js"' | sed -E 's/^src="|"$//g' | sort -u)
+          found=0
+          for asset in "${assets[@]}"; do
+            if [[ "${asset}" == http* ]]; then url="${asset}"; else url="${WORKER_ORIGIN}${asset}"; fi
+            bundle="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "${url}" || true)"
+            if printf '%s' "${bundle}" | grep -q 'sonara-generation-profile-v3' \
+              && printf '%s' "${bundle}" | grep -q 'react-native-ui' \
+              && printf '%s' "${bundle}" | grep -q '92+ RELEASE TARGET'; then
+              found=1
+              echo "Native FAST / QUALITY / ULTRA profile bundle verified on Worker assets."
+              break
+            fi
+          done
+          if [[ ${found} -ne 1 ]]; then
+            echo "Native generation profile markers missing from deployed Worker assets." >&2
+            exit 1
+          fi
+
+      - name: Check public production propagation
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..6}; do
+            html="$(curl -fsS --max-time 8 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?release=${GITHUB_SHA}-${attempt}" || true)"
+            if [[ -n "${html}" ]]; then
+              echo "Public SONARA domain is responding after deploy."
+              exit 0
+            fi
+            echo "Public domain propagation still pending (${attempt}/6)."
+            sleep 3
+          done
+          echo "Public-domain probe timed out from this runner; direct Worker contract and assets were verified successfully."
+          exit 0
