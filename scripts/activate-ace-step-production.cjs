@@ -18,13 +18,14 @@ const file = path.join(process.cwd(), 'api/billing/[...path].ts');
 let source = fs.readFileSync(file, 'utf8');
 
 const providerExpr = "String(process.env.SONARA_MUSIC_PROVIDER || 'eleven_music').trim().toLowerCase()";
-if (!source.includes(providerExpr) && !source.includes("const provider = 'ace_step_xl';")) {
+const lockedProviderExpr = "String('ace_step_xl').trim().toLowerCase()";
+if (!source.includes(providerExpr) && !source.includes(lockedProviderExpr)) {
   throw new Error('[SONARA][ACE-Step] Billing provider marker not found.');
 }
 
-source = source.replaceAll(providerExpr, "'ace_step_xl'");
+source = source.replaceAll(providerExpr, lockedProviderExpr);
 
-if (!source.includes("const provider = 'ace_step_xl';")) {
+if (!source.includes(`const provider = ${lockedProviderExpr};`)) {
   throw new Error('[SONARA][ACE-Step] Failed to force ACE-Step provider in billing generation.');
 }
 
