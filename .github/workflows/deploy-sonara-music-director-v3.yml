@@ -156,9 +156,9 @@ jobs:
           verified=0
           for attempt in {1..12}; do
             payload="$(curl -fsS --max-time 12 -H 'Cache-Control: no-cache' "${WORKER_ORIGIN}/api/music/director/capabilities?release=${GITHUB_SHA}-${attempt}" || true)"
-            if printf '%s' "${payload}" | grep -q 'sonara-music-director-v3' \
-              && printf '%s' "${payload}" | grep -q '"internalCandidates":4' \
-              && printf '%s' "${payload}" | grep -q '"automaticQualityRepair":true'; then
+            if [[ "${payload}" == *"sonara-music-director-v3"* \
+              && "${payload}" == *'"internalCandidates":4'* \
+              && "${payload}" == *'"automaticQualityRepair":true'* ]]; then
               verified=1
               echo "Direct Worker Music Director V3 contract verified."
               break
@@ -176,14 +176,14 @@ jobs:
         run: |
           set -euo pipefail
           html="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "${WORKER_ORIGIN}/?release=${GITHUB_SHA}")"
-          mapfile -t assets < <(printf '%s' "${html}" | grep -oE 'src="[^"]+\.js"' | sed -E 's/^src="|"$//g' | sort -u)
+          mapfile -t assets < <(grep -oE 'src="[^"]+\.js"' <<<"${html}" | sed -E 's/^src="|"$//g' | sort -u)
           found=0
           for asset in "${assets[@]}"; do
             if [[ "${asset}" == http* ]]; then url="${asset}"; else url="${WORKER_ORIGIN}${asset}"; fi
             bundle="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "${url}" || true)"
-            if printf '%s' "${bundle}" | grep -q 'sonara-generation-profile-v3' \
-              && printf '%s' "${bundle}" | grep -q 'react-native-ui' \
-              && printf '%s' "${bundle}" | grep -q '92+ RELEASE TARGET'; then
+            if [[ "${bundle}" == *"sonara-generation-profile-v3"* \
+              && "${bundle}" == *"react-native-ui"* \
+              && "${bundle}" == *"92+ RELEASE TARGET"* ]]; then
               found=1
               echo "Native FAST / QUALITY / ULTRA profile bundle verified on Worker assets."
               break
