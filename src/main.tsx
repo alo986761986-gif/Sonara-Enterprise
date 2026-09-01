@@ -15,6 +15,7 @@ import SonaraCreatorSkin from './components/generator/SonaraCreatorSkin';
 import SunoStylePromptControl from './components/generator/SunoStylePromptControl';
 import GlobalMusicSuggestionControl from './components/generator/GlobalMusicSuggestionControl';
 import SonaraInteractiveMiniGuide from './components/generator/SonaraInteractiveMiniGuide';
+import GenerationProfileControl from './components/generator/GenerationProfileControl';
 import SonaraSunoLanding from './components/home/SonaraSunoLanding';
 import LandingPromptGuard from './components/home/LandingPromptGuard';
 import SonaraProfessionalFixedPlayer from './components/player/SonaraProfessionalFixedPlayer';
@@ -54,6 +55,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <SunoStylePromptControl />
         <GlobalMusicSuggestionControl />
         <SonaraInteractiveMiniGuide />
+        <GenerationProfileControl />
         <SonaraCreatorSkin />
         <StudioSectionControl />
         <VideoAISectionControl />
