@@ -7,6 +7,10 @@ on:
     paths:
       - ".github/workflows/deploy-cloudflare-video-recovery.yml"
       - "cloudflare/sonara-web-v15-router.mjs"
+      - "cloudflare/sonara-engine-v15-authoritative-prompt.mjs"
+      - "cloudflare/sonara-engine-v15-authoritative-prompt.test.mjs"
+      - "cloudflare/extreme-fidelity-v16.test.mjs"
+      - "scripts/activate-extreme-fidelity-v16.cjs"
       - "cloudflare/sonara-engine-v17-lm-composer.mjs"
       - "cloudflare/sonara-engine-v18-fast-hq.mjs"
       - "cloudflare/sonara-engine-v19-resilient-dual.mjs"
