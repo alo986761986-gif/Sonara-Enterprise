@@ -1,0 +1,86 @@
+name: SONARA Music Director V3 Quality Ultra Canary
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/sonara-music-director-v3-e2e.yml'
+      - '.github/sonara-music-director-v3-e2e-trigger'
+      - 'scripts/sonara-music-director-v3-e2e.mjs'
+      - 'cloudflare/sonara-music-director-v3-entry.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonara-music-director-v3-e2e
+  cancel-in-progress: true
+
+jobs:
+  real-quality-ultra:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      API_ORIGIN: https://api.sonaraenterprise.com
+      WEB_ORIGIN: https://sonaraenterprise.com
+      SONARA_INTERNAL_PROXY_SECRET: ${{ secrets.SONARA_INTERNAL_PROXY_SECRET }}
+      POLL_MS: '5000'
+      MAX_POLLS: '180'
+      SONARA_DIRECTOR_V3_REPORT: sonara-music-director-v3-e2e-report.json
+
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Validate canary syntax
+        run: node --check scripts/sonara-music-director-v3-e2e.mjs
+
+      - name: Run real QUALITY and ULTRA Music Director V3 canary
+        run: node scripts/sonara-music-director-v3-e2e.mjs
+
+      - name: Print canary summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f sonara-music-director-v3-e2e-report.json ]]; then
+            node - <<'NODE'
+          const fs = require('fs');
+          const r = JSON.parse(fs.readFileSync('sonara-music-director-v3-e2e-report.json', 'utf8'));
+          console.log(JSON.stringify({
+            ok: r.ok,
+            startedAt: r.startedAt,
+            finishedAt: r.finishedAt,
+            version: r.capabilities?.version,
+            quality: r.profiles?.quality ? {
+              jobId: r.profiles.quality.jobId,
+              bestProfessionalScore: r.profiles.quality.bestProfessionalScore,
+              generatedCandidateCount: r.profiles.quality.generatedCandidateCount,
+              visibleCandidateCount: r.profiles.quality.visibleCandidateCount,
+              automaticQualityRepair: r.profiles.quality.automaticQualityRepair
+            } : null,
+            ultra: r.profiles?.ultra ? {
+              jobId: r.profiles.ultra.jobId,
+              bestProfessionalScore: r.profiles.ultra.bestProfessionalScore,
+              generatedCandidateCount: r.profiles.ultra.generatedCandidateCount,
+              visibleCandidateCount: r.profiles.ultra.visibleCandidateCount,
+              automaticQualityRepair: r.profiles.ultra.automaticQualityRepair
+            } : null,
+            diagnostics: r.diagnostics,
+            error: r.error
+          }, null, 2));
+          NODE
+          fi
+
+      - name: Upload Music Director V3 canary report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonara-music-director-v3-e2e-${{ github.run_id }}
+          path: sonara-music-director-v3-e2e-report.json
+          if-no-files-found: warn
+          retention-days: 14
