@@ -8,7 +8,7 @@ import {
 
 export { SonaraJobState, SonaraAuthStore };
 
-const VERSION = 'sonara-quality-ultra-stability-1';
+const VERSION = 'sonara-quality-ultra-stability-2';
 const STATE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/quality-ultra-stability-v1/';
 const STATE_TTL = 6 * 60 * 60;
 const JOB_RE = /^\/api\/music\/job\/(stable-qv1-[A-Za-z0-9_-]+)$/;
@@ -226,7 +226,19 @@ async function pollChild(request, env, ctx, childJobId) {
   return runtime.fetch(new Request(url.toString(), { method: 'GET', headers, cache: 'no-store' }), env, ctx);
 }
 
-async function rankChildren(children, req) {
+function mergeQualityCache(cache, ranked = []) {
+  const next = cache && typeof cache === 'object' && !Array.isArray(cache) ? { ...cache } : {};
+  for (const item of ranked) {
+    const url = clean(item?.url);
+    const report = item?.report;
+    if (!url || !report || typeof report !== 'object') continue;
+    next[url] = report;
+  }
+  return next;
+}
+
+async function rankChildren(children, req, cachedReports = {}) {
+  const cache = cachedReports && typeof cachedReports === 'object' && !Array.isArray(cachedReports) ? cachedReports : {};
   const joined = [];
   for (let childIndex = 0; childIndex < children.length; childIndex += 1) {
     const candidates = candidateArray(children[childIndex]);
@@ -234,7 +246,7 @@ async function rankChildren(children, req) {
       const candidate = candidates[localIndex];
       const audioUrl = validAudio(candidateAudioUrl(candidate));
       if (!audioUrl) continue;
-      let report = candidate?.sonaraQuality || candidate?.quality || null;
+      let report = candidate?.sonaraQuality || candidate?.quality || cache[audioUrl] || null;
       if (!report || report.measuredFromRealWav !== true || !Number.isFinite(Number(report.professionalScore))) {
         try { report = await analyzeProfessionalCandidate(audioUrl, req); }
         catch (error) {
@@ -263,7 +275,8 @@ async function rankChildren(children, req) {
 
 async function finalize(request, env, jobId, state, childData, extra = {}) {
   const completed = childData.filter(Boolean).filter(data => statusOf(data) === 'completed');
-  const combined = await rankChildren(completed, state.requested || {});
+  const combined = await rankChildren(completed, state.requested || {}, state.qualityReportCache || {});
+  state.qualityReportCache = mergeQualityCache(state.qualityReportCache, combined.ranked);
   if (!combined.ranked.length) {
     return json(request, {
       jobId,
@@ -304,6 +317,7 @@ async function finalize(request, env, jobId, state, childData, extra = {}) {
       automaticCandidateRanking: true,
       adaptiveSequentialBatches: true,
       concurrentBatches: false,
+      cachedQualityReports: Object.keys(state.qualityReportCache || {}).length,
       professionalTargetScore: target,
       bestProfessionalScore: bestScore,
       releaseReady: bestScore >= target,
@@ -349,6 +363,7 @@ async function startStable(request, env, ctx, body, profile) {
     secondarySubmitFailed: false,
     primaryTransientPolls: 0,
     secondaryTransientPolls: 0,
+    qualityReportCache: {},
     createdAt: Date.now(),
     completedResult: null
   };
@@ -364,6 +379,7 @@ async function startStable(request, env, ctx, body, profile) {
       profile,
       adaptiveSequentialBatches: true,
       concurrentBatches: false,
+      cachedQualityReports: true,
       generatedCandidateTarget: 4,
       visibleCandidateTarget: 2,
       professionalTargetScore: state.targetScore,
@@ -376,6 +392,7 @@ async function stableJob(request, env, ctx, jobId) {
   const state = await loadState(env, jobId);
   if (!state) return json(request, { jobId, status: 'NOT_FOUND', error: 'Job QUALITY/ULTRA non trovato o scaduto.' }, 404);
   if (state.completedResult) return json(request, state.completedResult);
+  if (!state.qualityReportCache || typeof state.qualityReportCache !== 'object' || Array.isArray(state.qualityReportCache)) state.qualityReportCache = {};
 
   const age = Date.now() - Number(state.createdAt || Date.now());
   if (age > TOTAL_HARD_TIMEOUT_MS) {
@@ -435,19 +452,23 @@ async function stableJob(request, env, ctx, jobId) {
   }
 
   if (primaryStatus === 'completed' && !state.secondaryJobId && !state.secondarySubmitFailed) {
-    const primaryRank = await rankChildren([primaryData], state.requested || {});
+    const primaryRank = await rankChildren([primaryData], state.requested || {}, state.qualityReportCache);
+    state.qualityReportCache = mergeQualityCache(state.qualityReportCache, primaryRank.ranked);
+    await saveState(env, jobId, state);
     const bestScore = Number(primaryRank.summary?.bestProfessionalScore || 0);
     if (primaryRank.ranked.length && bestScore >= Number(state.targetScore) && primaryRank.ranked[0]?.report?.professionalReleasePassed === true) {
       return finalize(request, env, jobId, state, [primaryData], {
         adaptiveEarlyRelease: true,
-        secondaryBatchSkippedBecauseTargetPassed: true
+        secondaryBatchSkippedBecauseTargetPassed: true,
+        primaryQualityReportsReused: true
       });
     }
     const secondary = await submitSecondary(request, env, ctx, state, jobId);
     if (!secondary.childJobId) {
       return finalize(request, env, jobId, state, [primaryData], {
         secondaryBatchDegraded: true,
-        secondarySubmitStatus: secondary.response?.status || 0
+        secondarySubmitStatus: secondary.response?.status || 0,
+        primaryQualityReportsReused: true
       });
     }
     return json(request, {
@@ -460,6 +481,7 @@ async function stableJob(request, env, ctx, jobId) {
         stabilityGuard: VERSION,
         adaptiveSequentialBatches: true,
         concurrentBatches: false,
+        cachedQualityReports: Object.keys(state.qualityReportCache || {}).length,
         primaryTargetMissedScore: bestScore
       }
     });
@@ -487,7 +509,8 @@ async function stableJob(request, env, ctx, jobId) {
     if (primaryStatus === 'completed' && (state.secondaryTransientPolls >= MAX_TRANSIENT_POLLS || secondaryAge > SECONDARY_SOFT_TIMEOUT_MS)) {
       return finalize(request, env, jobId, state, [primaryData], {
         secondaryBatchTimedOut: true,
-        secondaryTransientPolls: state.secondaryTransientPolls
+        secondaryTransientPolls: state.secondaryTransientPolls,
+        primaryQualityReportsReused: true
       });
     }
     return json(request, {
@@ -500,6 +523,7 @@ async function stableJob(request, env, ctx, jobId) {
         stabilityGuard: VERSION,
         adaptiveSequentialBatches: true,
         concurrentBatches: false,
+        cachedQualityReports: Object.keys(state.qualityReportCache || {}).length,
         secondaryTransientPolls: state.secondaryTransientPolls
       }
     });
@@ -511,7 +535,8 @@ async function stableJob(request, env, ctx, jobId) {
   if (completed.length) {
     return finalize(request, env, jobId, state, completed, {
       secondaryBatchUsed: true,
-      secondaryBatchFailed: secondaryStatus === 'failed'
+      secondaryBatchFailed: secondaryStatus === 'failed',
+      primaryQualityReportsReused: true
     });
   }
 
@@ -538,6 +563,7 @@ export default {
         qualityUltraAntiStall: true,
         adaptiveSequentialBatches: true,
         concurrentBatches: false,
+        qualityReportCache: true,
         maxTransientPolls: MAX_TRANSIENT_POLLS,
         primaryHardTimeoutMs: PRIMARY_HARD_TIMEOUT_MS,
         secondarySoftTimeoutMs: SECONDARY_SOFT_TIMEOUT_MS,
