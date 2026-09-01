@@ -4,7 +4,7 @@ import { SONARA_PLANS, type SonaraPlanId, type SonaraVideoResolution } from '../
 import { persistProviderVideo, pollVideoProvider, startVideoProvider, type SonaraVideoProvider } from '../provider';
 import { buildVeoSafetyRetryPrompt, isVeoSafetyFilterError, veoNegativePrompt, veoSafetyCategory } from '../../../src/server/video/safety';
 import { pollConcatenation, publishTranscodedVideo, startConcatenation, startSoundtrackMux } from '../../../src/server/video/transcoder';
-import { authenticatedVideoUser } from '../auth';
+import { authenticatedVideoUser } from '../../../src/server/video/auth';
 
 const JOB_COLLECTION = 'sonaraVideoJobs';
 const MAX_SCENE_RETRIES = 3;

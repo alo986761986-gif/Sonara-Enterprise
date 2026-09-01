@@ -1,4 +1,4 @@
-import type { SonaraPlanId } from '../../src/billing/plans';
+import type { SonaraPlanId } from '../../billing/plans';
 
 const NATIVE_SESSION_TOKEN = 'sonara-native-session';
 const SONARA_PUBLIC_ORIGIN = 'https://sonaraenterprise.com';

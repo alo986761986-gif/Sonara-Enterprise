@@ -20,7 +20,7 @@ import {
   authenticatedVideoUser,
   trustedVideoBillingRecord,
   type AuthenticatedVideoUser
-} from './auth';
+} from '../../src/server/video/auth';
 
 export const config = { api: { bodyParser: { sizeLimit: '1mb' } } };
 
