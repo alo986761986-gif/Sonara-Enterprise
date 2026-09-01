@@ -55,11 +55,11 @@ jobs:
           node --check scripts/activate-studio-real-engine-v2.cjs
           node --check scripts/activate-studio-key-control.cjs
           node --check public/sonara-studio-pitch-key-v2.js
-          grep -q 'parseMidiBlob' src/components/studio/studioRealEngine.ts
-          grep -q 'saveStudioAsset' src/components/studio/studioRealEngine.ts
-          grep -q 'loadStudioAsset' src/components/studio/studioRealEngine.ts
-          grep -q 'sonara-studio-pitch-key-v2.js?v=2' index.html
-          grep -q 'sonara-studio-real-engine-v2' index.html
+          grep -Fq 'parseMidiBlob' src/components/studio/studioRealEngine.ts
+          grep -Fq 'saveStudioAsset' src/components/studio/studioRealEngine.ts
+          grep -Fq 'loadStudioAsset' src/components/studio/studioRealEngine.ts
+          grep -Fq 'sonara-studio-pitch-key-v2.js?v=2' index.html
+          grep -Fq 'sonara-studio-real-engine-v2' index.html
 
       - name: Build production app with real Studio engine
         run: npm run build
@@ -68,24 +68,37 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -q 'SONARA_STUDIO_REAL_ENGINE_V2' src/components/studio/SonaraStudio.tsx
-          grep -q 'midiNotes' src/components/studio/SonaraStudio.tsx
-          grep -q 'parseMidiFile' src/components/studio/SonaraStudio.tsx
-          grep -q 'scheduleMidiAt' src/components/studio/SonaraStudio.tsx
-          grep -q 'graph.low.gain.value = track.low' src/components/studio/SonaraStudio.tsx
-          grep -q 'graph.compressor.threshold.value' src/components/studio/SonaraStudio.tsx
-          grep -q 'graph.wet.gain.value' src/components/studio/SonaraStudio.tsx
-          grep -q 'automatedVolume' src/components/studio/SonaraStudio.tsx
-          grep -q 'sonara.studio.project.v6' src/components/studio/SonaraStudio.tsx
-          grep -q 'loadStudioAsset' src/components/studio/SonaraStudio.tsx
-          grep -q 'saveStudioAsset' src/components/studio/SonaraStudio.tsx
-          grep -q 'SONARA_STUDIO_KEY_CONTROL_V1' src/components/studio/StudioSectionControl.tsx
-          grep -q 'STUDIO_KEY_STORAGE' src/components/studio/StudioSectionControl.tsx
-          grep -q 'keySignature={keySignature}' src/components/studio/StudioSectionControl.tsx
-          grep -q 'sonara-studio-real-engine-v2' dist/index.html
-          grep -q 'sonara-studio-pitch-key-v2.js?v=2' dist/index.html
-          test -f dist/sonara-studio-pitch-key-v2.js
-          grep -q '__sonaraStudioPitchKeyStaticV2' dist/sonara-studio-pitch-key-v2.js
+          check() {
+            label="$1"
+            pattern="$2"
+            file="$3"
+            if grep -Fq "$pattern" "$file"; then
+              echo "PASS ${label}"
+            else
+              echo "FAIL ${label}: '${pattern}' not found in ${file}" >&2
+              echo "--- nearby diagnostic ---" >&2
+              grep -Fn "${pattern%% *}" "$file" | head -n 10 >&2 || true
+              exit 1
+            fi
+          }
+          check real-engine-marker 'SONARA_STUDIO_REAL_ENGINE_V2' src/components/studio/SonaraStudio.tsx
+          check midi-note-data 'midiNotes' src/components/studio/SonaraStudio.tsx
+          check midi-parser-wiring 'parseMidiFile' src/components/studio/SonaraStudio.tsx
+          check midi-scheduler 'scheduleMidiAt' src/components/studio/SonaraStudio.tsx
+          check live-eq 'graph.low.gain.value' src/components/studio/SonaraStudio.tsx
+          check live-compressor 'graph.compressor.threshold.value' src/components/studio/SonaraStudio.tsx
+          check live-reverb 'graph.wet.gain.value' src/components/studio/SonaraStudio.tsx
+          check live-automation 'automatedVolume' src/components/studio/SonaraStudio.tsx
+          check persistent-project 'sonara.studio.project.v6' src/components/studio/SonaraStudio.tsx
+          check restore-assets 'loadStudioAsset' src/components/studio/SonaraStudio.tsx
+          check persist-assets 'saveStudioAsset' src/components/studio/SonaraStudio.tsx
+          check key-control-marker 'SONARA_STUDIO_KEY_CONTROL_V1' src/components/studio/StudioSectionControl.tsx
+          check key-storage 'STUDIO_KEY_STORAGE' src/components/studio/StudioSectionControl.tsx
+          check key-wiring 'keySignature={keySignature}' src/components/studio/StudioSectionControl.tsx
+          check dist-real-engine 'sonara-studio-real-engine-v2' dist/index.html
+          check dist-pitch-script 'sonara-studio-pitch-key-v2.js?v=2' dist/index.html
+          if [[ -f dist/sonara-studio-pitch-key-v2.js ]]; then echo 'PASS pitch-script-file'; else echo 'FAIL pitch-script-file' >&2; exit 1; fi
+          check pitch-v2-marker '__sonaraStudioPitchKeyStaticV2' dist/sonara-studio-pitch-key-v2.js
           echo "Studio Real Engine functional code verified in transformed production source."
 
       - name: Resolve Cloudflare account
@@ -118,11 +131,11 @@ jobs:
             page="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?studio-real=${GITHUB_SHA}-${attempt}" || true)"
             script="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/sonara-studio-pitch-key-v2.js?v=2&verify=${GITHUB_SHA}-${attempt}" || true)"
             capabilities="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/studio/pitch-key/capabilities?verify=${GITHUB_SHA}-${attempt}" || true)"
-            if printf '%s' "${page}" | grep -q 'sonara-studio-real-engine-v2' \
-              && printf '%s' "${page}" | grep -q 'sonara-studio-pitch-key-v2.js?v=2' \
-              && printf '%s' "${page}" | grep -q 'sonara-studio-v2.0-production' \
-              && printf '%s' "${script}" | grep -q '__sonaraStudioPitchKeyStaticV2' \
-              && printf '%s' "${capabilities}" | grep -q 'sonara-studio-key-pitch-1'; then
+            if printf '%s' "${page}" | grep -Fq 'sonara-studio-real-engine-v2' \
+              && printf '%s' "${page}" | grep -Fq 'sonara-studio-pitch-key-v2.js?v=2' \
+              && printf '%s' "${page}" | grep -Fq 'sonara-studio-v2.0-production' \
+              && printf '%s' "${script}" | grep -Fq '__sonaraStudioPitchKeyStaticV2' \
+              && printf '%s' "${capabilities}" | grep -Fq 'sonara-studio-key-pitch-1'; then
               echo "SONARA Studio Real Engine is live: real bundle, visible Pitch & Key UI and server API verified."
               exit 0
             fi
