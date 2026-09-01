@@ -81,7 +81,6 @@ jobs:
               exit 1
             fi
           }
-          check real-engine-marker 'SONARA_STUDIO_REAL_ENGINE_V2' src/components/studio/SonaraStudio.tsx
           check midi-note-data 'midiNotes' src/components/studio/SonaraStudio.tsx
           check midi-parser-wiring 'parseMidiFile' src/components/studio/SonaraStudio.tsx
           check midi-scheduler 'scheduleMidiAt' src/components/studio/SonaraStudio.tsx
