@@ -1,5 +1,5 @@
 (() => {
-  // Disable the previous V4 before it can install its MutationObserver loop.
+  // Disable the previous V4 before it can install its reactive DOM loop.
   window.__sonaraStudioPitchKeyLocalOnlyV4 = true;
   if (window.__sonaraStudioPitchKeySafeV5) return;
   window.__sonaraStudioPitchKeySafeV5 = true;
