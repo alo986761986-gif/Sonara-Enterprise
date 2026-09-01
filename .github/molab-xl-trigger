@@ -1,5 +1,5 @@
 SONARA_MOLAB_XL_URL=https://existed-cancel-epson-choices.trycloudflare.com
 MODEL=acestep-v15-xl-turbo
 MODE=MOLAB_XL_ONLY
-ACTION=bind-fresh-notebook-xl-turbo-online
-VERIFY=20260901-FRESH-MOLAB-XL-ONLINE
+ACTION=deploy-ui-create-my-music
+VERIFY=20260901-CREA-LA-MIA-MUSICA-LIVE
