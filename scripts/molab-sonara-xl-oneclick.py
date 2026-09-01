@@ -21,6 +21,7 @@ PUBLIC_URL = 'https://' + HOSTNAME
 BOOTSTRAP_URL = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/4404f7c23ff1812e939d0f42aa1bb56ef53ca27d/scripts/molab-sonara-xl-clean-bootstrap.py'
 REPAIR_URL = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/d5fd7a6c4ad3cc407bba235b9885d9bf0016901d/scripts/molab-sonara-xl-repair-checkpoint.py'
 SUPERVISOR_URL = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/27fe7af26cf9f3f68a91c249fa2f3e5a3f026f80/scripts/molab-sonara-xl-supervisor.py'
+FRESH_INSTALL_URL = 'https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/main/scripts/ace-step-fresh-notebook-install-0831.py'
 
 
 def fetch(url):
@@ -35,6 +36,16 @@ def fetch(url):
     return urllib.request.urlopen(req, timeout=120).read().decode('utf-8')
 
 
+def run_fresh_installer():
+    print('🆕 Notebook MoLab vuoto rilevato.', flush=True)
+    print('🚀 Avvio installazione completa ACE-Step 1.5 XL-Turbo da zero...', flush=True)
+    print('Questa procedura installa ambiente CUDA/Python, modelli, API porta 8001 e tunnel pubblico.', flush=True)
+    ns = {'__name__': '_sonara_fresh_install_', '__file__': FRESH_INSTALL_URL}
+    script = fetch(FRESH_INSTALL_URL)
+    exec(compile(script, FRESH_INSTALL_URL, 'exec'), ns)
+    ns['main']()
+
+
 def ensure_clean_environment():
     if CLEAN_PY.exists() and MODEL.exists():
         print('✅ Ambiente CLEAN gia presente: lo riuso.', flush=True)
@@ -42,10 +53,8 @@ def ensure_clean_environment():
 
     print('♻️ Ambiente CLEAN assente/incompleto.', flush=True)
     if not OLD_ROOT.exists():
-        raise RuntimeError(
-            'Non trovo ne CLEAN ne l installazione ACE-Step base in /marimo/SONARA-ACE-Step-1.5. '
-            'La sessione MoLab probabilmente e stata ricreata e ACE-Step va reinstallato.'
-        )
+        run_fresh_installer()
+        raise RuntimeError('Installer fresh terminato in modo inatteso.')
 
     print('♻️ Ricreo automaticamente CLEAN riutilizzando i checkpoint gia presenti...', flush=True)
     ns = {'__name__': '_sonara_clean_bootstrap_', '__file__': BOOTSTRAP_URL}
@@ -120,7 +129,7 @@ def ensure_stable_dns():
 
 def main():
     print('=' * 82)
-    print(' SONARA MOLAB XL - ONE CLICK ON-DEMAND V6 ')
+    print(' SONARA MOLAB XL - ONE CLICK ON-DEMAND V7 ')
     print('=' * 82)
     print('URL STABILE=' + PUBLIC_URL)
     ensure_clean_environment()
