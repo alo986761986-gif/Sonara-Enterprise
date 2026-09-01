@@ -82,6 +82,24 @@ async function jsonData(response) {
   catch { return null; }
 }
 
+async function stripLegacyDirectorProfileUi(response) {
+  const type = clean(response.headers.get('content-type')).toLowerCase();
+  if (!response.ok || !type.includes('text/html')) return response;
+
+  const html = await response.text();
+  if (!html.includes('sonara-director-v3-script') && !html.includes('sonara-director-v3-style')) return response;
+
+  const next = html
+    .replace(/<style id="sonara-director-v3-style">[\s\S]*?<\/style>/gi, '')
+    .replace(/<script id="sonara-director-v3-script">[\s\S]*?<\/script>/gi, '');
+  const headers = new Headers(response.headers);
+  headers.delete('content-length');
+  headers.delete('content-encoding');
+  headers.set('cache-control', 'no-store');
+  headers.set('x-sonara-generation-profile-ui', 'react-native-v1');
+  return new Response(next, { status: response.status, statusText: response.statusText, headers });
+}
+
 function retryResponse(request, original, data, attempt) {
   const headers = new Headers(original.headers);
   headers.delete('content-length');
@@ -111,7 +129,10 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const match = request.method === 'GET' ? url.pathname.match(STUDIO_JOB_RE) : null;
-    if (!match) return runtime.fetch(request, env, ctx);
+    if (!match) {
+      const response = await runtime.fetch(request, env, ctx);
+      return stripLegacyDirectorProfileUi(response);
+    }
 
     const jobId = match[1];
     const response = await runtime.fetch(request, env, ctx);
