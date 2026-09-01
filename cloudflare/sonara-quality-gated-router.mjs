@@ -12,7 +12,37 @@ const GENERATE_PATHS = new Set(['/api/billing/generate', '/api/engine/generate']
 const JOB_PATH = /^\/api\/music\/job\/([^/]+)$/;
 
 const clean = value => String(value ?? '').trim();
+const cleanUrl = value => clean(value).replace(/\/$/, '');
 const numeric = value => Number.isFinite(Number(value)) ? Number(value) : null;
+const molabUrl = env => cleanUrl(env.SONARA_MOLAB_XL_URL || env.MOLAB_ACESTEP_URL || '');
+
+function authHeaders(env, extra = {}) {
+  const headers = { ...extra };
+  const key = clean(env.ACE_STEP_API_KEY || env.ACESTEP_API_KEY);
+  if (key) {
+    headers.Authorization = `Bearer ${key}`;
+    headers['X-API-Key'] = key;
+  }
+  return headers;
+}
+
+function directAudioFetch(baseUrl, env) {
+  return async (input, init = {}) => {
+    try {
+      const inputUrl = input instanceof Request ? input.url : String(input);
+      const url = new URL(inputUrl, 'https://api.sonaraenterprise.com');
+      if ((url.hostname === 'api.sonaraenterprise.com' || url.hostname === 'molab.sonaraenterprise.com') && (url.pathname === '/api/molab/audio' || url.pathname === '/v1/audio')) {
+        const path = clean(url.searchParams.get('path'));
+        if (path) {
+          const headers = new Headers(init.headers || {});
+          for (const [key, value] of Object.entries(authHeaders(env))) if (!headers.has(key)) headers.set(key, value);
+          return fetch(`${baseUrl}/v1/audio?path=${encodeURIComponent(path)}`, { ...init, headers });
+        }
+      }
+    } catch {}
+    return fetch(input, init);
+  };
+}
 
 function cacheRequest(prefix, id) {
   return new Request(`${prefix}${encodeURIComponent(String(id))}`);
@@ -142,7 +172,7 @@ function withRankedCandidates(data, rankedCandidates, reports, context) {
   return next;
 }
 
-async function analyzeCompletedJob(data, jobId, context) {
+async function analyzeCompletedJob(data, jobId, context, env) {
   if (!isComplete(data)) return data;
   const candidates = candidateArray(data);
   if (!candidates.length) return data;
@@ -163,11 +193,13 @@ async function analyzeCompletedJob(data, jobId, context) {
     return withRankedCandidates(data, ranked, cached.reports, context);
   }
 
+  const baseUrl = molabUrl(env);
+  const audioFetch = baseUrl ? directAudioFetch(baseUrl, env) : fetch;
   const analysis = await Promise.all(candidates.slice(0, 4).map(async (candidate, index) => {
     const url = audioUrl(candidate);
     if (!url) return null;
     try {
-      const report = await analyzeAudioCandidate(url, { bpm: context?.bpm, key: context?.key });
+      const report = await analyzeAudioCandidate(url, { bpm: context?.bpm, key: context?.key }, audioFetch);
       return { ...report, candidateIndex: index, audioUrl: url };
     } catch (error) {
       return {
@@ -242,7 +274,7 @@ export default {
     if (request.method === 'GET' && match && response.ok) {
       const jobId = decodeURIComponent(match[1]);
       const context = await cacheGet(CONTEXT_PREFIX, jobId);
-      return transformJsonResponse(response, data => analyzeCompletedJob(data, jobId, context));
+      return transformJsonResponse(response, data => analyzeCompletedJob(data, jobId, context, env));
     }
 
     if (response.ok && ['/api/health', '/api/engine/ready', '/api/molab/ready'].includes(url.pathname)) {

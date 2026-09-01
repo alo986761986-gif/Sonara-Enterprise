@@ -79,6 +79,7 @@ jobs:
           grep -q "audio_format: 'wav'" cloudflare/sonara-studio-ai-router.mjs
           grep -q "percussion: 'percussion'" cloudflare/sonara-studio-ai-router.mjs
           grep -q 'directAudioFetch' cloudflare/sonara-studio-ai-router.mjs
+          grep -q 'directAudioFetch' cloudflare/sonara-quality-gated-router.mjs
           grep -q 'studioStateStub' cloudflare/sonara-studio-ai-router.mjs
           grep -q 'padWavInputToDuration' cloudflare/sonara-studio-ai-router.mjs
           grep -q "state.operation === 'stems' ? \[\]" cloudflare/sonara-studio-ai-router.mjs
@@ -88,6 +89,8 @@ jobs:
           grep -q 'SONARA_SESSIONS_NATIVE_V2' src/components/studio/SonaraStudio.tsx
           grep -q 'data-sonara-sessions-timeline="2.0"' src/components/studio/SonaraSessions2Timeline.tsx
           grep -q 'Stems Pro 12' src/components/studio/SonaraSessions2Timeline.tsx
+          grep -q 'EXTEND_INCREMENT_SECONDS = 15' src/components/studio/SonaraSessions2Timeline.tsx
+          grep -q 'sonara:studio-apply-full-source-candidate' src/components/studio/StudioSectionControl.tsx
           grep -q 'sonara-studio-v2.0-production' dist/index.html
           grep -q 'sonara-sessions-2-0' dist/index.html
 

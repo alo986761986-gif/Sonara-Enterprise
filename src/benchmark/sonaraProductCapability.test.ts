@@ -12,6 +12,7 @@ const qualityDirectorV2 = read('cloudflare/sonara-quality-director-v2.mjs');
 const sessionsV2 = read('cloudflare/sonara-next-studio-edge.mjs');
 const studioV2Contract = read('cloudflare/sonara-studio-v2-contract.mjs');
 const sessionsTimeline = read('src/components/studio/SonaraSessions2Timeline.tsx');
+const studioSectionControl = read('src/components/studio/StudioSectionControl.tsx');
 const nativeSessionsActivator = read('scripts/activate-studio-sessions-native.cjs');
 const nativeAuthMain = read('cloudflare/sonara-native-auth-main.mjs');
 const instruments = read('src/data/realMusicalInstruments.ts');
@@ -30,6 +31,7 @@ const capabilities: Array<[string, boolean]> = [
   ['Manual BPM lock', /manually locked to exactly/.test(promptDirector)],
   ['Real instrument catalog', /ALL_REAL_MUSICAL_INSTRUMENTS/.test(instruments)],
   ['Release Gate', /sonaraReleaseGate|releaseGate|AUTO-REPAIR|autoRepairRecommended/.test(qualityRouter)],
+  ['Quality direct audio fetch', /directAudioFetch/.test(qualityRouter) && /SONARA_MOLAB_XL_URL/.test(qualityRouter)],
   ['SONARA Engine Quality 2.0', /sonara-engine-quality-2\.0/.test(qualityDirectorV2)],
   ['Professional release score 88', /PROFESSIONAL_RELEASE_SCORE\s*=\s*88/.test(qualityDirectorV2)],
   ['Professional WAV dimensions', /signalIntegrity/.test(qualityDirectorV2) && /dynamics/.test(qualityDirectorV2) && /durationVerification/.test(qualityDirectorV2)],
@@ -38,6 +40,8 @@ const capabilities: Array<[string, boolean]> = [
   ['SONARA Studio 2.0 production contract', /sonara-studio-v2\.0-production/.test(studioV2Contract)],
   ['SONARA Sessions 2.0', /SONARA_SESSIONS_VERSION\s*=\s*'2\.0'/.test(studioV2Contract) && /data-sonara-sessions-timeline="2\.0"/.test(sessionsTimeline)],
   ['Extend operation', /\/api\/studio\/extend/.test(sessionsV2)],
+  ['Extend full-source duration +15', /EXTEND_INCREMENT_SECONDS\s*=\s*15/.test(sessionsTimeline) && /probeAudioDuration/.test(sessionsTimeline)],
+  ['Full-source candidate apply', /sonara:studio-apply-full-source-candidate/.test(sessionsTimeline) && /sonara:studio-apply-full-source-candidate/.test(studioSectionControl)],
   ['Replace operation', /\/api\/studio\/replace/.test(sessionsV2)],
   ['Inpaint operation', /\/api\/studio\/inpaint/.test(sessionsV2)],
   ['Remix operation', /\/api\/studio\/remix/.test(sessionsV2)],

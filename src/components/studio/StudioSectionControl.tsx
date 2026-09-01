@@ -84,6 +84,20 @@ export default function StudioSectionControl() {
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
 
+  useEffect(() => {
+    const onApplyFullSource = (event: Event) => {
+      const detail = (event as CustomEvent<{ audioUrl?: string; title?: string; operation?: string; variation?: string }>).detail || {};
+      const nextAudioUrl = String(detail.audioUrl || '').trim();
+      if (!/^https?:\/\//i.test(nextAudioUrl)) return;
+      setAudioUrl(nextAudioUrl);
+      const operationLabel = String(detail.operation || 'session').toUpperCase();
+      const variationLabel = String(detail.variation || '').toUpperCase();
+      setTitle(String(detail.title || `SONARA ${operationLabel} ${variationLabel}`).trim());
+    };
+    window.addEventListener('sonara:studio-apply-full-source-candidate', onApplyFullSource as EventListener);
+    return () => window.removeEventListener('sonara:studio-apply-full-source-candidate', onApplyFullSource as EventListener);
+  }, []);
+
   const openExistingSection = (pattern: RegExp) => {
     setOpen(false);
     window.setTimeout(() => {

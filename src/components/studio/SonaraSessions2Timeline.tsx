@@ -83,6 +83,8 @@ const PROJECT_KEY = 'sonara.studio.projectId';
 const POLL_MS = 1800;
 const MAX_POLLS = 220;
 const STEMS: StemName[] = ['vocals', 'drums', 'bass', 'guitar', 'keys', 'synth', 'strings', 'brass', 'woodwinds', 'percussion', 'pads', 'fx'];
+const FULL_SOURCE_OPERATIONS: SessionOperation[] = ['extend', 'remix', 'audio-to-audio'];
+const EXTEND_INCREMENT_SECONDS = 15;
 
 const sleep = (milliseconds: number) => new Promise<void>(resolve => window.setTimeout(resolve, milliseconds));
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
@@ -94,6 +96,22 @@ const formatTime = (seconds: number) => {
   const tenths = Math.floor((safe - Math.floor(safe)) * 10);
   return `${minutes}:${String(wholeSeconds).padStart(2, '0')}.${tenths}`;
 };
+
+function probeAudioDuration(src: string): Promise<number> {
+  return new Promise(resolve => {
+    if (!src) return resolve(0);
+    const audio = document.createElement('audio');
+    audio.preload = 'metadata';
+    audio.src = src;
+    const finish = (duration = 0) => {
+      audio.removeAttribute('src');
+      audio.load();
+      resolve(Number.isFinite(duration) && duration > 0 ? duration : 0);
+    };
+    audio.addEventListener('loadedmetadata', () => finish(audio.duration), { once: true });
+    audio.addEventListener('error', () => finish(), { once: true });
+  });
+}
 
 function ensureId(key: string, prefix: string) {
   let id = window.localStorage.getItem(key) || '';
@@ -181,6 +199,7 @@ export default function SonaraSessions2Timeline({ sourceAudioUrl = '', bpm, keyS
   const [stemBusy, setStemBusy] = useState(false);
   const [stemName, setStemName] = useState<StemName>('vocals');
   const [stemOutputs, setStemOutputs] = useState<JobOutput[]>([]);
+  const [sourceDuration, setSourceDuration] = useState(0);
 
   const importedFilesRef = useRef(new Map<string, File>());
   const selectedLocalFileRef = useRef<File | null>(null);
@@ -207,7 +226,17 @@ export default function SonaraSessions2Timeline({ sourceAudioUrl = '', bpm, keyS
   }, []);
 
   useEffect(() => {
-    if (sourceAudioUrl) activeSourceUrlRef.current = sourceAudioUrl;
+    const nextSource = sourceAudioUrl || window.localStorage.getItem(SOURCE_KEY) || '';
+    if (!nextSource) {
+      setSourceDuration(0);
+      return;
+    }
+    activeSourceUrlRef.current = nextSource;
+    let cancelled = false;
+    void probeAudioDuration(nextSource).then(duration => {
+      if (!cancelled && duration > 0) setSourceDuration(duration);
+    });
+    return () => { cancelled = true; };
   }, [sourceAudioUrl]);
 
   const apiHeaders = (json = false) => ({
@@ -357,9 +386,21 @@ export default function SonaraSessions2Timeline({ sourceAudioUrl = '', bpm, keyS
     const localFile = selectedLocalFileRef.current;
     if (!source && !localFile) throw new Error('Nessun audio sorgente disponibile nello Studio.');
     const endpoint = `${API}/api/studio/${operation}`;
-    const selectionStart = selection?.sourceStart ?? 0;
-    const selectionEnd = selection?.sourceEnd ?? Math.max(8, selectionStart + 16);
-    const durationSec = Math.min(600, Math.max(selection?.clipDuration || 60, selectionEnd + 2));
+    let measuredSourceDuration = sourceDuration;
+    if (!(measuredSourceDuration > 0) && source) measuredSourceDuration = await probeAudioDuration(source);
+    if (!(measuredSourceDuration > 0) && localFile) {
+      const localUrl = URL.createObjectURL(localFile);
+      measuredSourceDuration = await probeAudioDuration(localUrl);
+      URL.revokeObjectURL(localUrl);
+    }
+    const safeSourceDuration = clamp(measuredSourceDuration || selection?.clipDuration || 60, 1, 600);
+    if (measuredSourceDuration > 0 && Math.abs(measuredSourceDuration - sourceDuration) > 0.05) setSourceDuration(measuredSourceDuration);
+    const fullSourceExtend = operation === 'extend' && !selection;
+    const selectionStart = selection?.sourceStart ?? (fullSourceExtend ? safeSourceDuration : 0);
+    const selectionEnd = selection?.sourceEnd ?? (fullSourceExtend ? Math.min(600, safeSourceDuration + EXTEND_INCREMENT_SECONDS) : safeSourceDuration);
+    const durationSec = fullSourceExtend
+      ? Math.min(600, safeSourceDuration + EXTEND_INCREMENT_SECONDS)
+      : Math.min(600, Math.max(selection?.clipDuration || safeSourceDuration, selectionEnd + (selection ? 2 : 0)));
     const instruction = [`SONARA Sessions 2.0 variation ${variation}.`, prompt.trim()].filter(Boolean).join(' ');
 
     let response: Response;
@@ -439,7 +480,8 @@ export default function SonaraSessions2Timeline({ sourceAudioUrl = '', bpm, keyS
         }));
       }
       const scores = nextCandidates.filter(candidate => candidate.score !== null).sort((a, b) => Number(b.score) - Number(a.score));
-      setNotice(scores[0] ? `A/B pronte. Quality ranking: ${scores[0].variation} migliore con ${scores[0].score}/100. Entrambe sono registrate come take della regione.` : 'A/B pronte. Ascolta entrambe e applica la take desiderata.');
+      const targetLabel = selection ? 'take della regione' : 'versioni complete del master';
+      setNotice(scores[0] ? `A/B pronte. Quality ranking: ${scores[0].variation} migliore con ${scores[0].score}/100. Entrambe sono registrate come ${targetLabel}.` : 'A/B pronte. Ascolta entrambe e applica la versione desiderata.');
     } catch (error) {
       setNotice(error instanceof Error ? error.message : String(error));
     } finally {
@@ -447,40 +489,54 @@ export default function SonaraSessions2Timeline({ sourceAudioUrl = '', bpm, keyS
     }
   };
 
-  const applyCandidate = (candidate: SessionCandidate, restoring = false) => {
-    if (applying || !selection) return;
+  const applyCandidate = (candidate: SessionCandidate, restoring = false, operationOverride = operation, selectionOverride = selection) => {
+    const fullSource = !selectionOverride && FULL_SOURCE_OPERATIONS.includes(operationOverride);
+    if (applying || (!selectionOverride && !fullSource)) return;
     setApplying(candidate.variation);
-    window.dispatchEvent(new CustomEvent('sonara:studio-apply-session-candidate', {
-      detail: { operation, selection, clipId: selection.clipId, variation: candidate.variation, jobId: candidate.jobId, audioUrl: candidate.audioUrl }
-    }));
+    if (selectionOverride) {
+      window.dispatchEvent(new CustomEvent('sonara:studio-apply-session-candidate', {
+        detail: { operation: operationOverride, selection: selectionOverride, clipId: selectionOverride.clipId, variation: candidate.variation, jobId: candidate.jobId, audioUrl: candidate.audioUrl }
+      }));
+    } else {
+      window.dispatchEvent(new CustomEvent('sonara:studio-apply-full-source-candidate', {
+        detail: { operation: operationOverride, variation: candidate.variation, jobId: candidate.jobId, audioUrl: candidate.audioUrl, title: candidate.title }
+      }));
+    }
     activeSourceUrlRef.current = candidate.audioUrl;
     window.localStorage.setItem(SOURCE_KEY, candidate.audioUrl);
+    void probeAudioDuration(candidate.audioUrl).then(duration => {
+      if (duration > 0) setSourceDuration(duration);
+    });
     if (!restoring) {
       const version: SessionVersion = {
         id: `v-${Date.now().toString(36)}-${candidate.variation}`,
-        operation,
+        operation: operationOverride,
         chosenVariation: candidate.variation,
-        selection,
+        selection: selectionOverride,
         candidates,
         createdAt: new Date().toISOString()
       };
       persistVersions([version, ...versions]);
-      void updateMemory({ sourceAudioUrl: candidate.audioUrl, lastOperation: operation });
+      void updateMemory({ sourceAudioUrl: candidate.audioUrl, lastOperation: operationOverride });
     }
-    setNotice(`Versione ${candidate.variation} applicata SOLO alla regione selezionata. Fuori dalla regione resta l'originale; UNDO/REDO resta disponibile.`);
+    setNotice(selectionOverride
+      ? `Versione ${candidate.variation} applicata SOLO alla regione selezionata. Fuori dalla regione resta l'originale; UNDO/REDO resta disponibile.`
+      : `Versione ${candidate.variation} applicata come nuovo master completo. La sorgente precedente resta disponibile nella cronologia.`);
     window.setTimeout(() => setApplying(null), 300);
   };
 
   const restoreVersion = (version: SessionVersion) => {
-    if (!version.selection || !version.candidates.length) return;
+    if (!version.candidates.length) return;
     setOperation(version.operation);
     setSelection(version.selection);
     setCandidates(version.candidates);
-    window.dispatchEvent(new CustomEvent('sonara:studio-register-session-candidates', {
-      detail: { operation: version.operation, selection: version.selection, clipId: version.selection.clipId, candidates: version.candidates }
-    }));
+    if (version.selection) {
+      window.dispatchEvent(new CustomEvent('sonara:studio-register-session-candidates', {
+        detail: { operation: version.operation, selection: version.selection, clipId: version.selection.clipId, candidates: version.candidates }
+      }));
+    }
     const candidate = version.candidates.find(item => item.variation === version.chosenVariation);
-    if (candidate) window.setTimeout(() => applyCandidate(candidate, true), 80);
+    if (candidate) window.setTimeout(() => applyCandidate(candidate, true, version.operation, version.selection), 80);
   };
 
   const clickUndoRedo = (kind: 'undo' | 'redo') => {
@@ -568,7 +624,7 @@ export default function SonaraSessions2Timeline({ sourceAudioUrl = '', bpm, keyS
       <div className="flex flex-wrap items-center gap-2">
         <div className="mr-1 flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.18em] text-violet-300"><Sparkles className="h-3.5 w-3.5" /> Sessions 2.0</div>
         {(['replace', 'inpaint', 'extend', 'remix', 'audio-to-audio'] as SessionOperation[]).map(value => (
-          <button key={value} type="button" onClick={() => { setOperation(value); setCandidates([]); }} className={`rounded-lg border px-2.5 py-1.5 text-[8px] font-black uppercase tracking-wider ${operation === value ? 'border-violet-400/35 bg-violet-400/[0.12] text-violet-100' : 'border-white/[0.07] bg-white/[0.025] text-slate-500 hover:text-white'}`}>{value}</button>
+          <button key={value} type="button" onClick={() => { setOperation(value); setCandidates([]); if (FULL_SOURCE_OPERATIONS.includes(value)) { setSelection(null); setSelectionMode(false); } }} className={`rounded-lg border px-2.5 py-1.5 text-[8px] font-black uppercase tracking-wider ${operation === value ? 'border-violet-400/35 bg-violet-400/[0.12] text-violet-100' : 'border-white/[0.07] bg-white/[0.025] text-slate-500 hover:text-white'}`}>{value}</button>
         ))}
         <button type="button" onClick={() => { setSelectionMode(value => !value); setCandidates([]); }} className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[8px] font-black ${selectionMode ? 'border-cyan-400/45 bg-cyan-400/[0.12] text-cyan-100' : 'border-cyan-400/20 bg-cyan-400/[0.05] text-cyan-300'}`}><Scissors className="h-3.5 w-3.5" /> {selectionMode ? 'TRASCINA SULLA WAVEFORM' : 'SELEZIONA REGIONE'}</button>
         <div className="min-w-[150px] rounded-lg border border-white/[0.07] bg-black/20 px-2.5 py-1.5 font-mono text-[8px] text-slate-400">{selection ? `${formatTime(selection.timelineStart)} → ${formatTime(selection.timelineEnd)}` : ['extend', 'remix', 'audio-to-audio'].includes(operation) ? 'SOURCE COMPLETO' : 'NESSUNA REGIONE'}</div>
@@ -593,7 +649,7 @@ export default function SonaraSessions2Timeline({ sourceAudioUrl = '', bpm, keyS
         <div className="rounded-lg border border-white/[0.06] bg-black/20 px-3 py-2"><div className="flex items-center justify-between text-[8px] font-black uppercase tracking-wider text-slate-600"><span>Progress</span><span>{progress}%</span></div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.05]"><div className="h-full rounded-full bg-violet-400 transition-all" style={{ width: `${progress}%` }} /></div></div>
         {(['A', 'B'] as SessionVariation[]).map(variation => {
           const candidate = candidates.find(item => item.variation === variation);
-          return <div key={variation} className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 ${candidate && bestVariation === variation ? 'border-emerald-400/25 bg-emerald-400/[0.05]' : 'border-white/[0.06] bg-black/20'}`}><div className="flex h-7 w-7 items-center justify-center rounded-md bg-white/[0.05] text-[10px] font-black text-white">{variation}</div><div className="min-w-0 flex-1"><div className="truncate text-[8px] font-black text-slate-300">{candidate ? candidate.title : busy ? `GENERAZIONE ${variation}…` : `SESSION ${variation}`}</div><div className="mt-0.5 text-[7px] text-slate-600">{candidate ? `${candidate.score !== null ? `Quality ${candidate.score}/100` : 'Quality n/d'}${candidate.detectedBpm !== null ? ` · ${candidate.detectedBpm} BPM` : ''}${bestVariation === variation ? ' · BEST' : ''}` : 'in attesa'}</div></div><button type="button" disabled={!candidate} onClick={() => candidate && playerPlay(candidate)} className="rounded-md border border-white/[0.08] bg-white/[0.03] p-1.5 text-slate-300 disabled:opacity-30"><Play className="h-3 w-3 fill-current" /></button><button type="button" disabled={!candidate || applying !== null || !selection} onClick={() => candidate && applyCandidate(candidate)} className="flex items-center gap-1 rounded-md border border-violet-400/25 bg-violet-400/[0.08] px-2 py-1.5 text-[7px] font-black text-violet-200 disabled:opacity-30">{applying === variation ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />} APPLICA</button></div>;
+          return <div key={variation} className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 ${candidate && bestVariation === variation ? 'border-emerald-400/25 bg-emerald-400/[0.05]' : 'border-white/[0.06] bg-black/20'}`}><div className="flex h-7 w-7 items-center justify-center rounded-md bg-white/[0.05] text-[10px] font-black text-white">{variation}</div><div className="min-w-0 flex-1"><div className="truncate text-[8px] font-black text-slate-300">{candidate ? candidate.title : busy ? `GENERAZIONE ${variation}…` : `SESSION ${variation}`}</div><div className="mt-0.5 text-[7px] text-slate-600">{candidate ? `${candidate.score !== null ? `Quality ${candidate.score}/100` : 'Quality n/d'}${candidate.detectedBpm !== null ? ` · ${candidate.detectedBpm} BPM` : ''}${bestVariation === variation ? ' · BEST' : ''}` : 'in attesa'}</div></div><button type="button" disabled={!candidate} onClick={() => candidate && playerPlay(candidate)} className="rounded-md border border-white/[0.08] bg-white/[0.03] p-1.5 text-slate-300 disabled:opacity-30"><Play className="h-3 w-3 fill-current" /></button><button type="button" disabled={!candidate || applying !== null || (!selection && !FULL_SOURCE_OPERATIONS.includes(operation))} onClick={() => candidate && applyCandidate(candidate)} className="flex items-center gap-1 rounded-md border border-violet-400/25 bg-violet-400/[0.08] px-2 py-1.5 text-[7px] font-black text-violet-200 disabled:opacity-30">{applying === variation ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />} APPLICA</button></div>;
         })}
       </div>}
 
