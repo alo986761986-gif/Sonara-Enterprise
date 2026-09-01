@@ -13,6 +13,9 @@ on:
       - "cloudflare/sonara-quality-gated-router.mjs"
       - "cloudflare/sonara-studio-ai-router.mjs"
       - "cloudflare/sonara-molab-xl-router.mjs"
+      - "engine/director_ai.py"
+      - "engine/dsp_engine.py"
+      - "engine/inference.py"
       - "src/services/promptDirector.ts"
       - "wrangler.jsonc"
       - ".github/workflows/deploy-sonara-music-director-v3.yml"
@@ -34,12 +37,17 @@ jobs:
 
     steps:
       - name: Checkout SONARA
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "24"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Install dependencies
         run: npm install
@@ -51,6 +59,17 @@ jobs:
           node --check cloudflare/sonara-next-studio-edge.mjs
           node --check cloudflare/sonara-studio-ai-router.mjs
           node --check cloudflare/sonara-molab-xl-router.mjs
+          python -m py_compile engine/director_ai.py engine/dsp_engine.py engine/inference.py
+
+      - name: Guard real-audio DirectorAI contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'composed_final_prompt' engine/director_ai.py
+          grep -q 'measured_from_real_audio' engine/director_ai.py
+          grep -q 'requires a real generated WAV' engine/director_ai.py
+          ! grep -q 'random.uniform' engine/director_ai.py
+          ! grep -q 'overall_score.*9.55' engine/director_ai.py
 
       - name: Validate existing quality contracts
         run: |
