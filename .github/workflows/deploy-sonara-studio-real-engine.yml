@@ -15,6 +15,7 @@ on:
       - "scripts/activate-studio-sessions-native.cjs"
       - "scripts/build-dispatch.cjs"
       - "public/sonara-studio-pitch-key-dsp-v6.js"
+      - "public/sonara-studio-wav-cleanup-v7.js"
       - "cloudflare/sonara-studio-pitch-key-upload-bridge.mjs"
       - "cloudflare/sonara-studio-key-pitch-guard.mjs"
       - "cloudflare/sonara-studio-native-pitch-bridge.mjs"
@@ -50,7 +51,7 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Validate Studio DSP Pitch Key V6 source
+      - name: Validate Studio DSP Pitch Key V6 + WAV Cleanup V7 source
         shell: bash
         run: |
           set -euo pipefail
@@ -58,14 +59,24 @@ jobs:
           node --check scripts/activate-studio-video-v1.cjs
           node --check scripts/activate-studio-key-control.cjs
           node --check public/sonara-studio-pitch-key-dsp-v6.js
+          node --check public/sonara-studio-wav-cleanup-v7.js
           node --check cloudflare/sonara-studio-pitch-key-upload-bridge.mjs
           grep -Fq 'parseMidiBlob' src/components/studio/studioRealEngine.ts
           grep -Fq 'saveStudioAsset' src/components/studio/studioRealEngine.ts
           grep -Fq 'loadStudioAsset' src/components/studio/studioRealEngine.ts
           grep -Fq 'sonara-studio-pitch-key-dsp-v6.js?v=6' index.html
+          grep -Fq 'sonara-studio-wav-cleanup-v7.js?v=7' index.html
           grep -Fq 'sonara-studio-video-v1' index.html
           grep -Fq 'sonara-studio-real-engine-v2' index.html
           grep -Fq '__sonaraStudioPitchKeyDspV6' public/sonara-studio-pitch-key-dsp-v6.js
+          grep -Fq '__sonaraStudioWavCleanupV7' public/sonara-studio-wav-cleanup-v7.js
+          grep -Fq 'PULIZIA WAV PRO · DSP V7' public/sonara-studio-wav-cleanup-v7.js
+          grep -Fq 'adaptiveExpander' public/sonara-studio-wav-cleanup-v7.js
+          grep -Fq 'removeHum' public/sonara-studio-wav-cleanup-v7.js
+          grep -Fq 'deClick' public/sonara-studio-wav-cleanup-v7.js
+          grep -Fq 'lowPassHiss' public/sonara-studio-wav-cleanup-v7.js
+          grep -Fq 'dcAndRumble' public/sonara-studio-wav-cleanup-v7.js
+          grep -Fq 'USA NEL PITCH & KEY' public/sonara-studio-wav-cleanup-v7.js
           grep -Fq 'type="number"' public/sonara-studio-pitch-key-dsp-v6.js
           grep -Fq "controlMarkup('Pitch brano'" public/sonara-studio-pitch-key-dsp-v6.js
           grep -Fq "controlMarkup('Pitch voce'" public/sonara-studio-pitch-key-dsp-v6.js
@@ -116,14 +127,22 @@ jobs:
           check dist-real-engine 'sonara-studio-real-engine-v2' dist/index.html
           check dist-video-engine 'sonara-studio-video-v1' dist/index.html
           check dist-pitch-script 'sonara-studio-pitch-key-dsp-v6.js?v=6' dist/index.html
+          check dist-cleanup-script 'sonara-studio-wav-cleanup-v7.js?v=7' dist/index.html
           if [[ -f dist/sonara-studio-pitch-key-dsp-v6.js ]]; then echo 'PASS pitch-dsp-v6-file'; else echo 'FAIL pitch-dsp-v6-file' >&2; exit 1; fi
+          if [[ -f dist/sonara-studio-wav-cleanup-v7.js ]]; then echo 'PASS wav-cleanup-v7-file'; else echo 'FAIL wav-cleanup-v7-file' >&2; exit 1; fi
           check pitch-dsp-v6-marker '__sonaraStudioPitchKeyDspV6' dist/sonara-studio-pitch-key-dsp-v6.js
           check pitch-dsp-worker 'new Worker' dist/sonara-studio-pitch-key-dsp-v6.js
           check pitch-wav-encoder 'encodeWav' dist/sonara-studio-pitch-key-dsp-v6.js
           check pitch-number-inputs 'type="number"' dist/sonara-studio-pitch-key-dsp-v6.js
           check pitch-original-file-label 'FILE ORIGINALE' dist/sonara-studio-pitch-key-dsp-v6.js
+          check cleanup-v7-marker '__sonaraStudioWavCleanupV7' dist/sonara-studio-wav-cleanup-v7.js
+          check cleanup-noise-reduction 'adaptiveExpander' dist/sonara-studio-wav-cleanup-v7.js
+          check cleanup-hum-removal 'removeHum' dist/sonara-studio-wav-cleanup-v7.js
+          check cleanup-declick 'deClick' dist/sonara-studio-wav-cleanup-v7.js
+          check cleanup-hiss-reduction 'lowPassHiss' dist/sonara-studio-wav-cleanup-v7.js
+          check cleanup-rumble-dc 'dcAndRumble' dist/sonara-studio-wav-cleanup-v7.js
           if grep -Fq 'sonara-studio-pitch-key-safe-v5.js?v=5' dist/index.html; then echo 'FAIL legacy Pitch Key V5 in dist' >&2; exit 1; fi
-          echo "Studio Real Engine + local DSP-only Pitch & Key V6 verified."
+          echo "Studio Real Engine + Pitch & Key V6 + WAV Cleanup DSP V7 verified."
 
       - name: Resolve Cloudflare account
         shell: bash
@@ -147,26 +166,32 @@ jobs:
       - name: Deploy Studio Real Engine and assets
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
 
-      - name: Verify Studio DSP Pitch Key V6 publicly
+      - name: Verify Studio Pitch Key V6 + WAV Cleanup V7 publicly
         shell: bash
         run: |
           set -euo pipefail
           for attempt in {1..30}; do
             page="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?studio-real=${GITHUB_SHA}-${attempt}" || true)"
             script="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/sonara-studio-pitch-key-dsp-v6.js?v=6&verify=${GITHUB_SHA}-${attempt}" || true)"
+            cleanup="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/sonara-studio-wav-cleanup-v7.js?v=7&verify=${GITHUB_SHA}-${attempt}" || true)"
             if printf '%s' "${page}" | grep -Fq 'sonara-studio-real-engine-v2' \
               && printf '%s' "${page}" | grep -Fq 'sonara-studio-video-v1' \
               && printf '%s' "${page}" | grep -Fq 'sonara-studio-pitch-key-dsp-v6.js?v=6' \
+              && printf '%s' "${page}" | grep -Fq 'sonara-studio-wav-cleanup-v7.js?v=7' \
               && ! printf '%s' "${page}" | grep -Fq 'sonara-studio-pitch-key-safe-v5.js?v=5' \
               && printf '%s' "${script}" | grep -Fq '__sonaraStudioPitchKeyDspV6' \
               && printf '%s' "${script}" | grep -Fq 'type="number"' \
               && printf '%s' "${script}" | grep -Fq 'encodeWav' \
-              && printf '%s' "${script}" | grep -Fq 'new Worker'; then
-              echo "SONARA Studio local DSP-only Pitch & Key V6 is live."
+              && printf '%s' "${script}" | grep -Fq 'new Worker' \
+              && printf '%s' "${cleanup}" | grep -Fq '__sonaraStudioWavCleanupV7' \
+              && printf '%s' "${cleanup}" | grep -Fq 'adaptiveExpander' \
+              && printf '%s' "${cleanup}" | grep -Fq 'removeHum' \
+              && printf '%s' "${cleanup}" | grep -Fq 'PULISCI WAV'; then
+              echo "SONARA Studio Pitch & Key V6 + WAV Cleanup DSP V7 is live."
               exit 0
             fi
-            echo "Waiting for Studio V6 propagation (${attempt}/30)."
+            echo "Waiting for Studio V7 propagation (${attempt}/30)."
             sleep 4
           done
-          echo "Studio V6 public verification failed." >&2
+          echo "Studio V7 public verification failed." >&2
           exit 1
