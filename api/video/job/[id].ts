@@ -4,6 +4,7 @@ import { SONARA_PLANS, type SonaraPlanId, type SonaraVideoResolution } from '../
 import { persistProviderVideo, pollVideoProvider, startVideoProvider, type SonaraVideoProvider } from '../provider';
 import { buildVeoSafetyRetryPrompt, isVeoSafetyFilterError, veoNegativePrompt, veoSafetyCategory } from '../../../src/server/video/safety';
 import { pollConcatenation, publishTranscodedVideo, startConcatenation, startSoundtrackMux } from '../../../src/server/video/transcoder';
+import { authenticatedVideoUser } from '../auth';
 
 const JOB_COLLECTION = 'sonaraVideoJobs';
 const MAX_SCENE_RETRIES = 3;
@@ -118,25 +119,6 @@ function soundtrackUri(record: VideoJobRecord) {
   return audio ? `gs://${bucket}/${String(audio.storagePath).trim()}` : '';
 }
 
-function bearerToken(req: any) {
-  return String(req.headers?.authorization || '').match(/^Bearer\s+(.+)$/i)?.[1]?.trim() || '';
-}
-
-async function authenticatedUser(req: any) {
-  const token = bearerToken(req);
-  const apiKey = String(process.env.VITE_FIREBASE_API_KEY || process.env.SONARA_FIREBASE_API_KEY || '').trim();
-  if (!token || !apiKey) return null;
-  try {
-    const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey)}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken: token }), signal: AbortSignal.timeout(10_000)
-    });
-    if (!response.ok) return null;
-    const payload = await response.json() as { users?: Array<{ localId?: string; email?: string }> };
-    const user = payload.users?.[0];
-    return user?.localId ? { uid: user.localId, email: user.email } : null;
-  } catch { return null; }
-}
-
 async function within<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -226,7 +208,7 @@ async function restartSingleClipAfterSafetyFilter(app: App, record: VideoJobReco
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') return fail(res, 405, 'METHOD_NOT_ALLOWED', 'Metodo non consentito.');
   try {
-    const user = await authenticatedUser(req);
+    const user = await authenticatedVideoUser(req);
     if (!user) return fail(res, 401, 'AUTH_REQUIRED', 'Accedi a SONARA per usare Video AI.');
     const jobId = String(req.query?.id || '').trim();
     if (!jobId) return fail(res, 400, 'VIDEO_JOB_REQUIRED', 'Job video non valido.');

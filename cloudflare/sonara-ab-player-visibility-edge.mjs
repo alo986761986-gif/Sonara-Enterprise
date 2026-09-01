@@ -186,8 +186,7 @@ export default {
     if (
       publicHost && (
         url.pathname.startsWith('/api/sonara-auth/') ||
-        url.pathname === '/api/billing/status' ||
-        url.pathname === '/api/video/status'
+        url.pathname === '/api/billing/status'
       )
     ) {
       const authResponse = await handleSonaraNativeAuth(request, env);

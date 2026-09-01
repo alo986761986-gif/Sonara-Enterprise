@@ -244,13 +244,10 @@ export async function uploadFirebaseVideoAiAsset(
   file: Blob,
   options: { fileName?: string; kind?: 'image' | 'video' | 'audio' } = {}
 ): Promise<FirebaseVideoAiAsset> {
-  const user = getFirebaseAuth().currentUser;
-  if (!user) throw new Error('Accedi per caricare foto, video e audio in SONARA Video AI.');
-
   const kind = options.kind || (file.type.startsWith('audio/') ? 'audio' : file.type.startsWith('video/') ? 'video' : 'image');
   const fileName = safeVideoAiFileName(options.fileName || `${kind}-${Date.now()}`);
   const contentType = file.type || fallbackVideoAiContentType(kind);
-  const idToken = await user.getIdToken();
+  const idToken = await getFirebaseIdToken(true);
 
   const prepareResponse = await fetch('/api/video/upload', {
     method: 'POST',

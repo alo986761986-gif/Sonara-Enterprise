@@ -16,13 +16,17 @@ import {
   videoProviderReady,
   type SonaraVideoProvider
 } from './provider';
+import {
+  authenticatedVideoUser,
+  trustedVideoBillingRecord,
+  type AuthenticatedVideoUser
+} from './auth';
 
 export const config = { api: { bodyParser: { sizeLimit: '1mb' } } };
 
 const JOB_COLLECTION = 'sonaraVideoJobs';
 
 type MediaKind = 'image' | 'video' | 'audio';
-interface AuthenticatedUser { uid: string; email?: string }
 interface BillingRecord {
   planId?: SonaraPlanId;
   subscriptionStatus?: string;
@@ -112,25 +116,6 @@ function fail(res: any, status: number, code: string, message: string, extra: Re
   return json(res, status, { error: { code, message }, ...extra });
 }
 
-function bearerToken(req: any) {
-  return String(req.headers?.authorization || '').match(/^Bearer\s+(.+)$/i)?.[1]?.trim() || '';
-}
-
-async function authenticatedUser(req: any): Promise<AuthenticatedUser | null> {
-  const token = bearerToken(req);
-  const apiKey = String(process.env.VITE_FIREBASE_API_KEY || process.env.SONARA_FIREBASE_API_KEY || '').trim();
-  if (!token || !apiKey) return null;
-  try {
-    const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey)}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken: token })
-    });
-    if (!response.ok) return null;
-    const payload = await response.json() as { users?: Array<{ localId?: string; email?: string }> };
-    const user = payload.users?.[0];
-    return user?.localId ? { uid: user.localId, email: user.email } : null;
-  } catch { return null; }
-}
-
 function actionFromRequest(req: any) {
   const queryPath = Array.isArray(req.query?.path) ? req.query.path.join('/') : String(req.query?.path || '');
   if (queryPath) return queryPath.replace(/^\/+|\/+$/g, '').toLowerCase();
@@ -163,7 +148,7 @@ function maxBytes(kind: MediaKind) {
   return 250 * 1024 * 1024;
 }
 
-async function prepareMediaUpload(user: AuthenticatedUser, req: any, res: any) {
+async function prepareMediaUpload(user: AuthenticatedVideoUser, req: any, res: any) {
   const bucketName = storageBucketName();
   if (!bucketName) {
     return fail(res, 503, 'VIDEO_UPLOAD_NOT_CONFIGURED', 'Firebase Admin Storage non è configurato sul server SONARA.');
@@ -247,9 +232,10 @@ function creditAllowance(record: BillingRecord | undefined, planId: SonaraPlanId
   return Math.max(base, override);
 }
 
-async function billingRecord(uid: string): Promise<BillingRecord | undefined> {
-  const snapshot = await getFirestore(getAdminApp()).collection('sonaraBilling').doc(uid).get();
-  return snapshot.exists ? snapshot.data() as BillingRecord : undefined;
+async function billingRecord(user: AuthenticatedVideoUser): Promise<BillingRecord | undefined> {
+  const snapshot = await getFirestore(getAdminApp()).collection('sonaraBilling').doc(user.uid).get();
+  const stored = snapshot.exists ? snapshot.data() as BillingRecord : {};
+  return trustedVideoBillingRecord(user, stored);
 }
 
 function publicStatus(record: BillingRecord | undefined) {
@@ -273,13 +259,14 @@ function publicStatus(record: BillingRecord | undefined) {
   };
 }
 
-async function reserveVideoCredits(uid: string, resolution: SonaraVideoResolution) {
+async function reserveVideoCredits(user: AuthenticatedVideoUser, resolution: SonaraVideoResolution) {
   const firestore = getFirestore(getAdminApp());
-  const ref = firestore.collection('sonaraBilling').doc(uid);
+  const ref = firestore.collection('sonaraBilling').doc(user.uid);
   let result!: { planId: SonaraPlanId; credits: number; status: ReturnType<typeof publicStatus> };
   await firestore.runTransaction(async transaction => {
     const snapshot = await transaction.get(ref);
-    const record = snapshot.exists ? snapshot.data() as BillingRecord : {};
+    const stored = snapshot.exists ? snapshot.data() as BillingRecord : {};
+    const record = trustedVideoBillingRecord(user, stored);
     const planId = effectivePlan(record);
     const plan = SONARA_PLANS[planId];
     if (!plan.videoResolutions.includes(resolution)) throw Object.assign(new Error('VIDEO_RESOLUTION_NOT_ALLOWED'), { planId, allowed: plan.videoResolutions });
@@ -289,7 +276,16 @@ async function reserveVideoCredits(uid: string, resolution: SonaraVideoResolutio
     const allowance = creditAllowance(record, planId);
     if (used + credits > allowance) throw Object.assign(new Error('VIDEO_CREDITS_EXHAUSTED'), { planId, creditsRemaining: Math.max(0, allowance - used) });
     const next: BillingRecord = { ...record, videoCreditsPeriodKey: periodKey, videoCreditsUsed: used + credits };
-    transaction.set(ref, { videoCreditsPeriodKey: periodKey, videoCreditsUsed: used + credits, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    transaction.set(ref, {
+      ...(user.native ? {
+        planId: record.planId,
+        subscriptionStatus: record.subscriptionStatus,
+        videoCreditsPerMonthOverride: record.videoCreditsPerMonthOverride
+      } : {}),
+      videoCreditsPeriodKey: periodKey,
+      videoCreditsUsed: used + credits,
+      updatedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
     result = { planId, credits, status: publicStatus(next) };
   });
   return result;
@@ -307,7 +303,7 @@ async function releaseVideoCredits(uid: string, credits: number, jobId?: string)
   });
 }
 
-async function startVideo(user: AuthenticatedUser, req: any, res: any) {
+async function startVideo(user: AuthenticatedVideoUser, req: any, res: any) {
   const app = getAdminApp();
   const bucketName = storageBucketName();
   if (!videoProviderReady(app, bucketName)) return fail(res, 503, 'VIDEO_PROVIDER_NOT_CONFIGURED', 'Il motore SONARA Video AI non è ancora configurato sul server.');
@@ -320,7 +316,7 @@ async function startVideo(user: AuthenticatedUser, req: any, res: any) {
   if (!isSonaraVideoResolution(resolution)) return fail(res, 400, 'INVALID_VIDEO_RESOLUTION', 'Risoluzione video non valida.');
 
   let reservation: Awaited<ReturnType<typeof reserveVideoCredits>>;
-  try { reservation = await reserveVideoCredits(user.uid, resolution); }
+  try { reservation = await reserveVideoCredits(user, resolution); }
   catch (cause) {
     const code = cause instanceof Error ? cause.message : 'VIDEO_BILLING_ERROR';
     if (code === 'VIDEO_RESOLUTION_NOT_ALLOWED') return fail(res, 403, code, 'Questa qualità video non è inclusa nel piano attivo.', { allowed: (cause as any).allowed });
@@ -368,7 +364,7 @@ async function startVideo(user: AuthenticatedUser, req: any, res: any) {
   }
 }
 
-async function pollJob(user: AuthenticatedUser, jobId: string, res: any) {
+async function pollJob(user: AuthenticatedVideoUser, jobId: string, res: any) {
   const app = getAdminApp();
   const ref = getFirestore(app).collection(JOB_COLLECTION).doc(jobId);
   const snapshot = await ref.get();
@@ -401,13 +397,13 @@ async function pollJob(user: AuthenticatedUser, jobId: string, res: any) {
 }
 
 export default async function handler(req: any, res: any) {
-  const user = await authenticatedUser(req);
+  const user = await authenticatedVideoUser(req);
   if (!user) return fail(res, 401, 'AUTH_REQUIRED', 'Accedi a SONARA per usare Video AI.');
   if (!serviceAccountConfigured()) return fail(res, 503, 'VIDEO_SERVER_NOT_CONFIGURED', 'Firebase Admin non è configurato per Video AI.');
   const action = actionFromRequest(req);
   try {
     if (req.method === 'POST' && action === 'upload') return await prepareMediaUpload(user, req, res);
-    if (req.method === 'GET' && action === 'status') return json(res, 200, publicStatus(await billingRecord(user.uid)));
+    if (req.method === 'GET' && action === 'status') return json(res, 200, publicStatus(await billingRecord(user)));
     if (req.method === 'POST' && action === 'generate') return await startVideo(user, req, res);
     if (req.method === 'GET' && action.startsWith('job/')) return await pollJob(user, action.slice(4), res);
     return fail(res, 404, 'VIDEO_ROUTE_NOT_FOUND', 'Rotta SONARA Video AI non trovata.');
