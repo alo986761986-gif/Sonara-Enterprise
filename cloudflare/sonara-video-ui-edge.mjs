@@ -2,6 +2,57 @@ const VIDEO_UI_EDGE_SCRIPT = String.raw`(() => {
   if (window.__sonaraVideoUiEdgeV2) return;
   window.__sonaraVideoUiEdgeV2 = true;
 
+  const VIDEO_JOB_PATH = /^\/api\/video\/job\/[^/]+$/;
+  const legacyProgress = new Map();
+  const nativeFetch = window.fetch.bind(window);
+
+  window.fetch = async (...args) => {
+    const response = await nativeFetch(...args);
+    try {
+      const input = args[0];
+      const rawUrl = typeof input === 'string' || input instanceof URL ? String(input) : input?.url;
+      const url = new URL(rawUrl || '', window.location.href);
+      if (url.origin !== window.location.origin || !VIDEO_JOB_PATH.test(url.pathname) || !response.ok) return response;
+
+      const payload = await response.clone().json();
+      const status = String(payload?.status || '').toUpperCase();
+      const terminal = status === 'COMPLETED' || status === 'FAILED';
+      const legacyPlateau = status === 'PROCESSING'
+        && Number(payload?.progress) === 55
+        && payload?.providerStatus == null
+        && /rendering cinematografico/i.test(String(payload?.stage || ''));
+
+      if (!legacyPlateau) {
+        if (terminal) legacyProgress.delete(url.pathname);
+        return response;
+      }
+
+      const now = Date.now();
+      const previous = legacyProgress.get(url.pathname) || { startedAt: now, progress: 55 };
+      const elapsed = Math.max(0, now - previous.startedAt);
+      const estimated = Math.min(94, Math.max(56, Math.floor(55 + 39 * (1 - Math.exp(-elapsed / 120000)))));
+      const progress = Math.max(previous.progress, estimated);
+      legacyProgress.set(url.pathname, { startedAt: previous.startedAt, progress });
+
+      const headers = new Headers(response.headers);
+      headers.delete('content-length');
+      headers.set('content-type', 'application/json; charset=UTF-8');
+      headers.set('cache-control', 'private, no-store');
+      headers.set('x-sonara-video-progress', 'estimated-edge-fallback-v1');
+      return new Response(JSON.stringify({
+        ...payload,
+        progress,
+        stage: 'SONARA Video AI: rendering GPU attivo · avanzamento stimato'
+      }), {
+        status: response.status,
+        statusText: response.statusText,
+        headers
+      });
+    } catch {
+      return response;
+    }
+  };
+
   const RANDOM_PROMPTS = [
     'Cinematic music video at blue hour in a futuristic coastal city, anamorphic lens, slow dolly movement, volumetric lighting, realistic skin and fabrics, premium production design, rhythmic edits synchronized to the music.',
     'Dark underground club performance, deep shadows, red practical lights, handheld close-ups mixed with smooth gimbal tracking, atmospheric haze, realistic crowd movement, cinematic contrast, edits locked to kick and bass.',
@@ -96,7 +147,7 @@ export function videoUiScriptResponse() {
     headers: {
       'content-type': 'application/javascript; charset=utf-8',
       'cache-control': 'no-store, max-age=0',
-      'x-sonara-video-ui-edge': 'controls-v2'
+      'x-sonara-video-ui-edge': 'controls-v2-progress-fallback-v1'
     }
   });
 }
@@ -108,11 +159,11 @@ export function injectVideoUiScript(response) {
   headers.delete('content-length');
   headers.delete('content-encoding');
   headers.set('cache-control', 'no-store, max-age=0');
-  headers.set('x-sonara-video-ui-edge', 'controls-v2');
+  headers.set('x-sonara-video-ui-edge', 'controls-v2-progress-fallback-v1');
   const safe = new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   return new HTMLRewriter().on('body', {
     element(element) {
-      element.append('<script src="/sonara-video-ui-edge.js?v=2" defer></script>', { html: true });
+      element.append('<script src="/sonara-video-ui-edge.js?v=3" defer></script>', { html: true });
     }
   }).transform(safe);
 }

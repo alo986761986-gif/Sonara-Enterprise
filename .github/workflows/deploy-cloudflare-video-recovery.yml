@@ -7,6 +7,8 @@ on:
     paths:
       - ".github/workflows/deploy-cloudflare-video-recovery.yml"
       - "cloudflare/sonara-web-v15-router.mjs"
+      - "cloudflare/sonara-video-ui-edge.mjs"
+      - "cloudflare/sonara-video-ui-edge.test.mjs"
       - "cloudflare/sonara-ab-player-visibility-edge.mjs"
       - "cloudflare/sonara-native-auth-safe.mjs"
       - "cloudflare/sonara-native-video-state.mjs"
@@ -78,6 +80,7 @@ jobs:
         run: |
           set -euo pipefail
           node cloudflare/sonara-video-active-proxy.test.mjs
+          node cloudflare/sonara-video-ui-edge.test.mjs
           node cloudflare/sonara-video-native-route.test.mjs
           node cloudflare/sonara-native-video-state.test.mjs
           grep -q "return proxyActiveVideoApi(request)" cloudflare/sonara-web-v15-router.mjs
