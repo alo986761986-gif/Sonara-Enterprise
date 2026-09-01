@@ -4,6 +4,7 @@ export { SonaraJobState, SonaraAuthStore };
 
 const VERSION = 'sonara-vocal-refinement-1';
 const ENDPOINT = '/api/studio/vocal-refine';
+const DIRECTOR_JOB_RE = /^\/api\/music\/job\/(director-v3-[A-Za-z0-9_-]+)$/;
 const DEFAULT_ISSUES = [
   'metallic or phasey vocal artifacts',
   'harsh sibilance and brittle consonants',
@@ -30,7 +31,7 @@ function json(request, data, status = 200) {
       'cache-control': 'private, no-store',
       'x-sonara-vocal-refinement': VERSION,
       'access-control-allow-origin': allowed.has(origin) ? origin : 'https://sonaraenterprise.com',
-      'access-control-allow-methods': 'POST,OPTIONS',
+      'access-control-allow-methods': 'GET,POST,OPTIONS',
       'access-control-allow-headers': 'Authorization,Content-Type,Cache-Control,Pragma,X-Sonara-Internal-Secret',
       vary: 'Origin'
     }
@@ -44,6 +45,56 @@ function normalizeIssues(value) {
       ? value.split(',').map(clean).filter(Boolean)
       : [];
   return [...new Set([...DEFAULT_ISSUES, ...custom])].slice(0, 12);
+}
+
+function rankedUrls(data) {
+  const source = data?.job || data?.data || data || {};
+  const candidates = Array.isArray(source.candidates) ? source.candidates : Array.isArray(source.outputs) ? source.outputs : [];
+  return candidates
+    .slice()
+    .sort((a, b) => Number(a?.directorRank || 999) - Number(b?.directorRank || 999))
+    .map(item => clean(item?.audioUrl || item?.url))
+    .filter(Boolean);
+}
+
+async function normalizeDirectorResult(request, response) {
+  const type = clean(response.headers.get('content-type')).toLowerCase();
+  if (!response.ok || !type.includes('application/json')) return response;
+
+  let payload;
+  try { payload = await response.clone().json(); }
+  catch { return response; }
+
+  const source = payload?.job || payload?.data || payload || {};
+  if (clean(source.status).toUpperCase() !== 'COMPLETED') return response;
+
+  const urls = rankedUrls(payload);
+  if (!urls.length) return response;
+  const recommended = urls[0];
+
+  const normalizeObject = object => object && typeof object === 'object' ? {
+    ...object,
+    audioUrl: recommended,
+    audioUrls: urls,
+    recommendedAudioUrl: recommended,
+    directorRecommendedAudioUrl: recommended,
+    metadata: {
+      ...(object.metadata || {}),
+      recommendedAudioUrl: recommended,
+      topLevelAudioAlignedWithDirectorRank: true
+    }
+  } : object;
+
+  let next = normalizeObject(payload);
+  if (next.job && typeof next.job === 'object') next.job = normalizeObject(next.job);
+  if (next.data && typeof next.data === 'object') next.data = normalizeObject(next.data);
+
+  const headers = new Headers(response.headers);
+  headers.delete('content-length');
+  headers.set('content-type', 'application/json; charset=UTF-8');
+  headers.set('cache-control', 'private, no-store');
+  headers.set('x-sonara-director-audio-alignment', 'rank-1');
+  return new Response(JSON.stringify(next), { status: response.status, statusText: response.statusText, headers });
 }
 
 async function vocalRefine(request, env, ctx) {
@@ -114,6 +165,10 @@ export default {
     if (url.pathname === ENDPOINT && request.method === 'POST') {
       return vocalRefine(request, env, ctx);
     }
-    return runtime.fetch(request, env, ctx);
+    const response = await runtime.fetch(request, env, ctx);
+    if (request.method === 'GET' && DIRECTOR_JOB_RE.test(url.pathname)) {
+      return normalizeDirectorResult(request, response);
+    }
+    return response;
   }
 };
