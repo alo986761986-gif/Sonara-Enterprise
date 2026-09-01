@@ -41,7 +41,7 @@ TOKEN_FILE = ROOT / ".sonara-video-token"
 PORT = 7862
 MODEL_ID = "Wan-AI/Wan2.2-TI2V-5B-Diffusers"
 MODEL_NAME = "wan2.2-ti2v-5b"
-PROFILE = "molab-rtx-pro-6000-blackwell-resident-v1"
+PROFILE = "molab-rtx-pro-6000-blackwell-fast-v2"
 
 
 def banner(message: str) -> None:
@@ -156,6 +156,7 @@ def ensure_environment() -> None:
 def api_source() -> str:
     return r'''from __future__ import annotations
 
+import json
 import os
 import secrets
 import threading
@@ -177,8 +178,10 @@ OUTPUTS.mkdir(parents=True, exist_ok=True)
 CACHE.mkdir(parents=True, exist_ok=True)
 MODEL_ID = os.environ.get("SONARA_WAN22_MODEL_ID", "Wan-AI/Wan2.2-TI2V-5B-Diffusers")
 MODEL_NAME = "wan2.2-ti2v-5b"
-PROFILE = "molab-rtx-pro-6000-blackwell-resident-v1"
+PROFILE = "molab-rtx-pro-6000-blackwell-fast-v2"
 API_TOKEN = os.environ.get("SONARA_MOLAB_VIDEO_TOKEN", "").strip()
+JOB_STATE = ROOT / "jobs"
+JOB_STATE.mkdir(parents=True, exist_ok=True)
 DEFAULT_NEGATIVE = (
     "overexposed, static shot, frozen motion, blurry, low quality, jpeg artifacts, text, subtitles, "
     "watermark, logo, deformed anatomy, extra limbs, duplicated people, distorted hands, distorted face, "
@@ -196,6 +199,9 @@ app.add_middleware(
 
 jobs: dict[str, dict] = {}
 jobs_lock = threading.Lock()
+runtime_lock = threading.Lock()
+active_job_id: str | None = None
+queued_job_ids: list[str] = []
 pipe_lock = threading.Lock()
 load_lock = threading.Lock()
 executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sonara-wan22")
@@ -211,8 +217,10 @@ class GenerateRequest(BaseModel):
     negativePrompt: str | None = Field(default=None, max_length=3000)
     aspectRatio: str = "16:9"
     resolution: str = "720p"
-    frames: int = 193
-    steps: int = 28
+    frames: int = 97
+    steps: int = 12
+    durationSeconds: float = Field(default=8.0, ge=1.0, le=8.0)
+    outputFps: int = Field(default=24, ge=12, le=30)
     seed: int | None = None
 
 
@@ -230,6 +238,54 @@ def set_job(job_id: str, **values) -> None:
         current.update(values)
         current["updatedAt"] = time.time()
         jobs[job_id] = current
+        target = JOB_STATE / f"{job_id}.json"
+        temporary = JOB_STATE / f".{job_id}.json.tmp"
+        temporary.write_text(json.dumps(current, ensure_ascii=False), encoding="utf-8")
+        temporary.replace(target)
+
+
+def restore_jobs() -> None:
+    restored: dict[str, dict] = {}
+    for state_file in JOB_STATE.glob("wan_*.json"):
+        try:
+            payload = json.loads(state_file.read_text(encoding="utf-8"))
+            job_id = str(payload.get("jobId") or state_file.stem)
+            if job_id.startswith("wan_"):
+                restored[job_id] = payload
+        except Exception as exc:
+            print(f"SONARA_JOB_STATE_RESTORE_WARNING={state_file.name}:{exc}", flush=True)
+
+    # Older worker versions kept job state only in RAM. Rehydrate every valid
+    # MP4 so a website reload can still collect a render completed beforehand.
+    for video_file in OUTPUTS.glob("wan_*.mp4"):
+        if video_file.name.endswith(".raw.mp4") or video_file.stat().st_size < 10_000:
+            continue
+        job_id = video_file.stem
+        modified = video_file.stat().st_mtime
+        restored[job_id] = {
+            **restored.get(job_id, {}),
+            "jobId": job_id,
+            "status": "COMPLETED",
+            "progress": 100,
+            "stage": "Video Wan 2.2 pronto (recuperato)",
+            "filename": video_file.name,
+            "model": MODEL_NAME,
+            "provider": "molab-wan22",
+            "profile": restored.get(job_id, {}).get("profile", "molab-rtx-pro-6000-blackwell-legacy"),
+            "createdAt": restored.get(job_id, {}).get("createdAt", modified),
+            "updatedAt": max(float(restored.get(job_id, {}).get("updatedAt", 0) or 0), modified),
+            "fps": int(restored.get(job_id, {}).get("fps", 24) or 24),
+            "clipSeconds": float(restored.get(job_id, {}).get("clipSeconds", 8.0) or 8.0),
+            "videoVerified": True,
+        }
+
+    with jobs_lock:
+        jobs.clear()
+        jobs.update(restored)
+    for job_id, payload in restored.items():
+        target = JOB_STATE / f"{job_id}.json"
+        target.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    print(f"SONARA_VIDEO_JOBS_RESTORED={len(restored)}", flush=True)
 
 
 def gpu_info() -> dict:
@@ -297,7 +353,7 @@ def background_load() -> None:
 
 
 def validate_frames(value: int) -> int:
-    value = max(17, min(193, int(value)))
+    value = max(17, min(97, int(value)))
     return max(17, ((value - 1) // 4) * 4 + 1)
 
 
@@ -310,14 +366,15 @@ def output_dimensions(aspect: str, resolution: str) -> tuple[int, int, int, int]
     return native[0], native[1], final[0], final[1]
 
 
-def master_video(source: Path, target: Path, width: int, height: int) -> None:
+def master_video(source: Path, target: Path, width: int, height: int, duration_seconds: float, output_fps: int) -> None:
     import subprocess
 
     subprocess.run(
         [
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(source),
-            "-vf", f"scale={width}:{height}:flags=lanczos:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,unsharp=3:3:0.18:3:3:0.0",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "16", "-pix_fmt", "yuv420p",
+            "-vf", f"fps={output_fps},scale={width}:{height}:flags=lanczos:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black,unsharp=3:3:0.12:3:3:0.0",
+            "-t", f"{duration_seconds:.3f}",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p",
             "-profile:v", "high", "-movflags", "+faststart", "-an", str(target),
         ],
         check=True,
@@ -326,14 +383,21 @@ def master_video(source: Path, target: Path, width: int, height: int) -> None:
 
 
 def render(job_id: str, req: GenerateRequest) -> None:
-    global warmed
+    global active_job_id, warmed
     raw = OUTPUTS / f"{job_id}.raw.mp4"
     final = OUTPUTS / f"{job_id}.mp4"
     try:
+        with runtime_lock:
+            if job_id in queued_job_ids:
+                queued_job_ids.remove(job_id)
+            active_job_id = job_id
         set_job(job_id, status="PROCESSING", progress=3, stage="Wan 2.2: caricamento modello residente")
         pipeline = load_pipeline()
         frames = validate_frames(req.frames)
-        steps = max(10, min(50, int(req.steps)))
+        steps = max(10, min(12, int(req.steps)))
+        duration_seconds = max(1.0, min(8.0, float(req.durationSeconds)))
+        output_fps = max(12, min(30, int(req.outputFps)))
+        source_fps = max(8, min(output_fps, round((frames - 1) / duration_seconds)))
         seed = int(req.seed) if req.seed is not None else int.from_bytes(os.urandom(4), "big")
         native_w, native_h, final_w, final_h = output_dimensions(req.aspectRatio, req.resolution)
         negative = (req.negativePrompt or "").strip() or DEFAULT_NEGATIVE
@@ -357,6 +421,10 @@ def render(job_id: str, req: GenerateRequest) -> None:
             seed=seed,
             frames=frames,
             steps=steps,
+            durationSeconds=duration_seconds,
+            sourceFps=source_fps,
+            outputFps=output_fps,
+            profile=PROFILE,
         )
         with pipe_lock, torch.inference_mode():
             result = pipeline(
@@ -371,17 +439,16 @@ def render(job_id: str, req: GenerateRequest) -> None:
                 callback_on_step_end=callback,
             ).frames[0]
 
-        set_job(job_id, progress=86, stage="SONARA: encoding MP4 24 fps")
+        set_job(job_id, progress=86, stage=f"SONARA: encoding rapido MP4 {source_fps} fps")
         from diffusers.utils import export_to_video
-        export_to_video(result, str(raw), fps=24)
+        export_to_video(result, str(raw), fps=source_fps)
         del result
         set_job(job_id, progress=92, stage=f"SONARA: master {req.resolution}")
-        master_video(raw, final, final_w, final_h)
+        master_video(raw, final, final_w, final_h, duration_seconds, output_fps)
         raw.unlink(missing_ok=True)
         if not final.exists() or final.stat().st_size < 10000:
             raise RuntimeError("Wan 2.2 non ha prodotto un MP4 valido.")
         warmed = True
-        duration = frames / 24.0
         set_job(
             job_id,
             status="COMPLETED",
@@ -393,9 +460,10 @@ def render(job_id: str, req: GenerateRequest) -> None:
             provider="molab-wan22",
             resolution=f"{final_w}x{final_h}",
             nativeResolution=f"{native_w}x{native_h}",
-            fps=24,
-            clipSeconds=round(duration, 2),
-            videoCodec="h264-high-crf16",
+            fps=output_fps,
+            sourceFps=source_fps,
+            clipSeconds=round(duration_seconds, 2),
+            videoCodec="h264-high-crf18-fast",
             audioCodec=None,
             audioVerified=False,
             videoVerified=True,
@@ -407,6 +475,9 @@ def render(job_id: str, req: GenerateRequest) -> None:
         final.unlink(missing_ok=True)
         set_job(job_id, status="FAILED", progress=0, stage="Errore Wan 2.2", error=str(exc))
     finally:
+        with runtime_lock:
+            if active_job_id == job_id:
+                active_job_id = None
         try:
             torch.cuda.empty_cache()
         except Exception:
@@ -415,16 +486,21 @@ def render(job_id: str, req: GenerateRequest) -> None:
 
 def create_job(req: GenerateRequest) -> dict:
     job_id = "wan_" + uuid.uuid4().hex
+    with runtime_lock:
+        queued_job_ids.append(job_id)
+        queue_position = len(queued_job_ids)
     set_job(
         job_id,
         jobId=job_id,
         status="PROCESSING",
         progress=1,
-        stage="In coda su SONARA Wan 2.2 RTX",
+        stage=f"In coda su SONARA Wan 2.2 RTX (posizione {queue_position})",
         createdAt=time.time(),
+        queuePosition=queue_position,
+        profile=PROFILE,
     )
     executor.submit(render, job_id, req)
-    return {"jobId": job_id, "status": "PROCESSING", "progress": 1, "stage": "In coda su SONARA Wan 2.2 RTX"}
+    return {"jobId": job_id, "status": "PROCESSING", "progress": 1, "stage": f"In coda su SONARA Wan 2.2 RTX (posizione {queue_position})", "profile": PROFILE}
 
 
 def job_payload(job_id: str, request: Request, legacy: bool = False) -> dict:
@@ -442,12 +518,16 @@ def job_payload(job_id: str, request: Request, legacy: bool = False) -> dict:
 
 @app.on_event("startup")
 def startup() -> None:
+    restore_jobs()
     threading.Thread(target=background_load, name="sonara-wan22-loader", daemon=True).start()
 
 
 @app.get("/health")
 def health() -> dict:
     info = gpu_info()
+    with runtime_lock:
+        active = active_job_id
+        queued = list(queued_job_ids)
     return {
         "status": "ok",
         "service": "SONARA Video AI Wan 2.2",
@@ -461,10 +541,15 @@ def health() -> dict:
         "warmed": warmed,
         "loadError": load_error or None,
         "residentGpu": True,
-        "nativeFps": 24,
+        "nativeFps": 12,
+        "outputFps": 24,
         "nativeResolution": "1280x704",
-        "maxFrames": 193,
-        "maxClipSeconds": round(193 / 24, 2),
+        "defaultFrames": 97,
+        "defaultSteps": 12,
+        "maxFrames": 97,
+        "maxClipSeconds": 8,
+        "activeJob": active,
+        "queuedJobs": len(queued),
         **info,
     }
 
@@ -725,8 +810,8 @@ def save_ready(public_url: str, token_value: str, gpu: dict, health: dict) -> No
     print(f"SONARA_MOLAB_VIDEO_URL={public_url}", flush=True)
     print(f"SONARA_MOLAB_VIDEO_TOKEN={token_value}", flush=True)
     print(f"SONARA_MOLAB_VIDEO_MODEL={MODEL_NAME}", flush=True)
-    print("SONARA_MOLAB_VIDEO_FRAMES=193", flush=True)
-    print("SONARA_MOLAB_VIDEO_STEPS=28", flush=True)
+    print("SONARA_MOLAB_VIDEO_FRAMES=97", flush=True)
+    print("SONARA_MOLAB_VIDEO_STEPS=12", flush=True)
 
 
 def supervise(api_proc: subprocess.Popen, tunnel_proc: subprocess.Popen, public_url: str) -> None:
@@ -765,7 +850,40 @@ def main() -> None:
     supervise(api_proc, tunnel_proc, public_url)
 
 
+def hot_reload_api() -> None:
+    """Replace only the live API process, preserving tunnel, token and outputs."""
+    banner("SONARA VIDEO AI - HOT RELOAD PROFILO RAPIDO")
+    if not PYTHON.exists() or not TOKEN_FILE.exists():
+        raise RuntimeError("Worker SONARA non installato: esegui prima l'installazione completa.")
+    OUTPUTS.mkdir(parents=True, exist_ok=True)
+    CACHE.mkdir(parents=True, exist_ok=True)
+    RUN.mkdir(parents=True, exist_ok=True)
+    write_api()
+    token_value = token()
+    proc = start_api(token_value)
+    deadline = time.time() + 900
+    last = None
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            tail = API_LOG.read_text(errors="replace")[-16000:]
+            raise RuntimeError(f"API Video AI terminata durante il reload:\n{tail}")
+        try:
+            last = request_json(f"http://127.0.0.1:{PORT}/health", timeout=8)
+            if last.get("ready") and last.get("profile") == PROFILE:
+                print("SONARA_VIDEO_AI_HOT_RELOAD=READY", flush=True)
+                print(json.dumps(last, indent=2), flush=True)
+                return
+        except Exception as exc:
+            last = {"error": str(exc)}
+        time.sleep(3)
+    raise RuntimeError(f"Timeout hot reload Video AI: {last!r}")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.parse_args()
-    main()
+    parser.add_argument("--hot-reload-api", action="store_true", help="Aggiorna solo l'API residente senza cambiare tunnel o token.")
+    arguments = parser.parse_args()
+    if arguments.hot_reload_api:
+        hot_reload_api()
+    else:
+        main()

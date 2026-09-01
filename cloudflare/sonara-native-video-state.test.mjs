@@ -10,7 +10,8 @@ const values = new Map();
 const storage = {
   get: async key => values.get(key),
   put: async (key, value) => { values.set(key, structuredClone(value)); },
-  delete: async key => { values.delete(key); }
+  delete: async key => { values.delete(key); },
+  list: async ({ prefix = '' } = {}) => new Map([...values].filter(([key]) => String(key).startsWith(prefix)))
 };
 
 const userKey = `user:${hash(email)}`;
@@ -55,6 +56,12 @@ const createResponse = await store.fetch(request('/api/sonara-auth/video-job', {
   })
 }));
 assert.equal(createResponse.status, 200);
+
+const recoveryStatusResponse = await store.fetch(request('/api/video/status'));
+assert.equal(recoveryStatusResponse.status, 200);
+const recoveryStatus = await recoveryStatusResponse.json();
+assert.equal(recoveryStatus.latestVideoJob.jobId, jobId);
+assert.equal(recoveryStatus.latestVideoJob.status, 'PROCESSING');
 
 const patchResponse = await store.fetch(request('/api/sonara-auth/video-job', {
   method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jobId, updates: { status: 'FAILED', error: 'test failure' } })

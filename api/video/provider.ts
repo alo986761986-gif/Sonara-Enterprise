@@ -44,14 +44,21 @@ function molabConfigured() {
 }
 
 function molabFrames() {
-  const raw = Number(process.env.SONARA_MOLAB_VIDEO_FRAMES || 49);
-  const clamped = Math.max(17, Math.min(193, Number.isFinite(raw) ? Math.round(raw) : 49));
+  // Wan 2.2 runtime profile tuned for the resident RTX Pro 6000 worker.
+  // Keep the environment variable backwards compatible, but never allow an
+  // old 193-frame deployment value to silently restore the five-minute path.
+  const raw = Number(process.env.SONARA_MOLAB_VIDEO_FRAMES || 97);
+  const clamped = Math.max(17, Math.min(97, Number.isFinite(raw) ? Math.round(raw) : 97));
   return Math.max(17, Math.floor((clamped - 1) / 4) * 4 + 1);
 }
 
 function molabSteps() {
-  const raw = Number(process.env.SONARA_MOLAB_VIDEO_STEPS || 20);
-  return Math.max(10, Math.min(50, Number.isFinite(raw) ? Math.round(raw) : 20));
+  const raw = Number(process.env.SONARA_MOLAB_VIDEO_STEPS || 12);
+  return Math.max(10, Math.min(12, Number.isFinite(raw) ? Math.round(raw) : 12));
+}
+
+export function molabFastGenerationProfile() {
+  return { frames: molabFrames(), steps: molabSteps(), durationSeconds: 8, outputFps: 24 };
 }
 
 function projectId(app: App) {
@@ -186,6 +193,7 @@ export async function startVideoProvider(input: StartVideoProviderInput): Promis
   const negativePrompt = String(input.negativePrompt || '').trim();
 
   if (provider === 'molab') {
+    const fastProfile = molabFastGenerationProfile();
     const response = await fetch(`${molabBaseUrl()}/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-sonara-token': molabToken() },
@@ -193,8 +201,8 @@ export async function startVideoProvider(input: StartVideoProviderInput): Promis
         prompt: input.prompt,
         ...(negativePrompt ? { negativePrompt } : {}),
         aspectRatio: input.aspectRatio,
-        frames: molabFrames(),
-        steps: molabSteps()
+        resolution: input.resolution,
+        ...fastProfile
       }),
       cache: 'no-store',
       signal: AbortSignal.timeout(20_000)

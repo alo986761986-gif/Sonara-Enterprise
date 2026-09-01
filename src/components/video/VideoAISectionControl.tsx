@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowDown, ArrowUp, BrainCircuit, CheckCircle2, Download, Film, ImagePlus, Loader2, Music2, Play, Shuffle, Sparkles, Trash2, Upload, Video, WandSparkles, X } from 'lucide-react';
 import { getFirebaseIdToken, uploadFirebaseVideoAiAsset } from '../../lib/firebaseClient';
@@ -15,6 +15,14 @@ type VideoStatus = {
   videoClipSeconds: number;
   videoResolutions: SonaraVideoResolution[];
   providerConfigured: boolean;
+  latestVideoJob?: {
+    jobId: string;
+    status: 'PROCESSING' | 'COMPLETED' | 'FAILED';
+    createdAt?: number;
+    updatedAt?: number;
+    videoUrl?: string;
+    error?: string;
+  } | null;
 };
 
 type JobPayload = {
@@ -45,6 +53,38 @@ const MAX_AUDIO_BYTES = 250 * 1024 * 1024;
 const AUDIO_EXTENSION_RE = /\.(mp3|wav|wave|flac|aac|m4a|mp4a|ogg|oga|opus|aiff|aif|alac|wma|amr|ape|mka|caf|weba|3ga|mid|midi)$/i;
 const VIDEO_EXTENSION_RE = /\.(mp4|webm|mov|m4v|avi|mkv)$/i;
 const IMAGE_EXTENSION_RE = /\.(jpe?g|png|webp)$/i;
+const ACTIVE_VIDEO_JOB_KEY = 'sonara.video-ai.active-job.v2';
+const ACTIVE_VIDEO_JOB_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+type PersistedVideoJob = { jobId: string; createdAt: number };
+
+function readPersistedVideoJob(): PersistedVideoJob | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const value = JSON.parse(window.localStorage.getItem(ACTIVE_VIDEO_JOB_KEY) || 'null');
+    const jobId = String(value?.jobId || '').trim();
+    const createdAt = Number(value?.createdAt || 0);
+    if (!jobId || !Number.isFinite(createdAt) || Date.now() - createdAt > ACTIVE_VIDEO_JOB_MAX_AGE_MS) {
+      window.localStorage.removeItem(ACTIVE_VIDEO_JOB_KEY);
+      return null;
+    }
+    return { jobId, createdAt };
+  } catch {
+    return null;
+  }
+}
+
+function persistVideoJob(jobId: string, createdAt = Date.now()) {
+  try { window.localStorage.setItem(ACTIVE_VIDEO_JOB_KEY, JSON.stringify({ jobId, createdAt })); } catch { /* recovery is best effort */ }
+}
+
+function clearPersistedVideoJob(jobId?: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    const current = readPersistedVideoJob();
+    if (!jobId || !current || current.jobId === jobId) window.localStorage.removeItem(ACTIVE_VIDEO_JOB_KEY);
+  } catch { /* recovery is best effort */ }
+}
 
 function formatBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB';
@@ -135,6 +175,7 @@ export default function VideoAISectionControl() {
   const [videoUrl, setVideoUrl] = useState('');
   const [promptVariant, setPromptVariant] = useState(0);
   const [smartPromptActive, setSmartPromptActive] = useState(false);
+  const activePollRef = useRef('');
 
   const nextPromptVariant = () => {
     const next = promptVariant + 1;
@@ -268,16 +309,115 @@ export default function VideoAISectionControl() {
       setStatus(payload as VideoStatus);
       if (!payload.videoResolutions?.includes(resolution)) setResolution(payload.videoResolutions?.[0] || '720p');
       if (durationSeconds > Number(payload.videoClipSeconds || 8)) setDurationSeconds(8);
+      return payload as VideoStatus;
     } catch (cause) {
       setStatus(null);
       setError(cause instanceof Error ? cause.message : String(cause));
+      return null;
     }
   };
 
-  useEffect(() => { if (open) void refreshStatus(); }, [open]);
+  const pollVideoJob = async (jobId: string, token: string, initialProgress = 5) => {
+    if (activePollRef.current) return;
+    activePollRef.current = jobId;
+    setBusy(true);
+    let latestProgress = Number(initialProgress || 5);
+    let transportErrors = 0;
+    try {
+      for (let attempt = 0; attempt < 1_200; attempt += 1) {
+        const delay = videoPollDelay(attempt, latestProgress);
+        if (delay > 0) await sleep(delay);
+
+        let poll: Response;
+        let current: JobPayload;
+        try {
+          poll = await fetch(`/api/video/job/${encodeURIComponent(jobId)}`, {
+            headers: { Authorization: `Bearer ${token}` }, cache: 'no-store'
+          });
+          current = await readApiJson<JobPayload>(poll, 'Controllo Video AI non disponibile.');
+          transportErrors = 0;
+        } catch (cause) {
+          transportErrors += 1;
+          if (transportErrors < 8) {
+            setStage(`SONARA Video AI: riconnessione automatica (${transportErrors}/8)`);
+            await sleep(Math.min(8_000, 1_000 * transportErrors));
+            continue;
+          }
+          throw cause;
+        }
+
+        if (!poll.ok) {
+          if ([401, 403, 404].includes(poll.status)) clearPersistedVideoJob(jobId);
+          throw new Error(errorMessage(current, `Controllo video fallito (HTTP ${poll.status}).`));
+        }
+        latestProgress = Number(current.progress || Math.min(95, 12 + attempt));
+        setProgress(latestProgress);
+        setStage(current.stage || 'SONARA Video AI: rendering');
+        if (current.status === 'FAILED') {
+          clearPersistedVideoJob(jobId);
+          throw new Error(errorMessage(current, 'Generazione video fallita.'));
+        }
+        if (current.status === 'COMPLETED' && current.videoUrl) {
+          clearPersistedVideoJob(jobId);
+          setVideoUrl(current.videoUrl);
+          setProgress(100);
+          setStage('Video pronto');
+          setError('');
+          await refreshStatus();
+          return;
+        }
+      }
+      throw new Error('Il rendering video continua oltre la finestra di controllo. Il job è salvato e verrà ripreso automaticamente.');
+    } finally {
+      if (activePollRef.current === jobId) activePollRef.current = '';
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!open || activePollRef.current) return;
+    let cancelled = false;
+    void (async () => {
+      const saved = readPersistedVideoJob();
+      const payload = await refreshStatus();
+      if (cancelled) return;
+      const latest = payload?.latestVideoJob;
+      if (!saved && latest?.status === 'COMPLETED' && latest.videoUrl) {
+        setVideoUrl(latest.videoUrl);
+        setProgress(100);
+        setStage('Ultimo video recuperato');
+        return;
+      }
+
+      let recovery = saved;
+      if (latest?.status === 'PROCESSING' && latest.jobId) {
+        const latestCreatedAt = Number(latest.createdAt || Date.now());
+        if (!recovery || latestCreatedAt >= recovery.createdAt) recovery = { jobId: latest.jobId, createdAt: latestCreatedAt };
+      }
+      if (!recovery) return;
+
+      persistVideoJob(recovery.jobId, recovery.createdAt);
+      setError('');
+      setProgress(5);
+      setStage('SONARA Video AI: recupero del rendering in corso');
+      try {
+        const token = await getFirebaseIdToken(true);
+        if (!cancelled) await pollVideoJob(recovery.jobId, token, 5);
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : String(cause);
+        const stillRecoverable = Boolean(readPersistedVideoJob());
+        setError(stillRecoverable ? `${message} La generazione resta salvata e verrà ripresa automaticamente.` : message);
+        if (!stillRecoverable) {
+          setProgress(0);
+          setStage('Errore');
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open]);
 
   const generate = async () => {
-    if (busy || uploadingMedia || (!prompt.trim() && !mediaReferences.length)) return;
+    if (busy || activePollRef.current || uploadingMedia || (!prompt.trim() && !mediaReferences.length)) return;
     setBusy(true);
     setError('');
     setVideoUrl('');
@@ -299,33 +439,16 @@ export default function VideoAISectionControl() {
       });
       const started = await readApiJson<JobPayload>(response, 'Video non avviato.');
       if (!response.ok || !started.jobId) throw new Error(errorMessage(started, `Video non avviato (HTTP ${response.status}).`));
-
-      let latestProgress = Number(started.progress || 5);
-      for (let attempt = 0; attempt < 1_200; attempt += 1) {
-        const delay = videoPollDelay(attempt, latestProgress);
-        if (delay > 0) await sleep(delay);
-        const poll = await fetch(`/api/video/job/${encodeURIComponent(started.jobId)}`, {
-          headers: { Authorization: `Bearer ${token}` }, cache: 'no-store'
-        });
-        const current = await readApiJson<JobPayload>(poll, 'Controllo Video AI non disponibile.');
-        if (!poll.ok) throw new Error(errorMessage(current, `Controllo video fallito (HTTP ${poll.status}).`));
-        latestProgress = Number(current.progress || Math.min(95, 12 + attempt));
-        setProgress(latestProgress);
-        setStage(current.stage || 'SONARA Video AI: rendering');
-        if (current.status === 'FAILED') throw new Error(errorMessage(current, 'Generazione video fallita.'));
-        if (current.status === 'COMPLETED' && current.videoUrl) {
-          setVideoUrl(current.videoUrl);
-          setProgress(100);
-          setStage('Video pronto');
-          await refreshStatus();
-          return;
-        }
-      }
-      throw new Error('Il rendering video sta richiedendo più tempo del previsto.');
+      persistVideoJob(started.jobId);
+      await pollVideoJob(started.jobId, token, Number(started.progress || 5));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-      setProgress(0);
-      setStage('Errore');
+      const message = cause instanceof Error ? cause.message : String(cause);
+      const stillRecoverable = Boolean(readPersistedVideoJob());
+      setError(stillRecoverable ? `${message} La generazione resta salvata e verrà ripresa automaticamente.` : message);
+      if (!stillRecoverable) {
+        setProgress(0);
+        setStage('Errore');
+      }
     } finally {
       setBusy(false);
     }

@@ -59,6 +59,27 @@ function randomToken(byteLength = 18) {
 function reservationKey(uid, id) { return `video-reservation:${String(uid || '')}:${String(id || '')}`; }
 function jobKey(uid, id) { return `video-job:${String(uid || '')}:${String(id || '')}`; }
 
+async function latestVideoJob(store, uid) {
+  const prefix = `video-job:${String(uid || '')}:`;
+  const entries = await store.ctx.storage.list({ prefix });
+  let latest = null;
+  for (const [key, job] of entries) {
+    if (!job || typeof job !== 'object') continue;
+    const createdAt = Math.max(0, Number(job.createdAt || job.updatedAt || 0));
+    if (!latest || createdAt > latest.createdAt) {
+      latest = {
+        jobId: String(key).slice(prefix.length),
+        status: String(job.status || 'PROCESSING'),
+        createdAt,
+        updatedAt: Math.max(createdAt, Number(job.updatedAt || 0)),
+        ...(job.videoUrl ? { videoUrl: String(job.videoUrl) } : {}),
+        ...(job.error ? { error: String(job.error) } : {})
+      };
+    }
+  }
+  return latest;
+}
+
 async function ownerCredits(store, record) {
   const owner = Boolean(
     activeStudioEntitlement(record.user) &&
@@ -81,7 +102,7 @@ async function authenticated(store, request) {
 async function status(store, request) {
   const record = await authenticated(store, request);
   if (!record) return json({ ok: false, code: 'AUTH_REQUIRED', message: 'Accedi per usare SONARA Video AI.' }, 401);
-  return json(billingSnapshot(record.user));
+  return json({ ...billingSnapshot(record.user), latestVideoJob: await latestVideoJob(store, record.user.uid) });
 }
 
 async function reserve(store, request) {

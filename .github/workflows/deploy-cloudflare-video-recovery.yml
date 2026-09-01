@@ -16,6 +16,10 @@ on:
       - "cloudflare/sonara-native-video-state.mjs"
       - "cloudflare/sonara-video-native-route.test.mjs"
       - "cloudflare/sonara-native-video-state.test.mjs"
+      - "api/video/provider.ts"
+      - "src/components/video/VideoAISectionControl.tsx"
+      - "src/server/video/provider-molab-fast-profile.test.ts"
+      - "scripts/molab-sonara-wan22-video-worker.py"
       - "cloudflare/sonara-engine-v15-authoritative-prompt.mjs"
       - "cloudflare/sonara-engine-v15-authoritative-prompt.test.mjs"
       - "cloudflare/extreme-fidelity-v16.test.mjs"
@@ -85,6 +89,7 @@ jobs:
           node cloudflare/sonara-video-ui-edge.test.mjs
           node cloudflare/sonara-video-native-route.test.mjs
           node cloudflare/sonara-native-video-state.test.mjs
+          npx tsx src/server/video/provider-molab-fast-profile.test.ts
           grep -q "return proxyActiveVideoApi(request)" cloudflare/sonara-web-v15-router.mjs
           grep -q "active-molab-wan22-blackwell" cloudflare/sonara-web-v15-router.mjs
           ! grep -q "videoSuspendedResponse" cloudflare/sonara-web-v15-router.mjs
