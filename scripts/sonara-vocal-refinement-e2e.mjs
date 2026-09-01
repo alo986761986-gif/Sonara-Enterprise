@@ -7,6 +7,11 @@ const MAX_POLLS = Math.max(30, Number(process.env.MAX_POLLS || 160));
 const REPORT_PATH = process.env.SONARA_VOCAL_REPORT || 'sonara-vocal-refinement-e2e-report.json';
 const PROJECT_ID = `vocal-refine-canary-${Date.now()}`;
 const MAX_ACCEPTABLE_TECHNICAL_REGRESSION = 1.0;
+const QUALITY_RETRY_ATTEMPTS = 4;
+const CONSERVATIVE_ISSUES = [
+  'harsh sibilance and brittle consonants',
+  'unstable formants or synthetic vowel tone'
+];
 
 const report = {
   startedAt: new Date().toISOString(),
@@ -108,13 +113,34 @@ async function poll(jobId, label, music = false) {
   throw new Error(`${label}: timeout.`);
 }
 
+function transientQualityFailure(message) {
+  return /(?:non-JSON HTTP|HTTP)\s+(502|503|504)\b/i.test(String(message || '')) || /timeout|fetch failed/i.test(String(message || ''));
+}
+
 async function quality(audioUrl, label) {
-  const { data } = await requestJson(`${API}/api/studio/quality-v2`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ audioUrls: [audioUrl], bpm: 118, key: 'A Minor', durationSec: 30 }),
-    label: `${label} quality`
-  });
+  let data = null;
+  let lastError = null;
+  for (let attempt = 1; attempt <= QUALITY_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      const result = await requestJson(`${API}/api/studio/quality-v2?attempt=${attempt}-${Date.now()}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+        body: JSON.stringify({ audioUrls: [audioUrl], bpm: 118, key: 'A Minor', durationSec: 30 }),
+        label: `${label} quality`,
+        timeoutMs: 45_000
+      });
+      data = result.data;
+      break;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      lastError = error;
+      if (!transientQualityFailure(message) || attempt === QUALITY_RETRY_ATTEMPTS) throw error;
+      console.log(`${label} quality transient retry ${attempt}/${QUALITY_RETRY_ATTEMPTS}: ${message.slice(0, 180)}`);
+      await sleep(2500 * attempt);
+    }
+  }
+  if (!data) throw lastError || new Error(`${label}: Quality 2.0 non disponibile.`);
+
   const reports = Array.isArray(data?.reports) ? data.reports : [];
   const first = reports[0] || {};
   const score = Number(first.professionalScore ?? data?.summary?.bestProfessionalScore ?? 0);
@@ -155,6 +181,7 @@ async function generateVocal() {
   if (urls.some(url => !isWav(url))) throw new Error('Vocal generation non ha restituito WAV reali.');
   const metadata = done.metadata || {};
   if (String(metadata.profile || '').toLowerCase() !== 'ultra') throw new Error(`Profilo ULTRA non confermato: ${JSON.stringify(metadata).slice(0, 500)}`);
+  if (metadata.topLevelAudioAlignedWithDirectorRank !== true) throw new Error('Director rank-one alignment non confermato nel job completato.');
   report.outputs.generation = { jobId, audioUrls: urls, metadata };
   return urls[0];
 }
@@ -170,7 +197,7 @@ async function refineVocal(sourceAudioUrl) {
       key: 'A Minor',
       durationSec: 30,
       preserveStrength: 0.95,
-      issues: ['harsh sibilance and brittle consonants', 'unstable formants or synthetic vowel tone'],
+      issues: CONSERVATIVE_ISSUES,
       prompt: 'Conservative vocal-only polish. Preserve the song, instrumental, dynamics, lyrics word-for-word, singer identity, melody, timing, BPM and key. Make only minimal corrections to harsh sibilance and unstable synthetic vocal formants. Do not recompose, rebalance or remaster the instrumental.',
       sonaraVocalRefinementCanary: true,
       sonaraConservativeVocalRefinement: true
@@ -180,9 +207,15 @@ async function refineVocal(sourceAudioUrl) {
   const jobId = String(data?.jobId || '');
   if (!jobId) throw new Error(`Vocal Refinement senza jobId: ${JSON.stringify(data).slice(0, 900)}`);
   if (data?.requestedOperation !== 'vocal-refine') throw new Error('Vocal Refinement contract: requestedOperation mancante.');
-  if (data?.vocalRefinement?.lyricsLocked !== true || data?.vocalRefinement?.singerIdentityLocked !== true || data?.vocalRefinement?.arrangementLocked !== true) {
-    throw new Error(`Vocal Refinement lock contract non valido: ${JSON.stringify(data?.vocalRefinement || {}).slice(0, 700)}`);
+  const lock = data?.vocalRefinement || {};
+  if (lock.lyricsLocked !== true || lock.singerIdentityLocked !== true || lock.arrangementLocked !== true) {
+    throw new Error(`Vocal Refinement lock contract non valido: ${JSON.stringify(lock).slice(0, 700)}`);
   }
+  if (lock.customIssuesAuthoritative !== true || JSON.stringify(lock.issues) !== JSON.stringify(CONSERVATIVE_ISSUES)) {
+    throw new Error(`Vocal Refinement issue scope non conservativo: ${JSON.stringify(lock).slice(0, 900)}`);
+  }
+  if (Math.abs(Number(lock.preserveStrength) - 0.95) > 0.001) throw new Error(`Vocal Refinement preserveStrength inatteso: ${lock.preserveStrength}`);
+
   const done = await poll(jobId, 'vocal-refinement', false);
   const urls = audioUrlsFrom(done);
   if (!urls.length) throw new Error('Vocal Refinement completato senza audio.');
