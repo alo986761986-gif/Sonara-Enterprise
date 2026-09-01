@@ -16,7 +16,7 @@
     },
     {
       id: 'generator',
-      matches: text => /^(generatore|generator)/i.test(text),
+      matches: text => /^(crea la mia musica|generatore|generator)/i.test(text),
       color: '#a8b4c8',
       svg: icon('<path d="m15 4 5 5L8 21l-5-5L15 4Z"/><path d="m6 14 4 4"/><path d="M5 3v3M3.5 4.5h3M20 14v4M18 16h4M10 2v2M9 3h2"/>')
     },
@@ -115,12 +115,30 @@
   ];
 
   const normalize = value => String(value || '').replace(/\s+/g, ' ').trim();
+  const generatorLabelPattern = /^(crea la mia musica|generatore|generator)/i;
 
   function mainSidebar() {
     return Array.from(document.querySelectorAll('aside')).find(aside => {
       const text = normalize(aside.textContent);
-      return /(panoramica|overview)/i.test(text) && /(generatore|generator)/i.test(text);
+      return /(panoramica|overview)/i.test(text) && /(crea la mia musica|generatore|generator)/i.test(text);
     }) || null;
+  }
+
+  function renameItalianGenerator(button) {
+    const text = normalize(button.textContent);
+    if (!/^generatore$/i.test(text)) return;
+
+    const walker = document.createTreeWalker(button, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode();
+    while (node) {
+      if (/^\s*Generatore\s*$/i.test(node.nodeValue || '')) {
+        node.nodeValue = (node.nodeValue || '').replace(/Generatore/i, 'Crea la mia musica');
+        button.setAttribute('aria-label', 'Crea la mia musica');
+        button.setAttribute('title', 'Crea la mia musica');
+        break;
+      }
+      node = walker.nextNode();
+    }
   }
 
   function originalIconElement(button, custom) {
@@ -137,6 +155,7 @@
 
     const buttons = Array.from(aside.querySelectorAll('button'));
     for (const button of buttons) {
+      renameItalianGenerator(button);
       const text = normalize(button.textContent);
       const spec = specs.find(item => item.matches(text));
       if (!spec) continue;
