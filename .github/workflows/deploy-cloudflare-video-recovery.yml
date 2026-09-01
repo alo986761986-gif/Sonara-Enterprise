@@ -1,4 +1,4 @@
-name: Deploy SONARA Dual T4 Music
+name: Deploy SONARA Dual T4 Music (Video AI suspended)
 
 on:
   push:
@@ -54,7 +54,7 @@ jobs:
           const payload = JSON.parse(process.env.CF_RESPONSE || '{}');
           const zone = Array.isArray(payload.result) ? payload.result.find(item => item?.name === 'sonaraenterprise.com') : null;
           process.stdout.write(String(zone?.account?.id || ''));
-NODE
+          NODE
             )"
           fi
           test -n "${account_id}"
@@ -101,7 +101,7 @@ NODE
           const ok = h.suspended === true && h.status === 'SUSPENDED' && h.reason === 'GPU_T4_REALLOCATED_TO_MUSIC' && h.musicMode === 'dual-t4-parallel';
           console.log(JSON.stringify(h));
           process.exit(ok ? 0 : 1);
-NODE
+          NODE
             then
               echo "Video AI suspension verified in production."
               exit 0
@@ -130,4 +130,4 @@ NODE
           }
           console.log(JSON.stringify({status: health.status, aceStepWorkerCount: count, aceStepWorkers: workers, realPromptVersion: health.realPromptVersion}));
           console.log('Music remains healthy; the second T4 will be bound by Configure SONARA Dual T4 Music after Kaggle conversion.');
-NODE
+          NODE
