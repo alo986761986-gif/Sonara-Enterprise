@@ -6,6 +6,7 @@ const POLL_MS = Math.max(1500, Number(process.env.POLL_MS || 5000));
 const MAX_POLLS = Math.max(30, Number(process.env.MAX_POLLS || 160));
 const REPORT_PATH = process.env.SONARA_VOCAL_REPORT || 'sonara-vocal-refinement-e2e-report.json';
 const PROJECT_ID = `vocal-refine-canary-${Date.now()}`;
+const MAX_ACCEPTABLE_TECHNICAL_REGRESSION = 1.0;
 
 const report = {
   startedAt: new Date().toISOString(),
@@ -159,7 +160,7 @@ async function generateVocal() {
 }
 
 async function refineVocal(sourceAudioUrl) {
-  stage('02 vocal refinement');
+  stage('02 conservative vocal refinement');
   const { data } = await requestJson(`${API}/api/studio/vocal-refine`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -168,9 +169,11 @@ async function refineVocal(sourceAudioUrl) {
       bpm: 118,
       key: 'A Minor',
       durationSec: 30,
-      preserveStrength: 0.91,
-      issues: ['lead vocal naturalness', 'lyric articulation', 'sibilance control', 'formant stability'],
-      sonaraVocalRefinementCanary: true
+      preserveStrength: 0.95,
+      issues: ['harsh sibilance and brittle consonants', 'unstable formants or synthetic vowel tone'],
+      prompt: 'Conservative vocal-only polish. Preserve the song, instrumental, dynamics, lyrics word-for-word, singer identity, melody, timing, BPM and key. Make only minimal corrections to harsh sibilance and unstable synthetic vocal formants. Do not recompose, rebalance or remaster the instrumental.',
+      sonaraVocalRefinementCanary: true,
+      sonaraConservativeVocalRefinement: true
     }),
     label: 'vocal refinement submit'
   });
@@ -195,11 +198,15 @@ async function main() {
     const before = await quality(source, 'before-refinement');
     const refined = await refineVocal(source);
     const after = await quality(refined, 'after-refinement');
+    const delta = Number((after - before).toFixed(1));
     report.outputs.sourceAudioUrl = source;
     report.outputs.refinedAudioUrl = refined;
-    report.outputs.technicalScoreDelta = Number((after - before).toFixed(1));
+    report.outputs.technicalScoreDelta = delta;
+    if (delta < -MAX_ACCEPTABLE_TECHNICAL_REGRESSION) {
+      throw new Error(`Vocal Refinement technical regression troppo alta: ${before} -> ${after} (${delta}). Limite: -${MAX_ACCEPTABLE_TECHNICAL_REGRESSION}.`);
+    }
     report.ok = true;
-    stage('FINAL PASS', { beforeScore: before, afterScore: after, technicalScoreDelta: report.outputs.technicalScoreDelta, note: 'Technical Quality 2.0 does not by itself measure subjective vocal naturalness.' });
+    stage('FINAL PASS', { beforeScore: before, afterScore: after, technicalScoreDelta: delta, maxAcceptableRegression: MAX_ACCEPTABLE_TECHNICAL_REGRESSION, note: 'Technical Quality 2.0 does not by itself measure subjective vocal naturalness.' });
   } catch (error) {
     report.ok = false;
     report.error = error instanceof Error ? error.message : String(error);
