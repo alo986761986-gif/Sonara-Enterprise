@@ -3,6 +3,7 @@ import fs from 'node:fs';
 const API = String(process.env.API_ORIGIN || 'https://api.sonaraenterprise.com').replace(/\/$/, '');
 const WEB = String(process.env.WEB_ORIGIN || 'https://sonaraenterprise.com').replace(/\/$/, '');
 const REPORT = process.env.SONARA_VOCAL_SAFE_REPORT || 'sonara-vocal-safe-gate-e2e-report.json';
+const REPORT_ALIGNER_VERSION = 'sonara-vocal-safe-report-aligner-1';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const out = { startedAt: new Date().toISOString(), ok: false, stages: [], outputs: {} };
 const save = () => { out.finishedAt = new Date().toISOString(); fs.writeFileSync(REPORT, JSON.stringify(out, null, 2) + '\n'); };
@@ -59,6 +60,21 @@ try {
   const safeId=String(safeSubmit.jobId||''); if(!safeId.startsWith('vocal-safe-')) throw new Error(`safe jobId invalid: ${safeId}`);
   const done=await pollSafe(safeId);
   const gate=done.vocalSafeGate||{};
+
+  if(gate.reportAlignment !== REPORT_ALIGNER_VERSION) throw new Error(`Safe Gate report aligner missing: ${gate.reportAlignment || 'none'}`);
+  if(gate.reportsMatchedByAudioUrl !== true) throw new Error('Safe Gate reports were not matched by exact audio URL');
+  if(done.originalAudioUrl && gate.originalReport?.audioUrl !== done.originalAudioUrl) {
+    throw new Error(`original report URL mismatch: ${gate.originalReport?.audioUrl || 'missing'} != ${done.originalAudioUrl}`);
+  }
+  if(done.refinedAudioUrl && gate.refinedReport?.audioUrl !== done.refinedAudioUrl) {
+    throw new Error(`refined report URL mismatch: ${gate.refinedReport?.audioUrl || 'missing'} != ${done.refinedAudioUrl}`);
+  }
+  if(Number.isFinite(Number(gate.originalScore)) && Number.isFinite(Number(gate.originalReport?.professionalScore)) && Number(gate.originalScore) !== Number(gate.originalReport.professionalScore)) {
+    throw new Error('originalScore does not match originalReport.professionalScore');
+  }
+  if(Number.isFinite(Number(gate.refinedScore)) && Number.isFinite(Number(gate.refinedReport?.professionalScore)) && Number(gate.refinedScore) !== Number(gate.refinedReport.professionalScore)) {
+    throw new Error('refinedScore does not match refinedReport.professionalScore');
+  }
   if(done.audioUrl!==source && gate.selected!=='refined') throw new Error('non-original selected without refined approval');
   if(gate.selected==='refined') {
     if(gate.releaseSafe!==true || Number(gate.refinedScore)<88 || Number(gate.technicalScoreDelta)<-1) throw new Error(`unsafe refined promotion: ${JSON.stringify(gate).slice(0,900)}`);
@@ -68,7 +84,7 @@ try {
   }
   out.ok=true;
   out.outputs.safe={jobId:safeId,selectedVersion:done.selectedVersion,fallbackUsed:done.fallbackUsed,audioUrl:done.audioUrl,originalAudioUrl:done.originalAudioUrl,refinedAudioUrl:done.refinedAudioUrl,vocalSafeGate:gate};
-  console.log(JSON.stringify({ok:true,selected:gate.selected,fallbackUsed:done.fallbackUsed,originalScore:gate.originalScore,refinedScore:gate.refinedScore,delta:gate.technicalScoreDelta,reason:gate.reason},null,2));
+  console.log(JSON.stringify({ok:true,selected:gate.selected,fallbackUsed:done.fallbackUsed,originalScore:gate.originalScore,refinedScore:gate.refinedScore,delta:gate.technicalScoreDelta,reason:gate.reason,reportAlignment:gate.reportAlignment,reportsMatchedByAudioUrl:gate.reportsMatchedByAudioUrl},null,2));
 } catch(e) {
   out.error=e instanceof Error?e.message:String(e); console.error(out.error); process.exitCode=1;
 } finally { save(); }
