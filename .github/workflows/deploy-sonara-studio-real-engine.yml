@@ -10,6 +10,7 @@ on:
       - "src/components/studio/SonaraSessions2Timeline.tsx"
       - "src/components/studio/studioRealEngine.ts"
       - "scripts/activate-studio-real-engine-v2.cjs"
+      - "scripts/activate-studio-video-v1.cjs"
       - "scripts/activate-studio-key-control.cjs"
       - "scripts/activate-studio-sessions-native.cjs"
       - "scripts/build-dispatch.cjs"
@@ -53,12 +54,14 @@ jobs:
         run: |
           set -euo pipefail
           node --check scripts/activate-studio-real-engine-v2.cjs
+          node --check scripts/activate-studio-video-v1.cjs
           node --check scripts/activate-studio-key-control.cjs
           node --check public/sonara-studio-pitch-key-v2.js
           grep -Fq 'parseMidiBlob' src/components/studio/studioRealEngine.ts
           grep -Fq 'saveStudioAsset' src/components/studio/studioRealEngine.ts
           grep -Fq 'loadStudioAsset' src/components/studio/studioRealEngine.ts
-          grep -Fq 'sonara-studio-pitch-key-v2.js?v=2' index.html
+          grep -Fq 'sonara-studio-pitch-key-v2.js?v=3' index.html
+          grep -Fq 'sonara-studio-video-v1' index.html
           grep -Fq 'sonara-studio-real-engine-v2' index.html
 
       - name: Build production app with real Studio engine
@@ -76,7 +79,6 @@ jobs:
               echo "PASS ${label}"
             else
               echo "FAIL ${label}: '${pattern}' not found in ${file}" >&2
-              echo "--- nearby diagnostic ---" >&2
               grep -Fn "${pattern%% *}" "$file" | head -n 10 >&2 || true
               exit 1
             fi
@@ -91,14 +93,23 @@ jobs:
           check persistent-project 'sonara.studio.project.v6' src/components/studio/SonaraStudio.tsx
           check restore-assets 'loadStudioAsset' src/components/studio/SonaraStudio.tsx
           check persist-assets 'saveStudioAsset' src/components/studio/SonaraStudio.tsx
+          check video-state 'SONARA_STUDIO_VIDEO_V1' src/components/studio/SonaraStudio.tsx
+          check video-import 'importVideo' src/components/studio/SonaraStudio.tsx
+          check video-preview 'data-sonara-video-sync="true"' src/components/studio/SonaraStudio.tsx
+          check video-persistence 'sonara.studio.video.v1' src/components/studio/SonaraStudio.tsx
+          check video-nav 'SONARA_STUDIO_VIDEO_NAV_V1' src/components/studio/StudioSectionControl.tsx
+          check video-trigger "triggerImport('video')" src/components/studio/StudioSectionControl.tsx
           check key-control-marker 'SONARA_STUDIO_KEY_CONTROL_V1' src/components/studio/StudioSectionControl.tsx
           check key-storage 'STUDIO_KEY_STORAGE' src/components/studio/StudioSectionControl.tsx
           check key-wiring 'keySignature={keySignature}' src/components/studio/StudioSectionControl.tsx
           check dist-real-engine 'sonara-studio-real-engine-v2' dist/index.html
-          check dist-pitch-script 'sonara-studio-pitch-key-v2.js?v=2' dist/index.html
+          check dist-video-engine 'sonara-studio-video-v1' dist/index.html
+          check dist-pitch-script 'sonara-studio-pitch-key-v2.js?v=3' dist/index.html
           if [[ -f dist/sonara-studio-pitch-key-v2.js ]]; then echo 'PASS pitch-script-file'; else echo 'FAIL pitch-script-file' >&2; exit 1; fi
-          check pitch-v2-marker '__sonaraStudioPitchKeyStaticV2' dist/sonara-studio-pitch-key-v2.js
-          echo "Studio Real Engine functional code verified in transformed production source."
+          check pitch-v3-marker '__sonaraStudioPitchKeyStaticV3' dist/sonara-studio-pitch-key-v2.js
+          check pitch-inline 'position:relative' dist/sonara-studio-pitch-key-v2.js
+          check pitch-host ".sonara-pro-studio" dist/sonara-studio-pitch-key-v2.js
+          echo "Studio Real Engine + synchronized video + inline Pitch & Key verified in production bundle."
 
       - name: Resolve Cloudflare account
         shell: bash
@@ -128,18 +139,20 @@ jobs:
           set -euo pipefail
           for attempt in {1..30}; do
             page="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?studio-real=${GITHUB_SHA}-${attempt}" || true)"
-            script="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/sonara-studio-pitch-key-v2.js?v=2&verify=${GITHUB_SHA}-${attempt}" || true)"
+            script="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/sonara-studio-pitch-key-v2.js?v=3&verify=${GITHUB_SHA}-${attempt}" || true)"
             capabilities="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/studio/pitch-key/capabilities?verify=${GITHUB_SHA}-${attempt}" || true)"
             if printf '%s' "${page}" | grep -Fq 'sonara-studio-real-engine-v2' \
-              && printf '%s' "${page}" | grep -Fq 'sonara-studio-pitch-key-v2.js?v=2' \
+              && printf '%s' "${page}" | grep -Fq 'sonara-studio-video-v1' \
+              && printf '%s' "${page}" | grep -Fq 'sonara-studio-pitch-key-v2.js?v=3' \
               && printf '%s' "${page}" | grep -Fq 'sonara-studio-v2.0-production' \
-              && printf '%s' "${script}" | grep -Fq '__sonaraStudioPitchKeyStaticV2' \
+              && printf '%s' "${script}" | grep -Fq '__sonaraStudioPitchKeyStaticV3' \
+              && printf '%s' "${script}" | grep -Fq 'position:relative' \
               && printf '%s' "${capabilities}" | grep -Fq 'sonara-studio-key-pitch-1'; then
-              echo "SONARA Studio Real Engine is live: real bundle, visible Pitch & Key UI and server API verified."
+              echo "SONARA Studio video + inline Pitch & Key are live and server API is verified."
               exit 0
             fi
-            echo "Waiting for Studio Real Engine propagation (${attempt}/30)."
+            echo "Waiting for Studio video/Pitch propagation (${attempt}/30)."
             sleep 4
           done
-          echo "Studio Real Engine public verification failed." >&2
+          echo "Studio video/Pitch public verification failed." >&2
           exit 1
