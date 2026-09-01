@@ -1,11 +1,11 @@
 (() => {
-  if (window.__sonaraStudioPitchKeyStaticV2) return;
-  window.__sonaraStudioPitchKeyStaticV2 = true;
+  if (window.__sonaraStudioPitchKeyStaticV3) return;
+  window.__sonaraStudioPitchKeyStaticV3 = true;
 
   const API = 'https://api.sonaraenterprise.com';
   const SOURCE_KEY = 'sonara.studio.sourceAudioUrl';
   const KEY_STORAGE = 'sonara.studio.keySignature';
-  const ROOT_ID = 'sonara-studio-pitch-key-pro-v2';
+  const ROOT_ID = 'sonara-studio-pitch-key-pro-v3';
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const q = (selector, root = document) => root.querySelector(selector);
   const clamp = (n, min, max) => Math.max(min, Math.min(max, Number(n) || 0));
@@ -20,31 +20,34 @@
   const style = document.createElement('style');
   style.id = ROOT_ID + '-style';
   style.textContent = `
-#${ROOT_ID}{position:fixed;right:18px;top:126px;z-index:2147482500;width:min(360px,calc(100vw - 28px));border:1px solid rgba(139,92,246,.28);border-radius:16px;background:rgba(5,8,14,.98);box-shadow:0 24px 70px rgba(0,0,0,.65);font-family:system-ui;color:#e5e7eb;overflow:hidden}
+#${ROOT_ID}{position:relative;z-index:20;width:100%;border-bottom:1px solid rgba(139,92,246,.22);background:linear-gradient(90deg,rgba(10,14,24,.98),rgba(14,10,28,.98),rgba(7,14,30,.98));font-family:system-ui;color:#e5e7eb;box-shadow:0 10px 30px rgba(0,0,0,.18)}
 #${ROOT_ID}[data-collapsed=true] .spk-body{display:none}
-#${ROOT_ID} .spk-head{display:flex;align-items:center;gap:8px;padding:11px 12px;border-bottom:1px solid rgba(255,255,255,.07);background:linear-gradient(90deg,rgba(124,58,237,.13),rgba(37,99,235,.08))}
+#${ROOT_ID} .spk-head{display:flex;align-items:center;gap:9px;min-height:42px;padding:8px 14px;cursor:pointer}
 #${ROOT_ID} .spk-title{font-size:10px;font-weight:950;letter-spacing:.12em;text-transform:uppercase;color:#ddd6fe;flex:1}
+#${ROOT_ID} .spk-sub{font-size:8px;color:#64748b}
 #${ROOT_ID} .spk-live{font-size:7px;font-weight:950;color:#6ee7b7;border:1px solid rgba(52,211,153,.22);border-radius:999px;padding:4px 6px}
-#${ROOT_ID} .spk-toggle{border:0;background:transparent;color:#94a3b8;font-size:14px;cursor:pointer}
-#${ROOT_ID} .spk-body{padding:12px;max-height:calc(100vh - 190px);overflow:auto}
-#${ROOT_ID} .spk-grid{display:grid;gap:9px}
-#${ROOT_ID} .spk-card{border:1px solid rgba(255,255,255,.07);border-radius:11px;padding:9px;background:rgba(15,23,42,.58)}
+#${ROOT_ID} .spk-toggle{border:1px solid rgba(255,255,255,.08);border-radius:8px;background:#0a0f17;color:#94a3b8;font-size:12px;line-height:1;padding:6px 8px;cursor:pointer}
+#${ROOT_ID} .spk-body{padding:10px 14px 12px;border-top:1px solid rgba(255,255,255,.05)}
+#${ROOT_ID} .spk-grid{display:grid;grid-template-columns:minmax(180px,1.2fr) repeat(3,minmax(150px,1fr));gap:8px}
+#${ROOT_ID} .spk-card{border:1px solid rgba(255,255,255,.07);border-radius:11px;padding:9px;background:rgba(15,23,42,.52);min-width:0}
 #${ROOT_ID} label{display:block;margin-bottom:5px;font-size:8px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#718096}
 #${ROOT_ID} select{width:100%;border:1px solid rgba(255,255,255,.1);border-radius:9px;background:#080d15;color:#fff;padding:8px;font-size:10px;font-weight:800}
 #${ROOT_ID} input[type=range]{width:100%;accent-color:#8b5cf6}
 #${ROOT_ID} .spk-value{float:right;color:#e9d5ff}
 #${ROOT_ID} .spk-hint{margin-top:5px;font-size:8px;line-height:1.45;color:#64748b}
-#${ROOT_ID} .spk-check{display:flex;align-items:center;gap:7px;margin:9px 0;font-size:9px;color:#94a3b8;text-transform:none;letter-spacing:0}
-#${ROOT_ID} .spk-actions{display:grid;grid-template-columns:1fr auto;gap:7px}
-#${ROOT_ID} button.spk-action{border:1px solid rgba(255,255,255,.1);border-radius:9px;padding:9px;font-size:9px;font-weight:950;cursor:pointer}
+#${ROOT_ID} .spk-bottom{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end;margin-top:9px}
+#${ROOT_ID} .spk-check{display:flex;align-items:center;gap:7px;margin:0;font-size:9px;color:#94a3b8;text-transform:none;letter-spacing:0}
+#${ROOT_ID} .spk-actions{display:flex;gap:7px}
+#${ROOT_ID} button.spk-action{border:1px solid rgba(255,255,255,.1);border-radius:9px;padding:9px 12px;font-size:9px;font-weight:950;cursor:pointer;white-space:nowrap}
 #${ROOT_ID} .spk-apply{background:linear-gradient(90deg,#7c3aed,#4f46e5,#2563eb);color:#fff}
 #${ROOT_ID} .spk-reset{background:#0a0f17;color:#94a3b8}
 #${ROOT_ID} button:disabled{opacity:.45;cursor:not-allowed}
 #${ROOT_ID} .spk-status{margin-top:8px;font-size:9px;line-height:1.45;color:#c4b5fd}
 #${ROOT_ID} .spk-result{display:none;margin-top:9px;border:1px solid rgba(96,165,250,.18);border-radius:10px;padding:8px;background:rgba(37,99,235,.07)}
-#${ROOT_ID} .spk-result.show{display:block}
-#${ROOT_ID} audio{width:100%;height:32px;margin-top:6px}
-@media(max-width:700px){#${ROOT_ID}{right:8px;top:118px;width:calc(100vw - 16px)}}
+#${ROOT_ID} .spk-result.show{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center}
+#${ROOT_ID} audio{width:100%;height:32px}
+@media(max-width:1100px){#${ROOT_ID} .spk-grid{grid-template-columns:1fr 1fr}#${ROOT_ID} .spk-bottom{grid-template-columns:1fr}}
+@media(max-width:640px){#${ROOT_ID} .spk-grid{grid-template-columns:1fr}#${ROOT_ID} .spk-head{padding:8px 10px}#${ROOT_ID} .spk-sub{display:none}#${ROOT_ID} .spk-body{padding:9px 10px}#${ROOT_ID} .spk-actions{display:grid;grid-template-columns:1fr auto}#${ROOT_ID} .spk-result.show{grid-template-columns:1fr}}
 `;
   document.head.appendChild(style);
 
@@ -66,7 +69,7 @@
   }
 
   function status(value) {
-    const el = q('#spk2-status');
+    const el = q('#spk3-status');
     if (el) el.textContent = value;
   }
 
@@ -84,8 +87,7 @@
     const walk = value => {
       if (!value) return '';
       if (typeof value === 'string') return /^https?:\/\//i.test(value) && /(?:audio|molab|\.wav|\.mp3|\.flac|\.ogg)/i.test(value) ? value : '';
-      if (typeof value !== 'object') return '';
-      if (seen.has(value)) return '';
+      if (typeof value !== 'object' || seen.has(value)) return '';
       seen.add(value);
       if (Array.isArray(value)) {
         for (const item of value) { const hit = walk(item); if (hit) return hit; }
@@ -101,38 +103,38 @@
   }
 
   function reset() {
-    q('#spk2-key').value = '';
+    q('#spk3-key').value = '';
     ['track','vocal','formant'].forEach(id => {
-      q('#spk2-' + id).value = '0';
-      q('#spk2-' + id + '-v').textContent = '0 st';
+      q('#spk3-' + id).value = '0';
+      q('#spk3-' + id + '-v').textContent = '0 st';
     });
-    q('#spk2-tempo').checked = true;
+    q('#spk3-tempo').checked = true;
     status('Pronto. Il pitch live della traccia resta separato da questa elaborazione server.');
   }
 
   async function apply() {
     const src = sourceUrl();
     if (!src) {
-      status('Per Pitch & Key AI serve una sorgente SONARA remota. Import locali: usa il pitch live della traccia oppure salva prima la sorgente online.');
+      status('Per Pitch & Key server serve una sorgente SONARA remota. Per file locali usa il pitch live della traccia oppure salva prima la sorgente online.');
       return;
     }
     const body = {
       sourceAudioUrl: src,
       bpm: clamp(localStorage.getItem('sonara.preferredBpm') || 124, 40, 220),
-      targetKey: q('#spk2-key').value,
-      trackPitchSemitones: Number(q('#spk2-track').value),
-      vocalPitchSemitones: Number(q('#spk2-vocal').value),
-      vocalFormantSemitones: Number(q('#spk2-formant').value),
-      preserveTempo: q('#spk2-tempo').checked,
+      targetKey: q('#spk3-key').value,
+      trackPitchSemitones: Number(q('#spk3-track').value),
+      vocalPitchSemitones: Number(q('#spk3-vocal').value),
+      vocalFormantSemitones: Number(q('#spk3-formant').value),
+      preserveTempo: q('#spk3-tempo').checked,
       preserveStrength: 0.94
     };
     if (!body.targetKey && !body.trackPitchSemitones && !body.vocalPitchSemitones && !body.vocalFormantSemitones) {
       status('Imposta almeno una modifica.');
       return;
     }
-    const button = q('#spk2-apply');
+    const button = q('#spk3-apply');
     button.disabled = true;
-    q('#spk2-result').classList.remove('show');
+    q('#spk3-result').classList.remove('show');
     try {
       status('Invio al motore Studio Pitch & Key...');
       const submitted = await api('/api/studio/pitch-key', {
@@ -152,9 +154,9 @@
         if (['COMPLETED','SUCCESS','SUCCEEDED','DONE'].includes(state)) {
           const url = resultUrl(root) || resultUrl(data);
           if (!url) throw new Error('Job completato senza URL audio risultato.');
-          q('#spk2-audio').src = url;
-          q('#spk2-result').dataset.url = url;
-          q('#spk2-result').classList.add('show');
+          q('#spk3-audio').src = url;
+          q('#spk3-result').dataset.url = url;
+          q('#spk3-result').classList.add('show');
           status('Elaborazione completata. L’originale resta invariato finché non applichi il risultato.');
           return;
         }
@@ -168,12 +170,12 @@
   }
 
   function useResult() {
-    const result = q('#spk2-result');
-    const url = result?.dataset.url || q('#spk2-audio')?.src || '';
+    const result = q('#spk3-result');
+    const url = result?.dataset.url || q('#spk3-audio')?.src || '';
     if (!url) return;
     localStorage.setItem(SOURCE_KEY, url);
     sourceOverride = url;
-    window.dispatchEvent(new CustomEvent('sonara:studio-source-changed', { detail: { audioUrl: url, source: 'pitch-key-v2' } }));
+    window.dispatchEvent(new CustomEvent('sonara:studio-source-changed', { detail: { audioUrl: url, source: 'pitch-key-v3' } }));
     window.dispatchEvent(new CustomEvent('sonara:studio-apply-full-source-candidate', { detail: { audioUrl: url, title: 'SONARA Pitch & Key Result', operation: 'pitch-key', variation: 'A' } }));
     status('Risultato applicato come nuova sorgente Studio.');
   }
@@ -185,36 +187,45 @@
       if (existing) existing.remove();
       return;
     }
-    if (existing) return;
+    const host = q('.sonara-pro-studio', studio) || studio;
+    if (existing) {
+      if (existing.parentElement !== host) host.prepend(existing);
+      return;
+    }
     const root = document.createElement('section');
     root.id = ROOT_ID;
     root.dataset.collapsed = 'true';
     root.innerHTML = `
-      <div class="spk-head"><div class="spk-title">Pitch & Key Pro</div><span class="spk-live">SERVER LIVE</span><button class="spk-toggle" type="button" aria-label="Apri Pitch & Key">▾</button></div>
+      <div class="spk-head" role="button" tabindex="0" aria-expanded="false">
+        <div class="spk-title">Pitch & Key Pro</div><div class="spk-sub">inline · non copre la timeline</div><span class="spk-live">SERVER LIVE</span><button class="spk-toggle" type="button" aria-label="Apri Pitch & Key">▾</button>
+      </div>
       <div class="spk-body">
         <div class="spk-grid">
-          <div class="spk-card"><label>Tonalità target</label><select id="spk2-key">${keyOptions}</select><div class="spk-hint">Correzione/trasformazione tramite il motore Studio. Non sostituisce il pitch live varispeed della singola traccia.</div></div>
-          <div class="spk-card"><label>Pitch brano <span id="spk2-track-v" class="spk-value">0 st</span></label><input id="spk2-track" type="range" min="-12" max="12" step="0.5" value="0"></div>
-          <div class="spk-card"><label>Pitch voce <span id="spk2-vocal-v" class="spk-value">0 st</span></label><input id="spk2-vocal" type="range" min="-12" max="12" step="0.5" value="0"></div>
-          <div class="spk-card"><label>Formanti / timbro <span id="spk2-formant-v" class="spk-value">0 st</span></label><input id="spk2-formant" type="range" min="-6" max="6" step="0.5" value="0"></div>
+          <div class="spk-card"><label>Tonalità target</label><select id="spk3-key">${keyOptions}</select><div class="spk-hint">Correzione/trasformazione tramite il motore Studio. Non sostituisce il pitch live varispeed della singola traccia.</div></div>
+          <div class="spk-card"><label>Pitch brano <span id="spk3-track-v" class="spk-value">0 st</span></label><input id="spk3-track" type="range" min="-12" max="12" step="0.5" value="0"></div>
+          <div class="spk-card"><label>Pitch voce <span id="spk3-vocal-v" class="spk-value">0 st</span></label><input id="spk3-vocal" type="range" min="-12" max="12" step="0.5" value="0"></div>
+          <div class="spk-card"><label>Formanti / timbro <span id="spk3-formant-v" class="spk-value">0 st</span></label><input id="spk3-formant" type="range" min="-6" max="6" step="0.5" value="0"></div>
         </div>
-        <label class="spk-check"><input id="spk2-tempo" type="checkbox" checked> Richiedi preservazione BPM, durata e arrangiamento</label>
-        <div class="spk-actions"><button id="spk2-apply" class="spk-action spk-apply">ELABORA PITCH & KEY</button><button id="spk2-reset" class="spk-action spk-reset">RESET</button></div>
-        <div id="spk2-status" class="spk-status">Pronto. Apri un brano SONARA e imposta la trasformazione.</div>
-        <div id="spk2-result" class="spk-result"><strong style="font-size:8px;color:#bfdbfe">RISULTATO</strong><audio id="spk2-audio" controls preload="metadata"></audio><button id="spk2-use" class="spk-action spk-reset" style="width:100%;margin-top:6px">USA COME SORGENTE STUDIO</button></div>
+        <div class="spk-bottom"><label class="spk-check"><input id="spk3-tempo" type="checkbox" checked> Richiedi preservazione BPM, durata e arrangiamento</label><div class="spk-actions"><button id="spk3-apply" class="spk-action spk-apply">ELABORA PITCH & KEY</button><button id="spk3-reset" class="spk-action spk-reset">RESET</button></div></div>
+        <div id="spk3-status" class="spk-status">Pronto. Apri un brano SONARA e imposta la trasformazione.</div>
+        <div id="spk3-result" class="spk-result"><audio id="spk3-audio" controls preload="metadata"></audio><button id="spk3-use" class="spk-action spk-reset">USA COME SORGENTE STUDIO</button></div>
       </div>`;
-    document.body.appendChild(root);
+    host.prepend(root);
     const storedKey = localStorage.getItem(KEY_STORAGE) || '';
     const normalized = storedKey.replace(/ Major$/i, ' major').replace(/ Minor$/i, ' minor');
-    if (Array.from(q('#spk2-key').options).some(option => option.value === normalized)) q('#spk2-key').value = normalized;
-    q('.spk-toggle', root).addEventListener('click', () => {
+    if (Array.from(q('#spk3-key').options).some(option => option.value === normalized)) q('#spk3-key').value = normalized;
+    const toggle = () => {
       root.dataset.collapsed = root.dataset.collapsed === 'true' ? 'false' : 'true';
-      q('.spk-toggle', root).textContent = root.dataset.collapsed === 'true' ? '▾' : '▴';
-    });
-    ['track','vocal','formant'].forEach(id => q('#spk2-' + id).addEventListener('input', event => { q('#spk2-' + id + '-v').textContent = signed(Number(event.target.value)) + ' st'; }));
-    q('#spk2-reset').addEventListener('click', reset);
-    q('#spk2-apply').addEventListener('click', apply);
-    q('#spk2-use').addEventListener('click', useResult);
+      const expanded = root.dataset.collapsed !== 'true';
+      q('.spk-toggle', root).textContent = expanded ? '▴' : '▾';
+      q('.spk-head', root).setAttribute('aria-expanded', String(expanded));
+    };
+    q('.spk-head', root).addEventListener('click', event => { if (event.target.closest('button') && !event.target.classList.contains('spk-toggle')) return; toggle(); });
+    q('.spk-head', root).addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle(); } });
+    ['track','vocal','formant'].forEach(id => q('#spk3-' + id).addEventListener('input', event => { q('#spk3-' + id + '-v').textContent = signed(Number(event.target.value)) + ' st'; }));
+    q('#spk3-reset').addEventListener('click', reset);
+    q('#spk3-apply').addEventListener('click', apply);
+    q('#spk3-use').addEventListener('click', useResult);
   }
 
   mount();
