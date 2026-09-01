@@ -14,7 +14,8 @@ on:
       - "scripts/activate-studio-key-control.cjs"
       - "scripts/activate-studio-sessions-native.cjs"
       - "scripts/build-dispatch.cjs"
-      - "public/sonara-studio-pitch-key-safe-v5.js"
+      - "public/sonara-studio-pitch-key-dsp-v6.js"
+      - "cloudflare/sonara-studio-pitch-key-upload-bridge.mjs"
       - "cloudflare/sonara-studio-key-pitch-guard.mjs"
       - "cloudflare/sonara-studio-native-pitch-bridge.mjs"
       - "wrangler.jsonc"
@@ -49,24 +50,31 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Validate Studio real engine source
+      - name: Validate Studio DSP Pitch Key V6 source
         shell: bash
         run: |
           set -euo pipefail
           node --check scripts/activate-studio-real-engine-v2.cjs
           node --check scripts/activate-studio-video-v1.cjs
           node --check scripts/activate-studio-key-control.cjs
-          node --check public/sonara-studio-pitch-key-safe-v5.js
+          node --check public/sonara-studio-pitch-key-dsp-v6.js
+          node --check cloudflare/sonara-studio-pitch-key-upload-bridge.mjs
           grep -Fq 'parseMidiBlob' src/components/studio/studioRealEngine.ts
           grep -Fq 'saveStudioAsset' src/components/studio/studioRealEngine.ts
           grep -Fq 'loadStudioAsset' src/components/studio/studioRealEngine.ts
-          grep -Fq 'sonara-studio-pitch-key-safe-v5.js?v=5' index.html
+          grep -Fq 'sonara-studio-pitch-key-dsp-v6.js?v=6' index.html
           grep -Fq 'sonara-studio-video-v1' index.html
           grep -Fq 'sonara-studio-real-engine-v2' index.html
-          grep -Fq '__sonaraStudioPitchKeySafeV5' public/sonara-studio-pitch-key-safe-v5.js
-          grep -Fq "form.append('src_audio', localFile" public/sonara-studio-pitch-key-safe-v5.js
-          grep -Fq "sourceOrigin', 'user-local-device'" public/sonara-studio-pitch-key-safe-v5.js
-          if grep -Fq 'MutationObserver' public/sonara-studio-pitch-key-safe-v5.js; then echo 'FAIL unsafe MutationObserver present' >&2; exit 1; fi
+          grep -Fq '__sonaraStudioPitchKeyDspV6' public/sonara-studio-pitch-key-dsp-v6.js
+          grep -Fq 'type="number"' public/sonara-studio-pitch-key-dsp-v6.js
+          grep -Fq "controlMarkup('Pitch brano'" public/sonara-studio-pitch-key-dsp-v6.js
+          grep -Fq "controlMarkup('Pitch voce'" public/sonara-studio-pitch-key-dsp-v6.js
+          grep -Fq "controlMarkup('Formanti / timbro'" public/sonara-studio-pitch-key-dsp-v6.js
+          grep -Fq 'encodeWav' public/sonara-studio-pitch-key-dsp-v6.js
+          grep -Fq 'new Worker' public/sonara-studio-pitch-key-dsp-v6.js
+          grep -Fq 'SONARA_PITCH_KEY_LOCAL_DSP_ONLY' cloudflare/sonara-studio-pitch-key-upload-bridge.mjs
+          if grep -Fq "url.pathname = '/api/studio/repair'" cloudflare/sonara-studio-pitch-key-upload-bridge.mjs; then echo 'FAIL generative repair forwarding still present' >&2; exit 1; fi
+          if grep -Fq 'sonara-studio-pitch-key-safe-v5.js?v=5' index.html; then echo 'FAIL legacy Pitch Key V5 still loaded' >&2; exit 1; fi
 
       - name: Build production app with real Studio engine
         run: npm run build
@@ -107,14 +115,15 @@ jobs:
           check key-wiring 'keySignature={keySignature}' src/components/studio/StudioSectionControl.tsx
           check dist-real-engine 'sonara-studio-real-engine-v2' dist/index.html
           check dist-video-engine 'sonara-studio-video-v1' dist/index.html
-          check dist-pitch-script 'sonara-studio-pitch-key-safe-v5.js?v=5' dist/index.html
-          if [[ -f dist/sonara-studio-pitch-key-safe-v5.js ]]; then echo 'PASS pitch-safe-v5-file'; else echo 'FAIL pitch-safe-v5-file' >&2; exit 1; fi
-          check pitch-safe-v5-marker '__sonaraStudioPitchKeySafeV5' dist/sonara-studio-pitch-key-safe-v5.js
-          check pitch-local-file-upload "form.append('src_audio', localFile" dist/sonara-studio-pitch-key-safe-v5.js
-          check pitch-local-origin "sourceOrigin', 'user-local-device'" dist/sonara-studio-pitch-key-safe-v5.js
-          check pitch-local-label 'FILE LOCALE' dist/sonara-studio-pitch-key-safe-v5.js
-          if grep -Fq 'MutationObserver' dist/sonara-studio-pitch-key-safe-v5.js; then echo 'FAIL unsafe MutationObserver in dist' >&2; exit 1; fi
-          echo "Studio Real Engine + freeze-safe local-only Pitch & Key V5 verified."
+          check dist-pitch-script 'sonara-studio-pitch-key-dsp-v6.js?v=6' dist/index.html
+          if [[ -f dist/sonara-studio-pitch-key-dsp-v6.js ]]; then echo 'PASS pitch-dsp-v6-file'; else echo 'FAIL pitch-dsp-v6-file' >&2; exit 1; fi
+          check pitch-dsp-v6-marker '__sonaraStudioPitchKeyDspV6' dist/sonara-studio-pitch-key-dsp-v6.js
+          check pitch-dsp-worker 'new Worker' dist/sonara-studio-pitch-key-dsp-v6.js
+          check pitch-wav-encoder 'encodeWav' dist/sonara-studio-pitch-key-dsp-v6.js
+          check pitch-number-inputs 'type="number"' dist/sonara-studio-pitch-key-dsp-v6.js
+          check pitch-original-file-label 'FILE ORIGINALE' dist/sonara-studio-pitch-key-dsp-v6.js
+          if grep -Fq 'sonara-studio-pitch-key-safe-v5.js?v=5' dist/index.html; then echo 'FAIL legacy Pitch Key V5 in dist' >&2; exit 1; fi
+          echo "Studio Real Engine + local DSP-only Pitch & Key V6 verified."
 
       - name: Resolve Cloudflare account
         shell: bash
@@ -138,28 +147,26 @@ jobs:
       - name: Deploy Studio Real Engine and assets
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
 
-      - name: Verify Studio Real Engine publicly
+      - name: Verify Studio DSP Pitch Key V6 publicly
         shell: bash
         run: |
           set -euo pipefail
           for attempt in {1..30}; do
             page="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?studio-real=${GITHUB_SHA}-${attempt}" || true)"
-            script="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/sonara-studio-pitch-key-safe-v5.js?v=5&verify=${GITHUB_SHA}-${attempt}" || true)"
-            capabilities="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/studio/pitch-key/capabilities?verify=${GITHUB_SHA}-${attempt}" || true)"
+            script="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/sonara-studio-pitch-key-dsp-v6.js?v=6&verify=${GITHUB_SHA}-${attempt}" || true)"
             if printf '%s' "${page}" | grep -Fq 'sonara-studio-real-engine-v2' \
               && printf '%s' "${page}" | grep -Fq 'sonara-studio-video-v1' \
-              && printf '%s' "${page}" | grep -Fq 'sonara-studio-pitch-key-safe-v5.js?v=5' \
-              && printf '%s' "${page}" | grep -Fq 'sonara-studio-v2.0-production' \
-              && printf '%s' "${script}" | grep -Fq '__sonaraStudioPitchKeySafeV5' \
-              && printf '%s' "${script}" | grep -Fq "form.append('src_audio', localFile" \
-              && printf '%s' "${script}" | grep -Fq 'FILE LOCALE' \
-              && ! printf '%s' "${script}" | grep -Fq 'MutationObserver' \
-              && printf '%s' "${capabilities}" | grep -Fq 'sonara-studio-key-pitch-1'; then
-              echo "SONARA Studio freeze-safe local-only Pitch & Key V5 is live."
+              && printf '%s' "${page}" | grep -Fq 'sonara-studio-pitch-key-dsp-v6.js?v=6' \
+              && ! printf '%s' "${page}" | grep -Fq 'sonara-studio-pitch-key-safe-v5.js?v=5' \
+              && printf '%s' "${script}" | grep -Fq '__sonaraStudioPitchKeyDspV6' \
+              && printf '%s' "${script}" | grep -Fq 'type="number"' \
+              && printf '%s' "${script}" | grep -Fq 'encodeWav' \
+              && printf '%s' "${script}" | grep -Fq 'new Worker'; then
+              echo "SONARA Studio local DSP-only Pitch & Key V6 is live."
               exit 0
             fi
-            echo "Waiting for Studio V5 propagation (${attempt}/30)."
+            echo "Waiting for Studio V6 propagation (${attempt}/30)."
             sleep 4
           done
-          echo "Studio V5 public verification failed." >&2
+          echo "Studio V6 public verification failed." >&2
           exit 1
