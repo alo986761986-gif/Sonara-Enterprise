@@ -233,7 +233,47 @@ export async function startVideoProvider(input: StartVideoProviderInput): Promis
 }
 
 export interface PollVideoProviderInput { app: App; provider: SonaraVideoProvider; model: string; operationName: string }
-export interface PolledVideoProviderJob { done: boolean; error?: string; uri?: string }
+export interface PolledVideoProviderJob {
+  done: boolean;
+  error?: string;
+  uri?: string;
+  progress?: number;
+  stage?: string;
+  providerStatus?: string;
+  updatedAt?: number;
+}
+
+export function parseMolabVideoJob(operation: any): PolledVideoProviderJob {
+  const providerStatus = String(operation?.status || '').trim().toUpperCase() || 'UNKNOWN';
+  const rawProgress = Number(operation?.progress);
+  const progress = Number.isFinite(rawProgress) ? Math.max(0, Math.min(100, Math.round(rawProgress))) : undefined;
+  const stage = String(operation?.stage || '').trim().slice(0, 240) || undefined;
+  const rawUpdatedAt = Number(operation?.updatedAt);
+  const updatedAt = Number.isFinite(rawUpdatedAt) && rawUpdatedAt > 0 ? rawUpdatedAt : undefined;
+  const details = {
+    providerStatus,
+    ...(progress !== undefined ? { progress } : {}),
+    ...(stage ? { stage } : {}),
+    ...(updatedAt !== undefined ? { updatedAt } : {})
+  };
+
+  if (providerStatus === 'FAILED' || providerStatus === 'ERROR' || providerStatus === 'CANCELLED' || providerStatus === 'CANCELED') {
+    return {
+      done: true,
+      error: String(operation?.error || operation?.detail || 'Generazione Wan 2.2 fallita su MoLab.'),
+      ...details
+    };
+  }
+
+  if (providerStatus === 'COMPLETED' || providerStatus === 'SUCCEEDED' || providerStatus === 'READY' || providerStatus === 'DONE') {
+    const uri = String(operation?.uri || operation?.videoUrl || operation?.outputUrl || '').trim();
+    return uri
+      ? { done: true, uri, ...details, progress: 100 }
+      : { done: true, error: 'MoLab ha completato il job senza restituire il file video.', ...details, progress: 100 };
+  }
+
+  return { done: false, ...details };
+}
 
 function stringValue(value: unknown) { return typeof value === 'string' ? value.trim() : '' }
 function generatedSampleUri(value: any) { return typeof value === 'string' ? value.trim() : stringValue(value?.video?.uri || value?.video?.gcsUri || value?.uri || value?.gcsUri) }
@@ -265,13 +305,7 @@ export async function pollVideoProvider(input: PollVideoProviderInput): Promise<
     });
     const operation = await providerJson(response, 'MoLab Video job');
     if (!response.ok) throw new Error(String(operation?.detail || operation?.error || `MoLab Video job HTTP ${response.status}`));
-    const status = String(operation?.status || '').trim().toUpperCase();
-    if (status === 'FAILED') return { done: true, error: String(operation?.error || 'Generazione Wan 2.2 fallita su MoLab.') };
-    if (status === 'COMPLETED') {
-      const uri = String(operation?.uri || '').trim();
-      return uri ? { done: true, uri } : { done: true, error: 'MoLab ha completato il job senza restituire il file video.' };
-    }
-    return { done: false };
+    return parseMolabVideoJob(operation);
   }
 
   let response: Response;

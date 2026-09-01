@@ -376,7 +376,19 @@ export default async function handler(req: any, res: any) {
 
     try {
       const operation = await within(pollVideoProvider({ app, provider: record.provider || 'gemini', model: record.model, operationName: String(record.operationName) }), 15_000, 'Controllo provider Video AI');
-      if (!operation.done) return json(res, 200, { jobId, status: 'PROCESSING', progress: 55, stage: 'SONARA Video AI: rendering cinematografico' });
+      if (!operation.done) {
+        const providerProgress = Number(operation.progress);
+        const progress = Number.isFinite(providerProgress)
+          ? Math.max(5, Math.min(99, Math.round(providerProgress)))
+          : 55;
+        return json(res, 200, {
+          jobId,
+          status: 'PROCESSING',
+          progress,
+          stage: operation.stage || 'SONARA Video AI: rendering cinematografico',
+          providerStatus: operation.providerStatus || 'PROCESSING'
+        });
+      }
       if (operation.error) {
         if (isVeoSafetyFilterError(operation.error)) {
           const restarted = await restartSingleClipAfterSafetyFilter(app, record, operation.error);

@@ -419,7 +419,19 @@ async function pollJob(user: AuthenticatedVideoUser, jobId: string, req: any, re
       model: record.model,
       operationName: record.operationName
     });
-    if (!operation.done) return json(res, 200, { jobId, status: 'PROCESSING', progress: 55, stage: 'SONARA Video AI: rendering cinematografico' });
+    if (!operation.done) {
+      const providerProgress = Number(operation.progress);
+      const progress = Number.isFinite(providerProgress)
+        ? Math.max(5, Math.min(99, Math.round(providerProgress)))
+        : 55;
+      return json(res, 200, {
+        jobId,
+        status: 'PROCESSING',
+        progress,
+        stage: operation.stage || 'SONARA Video AI: rendering cinematografico',
+        providerStatus: operation.providerStatus || 'PROCESSING'
+      });
+    }
     if (operation.error) {
       await ref.set({ status: 'FAILED', error: operation.error, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       if (!record.refunded) {
