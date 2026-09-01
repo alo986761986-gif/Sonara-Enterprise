@@ -1,0 +1,76 @@
+name: SONARA Quality Ultra Anti-Stall E2E
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "scripts/sonara-quality-ultra-antistall-e2e.mjs"
+      - ".github/workflows/sonara-quality-ultra-antistall-e2e.yml"
+      - ".github/sonara-quality-ultra-antistall-trigger"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonara-quality-ultra-antistall-e2e
+  cancel-in-progress: true
+
+jobs:
+  antistall-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      API_ORIGIN: https://api.sonaraenterprise.com
+      WEB_ORIGIN: https://sonaraenterprise.com
+      POLL_MS: 4000
+      MAX_POLLS: 90
+      SONARA_ANTISTALL_REPORT: sonara-quality-ultra-antistall-e2e-report.json
+
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Run real Quality Ultra anti-stall canary
+        run: node --import ./scripts/sonara-e2e-browser-origin.mjs scripts/sonara-quality-ultra-antistall-e2e.mjs
+
+      - name: Print anti-stall summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f sonara-quality-ultra-antistall-e2e-report.json ]]; then
+            node - <<'NODE'
+          const fs = require('fs');
+          const r = JSON.parse(fs.readFileSync('sonara-quality-ultra-antistall-e2e-report.json', 'utf8'));
+          const compact = {};
+          for (const [profile, value] of Object.entries(r.profiles || {})) {
+            compact[profile] = {
+              ok: value.ok,
+              jobId: value.jobId,
+              maxRepeatedHighProgress: value.maxRepeatedHighProgress,
+              bestProfessionalScore: value.metadata?.bestProfessionalScore,
+              releaseReady: value.metadata?.releaseReady,
+              secondaryBatchUsed: value.metadata?.secondaryBatchUsed,
+              adaptiveEarlyRelease: value.metadata?.adaptiveEarlyRelease,
+              secondaryBatchTimedOut: value.metadata?.secondaryBatchTimedOut,
+              pollCount: value.polls?.length
+            };
+          }
+          console.log(JSON.stringify({ ok: r.ok, capabilities: r.capabilities, profiles: compact, error: r.error }, null, 2));
+          NODE
+          fi
+
+      - name: Upload anti-stall report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonara-quality-ultra-antistall-${{ github.run_id }}
+          path: sonara-quality-ultra-antistall-e2e-report.json
+          if-no-files-found: warn
+          retention-days: 14
