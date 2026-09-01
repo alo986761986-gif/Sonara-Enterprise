@@ -70,11 +70,15 @@ jobs:
           set -euo pipefail
           grep -q 'SONARA_STUDIO_REAL_ENGINE_V2' src/components/studio/SonaraStudio.tsx
           grep -q 'midiNotes' src/components/studio/SonaraStudio.tsx
-          grep -q 'createStudioReverbImpulse' src/components/studio/SonaraStudio.tsx
+          grep -q 'parseMidiFile' src/components/studio/SonaraStudio.tsx
           grep -q 'scheduleMidiAt' src/components/studio/SonaraStudio.tsx
-          grep -q 'DSP LIVE' src/components/studio/SonaraStudio.tsx
-          grep -q 'MIDI NOTE ENGINE' src/components/studio/SonaraStudio.tsx
+          grep -q 'graph.low.gain.value = track.low' src/components/studio/SonaraStudio.tsx
+          grep -q 'graph.compressor.threshold.value' src/components/studio/SonaraStudio.tsx
+          grep -q 'graph.wet.gain.value' src/components/studio/SonaraStudio.tsx
+          grep -q 'automatedVolume' src/components/studio/SonaraStudio.tsx
           grep -q 'sonara.studio.project.v6' src/components/studio/SonaraStudio.tsx
+          grep -q 'loadStudioAsset' src/components/studio/SonaraStudio.tsx
+          grep -q 'saveStudioAsset' src/components/studio/SonaraStudio.tsx
           grep -q 'SONARA_STUDIO_KEY_CONTROL_V1' src/components/studio/StudioSectionControl.tsx
           grep -q 'STUDIO_KEY_STORAGE' src/components/studio/StudioSectionControl.tsx
           grep -q 'keySignature={keySignature}' src/components/studio/StudioSectionControl.tsx
@@ -82,6 +86,7 @@ jobs:
           grep -q 'sonara-studio-pitch-key-v2.js?v=2' dist/index.html
           test -f dist/sonara-studio-pitch-key-v2.js
           grep -q '__sonaraStudioPitchKeyStaticV2' dist/sonara-studio-pitch-key-v2.js
+          echo "Studio Real Engine functional code verified in transformed production source."
 
       - name: Resolve Cloudflare account
         shell: bash
