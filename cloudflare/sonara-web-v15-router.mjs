@@ -46,30 +46,6 @@ function apiCorsHeaders(request) {
   };
 }
 
-function videoSuspendedResponse(request) {
-  const origin = request.headers.get('Origin') || '';
-  const allowOrigin = API_ALLOWED_ORIGINS.has(origin) ? origin : 'https://sonaraenterprise.com';
-  return new Response(JSON.stringify({
-    status: 'SUSPENDED',
-    suspended: true,
-    service: 'SONARA Video AI',
-    reason: 'GPU_T4_REALLOCATED_TO_MUSIC',
-    message: 'Video AI e temporaneamente sospeso: entrambe le GPU T4 sono dedicate al motore musicale SONARA per generare i due brani in parallelo.',
-    musicMode: 'dual-t4-parallel',
-    gpuAllocation: { gpu0: 'music-candidate-A', gpu1: 'music-candidate-B' },
-    retryable: false
-  }), {
-    status: 503,
-    headers: {
-      'content-type': 'application/json; charset=UTF-8',
-      'cache-control': 'no-store',
-      'x-sonara-video-state': 'suspended-for-dual-t4-music',
-      'Access-Control-Allow-Origin': allowOrigin,
-      Vary: 'Origin'
-    }
-  });
-}
-
 export async function proxyActiveVideoApi(request, fetcher = fetch) {
   const incomingUrl = new URL(request.url);
   const upstreamUrl = new URL(`${incomingUrl.pathname}${incomingUrl.search}`, VIDEO_API_ORIGIN);
