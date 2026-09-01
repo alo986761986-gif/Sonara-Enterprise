@@ -8,7 +8,7 @@ import {
 
 export { SonaraJobState, SonaraAuthStore };
 
-const VERSION = 'sonara-quality-ultra-stability-2';
+const VERSION = 'sonara-quality-ultra-stability-1';
 const STATE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/quality-ultra-stability-v1/';
 const STATE_TTL = 6 * 60 * 60;
 const JOB_RE = /^\/api\/music\/job\/(stable-qv1-[A-Za-z0-9_-]+)$/;
