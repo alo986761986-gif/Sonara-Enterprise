@@ -58,6 +58,31 @@ function ensureHost(): HTMLElement | null {
   return host;
 }
 
+function unwrapJobPayload(value: any): any {
+  if (!value || typeof value !== 'object') return value;
+  return value.job || value.data || value;
+}
+
+function emitDirectorResult(value: any) {
+  const current = unwrapJobPayload(value);
+  const metadata = current?.metadata || {};
+  const status = String(current?.status || '').toUpperCase();
+  if (status !== 'COMPLETED' || metadata?.sonaraMusicDirector !== 'sonara-music-director-v3') return;
+  const candidates = Array.isArray(current?.candidates)
+    ? current.candidates
+    : Array.isArray(current?.outputs)
+      ? current.outputs
+      : [];
+  window.dispatchEvent(new CustomEvent('sonara:director-result-v3', {
+    detail: {
+      jobId: current?.jobId || current?.job_id || '',
+      metadata,
+      candidates,
+      qualityDirector: current?.sonaraQualityDirector || null
+    }
+  }));
+}
+
 function installNativeFetchBridge() {
   if (typeof window === 'undefined') return;
   const runtime = window as typeof window & {
@@ -72,14 +97,17 @@ function installNativeFetchBridge() {
 
   const originalFetch = window.fetch.bind(window);
   window.fetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    let raw = '';
+    let url: URL | null = null;
+    let method = 'GET';
     try {
-      const raw = typeof input === 'string'
+      raw = typeof input === 'string'
         ? input
         : input instanceof URL
           ? input.toString()
           : input.url;
-      const url = new URL(raw, window.location.href);
-      const method = String(init.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
+      url = new URL(raw, window.location.href);
+      method = String(init.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
       const isGeneration = method === 'POST' && ['/api/billing/generate', '/api/engine/generate'].includes(url.pathname);
 
       if (isGeneration) {
@@ -113,7 +141,17 @@ function installNativeFetchBridge() {
     } catch {
       // Keep the original request path if profile enrichment cannot be applied.
     }
-    return originalFetch(input, init);
+
+    const response = await originalFetch(input, init);
+    try {
+      if (url && method === 'GET' && /^\/api\/music\/job\//.test(url.pathname) && response.ok) {
+        const data = await response.clone().json();
+        emitDirectorResult(data);
+      }
+    } catch {
+      // Result telemetry is passive and must never alter generation polling.
+    }
+    return response;
   };
 }
 
