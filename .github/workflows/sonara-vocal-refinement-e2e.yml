@@ -6,6 +6,7 @@ on:
     branches:
       - main
     paths:
+      - "cloudflare/sonara-vocal-refinement-guard.mjs"
       - "scripts/sonara-vocal-refinement-e2e.mjs"
       - ".github/workflows/sonara-vocal-refinement-e2e.yml"
       - ".github/sonara-vocal-refinement-e2e-trigger"
@@ -36,6 +37,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "24"
+
+      - name: Guard Director rank-one audio alignment
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "topLevelAudioAlignedWithDirectorRank: true" cloudflare/sonara-vocal-refinement-guard.mjs
+          grep -q "x-sonara-director-audio-alignment" cloudflare/sonara-vocal-refinement-guard.mjs
+          grep -q "recommendedAudioUrl" cloudflare/sonara-vocal-refinement-guard.mjs
 
       - name: Run real ULTRA vocal refinement canary
         run: node --import ./scripts/sonara-e2e-browser-origin.mjs scripts/sonara-vocal-refinement-e2e.mjs
