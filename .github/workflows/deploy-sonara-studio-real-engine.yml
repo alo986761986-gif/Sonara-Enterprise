@@ -60,9 +60,12 @@ jobs:
           grep -Fq 'parseMidiBlob' src/components/studio/studioRealEngine.ts
           grep -Fq 'saveStudioAsset' src/components/studio/studioRealEngine.ts
           grep -Fq 'loadStudioAsset' src/components/studio/studioRealEngine.ts
-          grep -Fq 'sonara-studio-pitch-key-v2.js?v=3' index.html
+          grep -Fq 'sonara-studio-pitch-key-v2.js?v=4' index.html
           grep -Fq 'sonara-studio-video-v1' index.html
           grep -Fq 'sonara-studio-real-engine-v2' index.html
+          grep -Fq '__sonaraStudioPitchKeyLocalOnlyV4' public/sonara-studio-pitch-key-v2.js
+          grep -Fq "form.append('src_audio', file" public/sonara-studio-pitch-key-v2.js
+          grep -Fq "sourceOrigin', 'user-local-device'" public/sonara-studio-pitch-key-v2.js
 
       - name: Build production app with real Studio engine
         run: npm run build
@@ -104,12 +107,15 @@ jobs:
           check key-wiring 'keySignature={keySignature}' src/components/studio/StudioSectionControl.tsx
           check dist-real-engine 'sonara-studio-real-engine-v2' dist/index.html
           check dist-video-engine 'sonara-studio-video-v1' dist/index.html
-          check dist-pitch-script 'sonara-studio-pitch-key-v2.js?v=3' dist/index.html
+          check dist-pitch-script 'sonara-studio-pitch-key-v2.js?v=4' dist/index.html
           if [[ -f dist/sonara-studio-pitch-key-v2.js ]]; then echo 'PASS pitch-script-file'; else echo 'FAIL pitch-script-file' >&2; exit 1; fi
-          check pitch-v3-marker '__sonaraStudioPitchKeyStaticV3' dist/sonara-studio-pitch-key-v2.js
+          check pitch-local-v4-marker '__sonaraStudioPitchKeyLocalOnlyV4' dist/sonara-studio-pitch-key-v2.js
+          check pitch-local-file-upload "form.append('src_audio', file" dist/sonara-studio-pitch-key-v2.js
+          check pitch-local-origin "sourceOrigin', 'user-local-device'" dist/sonara-studio-pitch-key-v2.js
+          check pitch-local-label 'FILE LOCALE' dist/sonara-studio-pitch-key-v2.js
           check pitch-inline 'position:relative' dist/sonara-studio-pitch-key-v2.js
           check pitch-host ".sonara-pro-studio" dist/sonara-studio-pitch-key-v2.js
-          echo "Studio Real Engine + synchronized video + inline Pitch & Key verified in production bundle."
+          echo "Studio Real Engine + synchronized video + local-only Pitch & Key verified in production bundle."
 
       - name: Resolve Cloudflare account
         shell: bash
@@ -139,16 +145,18 @@ jobs:
           set -euo pipefail
           for attempt in {1..30}; do
             page="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?studio-real=${GITHUB_SHA}-${attempt}" || true)"
-            script="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/sonara-studio-pitch-key-v2.js?v=3&verify=${GITHUB_SHA}-${attempt}" || true)"
+            script="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/sonara-studio-pitch-key-v2.js?v=4&verify=${GITHUB_SHA}-${attempt}" || true)"
             capabilities="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/studio/pitch-key/capabilities?verify=${GITHUB_SHA}-${attempt}" || true)"
             if printf '%s' "${page}" | grep -Fq 'sonara-studio-real-engine-v2' \
               && printf '%s' "${page}" | grep -Fq 'sonara-studio-video-v1' \
-              && printf '%s' "${page}" | grep -Fq 'sonara-studio-pitch-key-v2.js?v=3' \
+              && printf '%s' "${page}" | grep -Fq 'sonara-studio-pitch-key-v2.js?v=4' \
               && printf '%s' "${page}" | grep -Fq 'sonara-studio-v2.0-production' \
-              && printf '%s' "${script}" | grep -Fq '__sonaraStudioPitchKeyStaticV3' \
+              && printf '%s' "${script}" | grep -Fq '__sonaraStudioPitchKeyLocalOnlyV4' \
+              && printf '%s' "${script}" | grep -Fq "form.append('src_audio', file" \
+              && printf '%s' "${script}" | grep -Fq 'FILE LOCALE' \
               && printf '%s' "${script}" | grep -Fq 'position:relative' \
               && printf '%s' "${capabilities}" | grep -Fq 'sonara-studio-key-pitch-1'; then
-              echo "SONARA Studio video + inline Pitch & Key are live and server API is verified."
+              echo "SONARA Studio video + local-only Pitch & Key are live and server API is verified."
               exit 0
             fi
             echo "Waiting for Studio video/Pitch propagation (${attempt}/30)."
