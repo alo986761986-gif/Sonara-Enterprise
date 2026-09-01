@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "sonara-enterprise",
-  "main": "cloudflare/sonara-music-director-v3-ultra-guard.mjs",
+  "main": "cloudflare/sonara-studio-transient-poll-guard.mjs",
   "compatibility_date": "2026-08-23",
   "workers_dev": true,
   "keep_vars": true,
