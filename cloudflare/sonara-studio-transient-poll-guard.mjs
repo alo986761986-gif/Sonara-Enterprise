@@ -6,8 +6,142 @@ const VERSION = 'sonara-studio-transient-poll-guard-1';
 const MAX_TRANSIENT_POLLS = 4;
 const STATE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/studio-transient-poll-guard/';
 const STUDIO_JOB_RE = /^\/api\/studio\/job\/(studio-[A-Za-z0-9_-]+)$/;
+const MOLAB_TURBO_MODEL = 'acestep-v15-xl-turbo';
+const MOLAB_BASE_MODEL = 'acestep-v15-xl-base';
 
 const clean = value => String(value ?? '').trim();
+const cleanUrl = value => clean(value).replace(/\/$/, '');
+
+function molabBaseUrl(env) {
+  return cleanUrl(env?.SONARA_MOLAB_XL_URL || env?.MOLAB_ACESTEP_URL || '');
+}
+
+function molabHeaders(env, extra = {}) {
+  const headers = { ...extra };
+  const key = clean(env?.ACE_STEP_API_KEY || env?.ACESTEP_API_KEY);
+  if (key) {
+    headers.Authorization = `Bearer ${key}`;
+    headers['X-API-Key'] = key;
+  }
+  return headers;
+}
+
+function normalizeModels(value) {
+  const models = [];
+  const seen = new Set();
+  const add = candidate => {
+    const model = clean(candidate);
+    if (!model || seen.has(model)) return;
+    seen.add(model);
+    models.push(model);
+  };
+  const visit = node => {
+    if (!node) return;
+    if (typeof node === 'string') return add(node);
+    if (Array.isArray(node)) return node.forEach(visit);
+    if (typeof node !== 'object') return;
+    for (const key of ['id', 'name', 'model', 'model_id', 'model_name', 'repo_id']) {
+      if (typeof node[key] === 'string') add(node[key]);
+    }
+    for (const key of ['data', 'models', 'items', 'available_models', 'availableModels']) {
+      if (node[key] !== undefined) visit(node[key]);
+    }
+  };
+  visit(value);
+  return models.filter(model => /ace|step|music/i.test(model)).slice(0, 32);
+}
+
+async function readJsonSafe(response) {
+  try { return await response.json(); }
+  catch { return null; }
+}
+
+async function molabCapabilities(request, env) {
+  const baseUrl = molabBaseUrl(env);
+  const origin = clean(request.headers.get('origin'));
+  const headers = {
+    'content-type': 'application/json; charset=UTF-8',
+    'cache-control': 'private, no-store',
+    'x-sonara-molab-capabilities': 'runtime-probe-v1'
+  };
+  if (origin) {
+    headers['access-control-allow-origin'] = origin;
+    headers.vary = 'Origin';
+  }
+
+  if (!baseUrl) {
+    return new Response(JSON.stringify({
+      ready: false,
+      probeVersion: 'runtime-probe-v1',
+      provider: 'molab',
+      configured: false,
+      currentProductionModel: MOLAB_TURBO_MODEL,
+      currentProductionInferenceSteps: 8,
+      baseModel: MOLAB_BASE_MODEL,
+      baseGenerationAvailable: false,
+      modelCatalogReachable: false
+    }), { status: 503, headers });
+  }
+
+  let healthData = null;
+  let modelsData = null;
+  let healthStatus = 0;
+  let modelsStatus = 0;
+
+  try {
+    const response = await fetch(`${baseUrl}/health`, {
+      headers: molabHeaders(env, { Accept: 'application/json', 'Cache-Control': 'no-cache' }),
+      signal: AbortSignal.timeout(8_000)
+    });
+    healthStatus = response.status;
+    healthData = await readJsonSafe(response);
+  } catch {}
+
+  try {
+    const response = await fetch(`${baseUrl}/v1/models`, {
+      headers: molabHeaders(env, { Accept: 'application/json', 'Cache-Control': 'no-cache' }),
+      signal: AbortSignal.timeout(8_000)
+    });
+    modelsStatus = response.status;
+    modelsData = await readJsonSafe(response);
+  } catch {}
+
+  const health = healthData?.data || healthData || {};
+  const loadedModel = clean(health?.loaded_model || health?.model);
+  const availableModels = normalizeModels(modelsData);
+  const catalogHasTurbo = availableModels.some(model => model === MOLAB_TURBO_MODEL || model.includes(MOLAB_TURBO_MODEL));
+  const catalogHasBase = availableModels.some(model => model === MOLAB_BASE_MODEL || model.includes(MOLAB_BASE_MODEL));
+  const statusText = clean(health?.status).toLowerCase();
+  const ready = healthStatus >= 200 && healthStatus < 300 && (
+    health?.models_initialized === true ||
+    ['ok', 'ready', 'healthy', 'online', 'success'].includes(statusText) ||
+    Boolean(loadedModel)
+  );
+
+  return new Response(JSON.stringify({
+    ready,
+    probeVersion: 'runtime-probe-v1',
+    provider: 'molab',
+    configured: true,
+    healthStatus,
+    modelCatalogStatus: modelsStatus,
+    modelCatalogReachable: modelsStatus >= 200 && modelsStatus < 300,
+    loadedModel,
+    availableModels,
+    currentProductionModel: MOLAB_TURBO_MODEL,
+    currentProductionInferenceSteps: 8,
+    turboAvailable: catalogHasTurbo || loadedModel.includes(MOLAB_TURBO_MODEL),
+    baseModel: MOLAB_BASE_MODEL,
+    baseGenerationAvailable: catalogHasBase,
+    recommendedProfiles: {
+      fast: { model: MOLAB_TURBO_MODEL, inferenceSteps: 8 },
+      quality: { model: MOLAB_TURBO_MODEL, inferenceSteps: 8 },
+      ultra: catalogHasBase
+        ? { model: MOLAB_BASE_MODEL, inferenceSteps: 50, eligible: true }
+        : { model: MOLAB_TURBO_MODEL, inferenceSteps: 8, eligible: false }
+    }
+  }), { status: ready ? 200 : 503, headers });
+}
 
 function isTransientQueryFailure(data, status) {
   const message = clean(data?.error || data?.message || data?.detail).toLowerCase();
@@ -128,6 +262,24 @@ function retryResponse(request, original, data, attempt) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    if (request.method === 'OPTIONS' && url.pathname === '/api/molab/capabilities') {
+      const origin = clean(request.headers.get('origin'));
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'access-control-allow-origin': origin || 'https://sonaraenterprise.com',
+          'access-control-allow-methods': 'GET,OPTIONS',
+          'access-control-allow-headers': 'Content-Type,Cache-Control,Pragma',
+          vary: 'Origin'
+        }
+      });
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/molab/capabilities') {
+      return molabCapabilities(request, env);
+    }
+
     const match = request.method === 'GET' ? url.pathname.match(STUDIO_JOB_RE) : null;
     if (!match) {
       const response = await runtime.fetch(request, env, ctx);
