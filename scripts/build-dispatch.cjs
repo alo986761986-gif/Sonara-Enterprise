@@ -29,20 +29,11 @@ function runOptional(command, args, warning) {
 function run(args) { runCommand(npx, args); }
 
 console.log('[SONARA] Checking Firebase authorized domains before build.');
-runOptional(
-  node,
-  ['scripts/ensure-firebase-authorized-domains.cjs'],
-  '[SONARA][Firebase] Authorized-domain repair could not complete during build; application build will continue.'
-);
+runOptional(node, ['scripts/ensure-firebase-authorized-domains.cjs'], '[SONARA][Firebase] Authorized-domain repair could not complete during build; application build will continue.');
 
 if (process.env.VERCEL === '1' && process.env.VERCEL_ENV === 'production') {
   console.log('[SONARA][Firebase] Attempting optional Firebase web API key rotation.');
-  const rotated = runOptional(
-    node,
-    ['scripts/rotate-firebase-web-key-on-build.cjs'],
-    '[SONARA][Firebase] Web-key rotation unavailable; continuing production build with configured runtime key.'
-  );
-
+  const rotated = runOptional(node, ['scripts/rotate-firebase-web-key-on-build.cjs'], '[SONARA][Firebase] Web-key rotation unavailable; continuing production build with configured runtime key.');
   if (rotated && fs.existsSync(firebaseKeyOutput)) {
     const rotatedKey = fs.readFileSync(firebaseKeyOutput, 'utf8').trim();
     if (rotatedKey) {
@@ -58,6 +49,8 @@ console.log('[SONARA] Activating native SONARA Sessions 2.0 timeline editing.');
 runCommand(node, ['scripts/activate-studio-sessions-native.cjs']);
 console.log('[SONARA] Activating real Studio Pro live DSP, MIDI and persistent audio engine v2.');
 runCommand(node, ['scripts/activate-studio-real-engine-v2.cjs']);
+console.log('[SONARA] Activating real persistent Studio key control.');
+runCommand(node, ['scripts/activate-studio-key-control.cjs']);
 console.log('[SONARA] Activating electronic genre-specific lyric engines.');
 runCommand(node, ['scripts/activate-electronic-genres.cjs']);
 console.log('[SONARA] Activating universal taxonomy generation.');
@@ -93,5 +86,4 @@ run(['tsx', 'src/benchmark/sonaraProductCapability.test.ts']);
 
 run(['vite', 'build']);
 run(['esbuild', 'server.ts', '--bundle', '--platform=node', '--format=cjs', '--packages=external', '--sourcemap', '--outfile=dist/server.cjs']);
-
 try { fs.rmSync(firebaseKeyOutput, { force: true }); } catch {}
