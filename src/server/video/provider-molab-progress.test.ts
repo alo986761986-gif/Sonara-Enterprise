@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { parseMolabVideoJob } from './provider';
+import { parseMolabVideoJob } from '../../../api/video/provider';
 
 const rendering = parseMolabVideoJob({
   status: 'PROCESSING',
