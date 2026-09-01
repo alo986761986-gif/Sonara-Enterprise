@@ -19,7 +19,7 @@ function replace(anchor, replacement, label) {
 
 replace(
   "const DEFAULT_BPM = 124;",
-  "const DEFAULT_BPM = 124;\nconst STUDIO_KEY_STORAGE = 'sonara.studio.keySignature';\nconst STUDIO_KEYS = ['C Major','C# Major','D Major','Eb Major','E Major','F Major','F# Major','G Major','Ab Major','A Major','Bb Major','B Major','C Minor','C# Minor','D Minor','Eb Minor','E Minor','F Minor','F# Minor','G Minor','Ab Minor','A Minor','Bb Minor','B Minor'];\nconst ${MARKER} = true;",
+  "const DEFAULT_BPM = 124;\nconst STUDIO_KEY_STORAGE = 'sonara.studio.keySignature';\nconst STUDIO_KEYS = ['C Major','C# Major','D Major','Eb Major','E Major','F Major','F# Major','G Major','Ab Major','A Major','Bb Major','B Major','C Minor','C# Minor','D Minor','Eb Minor','E Minor','F Minor','F# Minor','G Minor','Ab Minor','A Minor','Bb Minor','B Minor'];\nconst SONARA_STUDIO_KEY_CONTROL_V1 = true;",
   'key constants'
 );
 
