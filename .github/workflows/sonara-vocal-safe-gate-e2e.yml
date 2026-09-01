@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - "cloudflare/sonara-vocal-refinement-guard.mjs"
+      - "cloudflare/sonara-vocal-safe-gate-report-aligner.mjs"
       - "scripts/sonara-vocal-safe-gate-e2e.mjs"
       - ".github/workflows/sonara-vocal-safe-gate-e2e.yml"
 
@@ -38,6 +39,9 @@ jobs:
           grep -q "MIN_RELEASE_SCORE = 88" cloudflare/sonara-vocal-refinement-guard.mjs
           grep -q "MAX_TECHNICAL_REGRESSION = 1" cloudflare/sonara-vocal-refinement-guard.mjs
           grep -q "fallbackUsed" cloudflare/sonara-vocal-refinement-guard.mjs
+          grep -q "sonara-vocal-safe-report-aligner-1" cloudflare/sonara-vocal-safe-gate-report-aligner.mjs
+          grep -q "reportsMatchedByAudioUrl: true" cloudflare/sonara-vocal-safe-gate-report-aligner.mjs
+          grep -q "findReport" cloudflare/sonara-vocal-safe-gate-report-aligner.mjs
       - name: Run real Vocal Safe Gate canary
         run: node --import ./scripts/sonara-e2e-browser-origin.mjs scripts/sonara-vocal-safe-gate-e2e.mjs
       - name: Print Safe Gate report
