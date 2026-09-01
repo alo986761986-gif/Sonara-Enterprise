@@ -1,0 +1,76 @@
+name: SONARA Vocal Refinement E2E Canary
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "scripts/sonara-vocal-refinement-e2e.mjs"
+      - ".github/workflows/sonara-vocal-refinement-e2e.yml"
+      - ".github/sonara-vocal-refinement-e2e-trigger"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonara-vocal-refinement-e2e
+  cancel-in-progress: true
+
+jobs:
+  vocal-refinement-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      API_ORIGIN: https://api.sonaraenterprise.com
+      WEB_ORIGIN: https://sonaraenterprise.com
+      POLL_MS: 5000
+      MAX_POLLS: 160
+      SONARA_VOCAL_REPORT: sonara-vocal-refinement-e2e-report.json
+
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Run real ULTRA vocal refinement canary
+        run: node --import ./scripts/sonara-e2e-browser-origin.mjs scripts/sonara-vocal-refinement-e2e.mjs
+
+      - name: Print vocal canary summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f sonara-vocal-refinement-e2e-report.json ]]; then
+            node - <<'NODE'
+          const fs = require('fs');
+          const r = JSON.parse(fs.readFileSync('sonara-vocal-refinement-e2e-report.json', 'utf8'));
+          console.log(JSON.stringify({
+            ok: r.ok,
+            startedAt: r.startedAt,
+            finishedAt: r.finishedAt,
+            generationJobId: r.outputs?.generation?.jobId,
+            sourceAudioUrl: r.outputs?.sourceAudioUrl,
+            refinedAudioUrl: r.outputs?.refinedAudioUrl,
+            beforeScore: r.quality?.['before-refinement']?.score,
+            afterScore: r.quality?.['after-refinement']?.score,
+            technicalScoreDelta: r.outputs?.technicalScoreDelta,
+            refinementJobId: r.outputs?.refinement?.submit?.jobId,
+            locks: r.outputs?.refinement?.submit?.vocalRefinement,
+            diagnostics: r.diagnostics,
+            error: r.error
+          }, null, 2));
+          NODE
+          fi
+
+      - name: Upload vocal refinement report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonara-vocal-refinement-e2e-report-${{ github.run_id }}
+          path: sonara-vocal-refinement-e2e-report.json
+          if-no-files-found: warn
+          retention-days: 14
