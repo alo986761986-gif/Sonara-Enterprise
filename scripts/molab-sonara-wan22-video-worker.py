@@ -179,11 +179,13 @@ CACHE.mkdir(parents=True, exist_ok=True)
 MODEL_ID = os.environ.get("SONARA_WAN22_MODEL_ID", "Wan-AI/Wan2.2-TI2V-5B-Diffusers")
 MODEL_NAME = "wan2.2-ti2v-5b"
 PROFILE = "molab-rtx-pro-6000-blackwell-fast-v2"
+MIN_VISIBLE_LUMA = 18.0
 API_TOKEN = os.environ.get("SONARA_MOLAB_VIDEO_TOKEN", "").strip()
 JOB_STATE = ROOT / "jobs"
 JOB_STATE.mkdir(parents=True, exist_ok=True)
 DEFAULT_NEGATIVE = (
-    "overexposed, static shot, frozen motion, blurry, low quality, jpeg artifacts, text, subtitles, "
+    "overexposed, underexposed, black screen, blank frame, crushed blacks, static shot, frozen motion, "
+    "blurry, low quality, jpeg artifacts, text, subtitles, "
     "watermark, logo, deformed anatomy, extra limbs, duplicated people, distorted hands, distorted face, "
     "morphing identity, flicker, temporal inconsistency, camera jitter"
 )
@@ -382,6 +384,22 @@ def master_video(source: Path, target: Path, width: int, height: int, duration_s
     )
 
 
+def average_video_luma(path: Path) -> float:
+    """Return the mean 8-bit luma over all frames after spatial downsampling."""
+    import subprocess
+
+    samples = subprocess.check_output(
+        [
+            "ffmpeg", "-v", "error", "-i", str(path), "-an",
+            "-vf", "scale=1:1,format=gray", "-f", "rawvideo", "-",
+        ],
+        timeout=300,
+    )
+    if not samples:
+        raise RuntimeError("Il controllo visivo non ha trovato fotogrammi nel video.")
+    return round(sum(samples) / len(samples), 3)
+
+
 def render(job_id: str, req: GenerateRequest) -> None:
     global active_job_id, warmed
     raw = OUTPUTS / f"{job_id}.raw.mp4"
@@ -401,18 +419,6 @@ def render(job_id: str, req: GenerateRequest) -> None:
         seed = int(req.seed) if req.seed is not None else int.from_bytes(os.urandom(4), "big")
         native_w, native_h, final_w, final_h = output_dimensions(req.aspectRatio, req.resolution)
         negative = (req.negativePrompt or "").strip() or DEFAULT_NEGATIVE
-        generator = torch.Generator(device="cuda").manual_seed(seed)
-
-        def callback(_pipeline, step_index, _timestep, callback_kwargs):
-            progress = 10 + round(((int(step_index) + 1) / max(1, steps)) * 72)
-            set_job(
-                job_id,
-                status="PROCESSING",
-                progress=min(82, progress),
-                stage=f"Wan 2.2 RTX: denoise {int(step_index) + 1}/{steps}",
-            )
-            return callback_kwargs
-
         set_job(
             job_id,
             status="PROCESSING",
@@ -426,28 +432,84 @@ def render(job_id: str, req: GenerateRequest) -> None:
             outputFps=output_fps,
             profile=PROFILE,
         )
-        with pipe_lock, torch.inference_mode():
-            result = pipeline(
-                prompt=req.prompt.strip(),
-                negative_prompt=negative,
-                height=native_h,
-                width=native_w,
-                num_frames=frames,
-                num_inference_steps=steps,
-                guidance_scale=5.0,
-                generator=generator,
-                callback_on_step_end=callback,
-            ).frames[0]
-
-        set_job(job_id, progress=86, stage=f"SONARA: encoding rapido MP4 {source_fps} fps")
+        effective_seed = seed
+        effective_steps = steps
+        render_attempts = 0
+        luma_average = 0.0
         from diffusers.utils import export_to_video
-        export_to_video(result, str(raw), fps=source_fps)
-        del result
-        set_job(job_id, progress=92, stage=f"SONARA: master {req.resolution}")
-        master_video(raw, final, final_w, final_h, duration_seconds, output_fps)
-        raw.unlink(missing_ok=True)
-        if not final.exists() or final.stat().st_size < 10000:
-            raise RuntimeError("Wan 2.2 non ha prodotto un MP4 valido.")
+
+        for attempt in range(2):
+            render_attempts = attempt + 1
+            if attempt:
+                effective_seed = (seed + 104_729) % (2**32)
+                effective_steps = max(16, steps)
+                effective_prompt = (
+                    req.prompt.strip()
+                    + ", clearly visible subjects, balanced exposure, illuminated scene, detailed highlights and midtones"
+                )
+                set_job(
+                    job_id,
+                    status="PROCESSING",
+                    progress=93,
+                    stage="SONARA: fotogrammi troppo scuri, rigenerazione visiva automatica",
+                    blackFrameDetected=True,
+                    firstPassLuma=luma_average,
+                )
+            else:
+                effective_prompt = req.prompt.strip()
+
+            generator = torch.Generator(device="cuda").manual_seed(effective_seed)
+
+            def callback(_pipeline, step_index, _timestep, callback_kwargs):
+                if attempt:
+                    progress = 93 + round(((int(step_index) + 1) / max(1, effective_steps)) * 4)
+                    stage = f"Wan 2.2 RTX: recupero visivo {int(step_index) + 1}/{effective_steps}"
+                else:
+                    progress = 10 + round(((int(step_index) + 1) / max(1, effective_steps)) * 72)
+                    stage = f"Wan 2.2 RTX: denoise {int(step_index) + 1}/{effective_steps}"
+                set_job(job_id, status="PROCESSING", progress=min(97, progress), stage=stage)
+                return callback_kwargs
+
+            with pipe_lock, torch.inference_mode():
+                result = pipeline(
+                    prompt=effective_prompt,
+                    negative_prompt=negative,
+                    height=native_h,
+                    width=native_w,
+                    num_frames=frames,
+                    num_inference_steps=effective_steps,
+                    guidance_scale=5.0,
+                    generator=generator,
+                    callback_on_step_end=callback,
+                ).frames[0]
+
+            set_job(
+                job_id,
+                progress=97 if attempt else 86,
+                stage=f"SONARA: encoding rapido MP4 {source_fps} fps",
+            )
+            export_to_video(result, str(raw), fps=source_fps)
+            del result
+            set_job(job_id, progress=98 if attempt else 92, stage=f"SONARA: master {req.resolution}")
+            master_video(raw, final, final_w, final_h, duration_seconds, output_fps)
+            raw.unlink(missing_ok=True)
+            if not final.exists() or final.stat().st_size < 10000:
+                raise RuntimeError("Wan 2.2 non ha prodotto un MP4 valido.")
+
+            luma_average = average_video_luma(final)
+            print(
+                f"SONARA_VIDEO_VISUAL_CHECK job={job_id} attempt={render_attempts} luma={luma_average}",
+                flush=True,
+            )
+            if luma_average >= MIN_VISIBLE_LUMA:
+                break
+            if attempt == 0:
+                final.unlink(missing_ok=True)
+                continue
+            raise RuntimeError(
+                f"Wan 2.2 ha prodotto fotogrammi neri anche dopo il recupero automatico (luma {luma_average})."
+            )
+
         warmed = True
         set_job(
             job_id,
@@ -457,6 +519,12 @@ def render(job_id: str, req: GenerateRequest) -> None:
             filename=final.name,
             model=MODEL_NAME,
             profile=PROFILE,
+            seed=effective_seed,
+            steps=effective_steps,
+            renderAttempts=render_attempts,
+            lumaAverage=luma_average,
+            minimumVisibleLuma=MIN_VISIBLE_LUMA,
+            blackScreenGuard=True,
             provider="molab-wan22",
             resolution=f"{final_w}x{final_h}",
             nativeResolution=f"{native_w}x{native_h}",
@@ -548,6 +616,8 @@ def health() -> dict:
         "defaultSteps": 12,
         "maxFrames": 97,
         "maxClipSeconds": 8,
+        "blackScreenGuard": True,
+        "minimumVisibleLuma": MIN_VISIBLE_LUMA,
         "activeJob": active,
         "queuedJobs": len(queued),
         **info,

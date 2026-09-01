@@ -451,32 +451,51 @@ async function pollJob(user: AuthenticatedVideoUser, jobId: string, req: any, re
   }
 }
 
-async function proxyNativeMolabFile(operationName: string, res: any) {
+async function proxyNativeMolabFile(operationName: string, req: any, res: any) {
   const jobId = String(operationName || '').trim();
   if (!/^[A-Za-z0-9_-]{8,160}$/.test(jobId)) return fail(res, 400, 'VIDEO_FILE_REQUIRED', 'File video non valido.');
   const base = String(process.env.SONARA_MOLAB_VIDEO_URL || '').trim().replace(/\/+$/, '');
   const token = String(process.env.SONARA_MOLAB_VIDEO_TOKEN || '').trim();
   if (!base || !token) return fail(res, 503, 'VIDEO_PROVIDER_NOT_CONFIGURED', 'Il motore Video AI non è configurato.');
+  const upstreamHeaders: Record<string, string> = { 'x-sonara-token': token };
+  const requestedRange = typeof req.headers?.range === 'string' ? req.headers.range.trim() : '';
+  const requestedIfRange = typeof req.headers?.['if-range'] === 'string' ? req.headers['if-range'].trim() : '';
+  if (requestedRange) upstreamHeaders.Range = requestedRange;
+  if (requestedIfRange) upstreamHeaders['If-Range'] = requestedIfRange;
   const response = await fetch(`${base}/file/${encodeURIComponent(jobId)}.mp4`, {
-    headers: { 'x-sonara-token': token },
+    method: req.method === 'HEAD' ? 'HEAD' : 'GET',
+    headers: upstreamHeaders,
     cache: 'no-store',
     signal: AbortSignal.timeout(120_000)
   });
-  if (!response.ok) return fail(res, response.status === 404 ? 404 : 502, 'VIDEO_FILE_UNAVAILABLE', `File Video AI non disponibile (HTTP ${response.status}).`);
-  const bytes = Buffer.from(await response.arrayBuffer());
+  if (response.status !== 200 && response.status !== 206) {
+    return fail(res, response.status === 404 ? 404 : 502, 'VIDEO_FILE_UNAVAILABLE', `File Video AI non disponibile (HTTP ${response.status}).`);
+  }
+  const upstreamContentLength = response.headers.get('content-length');
+  const upstreamContentRange = response.headers.get('content-range');
+  const upstreamEtag = response.headers.get('etag');
+  const upstreamLastModified = response.headers.get('last-modified');
   res.setHeader('Content-Type', 'video/mp4');
-  res.setHeader('Content-Length', String(bytes.length));
-  res.setHeader('Cache-Control', 'private, max-age=300');
+  res.setHeader('Accept-Ranges', response.headers.get('accept-ranges') || 'bytes');
+  if (upstreamContentRange) res.setHeader('Content-Range', upstreamContentRange);
+  if (upstreamContentLength) res.setHeader('Content-Length', upstreamContentLength);
+  if (upstreamEtag) res.setHeader('ETag', upstreamEtag);
+  if (upstreamLastModified) res.setHeader('Last-Modified', upstreamLastModified);
+  res.setHeader('Cache-Control', 'private, no-store, no-cache, must-revalidate');
   res.setHeader('Content-Disposition', `inline; filename="sonara-${jobId}.mp4"`);
-  return res.status(200).send(bytes);
+  res.status(response.status);
+  if (req.method === 'HEAD') return res.end();
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (!upstreamContentLength) res.setHeader('Content-Length', String(bytes.length));
+  return res.send(bytes);
 }
 
 export default async function handler(req: any, res: any) {
   const action = actionFromRequest(req);
-  if (req.method === 'GET' && action.startsWith('file/')) {
+  if ((req.method === 'GET' || req.method === 'HEAD') && action.startsWith('file/')) {
     const nativeUser = await authenticatedNativeVideoUser(req);
     if (!nativeUser) return fail(res, 401, 'AUTH_REQUIRED', 'Accedi a SONARA per vedere il video.');
-    return proxyNativeMolabFile(action.slice(5), res);
+    return proxyNativeMolabFile(action.slice(5), req, res);
   }
   const user = await authenticatedVideoUser(req);
   if (!user) return fail(res, 401, 'AUTH_REQUIRED', 'Accedi a SONARA per usare Video AI.');
