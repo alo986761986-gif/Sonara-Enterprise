@@ -1,24 +1,95 @@
 (() => {
-  if (window.__sonaraStudioPitchKeyStaticV3) return;
-  window.__sonaraStudioPitchKeyStaticV3 = true;
+  if (window.__sonaraStudioPitchKeyLocalOnlyV4) return;
+  window.__sonaraStudioPitchKeyLocalOnlyV4 = true;
 
-  const API = 'https://api.sonaraenterprise.com';
-  const SOURCE_KEY = 'sonara.studio.sourceAudioUrl';
-  const KEY_STORAGE = 'sonara.studio.keySignature';
   const ROOT_ID = 'sonara-studio-pitch-key-pro-v3';
+  const SOURCE_LABEL_ID = 'spk3-local-source';
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const q = (selector, root = document) => root.querySelector(selector);
   const clamp = (n, min, max) => Math.max(min, Math.min(max, Number(n) || 0));
   const signed = n => (n > 0 ? '+' : '') + n;
+  const AUDIO_RE = /\.(wav|wave|mp3|flac|ogg|m4a|aac|webm)$/i;
   const keys = ['C','C#','D','Eb','E','F','F#','G','Ab','A','Bb','B'];
-  const keyOptions = ['<option value="">Mantieni tonalità</option>']
+  const keyOptions = ['<option value="">Mantieni tonalita</option>']
     .concat(keys.flatMap(key => [
       '<option value="' + key + ' major">' + key + ' Major</option>',
       '<option value="' + key + ' minor">' + key + ' Minor</option>'
     ])).join('');
 
+  let localSourceFile = null;
+  let localSourceObjectUrl = '';
+
+  function isAudioFile(file) {
+    return !!file && (
+      String(file.type || '').toLowerCase().startsWith('audio/') ||
+      AUDIO_RE.test(String(file.name || ''))
+    );
+  }
+
+  function formatBytes(bytes) {
+    const value = Number(bytes || 0);
+    if (value >= 1024 * 1024) return (value / (1024 * 1024)).toFixed(1) + ' MB';
+    if (value >= 1024) return (value / 1024).toFixed(1) + ' KB';
+    return value + ' B';
+  }
+
+  function status(value) {
+    const el = q('#spk3-status');
+    if (el) el.textContent = value;
+  }
+
+  function updateLocalSourceUi() {
+    const el = q('#' + SOURCE_LABEL_ID);
+    if (!el) return;
+    if (!localSourceFile) {
+      el.textContent = 'Nessun file locale selezionato';
+      el.dataset.ready = 'false';
+      return;
+    }
+    el.textContent = `${localSourceFile.name} · ${formatBytes(localSourceFile.size)} · FILE LOCALE`;
+    el.dataset.ready = 'true';
+  }
+
+  function lockLocalFile(file, origin = 'device') {
+    if (!isAudioFile(file)) return false;
+    localSourceFile = file;
+    if (localSourceObjectUrl) URL.revokeObjectURL(localSourceObjectUrl);
+    localSourceObjectUrl = URL.createObjectURL(file);
+    updateLocalSourceUi();
+    status(`Sorgente Pitch & Key: ${file.name}. Verra elaborato esclusivamente questo file locale.`);
+    window.dispatchEvent(new CustomEvent('sonara:pitch-key-source-locked', {
+      detail: {
+        name: String(file.name || ''),
+        size: Number(file.size || 0),
+        type: String(file.type || ''),
+        origin
+      }
+    }));
+    return true;
+  }
+
+  // Native browser file selection: PC, Mac, Android, iPhone/iPad or mounted device.
+  document.addEventListener('change', event => {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement) || input.type !== 'file' || !input.files?.length) return;
+    const file = Array.from(input.files).find(isAudioFile);
+    if (file) lockLocalFile(file, 'file-input');
+  }, true);
+
+  // Also support drag/drop into Studio.
+  document.addEventListener('drop', event => {
+    const file = Array.from(event.dataTransfer?.files || []).find(isAudioFile);
+    if (file) lockLocalFile(file, 'drop');
+  }, true);
+
+  // Direct event bridge for the React Studio importer.
+  window.addEventListener('sonara:studio-local-audio-selected', event => {
+    const file = event?.detail?.file;
+    if (isAudioFile(file)) lockLocalFile(file, 'studio-import');
+  });
+
   const style = document.createElement('style');
-  style.id = ROOT_ID + '-style';
+  style.id = ROOT_ID + '-style-v4';
   style.textContent = `
 #${ROOT_ID}{position:relative;z-index:20;width:100%;border-bottom:1px solid rgba(139,92,246,.22);background:linear-gradient(90deg,rgba(10,14,24,.98),rgba(14,10,28,.98),rgba(7,14,30,.98));font-family:system-ui;color:#e5e7eb;box-shadow:0 10px 30px rgba(0,0,0,.18)}
 #${ROOT_ID}[data-collapsed=true] .spk-body{display:none}
@@ -28,6 +99,9 @@
 #${ROOT_ID} .spk-live{font-size:7px;font-weight:950;color:#6ee7b7;border:1px solid rgba(52,211,153,.22);border-radius:999px;padding:4px 6px}
 #${ROOT_ID} .spk-toggle{border:1px solid rgba(255,255,255,.08);border-radius:8px;background:#0a0f17;color:#94a3b8;font-size:12px;line-height:1;padding:6px 8px;cursor:pointer}
 #${ROOT_ID} .spk-body{padding:10px 14px 12px;border-top:1px solid rgba(255,255,255,.05)}
+#${ROOT_ID} .spk-source{display:flex;align-items:center;gap:8px;margin-bottom:9px;border:1px solid rgba(139,92,246,.2);border-radius:9px;background:rgba(124,58,237,.07);padding:8px 10px;font-size:9px;color:#c4b5fd}
+#${ROOT_ID} .spk-source:before{content:'●';color:#64748b}
+#${ROOT_ID} .spk-source[data-ready=true]:before{color:#34d399}
 #${ROOT_ID} .spk-grid{display:grid;grid-template-columns:minmax(180px,1.2fr) repeat(3,minmax(150px,1fr));gap:8px}
 #${ROOT_ID} .spk-card{border:1px solid rgba(255,255,255,.07);border-radius:11px;padding:9px;background:rgba(15,23,42,.52);min-width:0}
 #${ROOT_ID} label{display:block;margin-bottom:5px;font-size:8px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:#718096}
@@ -51,30 +125,8 @@
 `;
   document.head.appendChild(style);
 
-  let sourceOverride = '';
-  window.addEventListener('sonara:studio-source-changed', event => {
-    sourceOverride = String(event?.detail?.audioUrl || '').trim();
-    if (sourceOverride && /^https?:\/\//i.test(sourceOverride)) localStorage.setItem(SOURCE_KEY, sourceOverride);
-  });
-
-  function sourceUrl() {
-    const candidates = [
-      sourceOverride,
-      localStorage.getItem(SOURCE_KEY) || '',
-      q('#sonara-ai-source-url')?.value || '',
-      q('#sonara-ai-source-player')?.src || '',
-      Array.from(document.querySelectorAll('audio[src]')).map(audio => audio.src).find(src => /^https?:\/\//i.test(src)) || ''
-    ];
-    return candidates.map(value => String(value || '').trim()).find(value => /^https?:\/\//i.test(value)) || '';
-  }
-
-  function status(value) {
-    const el = q('#spk3-status');
-    if (el) el.textContent = value;
-  }
-
   async function api(path, init) {
-    const response = await fetch(API + path, init || {});
+    const response = await fetch(window.location.origin + path, init || {});
     const text = await response.text();
     let data = {};
     try { data = text ? JSON.parse(text) : {}; } catch {}
@@ -86,7 +138,7 @@
     const seen = new Set();
     const walk = value => {
       if (!value) return '';
-      if (typeof value === 'string') return /^https?:\/\//i.test(value) && /(?:audio|molab|\.wav|\.mp3|\.flac|\.ogg)/i.test(value) ? value : '';
+      if (typeof value === 'string') return /^https?:\/\//i.test(value) ? value : '';
       if (typeof value !== 'object' || seen.has(value)) return '';
       seen.add(value);
       if (Array.isArray(value)) {
@@ -103,61 +155,88 @@
   }
 
   function reset() {
-    q('#spk3-key').value = '';
+    const key = q('#spk3-key');
+    if (key) key.value = '';
     ['track','vocal','formant'].forEach(id => {
-      q('#spk3-' + id).value = '0';
-      q('#spk3-' + id + '-v').textContent = '0 st';
+      const input = q('#spk3-' + id);
+      const value = q('#spk3-' + id + '-v');
+      if (input) input.value = '0';
+      if (value) value.textContent = '0 st';
     });
-    q('#spk3-tempo').checked = true;
-    status('Pronto. Il pitch live della traccia resta separato da questa elaborazione server.');
+    const tempo = q('#spk3-tempo');
+    if (tempo) tempo.checked = true;
+    status(localSourceFile
+      ? `Pronto sul file locale ${localSourceFile.name}.`
+      : 'Importa un WAV/MP3/FLAC dal dispositivo. Pitch & Key non usa audio generati dal motore.');
   }
 
   async function apply() {
-    const src = sourceUrl();
-    if (!src) {
-      status('Per Pitch & Key server serve una sorgente SONARA remota. Per file locali usa il pitch live della traccia oppure salva prima la sorgente online.');
+    const file = localSourceFile;
+    if (!file) {
+      status('ERRORE: nessun file audio locale selezionato. Importa prima il WAV/MP3/FLAC dal PC o dispositivo. Nessun audio generato verra usato.');
       return;
     }
-    const body = {
-      sourceAudioUrl: src,
-      bpm: clamp(localStorage.getItem('sonara.preferredBpm') || 124, 40, 220),
-      targetKey: q('#spk3-key').value,
-      trackPitchSemitones: Number(q('#spk3-track').value),
-      vocalPitchSemitones: Number(q('#spk3-vocal').value),
-      vocalFormantSemitones: Number(q('#spk3-formant').value),
-      preserveTempo: q('#spk3-tempo').checked,
-      preserveStrength: 0.94
-    };
-    if (!body.targetKey && !body.trackPitchSemitones && !body.vocalPitchSemitones && !body.vocalFormantSemitones) {
-      status('Imposta almeno una modifica.');
+
+    const targetKey = String(q('#spk3-key')?.value || '');
+    const trackPitch = Number(q('#spk3-track')?.value || 0);
+    const vocalPitch = Number(q('#spk3-vocal')?.value || 0);
+    const formantPitch = Number(q('#spk3-formant')?.value || 0);
+    if (!targetKey && !trackPitch && !vocalPitch && !formantPitch) {
+      status('Imposta almeno una modifica di tonalita, pitch o formanti.');
       return;
     }
+
+    const form = new FormData();
+    form.append('src_audio', file, file.name || 'source.wav');
+    form.append('sourceOrigin', 'user-local-device');
+    form.append('sourceFilename', file.name || 'source.wav');
+    form.append('bpm', String(clamp(localStorage.getItem('sonara.preferredBpm') || 124, 40, 220)));
+    form.append('targetKey', targetKey);
+    form.append('trackPitchSemitones', String(trackPitch));
+    form.append('vocalPitchSemitones', String(vocalPitch));
+    form.append('vocalFormantSemitones', String(formantPitch));
+    form.append('preserveTempo', q('#spk3-tempo')?.checked === false ? 'false' : 'true');
+    form.append('preserveStrength', '0.94');
+
     const button = q('#spk3-apply');
-    button.disabled = true;
-    q('#spk3-result').classList.remove('show');
+    if (button) button.disabled = true;
+    q('#spk3-result')?.classList.remove('show');
+
     try {
-      status('Invio al motore Studio Pitch & Key...');
+      status(`UPLOAD FILE LOCALE: ${file.name} (${formatBytes(file.size)}). Elaborazione Pitch & Key sul file selezionato...`);
       const submitted = await api('/api/studio/pitch-key', {
-        method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
+        method: 'POST',
+        credentials: 'include',
+        body: form
       });
       const jobId = submitted.jobId || submitted.id || submitted.job?.id;
-      const pollPath = submitted.pollUrl ? submitted.pollUrl.replace(/^https:\/\/api\.sonaraenterprise\.com/, '') : (jobId ? '/api/studio/job/' + encodeURIComponent(jobId) : '');
+      const pollPath = submitted.pollUrl
+        ? String(submitted.pollUrl).replace(/^https:\/\/api\.sonaraenterprise\.com/, '')
+        : (jobId ? '/api/studio/job/' + encodeURIComponent(jobId) : '');
       if (!pollPath) throw new Error('Job Studio non restituito.');
+
       for (let attempt = 1; attempt <= 180; attempt += 1) {
         await sleep(attempt === 1 ? 900 : 2200);
-        const data = await api(pollPath + (pollPath.includes('?') ? '&' : '?') + 'pitchKey=' + Date.now() + '-' + attempt, { credentials: 'include', cache: 'no-store' });
+        const data = await api(pollPath + (pollPath.includes('?') ? '&' : '?') + 'pitchKeyLocal=' + Date.now() + '-' + attempt, {
+          credentials: 'include',
+          cache: 'no-store'
+        });
         const root = data.job || data.result || data;
         const state = String(root.status || data.status || 'PROCESSING').toUpperCase();
         const progress = Number(root.progress ?? data.progress ?? 0);
-        status('Elaborazione ' + (Number.isFinite(progress) ? Math.round(progress) + '%' : '') + ' · ' + state);
+        status(`${file.name} · ${Number.isFinite(progress) ? Math.round(progress) + '%' : ''} · ${state}`);
         if (['FAILED','ERROR','CANCELLED'].includes(state)) throw new Error(root.error || data.error || 'Pitch & Key non riuscito.');
         if (['COMPLETED','SUCCESS','SUCCEEDED','DONE'].includes(state)) {
           const url = resultUrl(root) || resultUrl(data);
           if (!url) throw new Error('Job completato senza URL audio risultato.');
-          q('#spk3-audio').src = url;
-          q('#spk3-result').dataset.url = url;
-          q('#spk3-result').classList.add('show');
-          status('Elaborazione completata. L’originale resta invariato finché non applichi il risultato.');
+          const audio = q('#spk3-audio');
+          const result = q('#spk3-result');
+          if (audio) audio.src = url;
+          if (result) {
+            result.dataset.url = url;
+            result.classList.add('show');
+          }
+          status(`COMPLETATO: Pitch & Key applicato al file locale ${file.name}. L'originale resta invariato.`);
           return;
         }
       }
@@ -165,7 +244,7 @@
     } catch (error) {
       status(error?.message || String(error));
     } finally {
-      button.disabled = false;
+      if (button) button.disabled = false;
     }
   }
 
@@ -173,16 +252,16 @@
     const result = q('#spk3-result');
     const url = result?.dataset.url || q('#spk3-audio')?.src || '';
     if (!url) return;
-    localStorage.setItem(SOURCE_KEY, url);
-    sourceOverride = url;
-    window.dispatchEvent(new CustomEvent('sonara:studio-source-changed', { detail: { audioUrl: url, source: 'pitch-key-v3' } }));
-    window.dispatchEvent(new CustomEvent('sonara:studio-apply-full-source-candidate', { detail: { audioUrl: url, title: 'SONARA Pitch & Key Result', operation: 'pitch-key', variation: 'A' } }));
-    status('Risultato applicato come nuova sorgente Studio.');
+    window.dispatchEvent(new CustomEvent('sonara:studio-source-changed', { detail: { audioUrl: url, source: 'pitch-key-local-only-v4' } }));
+    window.dispatchEvent(new CustomEvent('sonara:studio-apply-full-source-candidate', {
+      detail: { audioUrl: url, title: 'SONARA Pitch & Key Result', operation: 'pitch-key', variation: 'A' }
+    }));
+    status(`Risultato derivato da ${localSourceFile?.name || 'file locale'} applicato come nuova sorgente Studio.`);
   }
 
   function mount() {
     const studio = q('[data-sonara-studio-section="true"]');
-    const existing = q('#' + ROOT_ID);
+    let existing = q('#' + ROOT_ID);
     if (!studio) {
       if (existing) existing.remove();
       return;
@@ -190,45 +269,71 @@
     const host = q('.sonara-pro-studio', studio) || studio;
     if (existing) {
       if (existing.parentElement !== host) host.prepend(existing);
+      updateLocalSourceUi();
       return;
     }
+
     const root = document.createElement('section');
     root.id = ROOT_ID;
     root.dataset.collapsed = 'true';
     root.innerHTML = `
       <div class="spk-head" role="button" tabindex="0" aria-expanded="false">
-        <div class="spk-title">Pitch & Key Pro</div><div class="spk-sub">inline · non copre la timeline</div><span class="spk-live">SERVER LIVE</span><button class="spk-toggle" type="button" aria-label="Apri Pitch & Key">▾</button>
+        <div class="spk-title">Pitch & Key Pro</div>
+        <div class="spk-sub">FILE LOCALE · WAV/MP3/FLAC</div>
+        <span class="spk-live">LOCAL SOURCE</span>
+        <button class="spk-toggle" type="button" aria-label="Apri Pitch & Key">▾</button>
       </div>
       <div class="spk-body">
+        <div id="${SOURCE_LABEL_ID}" class="spk-source" data-ready="false">Nessun file locale selezionato</div>
         <div class="spk-grid">
-          <div class="spk-card"><label>Tonalità target</label><select id="spk3-key">${keyOptions}</select><div class="spk-hint">Correzione/trasformazione tramite il motore Studio. Non sostituisce il pitch live varispeed della singola traccia.</div></div>
+          <div class="spk-card"><label>Tonalita target</label><select id="spk3-key">${keyOptions}</select><div class="spk-hint">Il motore lavora esclusivamente sul file audio importato dal tuo dispositivo.</div></div>
           <div class="spk-card"><label>Pitch brano <span id="spk3-track-v" class="spk-value">0 st</span></label><input id="spk3-track" type="range" min="-12" max="12" step="0.5" value="0"></div>
           <div class="spk-card"><label>Pitch voce <span id="spk3-vocal-v" class="spk-value">0 st</span></label><input id="spk3-vocal" type="range" min="-12" max="12" step="0.5" value="0"></div>
           <div class="spk-card"><label>Formanti / timbro <span id="spk3-formant-v" class="spk-value">0 st</span></label><input id="spk3-formant" type="range" min="-6" max="6" step="0.5" value="0"></div>
         </div>
-        <div class="spk-bottom"><label class="spk-check"><input id="spk3-tempo" type="checkbox" checked> Richiedi preservazione BPM, durata e arrangiamento</label><div class="spk-actions"><button id="spk3-apply" class="spk-action spk-apply">ELABORA PITCH & KEY</button><button id="spk3-reset" class="spk-action spk-reset">RESET</button></div></div>
-        <div id="spk3-status" class="spk-status">Pronto. Apri un brano SONARA e imposta la trasformazione.</div>
-        <div id="spk3-result" class="spk-result"><audio id="spk3-audio" controls preload="metadata"></audio><button id="spk3-use" class="spk-action spk-reset">USA COME SORGENTE STUDIO</button></div>
+        <div class="spk-bottom">
+          <label class="spk-check"><input id="spk3-tempo" type="checkbox" checked> Preserva BPM, durata e arrangiamento</label>
+          <div class="spk-actions"><button id="spk3-apply" class="spk-action spk-apply">ELABORA PITCH & KEY</button><button id="spk3-reset" class="spk-action spk-reset">RESET</button></div>
+        </div>
+        <div id="spk3-status" class="spk-status">Importa un WAV/MP3/FLAC dal dispositivo. Pitch & Key non usa audio generati dal motore.</div>
+        <div id="spk3-result" class="spk-result"><audio id="spk3-audio" controls preload="metadata"></audio><button id="spk3-use" class="spk-action spk-apply">USA RISULTATO</button></div>
       </div>`;
     host.prepend(root);
-    const storedKey = localStorage.getItem(KEY_STORAGE) || '';
-    const normalized = storedKey.replace(/ Major$/i, ' major').replace(/ Minor$/i, ' minor');
-    if (Array.from(q('#spk3-key').options).some(option => option.value === normalized)) q('#spk3-key').value = normalized;
-    const toggle = () => {
-      root.dataset.collapsed = root.dataset.collapsed === 'true' ? 'false' : 'true';
-      const expanded = root.dataset.collapsed !== 'true';
-      q('.spk-toggle', root).textContent = expanded ? '▴' : '▾';
-      q('.spk-head', root).setAttribute('aria-expanded', String(expanded));
+
+    const head = q('.spk-head', root);
+    const toggle = q('.spk-toggle', root);
+    const togglePanel = () => {
+      const collapsed = root.dataset.collapsed === 'true';
+      root.dataset.collapsed = collapsed ? 'false' : 'true';
+      head?.setAttribute('aria-expanded', collapsed ? 'true' : 'false');
+      if (toggle) toggle.textContent = collapsed ? '▴' : '▾';
     };
-    q('.spk-head', root).addEventListener('click', event => { if (event.target.closest('button') && !event.target.classList.contains('spk-toggle')) return; toggle(); });
-    q('.spk-head', root).addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle(); } });
-    ['track','vocal','formant'].forEach(id => q('#spk3-' + id).addEventListener('input', event => { q('#spk3-' + id + '-v').textContent = signed(Number(event.target.value)) + ' st'; }));
-    q('#spk3-reset').addEventListener('click', reset);
-    q('#spk3-apply').addEventListener('click', apply);
-    q('#spk3-use').addEventListener('click', useResult);
+    head?.addEventListener('click', event => {
+      if (event.target instanceof Element && event.target.closest('button')) return;
+      togglePanel();
+    });
+    toggle?.addEventListener('click', togglePanel);
+    head?.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); togglePanel(); }
+    });
+
+    ['track','vocal','formant'].forEach(id => {
+      q('#spk3-' + id, root)?.addEventListener('input', event => {
+        const value = Number(event.target.value || 0);
+        const out = q('#spk3-' + id + '-v', root);
+        if (out) out.textContent = signed(value) + ' st';
+      });
+    });
+    q('#spk3-apply', root)?.addEventListener('click', () => void apply());
+    q('#spk3-reset', root)?.addEventListener('click', reset);
+    q('#spk3-use', root)?.addEventListener('click', useResult);
+    updateLocalSourceUi();
   }
 
-  mount();
   const observer = new MutationObserver(mount);
   observer.observe(document.documentElement, { childList: true, subtree: true });
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, { once: true });
+  else mount();
+  window.addEventListener('load', mount, { once: true });
+  window.setInterval(mount, 1500);
 })();
