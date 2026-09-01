@@ -1,4 +1,5 @@
 import { SonaraAuthStore as BaseSonaraAuthStore } from './sonara-native-auth.mjs';
+import { handleSonaraNativeVideoState } from './sonara-native-video-state.mjs';
 
 function safeMessage(error) {
   const name = String(error?.name || 'Error').replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 40) || 'Error';
@@ -9,6 +10,8 @@ function safeMessage(error) {
 export class SonaraAuthStore extends BaseSonaraAuthStore {
   async fetch(request) {
     try {
+      const videoResponse = await handleSonaraNativeVideoState(this, request);
+      if (videoResponse) return videoResponse;
       return await super.fetch(request);
     } catch (error) {
       console.error('[SONARA AUTH] Durable Object request failed', error);

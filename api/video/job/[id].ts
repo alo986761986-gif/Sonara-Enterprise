@@ -5,6 +5,7 @@ import { persistProviderVideo, pollVideoProvider, startVideoProvider, type Sonar
 import { buildVeoSafetyRetryPrompt, isVeoSafetyFilterError, veoNegativePrompt, veoSafetyCategory } from '../../../src/server/video/safety';
 import { pollConcatenation, publishTranscodedVideo, startConcatenation, startSoundtrackMux } from '../../../src/server/video/transcoder';
 import { authenticatedVideoUser } from '../../../src/server/video/auth';
+import { nativeMolabVideoUrl, nativeVideoJobRef, refundNativeVideoJob } from '../../../src/server/video/nativeState';
 
 const JOB_COLLECTION = 'sonaraVideoJobs';
 const MAX_SCENE_RETRIES = 3;
@@ -142,12 +143,15 @@ async function releaseVideoCredits(uid: string, credits: number, jobId: string, 
   });
 }
 
-async function failAndRefund(record: VideoJobRecord, jobId: string, ref: FirebaseFirestore.DocumentReference, app: App, message: string) {
+async function failAndRefund(record: VideoJobRecord, jobId: string, ref: any, app: App, message: string, req: any, native: boolean) {
+  await ref.set({ status: 'FAILED', error: message, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
   if (!record.refunded) {
-    try { await within(releaseVideoCredits(record.uid, record.credits, jobId, app), 4_000, 'Rimborso crediti video'); }
+    try {
+      if (native) await within(refundNativeVideoJob(req, jobId), 4_000, 'Rimborso crediti video');
+      else await within(releaseVideoCredits(record.uid, record.credits, jobId, app), 4_000, 'Rimborso crediti video');
+    }
     catch (cause) { console.error('[SONARA VIDEO] refund delayed', { jobId, error: cause instanceof Error ? cause.message : String(cause) }); }
   }
-  await ref.set({ status: 'FAILED', error: message, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
   return message;
 }
 
@@ -214,7 +218,7 @@ export default async function handler(req: any, res: any) {
     if (!jobId) return fail(res, 400, 'VIDEO_JOB_REQUIRED', 'Job video non valido.');
 
     const app = getAdminApp();
-    const ref = getFirestore(app).collection(JOB_COLLECTION).doc(jobId);
+    const ref: any = user.native ? nativeVideoJobRef(req, jobId) : getFirestore(app).collection(JOB_COLLECTION).doc(jobId);
     const snapshot = await ref.get();
     if (!snapshot.exists) return fail(res, 404, 'VIDEO_JOB_NOT_FOUND', 'Job video non trovato.');
     const record = snapshot.data() as VideoJobRecord;
@@ -365,7 +369,7 @@ export default async function handler(req: any, res: any) {
         const message = cause instanceof Error ? cause.message : String(cause);
         await ref.set({ startAttempts: attempt, lastStartError: message, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
         if (attempt < 4) return json(res, 200, { jobId, status: 'PROCESSING', progress: Math.min(15, 4 + attempt * 2), stage: `SONARA Video AI: riconnessione motore (${attempt}/4)` });
-        const finalMessage = await failAndRefund(record, jobId, ref, app, `Avvio Video AI non riuscito dopo ${attempt} tentativi: ${message}`);
+        const finalMessage = await failAndRefund(record, jobId, ref, app, `Avvio Video AI non riuscito dopo ${attempt} tentativi: ${message}`, req, user.native);
         return json(res, 200, { jobId, status: 'FAILED', progress: 0, stage: 'Errore', error: finalMessage });
       }
     }
@@ -390,7 +394,7 @@ export default async function handler(req: any, res: any) {
             return json(res, 200, { jobId, status: 'PROCESSING', progress: 35, stage: `SONARA Video AI: riformulazione sicura (${restarted.retryCount}/${MAX_SINGLE_CLIP_SAFETY_RETRIES})` });
           }
         }
-        const finalMessage = await failAndRefund(record, jobId, ref, app, operation.error);
+        const finalMessage = await failAndRefund(record, jobId, ref, app, operation.error, req, user.native);
         return json(res, 200, { jobId, status: 'FAILED', progress: 0, stage: 'Errore', error: finalMessage });
       }
       const uri = String(operation.uri || '');
@@ -414,7 +418,9 @@ export default async function handler(req: any, res: any) {
         }, { merge: true });
         return json(res, 200, { jobId, status: 'PROCESSING', progress: 82, stage: 'SONARA Video AI: combinazione file caricati' });
       }
-      const videoUrl = await within(persistProviderVideo(app, storageBucketName(), record.uid, jobId, uri), 45_000, 'Salvataggio video');
+      const videoUrl = user.native && record.provider === 'molab'
+        ? nativeMolabVideoUrl(String(record.operationName || ''))
+        : await within(persistProviderVideo(app, storageBucketName(), record.uid, jobId, uri), 45_000, 'Salvataggio video');
       await ref.set({ status: 'COMPLETED', providerVideoUri: uri, videoUrl, completedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       return json(res, 200, { jobId, status: 'COMPLETED', progress: 100, stage: 'Video pronto', videoUrl });
     } catch (cause) {
@@ -422,7 +428,7 @@ export default async function handler(req: any, res: any) {
       const pollErrors = Math.max(0, Number(record.pollErrors || 0)) + 1;
       await ref.set({ pollErrors, lastPollError: message, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       if (pollErrors < 6) return json(res, 200, { jobId, status: 'PROCESSING', progress: 50, stage: `SONARA Video AI: riconnessione rendering (${pollErrors}/6)` });
-      const finalMessage = await failAndRefund(record, jobId, ref, app, `Rendering Video AI non raggiungibile: ${message}`);
+      const finalMessage = await failAndRefund(record, jobId, ref, app, `Rendering Video AI non raggiungibile: ${message}`, req, user.native);
       return json(res, 200, { jobId, status: 'FAILED', progress: 0, stage: 'Errore', error: finalMessage });
     }
   } catch (cause) {

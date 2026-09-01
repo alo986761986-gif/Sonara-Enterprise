@@ -1,8 +1,6 @@
 import type { SonaraPlanId } from '../../billing/plans';
 
-const NATIVE_SESSION_TOKEN = 'sonara-native-session';
 const SONARA_PUBLIC_ORIGIN = 'https://sonaraenterprise.com';
-const OWNER_VIDEO_CREDITS = 10_000;
 
 export interface AuthenticatedVideoUser {
   uid: string;
@@ -30,8 +28,7 @@ function bearerToken(req: any): string {
   return headerValue(req, 'authorization').match(/^Bearer\s+(.+)$/i)?.[1]?.trim() || '';
 }
 
-async function nativeSessionUser(req: any, token: string): Promise<AuthenticatedVideoUser | null> {
-  if (token !== NATIVE_SESSION_TOKEN) return null;
+async function nativeSessionUser(req: any): Promise<AuthenticatedVideoUser | null> {
   const cookie = headerValue(req, 'cookie');
   if (!cookie) return null;
 
@@ -51,28 +48,31 @@ async function nativeSessionUser(req: any, token: string): Promise<Authenticated
     const sessionUser = payload?.user;
     const uid = String(sessionUser?.uid || '').trim();
     const email = String(sessionUser?.email || '').trim().toLowerCase();
-    if (!payload?.authenticated || !uid || !email) return null;
-    const ownerEmail = String(process.env.SONARA_OWNER_EMAIL || '').trim().toLowerCase();
-    const owner = Boolean(ownerEmail && email === ownerEmail);
+    if (!payload?.authenticated || !uid) return null;
     const planId: SonaraPlanId = sessionUser?.planId === 'studio' ? 'studio' : 'free';
     return {
       uid,
-      email,
+      ...(email ? { email } : {}),
       native: true,
-      planId,
-      ...(owner ? { videoCreditsPerMonthOverride: OWNER_VIDEO_CREDITS } : {})
+      planId
     };
   } catch {
     return null;
   }
 }
 
+export async function authenticatedNativeVideoUser(req: any): Promise<AuthenticatedVideoUser | null> {
+  return nativeSessionUser(req);
+}
+
 export async function authenticatedVideoUser(req: any): Promise<AuthenticatedVideoUser | null> {
+  // A native user is authenticated by the Secure/HttpOnly SONARA cookie. The
+  // public Authorization header is neither trusted nor treated as a credential.
+  const native = await nativeSessionUser(req);
+  if (native) return native;
+
   const token = bearerToken(req);
   if (!token) return null;
-
-  const native = await nativeSessionUser(req, token);
-  if (native) return native;
 
   const apiKey = String(process.env.VITE_FIREBASE_API_KEY || process.env.SONARA_FIREBASE_API_KEY || '').trim();
   if (!apiKey) return null;

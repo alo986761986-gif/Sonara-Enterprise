@@ -8,7 +8,10 @@ on:
       - ".github/workflows/deploy-cloudflare-video-recovery.yml"
       - "cloudflare/sonara-web-v15-router.mjs"
       - "cloudflare/sonara-ab-player-visibility-edge.mjs"
+      - "cloudflare/sonara-native-auth-safe.mjs"
+      - "cloudflare/sonara-native-video-state.mjs"
       - "cloudflare/sonara-video-native-route.test.mjs"
+      - "cloudflare/sonara-native-video-state.test.mjs"
       - "cloudflare/sonara-engine-v15-authoritative-prompt.mjs"
       - "cloudflare/sonara-engine-v15-authoritative-prompt.test.mjs"
       - "cloudflare/extreme-fidelity-v16.test.mjs"
@@ -76,6 +79,7 @@ jobs:
           set -euo pipefail
           node cloudflare/sonara-video-active-proxy.test.mjs
           node cloudflare/sonara-video-native-route.test.mjs
+          node cloudflare/sonara-native-video-state.test.mjs
           grep -q "return proxyActiveVideoApi(request)" cloudflare/sonara-web-v15-router.mjs
           grep -q "active-molab-wan22-blackwell" cloudflare/sonara-web-v15-router.mjs
           ! grep -q "videoSuspendedResponse" cloudflare/sonara-web-v15-router.mjs
