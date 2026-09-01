@@ -4,8 +4,8 @@ const LOCK_ID = 'v15-authoritative-ui-taxonomy-v5';
 const TEMPO_LOCK_ID = 'v15-authoritative-bpm-v5-ui';
 const PROMPT_INTELLIGENCE_ID = 'sonara-prompt-intelligence-v2';
 const COHERENCE_CRITIC_ID = 'sonara-musical-coherence-critic-v1';
-const MAX_PROMPT_CHARS = 1800;
-const MAX_CREATOR_BRIEF_CHARS = 620;
+const MAX_PROMPT_CHARS = 2200;
+const MAX_CREATOR_BRIEF_CHARS = 520;
 const BPM_MIN = 40;
 const BPM_MAX = 220;
 
@@ -142,16 +142,16 @@ function musicalDNA(body = {}) {
 
 function creativeProfile(weirdness, styleInfluence, subgenre) {
   const weird = weirdness >= 80
-    ? 'high experimentation: unusual textures, fills and harmonic/rhythmic variations are welcome, but remain inside the selected DNA'
+    ? 'high experimentation inside the selected DNA'
     : weirdness >= 50
-      ? 'moderate creativity: introduce tasteful variations and evolving details without destabilizing genre identity'
-      : 'conservative creativity: prioritize familiar, polished genre conventions and predictable musical coherence';
+      ? 'tasteful variation without genre drift'
+      : 'conservative, familiar genre conventions';
 
   const style = styleInfluence >= 80
-    ? `strict fidelity: ${subgenre} conventions must dominate instrumentation, groove, harmony and arrangement`
+    ? `strict ${subgenre} fidelity`
     : styleInfluence >= 50
-      ? `strong fidelity: keep ${subgenre} unmistakable while allowing tasteful personal variation`
-      : `light fidelity: preserve the core ${subgenre} identity while allowing broader interpretation`;
+      ? `strong ${subgenre} fidelity with controlled variation`
+      : `core ${subgenre} identity with broader interpretation`;
 
   return `${style}; ${weird}`;
 }
@@ -164,20 +164,20 @@ function vocalProfile(body = {}) {
 
   if (/instrumental|no vocals|none|off/.test(mode)) return 'VOCALS: instrumental; no lead vocal, only non-lyrical texture if genre-authentic.';
   const descriptors = [gender, style, language].filter(Boolean).join(', ');
-  return `VOCALS: ${descriptors || 'genre-authentic'}; natural phrasing, controlled presence, emotionally credible delivery, no unnecessary continuous singing.`;
+  return `VOCALS: ${descriptors || 'genre-authentic'}; natural phrasing, credible delivery, no unnecessary continuous singing.`;
 }
 
 function mixProfile() {
-  return 'MIX/MASTER: tight controlled sub, kick/bass separation, clean low-mids, defined transients, wide atmospheres with centered low end, musical sidechain where appropriate, dynamic club-ready loudness, no clipping.';
+  return 'MIX/MASTER: controlled sub, kick/bass separation, clean low-mids, defined transients, wide atmospheres, centered low end, musical sidechain, dynamic club-ready loudness, no clipping.';
 }
 
 function coherenceCritic(body, dna, bpm, creatorBrief) {
   const selected = clean(body?.subgenre || body?.genre, 'Music');
   const bpmRule = bpm === null ? '' : `Structured ${bpm} BPM overrides any conflicting tempo in free text.`;
   const conflictHint = creatorBrief && /\b(bpm|house|techno|trap|jungle|drum|bass|rock|jazz|pop|reggae|afro|trance|hardcore)\b/i.test(creatorBrief)
-    ? 'If the brief names a conflicting genre, reinterpret only its compatible sonic qualities; never switch taxonomy.'
+    ? 'If the brief names a conflicting genre, keep only compatible sonic qualities; never switch taxonomy.'
     : '';
-  return `CRITIC: before rendering, reject contradictions, impossible combinations and genre drift. ${selected} identity, selected key, duration and structured controls win. ${bpmRule} ${conflictHint} Preserve musical causality: harmony, groove, sound palette and arrangement must reinforce each other. Avoid ${dna.avoid}.`;
+  return `CRITIC: reject contradictions and genre drift. ${selected}, key, duration and structured controls win. ${bpmRule} ${conflictHint} Harmony, groove, sound and arrangement must reinforce each other. Avoid ${dna.avoid}.`;
 }
 
 function authoritativePrompt(body) {
@@ -198,6 +198,7 @@ function authoritativePrompt(body) {
     `SONARA MUSIC DIRECTOR. STYLE LOCK: ${family} > ${genre} > ${subgenre}. Mood: ${mood}. UI taxonomy overrides conflicting free text; no neighboring-genre drift.`,
     tempo,
     `KEY/LENGTH: ${key}; about ${duration}s.`,
+    creatorBrief ? `CREATOR BRIEF INSIDE ALL LOCKS: ${creatorBrief}` : '',
     `HARMONY: ${dna.harmony}.`,
     `GROOVE: ${dna.groove}.`,
     `SOUND: ${dna.sound}.`,
@@ -205,8 +206,7 @@ function authoritativePrompt(body) {
     vocalProfile(body),
     `CREATIVE CONTROLS: style ${styleInfluence}/100, weirdness ${weirdness}/100; ${creativeProfile(weirdness, styleInfluence, subgenre)}.`,
     mixProfile(),
-    coherenceCritic(body, dna, bpm, creatorBrief),
-    creatorBrief ? `CREATOR BRIEF INSIDE ALL LOCKS: ${creatorBrief}` : ''
+    coherenceCritic(body, dna, bpm, creatorBrief)
   ].filter(Boolean).join(' ');
 
   return compact.slice(0, MAX_PROMPT_CHARS);
