@@ -1,5 +1,5 @@
 SONARA_MOLAB_XL_URL=https://informative-random-practices-hobby.trycloudflare.com
 MODEL=acestep-v15-xl-turbo
 MODE=MOLAB_XL_ONLY
-ACTION=bind-fresh-notebook-xl-turbo
-VERIFY=20260901-RTX-PRO-6000-XL-TURBO
+ACTION=bind-fresh-notebook-xl-turbo-retry
+VERIFY=20260901-BUILD-ASSETS-DEPLOY
