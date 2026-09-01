@@ -7,6 +7,7 @@ on:
       - main
     paths:
       - "cloudflare/sonara-music-director-v3-entry.mjs"
+      - "cloudflare/sonara-music-director-v3-ultra-guard.mjs"
       - "cloudflare/sonara-native-auth-main.mjs"
       - "cloudflare/sonara-next-studio-edge.mjs"
       - "cloudflare/sonara-quality-director-v2.mjs"
@@ -55,6 +56,7 @@ jobs:
       - name: Validate Music Director V3 syntax
         run: |
           node --check cloudflare/sonara-music-director-v3-entry.mjs
+          node --check cloudflare/sonara-music-director-v3-ultra-guard.mjs
           node --check cloudflare/sonara-quality-director-v2.mjs
           node --check cloudflare/sonara-next-studio-edge.mjs
           node --check cloudflare/sonara-studio-ai-router.mjs
@@ -88,7 +90,10 @@ jobs:
           grep -q "internalBatches: 2" cloudflare/sonara-music-director-v3-entry.mjs
           grep -q "automaticQualityRepair" cloudflare/sonara-music-director-v3-entry.mjs
           grep -q "visibleCandidateTarget: 2" cloudflare/sonara-music-director-v3-entry.mjs
-          grep -q "sonara-music-director-v3-entry.mjs" wrangler.jsonc
+          grep -q "sonara-ultra-quality-guard-1" cloudflare/sonara-music-director-v3-ultra-guard.mjs
+          grep -q "MAX_EXTRA_REPAIRS = 2" cloudflare/sonara-music-director-v3-ultra-guard.mjs
+          grep -q "TARGET_SCORE = 92" cloudflare/sonara-music-director-v3-ultra-guard.mjs
+          grep -q "sonara-music-director-v3-ultra-guard.mjs" wrangler.jsonc
           grep -q "sonara-engine-quality-2.0" cloudflare/sonara-quality-director-v2.mjs
           grep -q "acestep-v15-xl-base" cloudflare/sonara-studio-ai-router.mjs
 
