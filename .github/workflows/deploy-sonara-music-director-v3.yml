@@ -11,6 +11,7 @@ on:
       - "cloudflare/sonara-studio-transient-poll-guard.mjs"
       - "cloudflare/sonara-vocal-refinement-guard.mjs"
       - "cloudflare/sonara-vocal-safe-gate-report-aligner.mjs"
+      - "cloudflare/sonara-quality-ultra-stability-guard.mjs"
       - "cloudflare/sonara-native-auth-main.mjs"
       - "cloudflare/sonara-next-studio-edge.mjs"
       - "cloudflare/sonara-quality-director-v2.mjs"
@@ -67,6 +68,7 @@ jobs:
           node --check cloudflare/sonara-studio-transient-poll-guard.mjs
           node --check cloudflare/sonara-vocal-refinement-guard.mjs
           node --check cloudflare/sonara-vocal-safe-gate-report-aligner.mjs
+          node --check cloudflare/sonara-quality-ultra-stability-guard.mjs
           node --check cloudflare/sonara-quality-director-v2.mjs
           node --check cloudflare/sonara-next-studio-edge.mjs
           node --check cloudflare/sonara-studio-ai-router.mjs
@@ -139,7 +141,12 @@ jobs:
           grep -q "sonara-vocal-safe-report-aligner-1" cloudflare/sonara-vocal-safe-gate-report-aligner.mjs
           grep -q "reportsMatchedByAudioUrl: true" cloudflare/sonara-vocal-safe-gate-report-aligner.mjs
           grep -q "findReport" cloudflare/sonara-vocal-safe-gate-report-aligner.mjs
-          grep -q "sonara-vocal-safe-gate-report-aligner.mjs" wrangler.jsonc
+          grep -q "sonara-quality-ultra-stability-1" cloudflare/sonara-quality-ultra-stability-guard.mjs
+          grep -q "adaptiveSequentialBatches: true" cloudflare/sonara-quality-ultra-stability-guard.mjs
+          grep -q "concurrentBatches: false" cloudflare/sonara-quality-ultra-stability-guard.mjs
+          grep -q "MAX_TRANSIENT_POLLS = 5" cloudflare/sonara-quality-ultra-stability-guard.mjs
+          grep -q "SECONDARY_SOFT_TIMEOUT_MS = 90" cloudflare/sonara-quality-ultra-stability-guard.mjs
+          grep -q "sonara-quality-ultra-stability-guard.mjs" wrangler.jsonc
           grep -q "sonara-engine-quality-2.0" cloudflare/sonara-quality-director-v2.mjs
           grep -q "acestep-v15-xl-base" cloudflare/sonara-studio-ai-router.mjs
 
@@ -184,6 +191,29 @@ jobs:
           done
           if [[ ${verified} -ne 1 ]]; then
             echo "Direct Worker Music Director V3 verification failed." >&2
+            exit 1
+          fi
+
+      - name: Verify Quality Ultra stability guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          verified=0
+          for attempt in {1..12}; do
+            payload="$(curl -fsS --max-time 12 -H 'Cache-Control: no-cache' "${WORKER_ORIGIN}/api/music/stability/capabilities?release=${GITHUB_SHA}-${attempt}" || true)"
+            if [[ "${payload}" == *"sonara-quality-ultra-stability-1"* \
+              && "${payload}" == *'"adaptiveSequentialBatches":true'* \
+              && "${payload}" == *'"concurrentBatches":false'* \
+              && "${payload}" == *'"maxTransientPolls":5'* ]]; then
+              verified=1
+              echo "Quality / Ultra anti-stall guard verified on deployed Worker."
+              break
+            fi
+            echo "Waiting for Quality / Ultra stability propagation (${attempt}/12)."
+            sleep 3
+          done
+          if [[ ${verified} -ne 1 ]]; then
+            echo "Quality / Ultra anti-stall verification failed." >&2
             exit 1
           fi
 
