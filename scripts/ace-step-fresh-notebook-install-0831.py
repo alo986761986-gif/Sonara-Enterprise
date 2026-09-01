@@ -231,7 +231,7 @@ def download_models(env: dict) -> None:
     if not all(has_weights(p) for p in main_components):
         print('Scarico/verifico componenti principali ACE-Step...', flush=True)
         run(
-            [PYTHON, '-m', 'acestep.model_downloader', '--download-source', 'huggingface'],
+            [PYTHON, '-m', 'acestep.model_downloader', '--dir', str(checkpoints)],
             cwd=ROOT,
             env=env,
             timeout=21600,
@@ -249,8 +249,9 @@ def download_models(env: dict) -> None:
                 'acestep.model_downloader',
                 '--model',
                 MODEL,
-                '--download-source',
-                'huggingface',
+                '--dir',
+                str(checkpoints),
+                '--skip-main',
             ],
             cwd=ROOT,
             env=env,
