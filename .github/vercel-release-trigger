@@ -1,4 +1,4 @@
-SONARA_VERCEL_RELEASE=2026-09-01-VIDEO-PROGRESS-LIVE
-REASON=Publish Video AI MoLab live progress and stage propagation beyond the fixed 55 percent plateau
-EXPECTED_VIDEO_PROVIDER=molab-wan2.2-ti2v-5b
-SOURCE_COMMIT=de7e697dd2d9562124dcf0790b3017ad419808f8
+SONARA_VERCEL_RELEASE=2026-09-01-NATIVE-MUSIC-DIRECTOR-PROFILES
+REASON=Publish native React FAST QUALITY ULTRA generation profiles with persistent Music Director V3 propagation
+EXPECTED_MUSIC_DIRECTOR=sonara-music-director-v3
+SOURCE_COMMIT=da983a8caaaf663e1c1450942624c53f4baebcc2
