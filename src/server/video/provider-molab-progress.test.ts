@@ -34,6 +34,6 @@ assert.equal(failed.error, 'CUDA render failed');
 
 const queued = parseMolabVideoJob({ status: 'QUEUED', progress: 140, stage: 'In coda' });
 assert.equal(queued.done, false);
-assert.equal(queued.progress, 100);
+assert.equal(queued.progress, 99);
 
 console.log('MoLab Video AI progress and stage propagate to SONARA without a fixed 55% plateau.');

@@ -272,7 +272,11 @@ export function parseMolabVideoJob(operation: any): PolledVideoProviderJob {
       : { done: true, error: 'MoLab ha completato il job senza restituire il file video.', ...details, progress: 100 };
   }
 
-  return { done: false, ...details };
+  return {
+    done: false,
+    ...details,
+    ...(progress !== undefined ? { progress: Math.min(99, progress) } : {})
+  };
 }
 
 function stringValue(value: unknown) { return typeof value === 'string' ? value.trim() : '' }
