@@ -14,7 +14,7 @@ on:
       - "scripts/activate-studio-key-control.cjs"
       - "scripts/activate-studio-sessions-native.cjs"
       - "scripts/build-dispatch.cjs"
-      - "public/sonara-studio-pitch-key-v2.js"
+      - "public/sonara-studio-pitch-key-safe-v5.js"
       - "cloudflare/sonara-studio-key-pitch-guard.mjs"
       - "cloudflare/sonara-studio-native-pitch-bridge.mjs"
       - "wrangler.jsonc"
@@ -56,16 +56,17 @@ jobs:
           node --check scripts/activate-studio-real-engine-v2.cjs
           node --check scripts/activate-studio-video-v1.cjs
           node --check scripts/activate-studio-key-control.cjs
-          node --check public/sonara-studio-pitch-key-v2.js
+          node --check public/sonara-studio-pitch-key-safe-v5.js
           grep -Fq 'parseMidiBlob' src/components/studio/studioRealEngine.ts
           grep -Fq 'saveStudioAsset' src/components/studio/studioRealEngine.ts
           grep -Fq 'loadStudioAsset' src/components/studio/studioRealEngine.ts
-          grep -Fq 'sonara-studio-pitch-key-v2.js?v=4' index.html
+          grep -Fq 'sonara-studio-pitch-key-safe-v5.js?v=5' index.html
           grep -Fq 'sonara-studio-video-v1' index.html
           grep -Fq 'sonara-studio-real-engine-v2' index.html
-          grep -Fq '__sonaraStudioPitchKeyLocalOnlyV4' public/sonara-studio-pitch-key-v2.js
-          grep -Fq "form.append('src_audio', file" public/sonara-studio-pitch-key-v2.js
-          grep -Fq "sourceOrigin', 'user-local-device'" public/sonara-studio-pitch-key-v2.js
+          grep -Fq '__sonaraStudioPitchKeySafeV5' public/sonara-studio-pitch-key-safe-v5.js
+          grep -Fq "form.append('src_audio', localFile" public/sonara-studio-pitch-key-safe-v5.js
+          grep -Fq "sourceOrigin', 'user-local-device'" public/sonara-studio-pitch-key-safe-v5.js
+          if grep -Fq 'MutationObserver' public/sonara-studio-pitch-key-safe-v5.js; then echo 'FAIL unsafe MutationObserver present' >&2; exit 1; fi
 
       - name: Build production app with real Studio engine
         run: npm run build
@@ -82,7 +83,6 @@ jobs:
               echo "PASS ${label}"
             else
               echo "FAIL ${label}: '${pattern}' not found in ${file}" >&2
-              grep -Fn "${pattern%% *}" "$file" | head -n 10 >&2 || true
               exit 1
             fi
           }
@@ -107,15 +107,14 @@ jobs:
           check key-wiring 'keySignature={keySignature}' src/components/studio/StudioSectionControl.tsx
           check dist-real-engine 'sonara-studio-real-engine-v2' dist/index.html
           check dist-video-engine 'sonara-studio-video-v1' dist/index.html
-          check dist-pitch-script 'sonara-studio-pitch-key-v2.js?v=4' dist/index.html
-          if [[ -f dist/sonara-studio-pitch-key-v2.js ]]; then echo 'PASS pitch-script-file'; else echo 'FAIL pitch-script-file' >&2; exit 1; fi
-          check pitch-local-v4-marker '__sonaraStudioPitchKeyLocalOnlyV4' dist/sonara-studio-pitch-key-v2.js
-          check pitch-local-file-upload "form.append('src_audio', file" dist/sonara-studio-pitch-key-v2.js
-          check pitch-local-origin "sourceOrigin', 'user-local-device'" dist/sonara-studio-pitch-key-v2.js
-          check pitch-local-label 'FILE LOCALE' dist/sonara-studio-pitch-key-v2.js
-          check pitch-inline 'position:relative' dist/sonara-studio-pitch-key-v2.js
-          check pitch-host ".sonara-pro-studio" dist/sonara-studio-pitch-key-v2.js
-          echo "Studio Real Engine + synchronized video + local-only Pitch & Key verified in production bundle."
+          check dist-pitch-script 'sonara-studio-pitch-key-safe-v5.js?v=5' dist/index.html
+          if [[ -f dist/sonara-studio-pitch-key-safe-v5.js ]]; then echo 'PASS pitch-safe-v5-file'; else echo 'FAIL pitch-safe-v5-file' >&2; exit 1; fi
+          check pitch-safe-v5-marker '__sonaraStudioPitchKeySafeV5' dist/sonara-studio-pitch-key-safe-v5.js
+          check pitch-local-file-upload "form.append('src_audio', localFile" dist/sonara-studio-pitch-key-safe-v5.js
+          check pitch-local-origin "sourceOrigin', 'user-local-device'" dist/sonara-studio-pitch-key-safe-v5.js
+          check pitch-local-label 'FILE LOCALE' dist/sonara-studio-pitch-key-safe-v5.js
+          if grep -Fq 'MutationObserver' dist/sonara-studio-pitch-key-safe-v5.js; then echo 'FAIL unsafe MutationObserver in dist' >&2; exit 1; fi
+          echo "Studio Real Engine + freeze-safe local-only Pitch & Key V5 verified."
 
       - name: Resolve Cloudflare account
         shell: bash
@@ -145,22 +144,22 @@ jobs:
           set -euo pipefail
           for attempt in {1..30}; do
             page="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?studio-real=${GITHUB_SHA}-${attempt}" || true)"
-            script="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/sonara-studio-pitch-key-v2.js?v=4&verify=${GITHUB_SHA}-${attempt}" || true)"
+            script="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/sonara-studio-pitch-key-safe-v5.js?v=5&verify=${GITHUB_SHA}-${attempt}" || true)"
             capabilities="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/studio/pitch-key/capabilities?verify=${GITHUB_SHA}-${attempt}" || true)"
             if printf '%s' "${page}" | grep -Fq 'sonara-studio-real-engine-v2' \
               && printf '%s' "${page}" | grep -Fq 'sonara-studio-video-v1' \
-              && printf '%s' "${page}" | grep -Fq 'sonara-studio-pitch-key-v2.js?v=4' \
+              && printf '%s' "${page}" | grep -Fq 'sonara-studio-pitch-key-safe-v5.js?v=5' \
               && printf '%s' "${page}" | grep -Fq 'sonara-studio-v2.0-production' \
-              && printf '%s' "${script}" | grep -Fq '__sonaraStudioPitchKeyLocalOnlyV4' \
-              && printf '%s' "${script}" | grep -Fq "form.append('src_audio', file" \
+              && printf '%s' "${script}" | grep -Fq '__sonaraStudioPitchKeySafeV5' \
+              && printf '%s' "${script}" | grep -Fq "form.append('src_audio', localFile" \
               && printf '%s' "${script}" | grep -Fq 'FILE LOCALE' \
-              && printf '%s' "${script}" | grep -Fq 'position:relative' \
+              && ! printf '%s' "${script}" | grep -Fq 'MutationObserver' \
               && printf '%s' "${capabilities}" | grep -Fq 'sonara-studio-key-pitch-1'; then
-              echo "SONARA Studio video + local-only Pitch & Key are live and server API is verified."
+              echo "SONARA Studio freeze-safe local-only Pitch & Key V5 is live."
               exit 0
             fi
-            echo "Waiting for Studio video/Pitch propagation (${attempt}/30)."
+            echo "Waiting for Studio V5 propagation (${attempt}/30)."
             sleep 4
           done
-          echo "Studio video/Pitch public verification failed." >&2
+          echo "Studio V5 public verification failed." >&2
           exit 1
