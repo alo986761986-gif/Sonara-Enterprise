@@ -56,6 +56,8 @@ console.log('[SONARA] Activating production audio suite.');
 runCommand(node, ['scripts/activate-production-suite.cjs']);
 console.log('[SONARA] Activating native SONARA Sessions 2.0 timeline editing.');
 runCommand(node, ['scripts/activate-studio-sessions-native.cjs']);
+console.log('[SONARA] Activating real Studio Pro live DSP, MIDI and persistent audio engine.');
+runCommand(node, ['scripts/activate-studio-real-engine.cjs']);
 console.log('[SONARA] Activating electronic genre-specific lyric engines.');
 runCommand(node, ['scripts/activate-electronic-genres.cjs']);
 console.log('[SONARA] Activating universal taxonomy generation.');
