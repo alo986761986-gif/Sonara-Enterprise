@@ -1,0 +1,48 @@
+name: Verify MoLab Runtime Capabilities
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "cloudflare/sonara-studio-transient-poll-guard.mjs"
+      - ".github/workflows/verify-molab-runtime-capabilities.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Wait for capability endpoint and print runtime catalog
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="https://api.sonaraenterprise.com/api/molab/capabilities"
+          for attempt in {1..30}; do
+            payload="$(curl -fsS --max-time 10 -H 'Cache-Control: no-cache' "${endpoint}?release=${GITHUB_SHA}-${attempt}" || true)"
+            if [[ "${payload}" == *'"probeVersion":"runtime-probe-v1"'* ]]; then
+              echo "${payload}" | jq .
+              echo "${payload}" | jq -e '.configured == true' >/dev/null
+              echo "${payload}" | jq -e '.currentProductionModel == "acestep-v15-xl-turbo"' >/dev/null
+              echo "${payload}" | jq -e '.currentProductionInferenceSteps == 8' >/dev/null
+              echo "MOLAB_BASE_AVAILABLE=$(echo "${payload}" | jq -r '.baseGenerationAvailable // false')" >> "${GITHUB_ENV}"
+              exit 0
+            fi
+            echo "Waiting for MoLab runtime capability endpoint (${attempt}/30)."
+            sleep 4
+          done
+          echo "MoLab runtime capability endpoint did not become available." >&2
+          exit 1
+
+      - name: Report ULTRA eligibility
+        shell: bash
+        run: |
+          if [[ "${MOLAB_BASE_AVAILABLE:-false}" == "true" ]]; then
+            echo "ULTRA_ELIGIBLE=YES: acestep-v15-xl-base is present in the live MoLab catalog."
+          else
+            echo "ULTRA_ELIGIBLE=NO: keep XL-Turbo/8 until the live catalog exposes acestep-v15-xl-base."
+          fi
