@@ -78,17 +78,17 @@ jobs:
           fi
           echo "Video AI public generation is suspended while both T4s serve music."
 
-      - name: Validate Real Prompt music engine
+      - name: Validate Real Prompt v21 music engine
         run: |
           node cloudflare/sonara-engine-v15-authoritative-prompt.test.mjs
           node scripts/activate-extreme-fidelity-v16.cjs
           node cloudflare/extreme-fidelity-v16.test.mjs
-          grep -q "real-prompt-dual-v20" cloudflare/sonara-engine-v19-resilient-dual.mjs
+          grep -q "dual-t4-max-speed-v21" cloudflare/sonara-engine-v19-resilient-dual.mjs
           grep -q "thinking: true" cloudflare/sonara-engine-v19-resilient-dual.mjs
           grep -q "constrained_decoding: true" cloudflare/sonara-engine-v19-resilient-dual.mjs
           grep -q "if (pool.length >= 2)" cloudflare/sonara-engine-v19-resilient-dual.mjs
           grep -q "Promise.all" cloudflare/sonara-engine-v19-resilient-dual.mjs
-          echo "Real Prompt V20 dual-worker parallel path verified."
+          echo "Real Prompt v21 dual-worker parallel path verified."
 
       - name: Deploy Worker to Cloudflare production
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
@@ -129,8 +129,8 @@ jobs:
           if (!(count > 0 && workers.some(item => item?.kind === 'kaggle'))) {
             throw new Error(`Kaggle ACE-Step worker unavailable: ${JSON.stringify(health)}`);
           }
-          if (!(health.realPromptEngine === true && health.realPromptVersion === 'v20-5hz-lm-authoritative' && health.realPromptLmThinking === true)) {
-            throw new Error(`SONARA Real Prompt V20 not active: ${JSON.stringify(health)}`);
+          if (!(health.realPromptEngine === true && health.realPromptVersion === 'v21-dual-t4-max-speed' && health.realPromptLmThinking === true && health.resilientDualProfile === 'dual-t4-max-speed-v21')) {
+            throw new Error(`SONARA Real Prompt v21 not active: ${JSON.stringify(health)}`);
           }
           console.log(JSON.stringify({status: health.status, aceStepWorkerCount: count, aceStepWorkers: workers, realPromptVersion: health.realPromptVersion}));
           console.log('Music remains healthy; the second T4 will be bound by Configure SONARA Dual T4 Music after Kaggle conversion.');
