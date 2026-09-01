@@ -9,6 +9,8 @@ on:
       - "cloudflare/sonara-web-v15-router.mjs"
       - "cloudflare/sonara-video-ui-edge.mjs"
       - "cloudflare/sonara-video-ui-edge.test.mjs"
+      - "index.html"
+      - "wrangler.jsonc"
       - "cloudflare/sonara-ab-player-visibility-edge.mjs"
       - "cloudflare/sonara-native-auth-safe.mjs"
       - "cloudflare/sonara-native-video-state.mjs"
@@ -105,6 +107,22 @@ jobs:
 
       - name: Deploy Worker to Cloudflare production
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
+
+      - name: Verify Video AI progress fallback is public
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..18}; do
+            script="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/sonara-video-ui-edge.js?v=3&verify=${GITHUB_SHA}-${attempt}" || true)"
+            html="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?video-progress=${GITHUB_SHA}-${attempt}" || true)"
+            if grep -q "estimated-edge-fallback-v1" <<<"${script}" && grep -q "sonara-video-ui-edge.js?v=3" <<<"${html}"; then
+              echo "Video AI legacy 55% progress fallback is public."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Video AI progress fallback did not become public." >&2
+          exit 1
 
       - name: Verify Blackwell Video AI route is live
         shell: bash

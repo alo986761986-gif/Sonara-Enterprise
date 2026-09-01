@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import vm from 'node:vm';
 import { videoUiScriptResponse } from './sonara-video-ui-edge.mjs';
 
@@ -84,5 +85,10 @@ upstreamPayload = {
 const realProgress = await fakeWindow.fetch('/api/video/job/real-provider-progress');
 assert.deepEqual(await realProgress.json(), upstreamPayload);
 assert.equal(realProgress.headers.get('x-sonara-video-progress'), null);
+
+const indexHtml = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+assert.match(indexHtml, /<script src="\/sonara-video-ui-edge\.js\?v=3" defer><\/script>/);
+const wrangler = JSON.parse(fs.readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8'));
+assert.ok(wrangler.assets.run_worker_first.includes('/sonara-video-ui-edge.js'));
 
 console.log('SONARA Video AI edge fallback advances the legacy 55% plateau and leaves real MoLab progress untouched.');
