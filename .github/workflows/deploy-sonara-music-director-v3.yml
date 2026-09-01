@@ -8,6 +8,7 @@ on:
     paths:
       - "cloudflare/sonara-music-director-v3-entry.mjs"
       - "cloudflare/sonara-music-director-v3-ultra-guard.mjs"
+      - "cloudflare/sonara-studio-transient-poll-guard.mjs"
       - "cloudflare/sonara-native-auth-main.mjs"
       - "cloudflare/sonara-next-studio-edge.mjs"
       - "cloudflare/sonara-quality-director-v2.mjs"
@@ -57,6 +58,7 @@ jobs:
         run: |
           node --check cloudflare/sonara-music-director-v3-entry.mjs
           node --check cloudflare/sonara-music-director-v3-ultra-guard.mjs
+          node --check cloudflare/sonara-studio-transient-poll-guard.mjs
           node --check cloudflare/sonara-quality-director-v2.mjs
           node --check cloudflare/sonara-next-studio-edge.mjs
           node --check cloudflare/sonara-studio-ai-router.mjs
@@ -93,7 +95,10 @@ jobs:
           grep -q "sonara-ultra-quality-guard-1" cloudflare/sonara-music-director-v3-ultra-guard.mjs
           grep -q "MAX_EXTRA_REPAIRS = 2" cloudflare/sonara-music-director-v3-ultra-guard.mjs
           grep -q "TARGET_SCORE = 92" cloudflare/sonara-music-director-v3-ultra-guard.mjs
-          grep -q "sonara-music-director-v3-ultra-guard.mjs" wrangler.jsonc
+          grep -q "sonara-studio-transient-poll-guard-1" cloudflare/sonara-studio-transient-poll-guard.mjs
+          grep -q "MAX_TRANSIENT_POLLS = 4" cloudflare/sonara-studio-transient-poll-guard.mjs
+          grep -q "isTransientQueryFailure" cloudflare/sonara-studio-transient-poll-guard.mjs
+          grep -q "sonara-studio-transient-poll-guard.mjs" wrangler.jsonc
           grep -q "sonara-engine-quality-2.0" cloudflare/sonara-quality-director-v2.mjs
           grep -q "acestep-v15-xl-base" cloudflare/sonara-studio-ai-router.mjs
 
