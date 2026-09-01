@@ -49,6 +49,8 @@ console.log('[SONARA] Activating native SONARA Sessions 2.0 timeline editing.');
 runCommand(node, ['scripts/activate-studio-sessions-native.cjs']);
 console.log('[SONARA] Activating real Studio Pro live DSP, MIDI and persistent audio engine v2.');
 runCommand(node, ['scripts/activate-studio-real-engine-v2.cjs']);
+console.log('[SONARA] Activating synchronized Studio video import and preview.');
+runCommand(node, ['scripts/activate-studio-video-v1.cjs']);
 console.log('[SONARA] Activating real persistent Studio key control.');
 runCommand(node, ['scripts/activate-studio-key-control.cjs']);
 console.log('[SONARA] Activating electronic genre-specific lyric engines.');
