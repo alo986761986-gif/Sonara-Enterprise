@@ -1,0 +1,53 @@
+name: SONARA Vocal Safe Gate E2E
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "cloudflare/sonara-vocal-refinement-guard.mjs"
+      - "scripts/sonara-vocal-safe-gate-e2e.mjs"
+      - ".github/workflows/sonara-vocal-safe-gate-e2e.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonara-vocal-safe-gate-e2e
+  cancel-in-progress: true
+
+jobs:
+  safe-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      API_ORIGIN: https://api.sonaraenterprise.com
+      WEB_ORIGIN: https://sonaraenterprise.com
+      SONARA_VOCAL_SAFE_REPORT: sonara-vocal-safe-gate-e2e-report.json
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Guard Vocal Safe Gate contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q "sonara-vocal-safe-gate-1" cloudflare/sonara-vocal-refinement-guard.mjs
+          grep -q "'/api/studio/vocal-refine-safe'" cloudflare/sonara-vocal-refinement-guard.mjs
+          grep -q "MIN_RELEASE_SCORE = 88" cloudflare/sonara-vocal-refinement-guard.mjs
+          grep -q "MAX_TECHNICAL_REGRESSION = 1" cloudflare/sonara-vocal-refinement-guard.mjs
+          grep -q "fallbackUsed" cloudflare/sonara-vocal-refinement-guard.mjs
+      - name: Run real Vocal Safe Gate canary
+        run: node --import ./scripts/sonara-e2e-browser-origin.mjs scripts/sonara-vocal-safe-gate-e2e.mjs
+      - name: Print Safe Gate report
+        if: always()
+        run: cat sonara-vocal-safe-gate-e2e-report.json || true
+      - name: Upload Safe Gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonara-vocal-safe-gate-e2e-${{ github.run_id }}
+          path: sonara-vocal-safe-gate-e2e-report.json
+          if-no-files-found: warn
+          retention-days: 14
