@@ -6,6 +6,7 @@ import { isVideoApiRequest } from './sonara-video-api-recovery.mjs';
 import { injectVideoUiScript, videoUiScriptResponse } from './sonara-video-ui-edge.mjs';
 
 const API_HOST = 'api.sonaraenterprise.com';
+const VIDEO_API_ORIGIN = 'https://sonara-enterprise.vercel.app';
 const VIDEO_UI_SCRIPT_PATH = '/sonara-video-ui-edge.js';
 const BILLING_GENERATE_PATH = '/api/billing/generate';
 const ENGINE_GENERATE_PATH = '/api/engine/generate';
@@ -67,6 +68,43 @@ function videoSuspendedResponse(request) {
       Vary: 'Origin'
     }
   });
+}
+
+export async function proxyActiveVideoApi(request, fetcher = fetch) {
+  const incomingUrl = new URL(request.url);
+  const upstreamUrl = new URL(`${incomingUrl.pathname}${incomingUrl.search}`, VIDEO_API_ORIGIN);
+  const upstreamRequest = new Request(upstreamUrl.toString(), request);
+  upstreamRequest.headers.set('x-forwarded-host', incomingUrl.host);
+  upstreamRequest.headers.set('x-sonara-video-edge', 'molab-wan22-blackwell-v1');
+
+  try {
+    const upstreamResponse = await fetcher(upstreamRequest);
+    const headers = new Headers(upstreamResponse.headers);
+    headers.set('cache-control', 'private, no-store');
+    headers.set('x-sonara-video-state', 'active-molab-wan22-blackwell');
+    headers.set('x-sonara-video-edge', 'vercel-auth-proxy-v1');
+    return new Response(upstreamResponse.body, {
+      status: upstreamResponse.status,
+      statusText: upstreamResponse.statusText,
+      headers
+    });
+  } catch (cause) {
+    return new Response(JSON.stringify({
+      error: {
+        code: 'VIDEO_BACKEND_UNREACHABLE',
+        message: cause instanceof Error ? cause.message : 'Backend SONARA Video AI non raggiungibile.'
+      },
+      retryable: true
+    }), {
+      status: 502,
+      headers: {
+        'content-type': 'application/json; charset=UTF-8',
+        'cache-control': 'private, no-store',
+        'x-sonara-video-state': 'active-backend-unreachable',
+        'x-sonara-video-edge': 'vercel-auth-proxy-v1'
+      }
+    });
+  }
 }
 
 function wait(ms) {
@@ -216,7 +254,7 @@ export default {
       return Response.redirect(new URL(SONARA_FAVICON_ASSET, url.origin).toString(), 302);
     }
     if (url.hostname !== API_HOST && url.pathname === VIDEO_UI_SCRIPT_PATH) return videoUiScriptResponse();
-    if (url.hostname !== API_HOST && isVideoApiRequest(request)) return videoSuspendedResponse(request);
+    if (url.hostname !== API_HOST && isVideoApiRequest(request)) return proxyActiveVideoApi(request);
     if (url.hostname !== API_HOST && request.method === 'POST' && url.pathname === BILLING_GENERATE_PATH) return resilientDualGeneration(request, env, ctx);
     if (url.hostname !== API_HOST) {
       const directJob = resilientJobFromLegacyBillingBridge(request, url, env, ctx);

@@ -45,7 +45,7 @@ function molabConfigured() {
 
 function molabFrames() {
   const raw = Number(process.env.SONARA_MOLAB_VIDEO_FRAMES || 49);
-  const clamped = Math.max(17, Math.min(121, Number.isFinite(raw) ? Math.round(raw) : 49));
+  const clamped = Math.max(17, Math.min(193, Number.isFinite(raw) ? Math.round(raw) : 49));
   return Math.max(17, Math.floor((clamped - 1) / 4) * 4 + 1);
 }
 
