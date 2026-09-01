@@ -101,7 +101,7 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in {1..18}; do
-            code="$(curl -sS --max-time 30 -D /tmp/video-active.headers -o /tmp/video-active.json -w '%{http_code}' -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/api/video/status?active=${GITHUB_SHA}-${attempt}" || true)"
+            code="$(curl -sS --max-time 30 -D /tmp/video-active.headers -o /tmp/video-active.json -w '%{http_code}' -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/api/video/health?active=${GITHUB_SHA}-${attempt}" || true)"
             state="$(awk 'BEGIN{IGNORECASE=1} /^x-sonara-video-state:/{print $2}' /tmp/video-active.headers | tail -n1 | tr -d '\r')"
             edge="$(awk 'BEGIN{IGNORECASE=1} /^x-sonara-video-edge:/{print $2}' /tmp/video-active.headers | tail -n1 | tr -d '\r')"
             if [[ "${code}" == "401" && "${state}" == "active-molab-wan22-blackwell" && "${edge}" == "vercel-auth-proxy-v1" ]] && node - <<'NODE'
