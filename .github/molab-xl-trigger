@@ -1,5 +1,5 @@
 SONARA_MOLAB_XL_URL=https://thereafter-structure-earlier-bonus.trycloudflare.com
 MODEL=acestep-v15-xl-turbo
 MODE=MOLAB_XL_ONLY
-ACTION=bind-speed-v4
-VERIFY=20260902-SONARA-SPEED-V4-SINGLE-BATCH
+ACTION=bind-speed-v4-1-quality-ultra-fast
+VERIFY=20260902-SONARA-SPEED-V4-1-Q6-U8-EULER-SINGLE-BATCH
