@@ -8,6 +8,8 @@ const POLL_MS = Math.max(2500, Number(process.env.POLL_MS || 5000));
 const MAX_POLLS = Math.max(40, Number(process.env.MAX_POLLS || 180));
 const PROJECT = `prompt-v2-multigenre-${Date.now()}`;
 const PROFILE = 'sonara-prompt-v2-multigenre';
+const TRANSIENT_HTTP = new Set([502,503,504,524]);
+const MAX_HTTP_ATTEMPTS = 3;
 
 const report = { startedAt:new Date().toISOString(), apiOrigin:API, webOrigin:WEB, projectId:PROJECT, capabilities:null, profiles:{}, genres:{}, ok:false, diagnostics:[] };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -15,11 +17,42 @@ const save = () => { report.finishedAt = new Date().toISOString(); fs.writeFileS
 const h = extra => ({ ...(SECRET ? {'X-Sonara-Internal-Secret':SECRET} : {}), 'X-Sonara-Profile-Id':PROFILE, 'X-Sonara-Project-Id':PROJECT, ...(extra || {}) });
 
 async function json(url, init = {}, allowed = [200,202]) {
-  const response = await fetch(url, { ...init, signal: AbortSignal.timeout(Number(init.timeoutMs || 300000)) });
-  const text = await response.text(); let data;
-  try { data = text ? JSON.parse(text) : {}; } catch { throw new Error(`${init.label || url}: non-JSON HTTP ${response.status}: ${text.slice(0,400)}`); }
-  if (!allowed.includes(response.status)) throw new Error(`${init.label || url}: HTTP ${response.status}: ${JSON.stringify(data).slice(0,1000)}`);
-  return data;
+  let lastError = null;
+  for(let attempt=1;attempt<=MAX_HTTP_ATTEMPTS;attempt++){
+    try{
+      const response = await fetch(url, { ...init, signal: AbortSignal.timeout(Number(init.timeoutMs || 300000)) });
+      const text = await response.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : {}; }
+      catch {
+        if(TRANSIENT_HTTP.has(response.status) && attempt < MAX_HTTP_ATTEMPTS){
+          console.warn(`${init.label || url}: transient non-JSON HTTP ${response.status}, retry ${attempt}/${MAX_HTTP_ATTEMPTS}`);
+          await sleep(900 * attempt);
+          continue;
+        }
+        throw new Error(`${init.label || url}: non-JSON HTTP ${response.status}: ${text.slice(0,400)}`);
+      }
+      if(!allowed.includes(response.status)){
+        if(TRANSIENT_HTTP.has(response.status) && attempt < MAX_HTTP_ATTEMPTS){
+          console.warn(`${init.label || url}: transient HTTP ${response.status}, retry ${attempt}/${MAX_HTTP_ATTEMPTS}`);
+          await sleep(900 * attempt);
+          continue;
+        }
+        throw new Error(`${init.label || url}: HTTP ${response.status}: ${JSON.stringify(data).slice(0,1000)}`);
+      }
+      return data;
+    }catch(error){
+      lastError = error;
+      const retryable = /timeout|timed out|fetch failed|socket|ECONNRESET|EAI_AGAIN/i.test(String(error?.message || error));
+      if(retryable && attempt < MAX_HTTP_ATTEMPTS){
+        console.warn(`${init.label || url}: transient fetch error, retry ${attempt}/${MAX_HTTP_ATTEMPTS}: ${String(error?.message || error)}`);
+        await sleep(900 * attempt);
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw lastError || new Error(`${init.label || url}: richiesta fallita dopo ${MAX_HTTP_ATTEMPTS} tentativi.`);
 }
 
 function statusOf(data){ const raw=String(data?.status||data?.state||data?.data?.status||data?.data?.state||'').toUpperCase(); if(['COMPLETED','SUCCESS','SUCCEEDED','DONE','FINISHED','READY'].includes(raw))return'COMPLETED'; if(['FAILED','ERROR','CANCELLED','CANCELED'].includes(raw))return'FAILED'; return'PROCESSING'; }
@@ -44,7 +77,7 @@ async function pollJob(jobId,label){
   throw new Error(`${label}: timeout dopo ${MAX_POLLS} poll.`);
 }
 
-async function quality2(urls, requested, label){
+async function quality2(urls, requested, label, minScore){
   const data = await json(`${API}/api/studio/quality-v2`, {
     method:'POST', headers:h({'Content-Type':'application/json'}), body:JSON.stringify({audioUrls:urls,...requested}), label:`${label} quality-v2`
   }, [200,202]);
@@ -53,11 +86,11 @@ async function quality2(urls, requested, label){
   const ranked = reports.slice().sort((a,b)=>Number(b?.professionalScore||0)-Number(a?.professionalScore||0));
   const best = ranked[0] || {};
   const bestScore = Number(best?.professionalScore || 0);
-  if(bestScore < 88) throw new Error(`${label}: qualità ${bestScore}/100 sotto 88.`);
+  if(bestScore < minScore) throw new Error(`${label}: qualità ${bestScore}/100 sotto ${minScore}.`);
   if(best.bpmPassed !== true) throw new Error(`${label}: BPM lock ${requested.bpm} fallito; detected=${best.detectedBpm ?? best.bpm ?? 'n/a'}.`);
   const hard = [...new Set(ranked.flatMap(r=>r?.hardFailureReasons||[]))];
   if(hard.length) throw new Error(`${label}: hard failure ${hard.join(', ')}.`);
-  return { bestProfessionalScore:bestScore, bpmPassed:true, detectedBpm:best.detectedBpm??best.bpm??null, keyPassed:best.keyComparable===true?best.keyPassed===true:null, reports:ranked.map(r=>({professionalScore:r?.professionalScore,professionalReleasePassed:r?.professionalReleasePassed,measuredFromRealWav:r?.measuredFromRealWav,bpmPassed:r?.bpmPassed,detectedBpm:r?.detectedBpm??r?.bpm??null,hardFailureReasons:r?.hardFailureReasons||[]})) };
+  return { qualityThreshold:minScore, bestProfessionalScore:bestScore, bpmPassed:true, detectedBpm:best.detectedBpm??best.bpm??null, keyPassed:best.keyComparable===true?best.keyPassed===true:null, reports:ranked.map(r=>({professionalScore:r?.professionalScore,professionalReleasePassed:r?.professionalReleasePassed,measuredFromRealWav:r?.measuredFromRealWav,bpmPassed:r?.bpmPassed,detectedBpm:r?.detectedBpm??r?.bpm??null,hardFailureReasons:r?.hardFailureReasons||[]})) };
 }
 
 async function runCase(c){
@@ -68,13 +101,15 @@ async function runCase(c){
   const done=await pollJob(jobId,c.id); const urls=audioUrls(done).slice(0,2);
   if(urls.length!==2)throw new Error(`${c.id}: attesi 2 master, ricevuti ${urls.length}.`);
   if(!urls.every(isWavUrl))throw new Error(`${c.id}: output non interamente WAV.`);
-  const quality=await quality2(urls,{bpm:c.bpm,key:c.key,durationSec:30},c.id);
+  const minScore=Number(c.minScore || (c.profile==='ultra'?92:88));
+  const quality=await quality2(urls,{bpm:c.bpm,key:c.key,durationSec:30},c.id,minScore);
+  console.log(`${c.id}: QUALITY ${quality.bestProfessionalScore}/100 | BPM ${quality.detectedBpm} | gate >= ${minScore}`);
   return {jobId,genre:c.genre,subgenre:c.subgenre,requestedBpm:c.bpm,requestedKey:c.key,audioUrls:urls,...quality};
 }
 
 const CASES=[
 {id:'deep-house-quality',genreFamily:'Electronic / Dance',genre:'House',subgenre:'Deep House',bpm:122,key:'A Minor',weirdness:48,styleInfluence:92,mood:'Deep, dark, emotional, hypnotic, elegant, late-night',prompt:'Professional deep house instrumental, exact 122 BPM in A minor. Deep controlled sub bass, rounded club kick, crisp restrained percussion, warm analog minor chords, subtle dub echoes, evolving nocturnal pads, memorable understated motif, tension and release, polished stereo depth, clean transients, deliberate ending. No vocals. Avoid generic EDM and pop structure.'},
-{id:'deep-house-ultra',profile:'ultra',genreFamily:'Electronic / Dance',genre:'House',subgenre:'Deep House',bpm:122,key:'A Minor',weirdness:42,styleInfluence:96,mood:'Deep, dark, emotional, hypnotic, elegant, late-night',prompt:'Release-ready deep house instrumental, exact 122 BPM in A minor. Expensive analog character, deep controlled sub, rounded club kick, detailed restrained percussion, warm extended minor chords, dub space, evolving nocturnal pads, memorable two-bar hook, organic micro-variation, strong tension and release, deliberate DJ-friendly ending, natural dynamics, pristine transients, coherent stereo depth. No vocals. No generic EDM.'},
+{id:'deep-house-ultra',profile:'ultra',minScore:92,genreFamily:'Electronic / Dance',genre:'House',subgenre:'Deep House',bpm:122,key:'A Minor',weirdness:42,styleInfluence:96,mood:'Deep, dark, emotional, hypnotic, elegant, late-night',prompt:'Release-ready deep house instrumental, exact 122 BPM in A minor. Expensive analog character, deep controlled sub, rounded club kick, detailed restrained percussion, warm extended minor chords, dub space, evolving nocturnal pads, memorable two-bar hook, organic micro-variation, strong tension and release, deliberate DJ-friendly ending, natural dynamics, pristine transients, coherent stereo depth. No vocals. No generic EDM.'},
 {id:'tech-house',genreFamily:'Electronic / Dance',genre:'House',subgenre:'Tech House',bpm:126,key:'F Minor',weirdness:42,styleInfluence:94,mood:'Driving, minimal, dark, club-focused',prompt:'Professional Tech House instrumental at exact 126 BPM in F minor. Tight punchy kick, elastic mono bass phrase, pronounced 16th-note shuffle, rolling hats, syncopated percussion, sparse dry stabs, filtered hook fragments, compact DJ arrangement, controlled FX, strong club low end. No lush cinematic pads, no trance supersaws.'},
 {id:'afro-house',genreFamily:'Electronic / Dance',genre:'House',subgenre:'Afro House',bpm:120,key:'D Minor',weirdness:50,styleInfluence:94,mood:'Organic, hypnotic, soulful, spiritual',prompt:'Professional Afro House instrumental at exact 120 BPM in D minor. Interlocking polyrhythms, hand drums, shakers, grounded four-on-the-floor kick, deep bass, organic mallets, soulful modal harmony, call-and-response motifs, warm pads, earthy textures, gradual spiritual build. No generic EDM drop.'},
 {id:'trap',genreFamily:'Hip Hop / Rap',genre:'Trap',subgenre:'Trap',bpm:140,key:'C Minor',weirdness:45,styleInfluence:95,mood:'Dark, cinematic, heavy, focused',prompt:'Professional Trap instrumental at exact 140 BPM in C minor. Deep controlled 808, weighty kick relationship, crisp snare, expressive hi-hat subdivisions and rolls, sparse dark keys and bells, strong tonal center, spacious verse pocket, hook lift. No four-on-the-floor house groove.'},
