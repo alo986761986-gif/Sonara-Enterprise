@@ -3,12 +3,14 @@ import { buildVocalLyricsV3Body, prepareVocalLyricsV3, VOCAL_LYRICS_DIRECTOR_V3 
 
 export { SonaraJobState, SonaraAuthStore };
 
-const VERSION = 'sonara-speed-v4';
+const VERSION = 'sonara-speed-v4.1-quality-ultra-fast';
 const STATE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/speed-v4/';
 const STATE_TTL = 6 * 60 * 60;
 const JOB_RE = /^\/api\/music\/job\/([^/]+)$/;
 const GENERATE_PATHS = new Set(['/api/engine/generate', '/api/billing/generate']);
 const ASR_TIMEOUT = 180_000;
+const QUALITY_STEPS = 6;
+const ULTRA_STEPS = 8;
 
 const clean = value => String(value ?? '').trim();
 const cleanUrl = value => clean(value).replace(/\/$/, '');
@@ -179,12 +181,24 @@ function speedBody(body, profile) {
   if (profile === 'ultra') {
     return {
       ...body,
+      generationProfileV3: 'ultra',
+      renderProfile: 'ultra',
+      generationProfile: 'ultra',
+      qualityProfile: 'ultra',
       candidateCount: 2,
       candidate_count: 2,
       dualFast: true,
+      sonaraDirectorBypass: true,
+      sonaraAutoRepair: false,
       sonaraSpeedV4: VERSION,
-      sonaraSpeedExecutionProfile: 'ultra',
-      sonaraRequestedGenerationProfile: profile
+      sonaraFastUltra: true,
+      sonaraSpeedInferenceSteps: ULTRA_STEPS,
+      sonaraSpeedSampler: 'euler',
+      sonaraSpeedExecutionProfile: 'ultra-fast-single-batch',
+      sonaraRequestedGenerationProfile: profile,
+      sonaraAutomaticCandidateRanking: true,
+      sonaraVisibleCandidateTarget: 2,
+      sonaraInternalCandidateTarget: 2
     };
   }
 
@@ -197,11 +211,14 @@ function speedBody(body, profile) {
     candidateCount: 2,
     candidate_count: 2,
     dualFast: true,
+    sonaraDirectorBypass: true,
     sonaraRealMusic: false,
     sonara_real_music: false,
     sonaraAutoRepair: false,
     sonaraSpeedV4: VERSION,
-    sonaraSpeedExecutionProfile: 'fast-single-batch',
+    sonaraSpeedInferenceSteps: QUALITY_STEPS,
+    sonaraSpeedSampler: 'euler',
+    sonaraSpeedExecutionProfile: 'quality-fast-single-batch',
     sonaraRequestedGenerationProfile: profile,
     sonaraAutomaticCandidateRanking: true,
     sonaraVisibleCandidateTarget: 2,
@@ -251,7 +268,9 @@ async function prepareGeneration(request, env, ctx) {
   catch { return response; }
 
   const jobId = firstJobId(payload);
-  const verifyAfter = prepared?.enabled === true && (profile === 'ultra' || body?.verifyLyrics === true || body?.sonaraLyricsVerification === true);
+  const verifyAfter = prepared?.enabled === true && (body?.verifyLyrics === true || body?.sonaraLyricsVerification === true);
+  const executionProfile = profile === 'ultra' ? 'ultra-fast-single-batch' : 'quality-fast-single-batch';
+  const inferenceSteps = profile === 'ultra' ? ULTRA_STEPS : QUALITY_STEPS;
   if (jobId && prepared?.enabled) {
     await saveState(env, jobId, {
       jobId,
@@ -259,7 +278,8 @@ async function prepareGeneration(request, env, ctx) {
       performanceLyrics: prepared.performanceLyrics,
       language: prepared.language,
       requestedProfile: profile,
-      executionProfile: profile === 'ultra' ? 'ultra' : 'fast-single-batch',
+      executionProfile,
+      inferenceSteps,
       verifyAfter,
       createdAt: Date.now(),
       verifying: false,
@@ -274,10 +294,12 @@ async function prepareGeneration(request, env, ctx) {
       ...(payload.metadata || {}),
       speedProfile: VERSION,
       requestedGenerationProfile: profile,
-      executionProfile: profile === 'ultra' ? 'ultra' : 'fast-single-batch',
-      singleGpuBatch: profile !== 'ultra',
+      executionProfile,
+      inferenceSteps,
+      samplerMode: 'euler',
+      singleGpuBatch: true,
       visibleCandidateTarget: 2,
-      automaticSecondBatch: profile === 'ultra',
+      automaticSecondBatch: false,
       lmThinking: profile === 'ultra',
       lyricVerificationMode: verifyAfter ? 'deferred' : 'on-demand',
       lyricVerificationPending: false
@@ -298,7 +320,13 @@ async function decorateJob(request, env, ctx, jobId) {
   if (state.completedPayload) return jsonResponse(response, state.completedPayload);
   if (statusOf(payload) !== 'COMPLETED') return jsonResponse(response, {
     ...payload,
-    metadata: { ...(payload.metadata || {}), speedProfile: VERSION, executionProfile: state.executionProfile }
+    metadata: {
+      ...(payload.metadata || {}),
+      speedProfile: VERSION,
+      executionProfile: state.executionProfile,
+      inferenceSteps: state.inferenceSteps,
+      samplerMode: 'euler'
+    }
   });
 
   const immediate = {
@@ -307,6 +335,8 @@ async function decorateJob(request, env, ctx, jobId) {
       ...(payload.metadata || {}),
       speedProfile: VERSION,
       executionProfile: state.executionProfile,
+      inferenceSteps: state.inferenceSteps,
+      samplerMode: 'euler',
       lyricVerificationMode: state.verifyAfter ? 'deferred' : 'on-demand',
       lyricVerificationPending: state.verifyAfter === true
     }
