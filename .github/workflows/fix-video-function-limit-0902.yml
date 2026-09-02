@@ -1,0 +1,86 @@
+name: Fix SONARA Video MP4 Without Extra Vercel Function
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-video-function-limit-0902.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix-video:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Merge strict MP4 delivery into existing Video API
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('api/video/[...path].ts')
+          text = path.read_text(encoding='utf-8')
+
+          old_job = "const jobId = String(operationName || '').trim();"
+          new_job = "const jobId = String(operationName || '').trim().replace(/\\.mp4$/i, '');"
+          if old_job in text:
+              text = text.replace(old_job, new_job, 1)
+          elif new_job not in text:
+              raise SystemExit('proxyNativeMolabFile jobId pattern not found')
+
+          old_headers = "const upstreamHeaders: Record<string, string> = { 'x-sonara-token': token };"
+          new_headers = "const upstreamHeaders: Record<string, string> = { 'x-sonara-token': token, Accept: 'video/mp4' };"
+          if old_headers in text:
+              text = text.replace(old_headers, new_headers, 1)
+          elif new_headers not in text:
+              raise SystemExit('upstreamHeaders pattern not found')
+
+          old_bytes = """  const bytes = Buffer.from(await response.arrayBuffer());
+  if (!upstreamContentLength) res.setHeader('Content-Length', String(bytes.length));
+  return res.send(bytes);"""
+          new_bytes = """  const bytes = Buffer.from(await response.arrayBuffer());
+  const validateMp4 = response.status === 200 || !upstreamContentRange || /^bytes\\s+0-/i.test(upstreamContentRange);
+  if (validateMp4 && (bytes.length < 12 || bytes.subarray(4, 8).toString('ascii') !== 'ftyp')) {
+    const preview = bytes.subarray(0, 160).toString('utf8').replace(/\\s+/g, ' ');
+    console.error('[SONARA VIDEO] upstream file is not MP4', {
+      jobId,
+      contentType: response.headers.get('content-type'),
+      preview
+    });
+    return fail(res, 502, 'VIDEO_FILE_NOT_MP4', 'Il motore Video AI non ha restituito un MP4 valido.');
+  }
+  if (!upstreamContentLength) res.setHeader('Content-Length', String(bytes.length));
+  return res.send(bytes);"""
+          if old_bytes in text:
+              text = text.replace(old_bytes, new_bytes, 1)
+          elif "VIDEO_FILE_NOT_MP4" not in text:
+              raise SystemExit('MP4 bytes block not found')
+
+          path.write_text(text, encoding='utf-8')
+
+          dedicated = Path('api/video/file/[id].mp4.ts')
+          if dedicated.exists():
+              dedicated.unlink()
+
+          workflow = Path('.github/workflows/fix-video-function-limit-0902.yml')
+          if workflow.exists():
+              workflow.unlink()
+          PY
+
+      - name: Commit production fix
+        shell: bash
+        run: |
+          git config user.name "SONARA Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes required"
+            exit 0
+          fi
+          git commit -m "fix(video): deliver strict MP4 within existing Vercel function"
+          git push origin HEAD:main
