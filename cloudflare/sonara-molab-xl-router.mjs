@@ -81,6 +81,19 @@ function profileOf(body = {}) {
   return 'quality';
 }
 
+function inferenceStepsOf(body = {}, profile = profileOf(body)) {
+  const requested = Number(body?.sonaraSpeedInferenceSteps ?? body?.inference_steps ?? body?.inferenceSteps);
+  if (Number.isFinite(requested)) return Math.round(clamp(requested, profile === 'ultra' ? 8 : 6, 4, 8));
+  return profile === 'ultra' ? 8 : profile === 'fast' ? 6 : 6;
+}
+
+function samplerOf(body = {}, realMusic = false) {
+  const requested = String(body?.sonaraSpeedSampler || body?.sampler_mode || '').trim().toLowerCase();
+  if (requested === 'euler' || requested === 'heun') return requested;
+  if (body?.sonaraFastUltra === true) return 'euler';
+  return realMusic ? 'heun' : 'euler';
+}
+
 function creatorIntent(body = {}) {
   return String(body?.rawPrompt || body?.creatorPrompt || body?.creator_prompt || body?.musicPrompt || '').trim();
 }
@@ -182,6 +195,8 @@ export function buildMolabPayload(body, count, capabilities = {}) {
   const controls = qualityControls(body);
   const profile = profileOf(body);
   const realMusic = realMusicEnabled(body, capabilities);
+  const inferenceSteps = inferenceStepsOf(body, profile);
+  const samplerMode = samplerOf(body, realMusic);
   const locks = [
     body.sonaraStudioMaxHookContract,
     body.sonaraStudioMaxVocalContract,
@@ -210,7 +225,7 @@ export function buildMolabPayload(body, count, capabilities = {}) {
     ...base,
     model: MODEL,
     prompt,
-    inference_steps: INFERENCE_STEPS,
+    inference_steps: inferenceSteps,
     guidance_scale: 1.0,
     batch_size: count,
     thinking: realMusic,
@@ -230,7 +245,7 @@ export function buildMolabPayload(body, count, capabilities = {}) {
     constrained_decoding_debug: false,
     allow_lm_batch: false,
     infer_method: 'ode',
-    sampler_mode: realMusic ? 'heun' : 'euler',
+    sampler_mode: samplerMode,
     shift: realMusic ? Number(base.shift || 1.0) : 1.0,
     dcw_enabled: true,
     dcw_mode: 'double',
@@ -240,7 +255,9 @@ export function buildMolabPayload(body, count, capabilities = {}) {
     normalization_db: -1.0,
     use_random_seed: true,
     sonara_real_music_v1: realMusic,
-    sonara_generation_profile: profile
+    sonara_generation_profile: profile,
+    sonara_speed_inference_steps: inferenceSteps,
+    sonara_speed_sampler: samplerMode
   };
 
   return payload;
@@ -383,23 +400,27 @@ function publicAudioUrl(path) {
 
 function candidatesFrom(refs, payload = {}) {
   const realMusic = payload?.sonara_real_music_v1 === true;
+  const inferenceSteps = Number(payload?.inference_steps || INFERENCE_STEPS);
+  const samplerMode = String(payload?.sampler_mode || (realMusic ? 'heun' : 'euler'));
   return refs.map((path, index) => ({
     id: index === 0 ? 'A' : 'B',
     audioUrl: publicAudioUrl(path),
     audioFormat: 'wav',
     provider: 'molab',
     model: MODEL,
-    inferenceSteps: INFERENCE_STEPS,
+    inferenceSteps,
     fidelityProfile: FIDELITY_PROFILE,
     realMusicProfile: realMusic ? REAL_MUSIC_PROFILE : null,
     thinking: realMusic,
-    samplerMode: realMusic ? 'heun' : 'euler',
+    samplerMode,
     strategy: index === 0 ? 'molab-xl-fidelity-hook' : 'molab-xl-fidelity-variation'
   }));
 }
 
 function qualityMetadata(count, payload = {}) {
   const realMusic = payload?.sonara_real_music_v1 === true;
+  const inferenceSteps = Number(payload?.inference_steps || INFERENCE_STEPS);
+  const samplerMode = String(payload?.sampler_mode || (realMusic ? 'heun' : 'euler'));
   return {
     engine: realMusic ? 'SONARA MoLab RTX PRO 6000 XL-Turbo Real Music' : 'SONARA MoLab RTX PRO 6000 XL-Turbo Fidelity',
     provider: 'molab',
@@ -411,8 +432,8 @@ function qualityMetadata(count, payload = {}) {
     realMusicProfile: realMusic ? REAL_MUSIC_PROFILE : null,
     generationProfile: payload?.sonara_generation_profile || 'quality',
     speedProfile: VERSION,
-    inferenceSteps: INFERENCE_STEPS,
-    samplerMode: realMusic ? 'heun' : 'euler',
+    inferenceSteps,
+    samplerMode,
     dcwEnabled: true,
     lmModel: realMusic ? 'acestep-5Hz-lm-4B' : null,
     batchSize: count,
@@ -470,8 +491,8 @@ async function startMolab(request, env) {
       metadata: {
         ...meta,
         currentStage: meta.thinking
-          ? (count === 2 ? 'Real Music: LM 4B + Heun, batch RTX avviato' : 'Real Music: LM 4B + Heun, inferenza RTX avviata')
-          : (count === 2 ? 'MoLab Fidelity: batch RTX avviato' : 'MoLab Fidelity: inferenza RTX avviata')
+          ? (count === 2 ? `Real Music: LM 4B + ${meta.samplerMode}, ${meta.inferenceSteps} step, batch RTX avviato` : `Real Music: LM 4B + ${meta.samplerMode}, ${meta.inferenceSteps} step, inferenza RTX avviata`)
+          : (count === 2 ? `MoLab Fidelity: ${meta.inferenceSteps} step, batch RTX avviato` : `MoLab Fidelity: ${meta.inferenceSteps} step, inferenza RTX avviata`)
       }
     }, 202);
   } catch (error) {
@@ -563,7 +584,7 @@ async function pollMolab(request, env, jobId) {
       candidates: [],
       metadata: {
         ...meta,
-        currentStage: info.stage || (meta.thinking ? 'Real Music: LM 4B + Heun sta generando sulla RTX PRO 6000' : 'MoLab XL-Turbo sta generando sulla RTX PRO 6000')
+        currentStage: info.stage || (meta.thinking ? `Real Music: LM 4B + ${meta.samplerMode}, ${meta.inferenceSteps} step sulla RTX PRO 6000` : `MoLab XL-Turbo ${meta.inferenceSteps} step sulla RTX PRO 6000`)
       }
     });
   } catch (error) {
@@ -658,7 +679,9 @@ async function readiness(request, env) {
     formatEnhancement: false,
     constrainedDecoding: realMusicReady,
     inferenceSteps: INFERENCE_STEPS,
-    samplerMode: realMusicReady ? 'heun' : 'euler',
+    qualityInferenceSteps: 6,
+    ultraInferenceSteps: 8,
+    samplerMode: 'euler',
     dcwEnabled: true,
     maxBatchSize: 2,
     kaggleEnabled: false,
