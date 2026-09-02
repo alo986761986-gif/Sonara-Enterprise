@@ -88,9 +88,11 @@ async function quality2(urls, requested, label, minScore){
   const bestScore = Number(best?.professionalScore || 0);
   if(bestScore < minScore) throw new Error(`${label}: qualità ${bestScore}/100 sotto ${minScore}.`);
   if(best.bpmPassed !== true) throw new Error(`${label}: BPM lock ${requested.bpm} fallito; detected=${best.detectedBpm ?? best.bpm ?? 'n/a'}.`);
-  const hard = [...new Set(ranked.flatMap(r=>r?.hardFailureReasons||[]))];
-  if(hard.length) throw new Error(`${label}: hard failure ${hard.join(', ')}.`);
-  return { qualityThreshold:minScore, bestProfessionalScore:bestScore, bpmPassed:true, detectedBpm:best.detectedBpm??best.bpm??null, keyPassed:best.keyComparable===true?best.keyPassed===true:null, reports:ranked.map(r=>({professionalScore:r?.professionalScore,professionalReleasePassed:r?.professionalReleasePassed,measuredFromRealWav:r?.measuredFromRealWav,bpmPassed:r?.bpmPassed,detectedBpm:r?.detectedBpm??r?.bpm??null,hardFailureReasons:r?.hardFailureReasons||[]})) };
+  const bestHard = [...new Set(best?.hardFailureReasons || [])];
+  if(bestHard.length) throw new Error(`${label}: hard failure sul candidato raccomandato: ${bestHard.join(', ')}.`);
+  if(best.professionalReleasePassed !== true) throw new Error(`${label}: candidato raccomandato non release-ready nonostante score ${bestScore}.`);
+  if(best.keyComparable === true && best.keyPassed === false) throw new Error(`${label}: key lock ${requested.key} fallito sul candidato raccomandato.`);
+  return { qualityThreshold:minScore, bestProfessionalScore:bestScore, bpmPassed:true, detectedBpm:best.detectedBpm??best.bpm??null, keyPassed:best.keyComparable===true?best.keyPassed===true:null, bestHardFailureReasons:bestHard, rejectedCandidateHardFailures:[...new Set(ranked.slice(1).flatMap(r=>r?.hardFailureReasons||[]))], reports:ranked.map(r=>({professionalScore:r?.professionalScore,professionalReleasePassed:r?.professionalReleasePassed,measuredFromRealWav:r?.measuredFromRealWav,bpmPassed:r?.bpmPassed,detectedBpm:r?.detectedBpm??r?.bpm??null,keyComparable:r?.keyComparable,keyPassed:r?.keyPassed,hardFailureReasons:r?.hardFailureReasons||[]})) };
 }
 
 async function runCase(c){
