@@ -17,7 +17,7 @@ def run(name: str, label: str) -> None:
 
 
 def main() -> None:
-    run('ace-step-vocal-asr-v3-upgrade-0902.py', 'SONARA VOCAL & LYRICS V3 — INSTALLAZIONE ASR GPU')
+    run('ace-step-vocal-asr-v3-install-fix-0902.py', 'SONARA VOCAL & LYRICS V3 — ASR GPU ROBUST INSTALL FIX')
     run('ace-step-real-music-v2-speed-quality-upgrade-0902.py', 'SONARA VOCAL & LYRICS V3 — RIAVVIO REAL MUSIC V2 + NUOVO TUNNEL')
 
 
