@@ -1,0 +1,184 @@
+name: Fix SONARA authenticated MP4 preview and download
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/fix-video-authenticated-mp4-0902.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Patch Video AI authenticated playback and download
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/components/video/VideoAISectionControl.tsx')
+          text = path.read_text(encoding='utf-8')
+
+          def replace_once(old: str, new: str, label: str):
+              global text
+              if old not in text:
+                  raise SystemExit(f'Missing patch marker: {label}')
+              text = text.replace(old, new, 1)
+
+          replace_once(
+              "  const [videoUrl, setVideoUrl] = useState('');\n  const [promptVariant, setPromptVariant] = useState(0);\n  const [smartPromptActive, setSmartPromptActive] = useState(false);\n  const activePollRef = useRef('');",
+              "  const [videoUrl, setVideoUrl] = useState('');\n  const [playbackUrl, setPlaybackUrl] = useState('');\n  const [videoBlob, setVideoBlob] = useState<Blob | null>(null);\n  const [promptVariant, setPromptVariant] = useState(0);\n  const [smartPromptActive, setSmartPromptActive] = useState(false);\n  const activePollRef = useRef('');\n  const videoObjectUrlRef = useRef('');",
+              'video-state',
+          )
+
+          replace_once(
+              "  }, [open]);\n\n  const refreshStatus = async () => {",
+              """  }, [open]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let localObjectUrl = '';
+
+    const releasePrevious = () => {
+      const previous = videoObjectUrlRef.current;
+      if (previous) URL.revokeObjectURL(previous);
+      videoObjectUrlRef.current = '';
+      setPlaybackUrl('');
+      setVideoBlob(null);
+    };
+
+    releasePrevious();
+    if (!videoUrl) return () => { cancelled = true; };
+
+    void (async () => {
+      try {
+        const token = await getFirebaseIdToken(true);
+        const response = await fetch(videoUrl, {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${token}`, Accept: 'video/mp4' },
+          cache: 'no-store',
+          credentials: 'same-origin'
+        });
+
+        if (!response.ok) {
+          const preview = (await response.text().catch(() => '')).replace(/\\s+/g, ' ').slice(0, 180);
+          throw new Error(`MP4 Video AI non disponibile (HTTP ${response.status})${preview ? `: ${preview}` : ''}.`);
+        }
+
+        const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+        const buffer = await response.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        const hasMp4Signature = bytes.length >= 12
+          && String.fromCharCode(bytes[4], bytes[5], bytes[6], bytes[7]) === 'ftyp';
+
+        if (!contentType.includes('video/mp4') || !hasMp4Signature) {
+          throw new Error(`SONARA ha ricevuto un file non MP4 (${contentType || 'content-type assente'}).`);
+        }
+
+        const blob = new Blob([buffer], { type: 'video/mp4' });
+        localObjectUrl = URL.createObjectURL(blob);
+        if (cancelled) {
+          URL.revokeObjectURL(localObjectUrl);
+          localObjectUrl = '';
+          return;
+        }
+
+        videoObjectUrlRef.current = localObjectUrl;
+        setVideoBlob(blob);
+        setPlaybackUrl(localObjectUrl);
+        setError('');
+      } catch (cause) {
+        if (cancelled) return;
+        setPlaybackUrl('');
+        setVideoBlob(null);
+        setError(cause instanceof Error ? cause.message : String(cause));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (localObjectUrl) URL.revokeObjectURL(localObjectUrl);
+      if (videoObjectUrlRef.current === localObjectUrl) videoObjectUrlRef.current = '';
+    };
+  }, [videoUrl]);
+
+  const refreshStatus = async () => {""",
+              'authenticated-playback-effect',
+          )
+
+          replace_once(
+              "  const overlay = useMemo(() => !open ? null : (",
+              """  const downloadCurrentVideo = async () => {
+    if (!videoBlob || !playbackUrl) {
+      setError('Il file MP4 non è ancora pronto per il download.');
+      return;
+    }
+    const match = videoUrl.match(/\\/([^/?#]+)\\.mp4(?:[?#]|$)/i);
+    const safeId = String(match?.[1] || Date.now()).replace(/[^A-Za-z0-9_-]/g, '-');
+    const anchor = document.createElement('a');
+    anchor.href = playbackUrl;
+    anchor.download = `sonara-${safeId}.mp4`;
+    anchor.rel = 'noopener';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  };
+
+  const overlay = useMemo(() => !open ? null : (""",
+              'download-function',
+          )
+
+          replace_once(
+              '<video src={videoUrl} controls playsInline className="aspect-video w-full rounded-2xl bg-black object-contain" /><a href={videoUrl} download className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-xs font-black text-white"><Download className="h-4 w-4" />SCARICA MP4</a>',
+              '<video key={playbackUrl || videoUrl} src={playbackUrl || undefined} controls playsInline preload="metadata" className="aspect-video w-full rounded-2xl bg-black object-contain" /><button type="button" onClick={() => void downloadCurrentVideo()} disabled={!videoBlob || !playbackUrl} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-xs font-black text-white disabled:cursor-wait disabled:opacity-50"><Download className="h-4 w-4" />{videoBlob && playbackUrl ? \'SCARICA MP4\' : \'PREPARO MP4...\'}</button>',
+              'preview-download-ui',
+          )
+
+          replace_once(
+              'progress, stage, error, videoUrl, promptVariant, smartPromptActive]);',
+              'progress, stage, error, videoUrl, playbackUrl, videoBlob, promptVariant, smartPromptActive]);',
+              'memo-dependencies',
+          )
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Verify old unauthenticated media access is gone
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -q '<a href={videoUrl} download' src/components/video/VideoAISectionControl.tsx
+          grep -q "Authorization: .*Bearer" src/components/video/VideoAISectionControl.tsx
+          grep -q "hasMp4Signature" src/components/video/VideoAISectionControl.tsx
+          grep -q "anchor.download = .*\.mp4" src/components/video/VideoAISectionControl.tsx
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Commit fix to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- src/components/video/VideoAISectionControl.tsx; then
+            echo "Video MP4 patch already applied."
+            exit 0
+          fi
+          git config user.name "sonara-video-fix-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/components/video/VideoAISectionControl.tsx
+          git commit -m "fix(video): authenticate preview and force real MP4 download"
+          git push origin HEAD:main
