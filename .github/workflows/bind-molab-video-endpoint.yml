@@ -1,0 +1,156 @@
+name: Bind SONARA MoLab Video AI Endpoint
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/molab-video-bind.enc.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonara-molab-video-bind
+  cancel-in-progress: true
+
+jobs:
+  bind:
+    name: Verify Wan 2.2, update Vercel env and deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VERCEL_ORG_ID: team_d9jPexmsm0saAlZPAznj0TTy
+      VERCEL_PROJECT_ID: prj_mbAUXtVS9ecRbl0yAZfeR3WA66TZ
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+
+      - name: Validate secure binding assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN}"
+          test -s .github/sonara-video-bind-private.enc
+          test -s .github/molab-video-bind.enc.json
+          jq -e '.url and .tokenCiphertext and .model and .frames and .steps' .github/molab-video-bind.enc.json >/dev/null
+
+      - name: Decrypt server-only MoLab token
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 250000 \
+            -in .github/sonara-video-bind-private.enc \
+            -out /tmp/sonara-video-bind-private.pem \
+            -pass env:VERCEL_TOKEN
+          jq -r '.tokenCiphertext' .github/molab-video-bind.enc.json | base64 -d > /tmp/sonara-video-token.cipher
+          openssl pkeyutl -decrypt \
+            -inkey /tmp/sonara-video-bind-private.pem \
+            -in /tmp/sonara-video-token.cipher \
+            -out /tmp/sonara-video-token \
+            -pkeyopt rsa_padding_mode:oaep \
+            -pkeyopt rsa_oaep_md:sha256 \
+            -pkeyopt rsa_mgf1_md:sha256
+          test -s /tmp/sonara-video-token
+          token="$(cat /tmp/sonara-video-token)"
+          echo "::add-mask::${token}"
+
+      - name: Load requested Video AI profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="$(jq -r '.url' .github/molab-video-bind.enc.json | sed 's:/*$::')"
+          model="$(jq -r '.model' .github/molab-video-bind.enc.json)"
+          frames="$(jq -r '.frames' .github/molab-video-bind.enc.json)"
+          steps="$(jq -r '.steps' .github/molab-video-bind.enc.json)"
+          [[ "${url}" =~ ^https://[A-Za-z0-9.-]+\.trycloudflare\.com$ ]]
+          test "${model}" = "wan2.2-ti2v-5b"
+          test "${frames}" = "97"
+          test "${steps}" = "12"
+          echo "SONARA_MOLAB_VIDEO_URL=${url}" >> "${GITHUB_ENV}"
+          echo "SONARA_MOLAB_VIDEO_MODEL=${model}" >> "${GITHUB_ENV}"
+          echo "SONARA_MOLAB_VIDEO_FRAMES=${frames}" >> "${GITHUB_ENV}"
+          echo "SONARA_MOLAB_VIDEO_STEPS=${steps}" >> "${GITHUB_ENV}"
+
+      - name: Verify new Wan 2.2 worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 20); do
+            health="$(curl -sS --connect-timeout 8 --max-time 20 -H 'Accept: application/json' -H 'Cache-Control: no-cache' "${SONARA_MOLAB_VIDEO_URL}/health" || true)"
+            if [[ -n "${health}" ]] && printf '%s' "${health}" | jq -e '
+              (.status == "ok") and
+              (.provider == "molab-wan22") and
+              (.model == "wan2.2-ti2v-5b") and
+              (.residentGpu == true) and
+              (.bf16 == true) and
+              ((.vramTotalGb // 0) >= 80) and
+              (.blackScreenGuard == true)
+            ' >/dev/null 2>&1; then
+              printf '%s\n' "${health}" | jq '{status,ready,loading,provider,model,profile,gpu,vramTotalGb,vramFreeGb,bf16,residentGpu,blackScreenGuard,defaultFrames,defaultSteps}'
+              exit 0
+            fi
+            echo "Video worker health attempt ${attempt}/20 not ready for binding"
+            sleep 5
+          done
+          echo "New MoLab Video AI worker did not pass health verification." >&2
+          exit 1
+
+      - name: Install and link Vercel CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install -g vercel@59.10.0 >/dev/null
+          mkdir -p .vercel
+          printf '%s\n' '{"orgId":"team_d9jPexmsm0saAlZPAznj0TTy","projectId":"prj_mbAUXtVS9ecRbl0yAZfeR3WA66TZ"}' > .vercel/project.json
+
+      - name: Update Vercel production Video AI environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="$(cat /tmp/sonara-video-token)"
+          printf '%s' "${SONARA_MOLAB_VIDEO_URL}" | vercel env add SONARA_MOLAB_VIDEO_URL production --force --yes --token="${VERCEL_TOKEN}" >/dev/null
+          printf '%s' "${token}" | vercel env add SONARA_MOLAB_VIDEO_TOKEN production --force --yes --token="${VERCEL_TOKEN}" >/dev/null
+          printf '%s' "${SONARA_MOLAB_VIDEO_MODEL}" | vercel env add SONARA_MOLAB_VIDEO_MODEL production --force --yes --token="${VERCEL_TOKEN}" >/dev/null
+          printf '%s' "${SONARA_MOLAB_VIDEO_FRAMES}" | vercel env add SONARA_MOLAB_VIDEO_FRAMES production --force --yes --token="${VERCEL_TOKEN}" >/dev/null
+          printf '%s' "${SONARA_MOLAB_VIDEO_STEPS}" | vercel env add SONARA_MOLAB_VIDEO_STEPS production --force --yes --token="${VERCEL_TOKEN}" >/dev/null
+          echo "Vercel production Video AI variables updated."
+
+      - name: Deploy SONARA production with new Video AI worker
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          vercel pull --yes --environment=production --token="${VERCEL_TOKEN}" >/dev/null
+          vercel build --prod --token="${VERCEL_TOKEN}" >/dev/null
+          deploy_url="$(vercel deploy --prebuilt --prod --yes --token="${VERCEL_TOKEN}" | tail -n 1 | tr -d '\r')"
+          [[ "${deploy_url}" == https://* ]]
+          echo "url=${deploy_url}" >> "${GITHUB_OUTPUT}"
+          echo "Production deployed: ${deploy_url}"
+
+      - name: Verify deployed Video AI route is JSON-capable
+        shell: bash
+        env:
+          DEPLOY_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          set -euo pipefail
+          # Unauthenticated status is expected to be JSON 401, never an HTML gateway page.
+          headers="$(mktemp)"
+          body="$(mktemp)"
+          code="$(curl -sS -D "${headers}" -o "${body}" -w '%{http_code}' --max-time 30 "${DEPLOY_URL}/api/video/status" || true)"
+          content_type="$(awk 'BEGIN{IGNORECASE=1} /^content-type:/{print $2}' "${headers}" | tail -n1 | tr -d '\r')"
+          if [[ "${content_type}" != application/json* ]]; then
+            echo "Video status route returned non-JSON content type: ${content_type:-missing} (HTTP ${code})" >&2
+            head -c 500 "${body}" >&2 || true
+            exit 1
+          fi
+          jq -e '.error.code == "AUTH_REQUIRED"' "${body}" >/dev/null
+          echo "Deployed Video AI route returns JSON correctly."
+
+      - name: Cleanup secrets
+        if: always()
+        shell: bash
+        run: rm -f /tmp/sonara-video-bind-private.pem /tmp/sonara-video-token.cipher /tmp/sonara-video-token
