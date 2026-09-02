@@ -1,4 +1,4 @@
-SONARA_VERCEL_RELEASE=2026-09-01-NATIVE-MUSIC-DIRECTOR-PROFILES
-REASON=Publish native React FAST QUALITY ULTRA generation profiles with persistent Music Director V3 propagation
-EXPECTED_MUSIC_DIRECTOR=sonara-music-director-v3
-SOURCE_COMMIT=da983a8caaaf663e1c1450942624c53f4baebcc2
+SONARA_VERCEL_RELEASE=2026-09-02-VIDEO-MP4-STRICT-FIX
+REASON=Publish strict authenticated MP4 delivery route and latest Video AI fixes to production
+EXPECTED_VIDEO_ROUTE=/api/video/file/<job>.mp4
+SOURCE_COMMIT=ca7058d4f66c8ace6c0a4b2949296f2ed0bb2a93
