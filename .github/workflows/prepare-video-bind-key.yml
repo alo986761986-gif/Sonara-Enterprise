@@ -1,0 +1,70 @@
+name: Prepare Secure MoLab Video Bind Key
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/molab-video-keygen-trigger"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sonara-video-bind-keygen
+  cancel-in-progress: true
+
+jobs:
+  keygen:
+    name: Generate encrypted binding keypair
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate Vercel secret
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${VERCEL_TOKEN}"
+          echo "Vercel deployment secret is configured."
+
+      - name: Generate RSA keypair and encrypt private key
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out /tmp/sonara-video-bind-private.pem
+          openssl pkey -in /tmp/sonara-video-bind-private.pem -pubout -out .github/sonara-video-bind-public.pem
+          openssl enc -aes-256-cbc -salt -pbkdf2 -iter 250000 \
+            -in /tmp/sonara-video-bind-private.pem \
+            -out .github/sonara-video-bind-private.enc \
+            -pass env:VERCEL_TOKEN
+          chmod 600 /tmp/sonara-video-bind-private.pem
+          test -s .github/sonara-video-bind-public.pem
+          test -s .github/sonara-video-bind-private.enc
+
+      - name: Commit public key and encrypted private key
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "SONARA Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/sonara-video-bind-public.pem .github/sonara-video-bind-private.enc
+          if git diff --cached --quiet; then
+            echo "Binding keypair already current."
+            exit 0
+          fi
+          git commit -m "ci(video): prepare secure MoLab binding key"
+          git push origin HEAD:main
+
+      - name: Cleanup private key
+        if: always()
+        shell: bash
+        run: rm -f /tmp/sonara-video-bind-private.pem
