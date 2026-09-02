@@ -226,6 +226,78 @@ async function pollChild(request, env, ctx, childJobId) {
   return runtime.fetch(new Request(url.toString(), { method: 'GET', headers, cache: 'no-store' }), env, ctx);
 }
 
+function reportUsable(report) {
+  return Boolean(report && report.measuredFromRealWav === true && Number.isFinite(Number(report.professionalScore)));
+}
+
+function cacheReportReady(report) {
+  return Boolean(reportUsable(report) || report?.qualityAnalysisAttempted === true);
+}
+
+function candidateEntries(children = []) {
+  const entries = [];
+  for (let childIndex = 0; childIndex < children.length; childIndex += 1) {
+    const candidates = candidateArray(children[childIndex]);
+    for (let localIndex = 0; localIndex < candidates.length; localIndex += 1) {
+      const candidate = candidates[localIndex];
+      const url = validAudio(candidateAudioUrl(candidate));
+      if (url) entries.push({ candidate, url, childIndex, localIndex });
+    }
+  }
+  return entries;
+}
+
+async function warmNextQualityReport(children, req, state, env, jobId) {
+  const entries = candidateEntries(children);
+  let cacheChanged = false;
+
+  for (const entry of entries) {
+    const cached = state.qualityReportCache?.[entry.url] || null;
+    if (cacheReportReady(cached)) continue;
+
+    const embedded = [entry.candidate?.sonaraQuality, entry.candidate?.quality].find(reportUsable) || null;
+    if (embedded) {
+      state.qualityReportCache[entry.url] = {
+        ...embedded,
+        audioUrl: entry.url,
+        qualityAnalysisAttempted: true
+      };
+      cacheChanged = true;
+      continue;
+    }
+
+    let report;
+    try {
+      report = await analyzeProfessionalCandidate(entry.url, req);
+    } catch (error) {
+      report = {
+        audioUrl: entry.url,
+        measuredFromRealWav: false,
+        professionalScore: 0,
+        professionalReleasePassed: false,
+        hardFailureReasons: ['analysis-error'],
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+
+    state.qualityReportCache[entry.url] = {
+      ...report,
+      audioUrl: entry.url,
+      qualityAnalysisAttempted: true
+    };
+    await saveState(env, jobId, state);
+    const cachedCount = entries.filter(item => cacheReportReady(state.qualityReportCache?.[item.url])).length;
+    return { warmed: true, total: entries.length, cachedCount };
+  }
+
+  if (cacheChanged) await saveState(env, jobId, state);
+  return {
+    warmed: false,
+    total: entries.length,
+    cachedCount: entries.filter(item => cacheReportReady(state.qualityReportCache?.[item.url])).length
+  };
+}
+
 function mergeQualityCache(cache, ranked = []) {
   const next = cache && typeof cache === 'object' && !Array.isArray(cache) ? { ...cache } : {};
   for (const item of ranked) {
@@ -246,17 +318,22 @@ async function rankChildren(children, req, cachedReports = {}) {
       const candidate = candidates[localIndex];
       const audioUrl = validAudio(candidateAudioUrl(candidate));
       if (!audioUrl) continue;
-      let report = candidate?.sonaraQuality || candidate?.quality || cache[audioUrl] || null;
-      if (!report || report.measuredFromRealWav !== true || !Number.isFinite(Number(report.professionalScore))) {
-        try { report = await analyzeProfessionalCandidate(audioUrl, req); }
-        catch (error) {
+      let report = cache[audioUrl] || candidate?.sonaraQuality || candidate?.quality || null;
+      if (!cacheReportReady(report)) {
+        try {
+          report = {
+            ...(await analyzeProfessionalCandidate(audioUrl, req)),
+            qualityAnalysisAttempted: true
+          };
+        } catch (error) {
           report = {
             audioUrl,
             measuredFromRealWav: false,
             professionalScore: 0,
             professionalReleasePassed: false,
             hardFailureReasons: ['analysis-error'],
-            error: error instanceof Error ? error.message : String(error)
+            error: error instanceof Error ? error.message : String(error),
+            qualityAnalysisAttempted: true
           };
         }
       }
@@ -275,6 +352,26 @@ async function rankChildren(children, req, cachedReports = {}) {
 
 async function finalize(request, env, jobId, state, childData, extra = {}) {
   const completed = childData.filter(Boolean).filter(data => statusOf(data) === 'completed');
+  const warm = await warmNextQualityReport(completed, state.requested || {}, state, env, jobId);
+  if (warm.warmed) {
+    const progress = state.secondaryJobId ? Math.min(98, 92 + warm.cachedCount * 1.5) : Math.min(99, 94 + warm.cachedCount * 2);
+    return json(request, {
+      jobId,
+      status: 'PROCESSING',
+      progress: Number(progress.toFixed(1)),
+      stage: `SONARA ${state.profile.toUpperCase()}: analisi qualità WAV serializzata`,
+      metadata: {
+        profile: state.profile,
+        stabilityGuard: VERSION,
+        incrementalQualityAnalysis: true,
+        maxQualityAnalysesPerPoll: 1,
+        cachedQualityReports: warm.cachedCount,
+        totalQualityReports: warm.total,
+        ...extra
+      }
+    });
+  }
+
   const combined = await rankChildren(completed, state.requested || {}, state.qualityReportCache || {});
   state.qualityReportCache = mergeQualityCache(state.qualityReportCache, combined.ranked);
   if (!combined.ranked.length) {
@@ -317,6 +414,9 @@ async function finalize(request, env, jobId, state, childData, extra = {}) {
       automaticCandidateRanking: true,
       adaptiveSequentialBatches: true,
       concurrentBatches: false,
+      incrementalQualityAnalysis: true,
+      maxQualityAnalysesPerPoll: 1,
+      qualityCachePrecedence: true,
       cachedQualityReports: Object.keys(state.qualityReportCache || {}).length,
       professionalTargetScore: target,
       bestProfessionalScore: bestScore,
@@ -380,6 +480,9 @@ async function startStable(request, env, ctx, body, profile) {
       adaptiveSequentialBatches: true,
       concurrentBatches: false,
       cachedQualityReports: true,
+      incrementalQualityAnalysis: true,
+      maxQualityAnalysesPerPoll: 1,
+      qualityCachePrecedence: true,
       generatedCandidateTarget: 4,
       visibleCandidateTarget: 2,
       professionalTargetScore: state.targetScore,
@@ -452,6 +555,24 @@ async function stableJob(request, env, ctx, jobId) {
   }
 
   if (primaryStatus === 'completed' && !state.secondaryJobId && !state.secondarySubmitFailed) {
+    const warm = await warmNextQualityReport([primaryData], state.requested || {}, state, env, jobId);
+    if (warm.warmed) {
+      return json(request, {
+        jobId,
+        status: 'PROCESSING',
+        progress: Number(Math.min(50, 47 + warm.cachedCount).toFixed(1)),
+        stage: `SONARA ${state.profile.toUpperCase()}: analisi qualità primo batch`,
+        metadata: {
+          profile: state.profile,
+          stabilityGuard: VERSION,
+          incrementalQualityAnalysis: true,
+          maxQualityAnalysesPerPoll: 1,
+          cachedQualityReports: warm.cachedCount,
+          totalQualityReports: warm.total
+        }
+      });
+    }
+
     const primaryRank = await rankChildren([primaryData], state.requested || {}, state.qualityReportCache);
     state.qualityReportCache = mergeQualityCache(state.qualityReportCache, primaryRank.ranked);
     await saveState(env, jobId, state);
@@ -481,6 +602,8 @@ async function stableJob(request, env, ctx, jobId) {
         stabilityGuard: VERSION,
         adaptiveSequentialBatches: true,
         concurrentBatches: false,
+        incrementalQualityAnalysis: true,
+        maxQualityAnalysesPerPoll: 1,
         cachedQualityReports: Object.keys(state.qualityReportCache || {}).length,
         primaryTargetMissedScore: bestScore
       }
@@ -523,6 +646,8 @@ async function stableJob(request, env, ctx, jobId) {
         stabilityGuard: VERSION,
         adaptiveSequentialBatches: true,
         concurrentBatches: false,
+        incrementalQualityAnalysis: true,
+        maxQualityAnalysesPerPoll: 1,
         cachedQualityReports: Object.keys(state.qualityReportCache || {}).length,
         secondaryTransientPolls: state.secondaryTransientPolls
       }
@@ -564,6 +689,9 @@ export default {
         adaptiveSequentialBatches: true,
         concurrentBatches: false,
         qualityReportCache: true,
+        qualityCachePrecedence: true,
+        incrementalQualityAnalysis: true,
+        maxQualityAnalysesPerPoll: 1,
         maxTransientPolls: MAX_TRANSIENT_POLLS,
         primaryHardTimeoutMs: PRIMARY_HARD_TIMEOUT_MS,
         secondarySoftTimeoutMs: SECONDARY_SOFT_TIMEOUT_MS,
