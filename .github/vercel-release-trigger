@@ -1,4 +1,4 @@
-SONARA_VERCEL_RELEASE=2026-09-02-VIDEO-MP4-ZERO-EXTRA-FUNCTION
-REASON=Publish Video AI MP4 playback through existing catch-all route within Vercel Hobby function limit
+SONARA_VERCEL_RELEASE=2026-09-02-VIDEO-MP4-CATCHALL-FINAL
+REASON=Publish Video AI MP4 playback through existing catch-all route, no extra Vercel function
 EXPECTED_VIDEO_ROUTE=/api/video/file/<job>
-SOURCE_COMMIT=135faf8e374ebaf70826a65054e191fae3f0a019
+SOURCE_COMMIT=6bb8c51b5d0f60a74411f5c0063412864157bee6
