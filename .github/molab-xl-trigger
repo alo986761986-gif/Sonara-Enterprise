@@ -1,5 +1,5 @@
 SONARA_MOLAB_XL_URL=https://spyware-descending-chronicles-medal.trycloudflare.com
 MODEL=acestep-v15-xl-turbo
 MODE=MOLAB_XL_ONLY
-ACTION=bind-real-music-v2
-VERIFY=20260902-REAL-MUSIC-V2-PT-COMPILE-LMBATCH
+ACTION=bind-vocal-lyrics-v3
+VERIFY=20260902-VOCAL-LYRICS-V3-REAL-MUSIC-V2
