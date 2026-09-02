@@ -126,5 +126,5 @@ export async function refundNativeVideoJob(req: any, jobId: string) {
 
 export function nativeMolabVideoUrl(operationName: string) {
   const jobId = String(operationName || '').trim().replace(/\.mp4$/i, '');
-  return `/api/video/file/${encodeURIComponent(jobId)}.mp4`;
+  return `/api/video/file/${encodeURIComponent(jobId)}`;
 }
