@@ -1,13 +1,13 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "sonara-enterprise",
-  "main": "cloudflare/sonara-studio-pitch-key-upload-bridge.mjs",
+  "main": "cloudflare/sonara-real-music-v2-edge.mjs",
   "compatibility_date": "2026-08-23",
   "workers_dev": true,
   "keep_vars": true,
   "vars": {
     "SONARA_YUE_WORKER_URL": "https://yue.sonaraenterprise.com",
-    "SONARA_PRODUCTION_CHAIN": "sonara-studio-pitch-key-upload-bridge.mjs -> sonara-studio-native-pitch-bridge.mjs -> sonara-studio-key-pitch-guard.mjs -> sonara-quality-ultra-stability-guard.mjs"
+    "SONARA_PRODUCTION_CHAIN": "sonara-real-music-v2-edge.mjs -> sonara-studio-pitch-key-upload-bridge.mjs -> sonara-studio-native-pitch-bridge.mjs -> sonara-studio-key-pitch-guard.mjs -> sonara-quality-ultra-stability-guard.mjs"
   },
   "assets": {
     "directory": "./dist",
