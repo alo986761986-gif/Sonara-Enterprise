@@ -52,3 +52,4 @@ for forbidden in [
 
 PATH.write_text(text, encoding='utf-8')
 print('SONARA_QUALITY_B_PROMPT_FIDELITY_V4=PATCHED')
+# trigger-v4
