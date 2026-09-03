@@ -58,31 +58,6 @@ function normalizeIdea(context: PromptDirectorContext): string {
   return context.vocalMode === 'instrumental' ? (stripVocalLanguageForInstrumental(idea) || fallback) : idea;
 }
 
-function vocalInstruction(vocalMode: string): string {
-  const mode = compact(vocalMode).toLocaleLowerCase('en-US');
-  if (mode === 'male') return 'Male lead vocal; keep vocal character coherent with the selected style and mood.';
-  if (mode === 'female') return 'Female lead vocal; keep vocal character coherent with the selected style and mood.';
-  if (mode === 'duet') return 'Male and female duet; use intentional call-and-response or complementary parts.';
-  return 'Instrumental only; no sung vocals and no lyrics.';
-}
-
-function tempoInstruction(context: PromptDirectorContext): string {
-  const bpm = Number(context.bpm);
-  const hasBpm = Number.isFinite(bpm) && bpm > 0;
-  if (context.bpmMode === 'manual' && hasBpm) return `Tempo is manually locked to exactly ${Math.round(bpm)} BPM.`;
-  if (hasBpm) return `SONARA Auto BPM currently resolves to ${Math.round(bpm)} BPM; keep the groove coherent with the selected style.`;
-  return 'Tempo is automatic; infer the most authentic BPM from the selected style, mood and groove.';
-}
-
-function creativityInstruction(context: PromptDirectorContext): string {
-  const weirdness = Number(context.weirdness);
-  const influence = Number(context.styleInfluence);
-  const parts: string[] = [];
-  if (Number.isFinite(weirdness)) parts.push(`Weirdness ${Math.round(weirdness)}%`);
-  if (Number.isFinite(influence)) parts.push(`Style Influence ${Math.round(influence)}%`);
-  return parts.length ? `${parts.join('; ')}. Treat these as creative-strength controls, not as a replacement for the selected musical identity.` : '';
-}
-
 function styleDetail(context: PromptDirectorContext, limit: number): string {
   const tags = unique(context.styleTags || []).filter(tag => {
     const lower = tag.toLocaleLowerCase('en-US');
@@ -91,53 +66,68 @@ function styleDetail(context: PromptDirectorContext, limit: number): string {
   return tags.slice(0, limit).join(', ');
 }
 
+function extractOriginalIdea(value: string): string {
+  const normalized = compact(value);
+  const modern = normalized.match(/\bSONG\s*=\s*"([^"]+)"/i)?.[1];
+  if (modern) return compact(modern);
+  const legacy = normalized.match(/CREATOR IDEA\s*[—-]\s*preserve the intent:\s*(.*?)(?=\s+LOCKED SONARA SELECTION|$)/i)?.[1];
+  return compact(legacy || normalized);
+}
+
+function conciseIdea(context: PromptDirectorContext): string {
+  const fallback = `Create an original ${context.subgenre || context.genre || context.family} track.`;
+  let idea = extractOriginalIdea(normalizeIdea(context)) || fallback;
+  idea = idea.replace(/^["'`]+|["'`]+$/g, '');
+  if (idea.length > 260) idea = `${idea.slice(0, 257).replace(/\s+\S*$/, '')}...`;
+  return idea;
+}
+
 export function buildPromptDirectorBrief(context: PromptDirectorContext, director: PromptDirectorMode): string {
-  const idea = normalizeIdea(context);
-  const taxonomy = [context.family, context.genre, context.subgenre].map(compact).filter(Boolean).join(' → ');
+  const idea = conciseIdea(context);
+  const style = compact(context.subgenre || context.genre || context.family) || 'Original';
+  const taxonomy = unique([context.family, context.genre, context.subgenre].map(compact)).join(' > ');
   const mood = compact(context.mood) || 'Authentic';
-  const vocal = vocalInstruction(context.vocalMode);
-  const tempo = tempoInstruction(context);
-  const creativity = creativityInstruction(context);
-  const details = styleDetail(context, director === 'essential' ? 3 : director === 'professional' ? 7 : 9);
+  const bpm = Number(context.bpm);
+  const tempo = context.bpmMode === 'manual' && Number.isFinite(bpm) && bpm > 0
+    ? `${Math.round(bpm)} BPM EXACT`
+    : Number.isFinite(bpm) && bpm > 0
+      ? `AUTO ${Math.round(bpm)} BPM`
+      : 'AUTO AUTHENTIC BPM';
 
-  const authority = `LOCKED SONARA SELECTION — ${taxonomy}. Atmosphere: ${mood}. Manual interface selections are authoritative and must override any conflicting wording in the free-text idea.`;
+  const vocalMode = compact(context.vocalMode).toLocaleLowerCase('en-US');
+  const vocal = vocalMode === 'male'
+    ? 'male lead'
+    : vocalMode === 'female'
+      ? 'female lead'
+      : vocalMode === 'duet'
+        ? 'male/female duet'
+        : 'instrumental only';
 
-  if (director === 'essential') {
-    return unique([
-      idea,
-      authority,
-      tempo,
-      vocal,
-      details ? `Core style cues: ${details}.` : '',
-      creativity
-    ]).join('\n\n');
-  }
+  const dna = styleDetail(context, director === 'essential' ? 3 : 5);
+  const weirdness = Number(context.weirdness);
+  const influence = Number(context.styleInfluence);
+  const controls = [
+    Number.isFinite(weirdness) ? `WEIRD=${Math.round(weirdness)}` : '',
+    Number.isFinite(influence) ? `STYLE=${Math.round(influence)}` : ''
+  ].filter(Boolean).join(' ');
 
-  if (director === 'cinematic') {
-    return unique([
-      `CREATOR IDEA — preserve the intent:\n${idea}`,
-      authority,
-      tempo,
-      vocal,
-      details ? `STYLE DNA — ${details}.` : '',
-      `CINEMATIC DIRECTION — build a clear emotional arc with introduction, development, tension, release and a satisfying final resolution. Use contrast, evolving layers, spatial depth, purposeful transitions and memorable focal moments without losing the authentic ${compact(context.subgenre) || compact(context.genre)} identity.`,
-      'ARRANGEMENT — make every section feel intentional and progressively developed; avoid static looping, arbitrary genre switching and generic filler.',
-      'PRODUCTION — polished, dimensional, dynamic and release-ready, with controlled low end, musical transients, stereo depth and human-feeling movement.',
-      creativity
-    ]).join('\n\n');
-  }
+  const form = director === 'cinematic'
+    ? 'intro > build > tension > peak > release > final resolution'
+    : director === 'essential'
+      ? 'clear hook > evolving sections > musical ending'
+      : 'intro > main groove/verse > hook/chorus > contrast > developed return > clean ending';
 
-  return unique([
-    `CREATOR IDEA — preserve the intent:\n${idea}`,
-    authority,
-    tempo,
-    vocal,
-    details ? `STYLE DNA — ${details}.` : '',
-    `PROFESSIONAL DIRECTION — translate the idea into an authentic ${compact(context.subgenre) || compact(context.genre)} production. Keep groove, instrumentation, harmony, arrangement and sound design stylistically coherent rather than merely naming the genre.`,
-    'ARRANGEMENT — use a complete musical structure with evolving sections, purposeful transitions, tension and release, variation and a clean musical ending.',
-    'PRODUCTION — preserve human groove and musical dynamics while reaching a modern release-ready balance; avoid flattened dynamics, random stylistic drift and repetitive copy-paste sections.',
-    creativity
-  ]).join('\n\n');
+  const line1 = `SONARA MASTER — EXECUTE THIS SONG EXACTLY; DO NOT REINTERPRET. SONG="${idea}"`;
+  const line2 = `LOCK: ${taxonomy || style} | MOOD=${mood} | TEMPO=${tempo} | VOCAL=${vocal}${controls ? ` | ${controls}` : ''}`;
+  const line3 = [
+    dna ? `DNA=${dna}` : '',
+    `FORM=${form}`,
+    'REALISM=human groove, micro-dynamics, natural articulation, evolving performance, re-performed repeats',
+    `STYLE RULE=stay unmistakably ${style}`,
+    'AVOID=genre drift, generic filler, cloned loops, artificial phrasing'
+  ].filter(Boolean).join(' | ');
+
+  return [line1, line2, line3].join('\n');
 }
 
 export function buildPromptContextChips(context: PromptDirectorContext, director: PromptDirectorMode): PromptContextChip[] {
