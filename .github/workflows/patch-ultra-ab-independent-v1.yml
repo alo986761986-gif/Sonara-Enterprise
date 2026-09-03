@@ -1,0 +1,237 @@
+name: Patch ULTRA Independent A B V1
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/patch-ultra-ab-independent-v1.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch independent ULTRA A and B
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('cloudflare/sonara-quality-ultra-stability-guard.mjs')
+          text = path.read_text(encoding='utf-8')
+
+          def rep(old, new, label):
+              global text
+              if old in text:
+                  text = text.replace(old, new, 1)
+                  return
+              if new in text:
+                  return
+              raise SystemExit(f'missing marker: {label}')
+
+          old = """function makeVariantBody(body, profile, variantIndex) {
+  const prompt = clean(body.prompt || body.creatorPrompt || body.rawPrompt || body.musicPrompt);
+  const direction = variantIndex === 0
+    ? 'Candidate batch A: prioritize hook strength, groove, vocal clarity, coherent arrangement and clean release-ready balance.'
+    : 'Candidate batch B: preserve the exact genre, BPM, key, lyrics and singer identity, but use a different melody, voicing, transitions, fills and timbral balance.';
+  const fidelity = profile === 'ultra'
+    ? 'ULTRA: maximize realism, transient detail, depth, natural vocals, human micro-variation and mastering polish without changing the creator intent.'
+    : 'QUALITY: prioritize authentic genre language, strong songwriting, natural dynamics, clean transients and release-ready balance.';
+  return {
+    ...body,
+    sonaraDirectorBypass: true,
+    sonaraQualityUltraStability: VERSION,
+    sonaraStabilityProfile: profile,
+    sonaraStabilityVariant: variantIndex,
+    candidateCount: 2,
+    candidate_count: 2,
+    dualFast: true,
+    seed: Number(body.seed) > 0 ? Math.floor(Number(body.seed)) + variantIndex * 104729 : undefined,
+    prompt: [prompt, `SONARA ${profile.toUpperCase()} STABILITY DIRECTOR.`, fidelity, direction].filter(Boolean).join('\\n\\n').slice(0, 12000)
+  };
+}"""
+
+          new = """function makeVariantBody(body, profile, variantIndex) {
+  const prompt = clean(body.prompt || body.creatorPrompt || body.rawPrompt || body.musicPrompt);
+  const entropy = crypto.getRandomValues(new Uint32Array(2));
+  const suppliedSeed = Number(body.seed) > 0 ? Math.floor(Number(body.seed)) : Number(entropy[0]);
+  const independentSeed = Math.max(1, Number((BigInt(suppliedSeed) * 48271n + BigInt(entropy[0]) * 69621n + BigInt(entropy[1]) * 104729n + BigInt(variantIndex + 1) * 15485863n) % 1999999973n));
+  const direction = variantIndex === 0
+    ? 'SONARA SONG A — independent composition. Build a distinctive primary hook, groove, chord movement, bass phrasing, drum identity, intro architecture, transitions, climax and ending. It must sound like a complete human-produced record, not a template variation.'
+    : 'SONARA SONG B — completely independent composition. Do NOT reuse Song A melodic contour, interval pattern, chord progression/voicing flow, bass rhythm, drum groove, hook rhythm, intro, build, drop/chorus contour, fills, transitions, sound palette or section architecture. Keep only the creator locks: requested genre/subgenre, exact BPM, key, duration, lyrics/language and singer identity. Create a clearly different song from the first seconds onward.';
+  const fidelity = profile === 'ultra'
+    ? 'ULTRA HUMAN REALISM: maximize believable performance microtiming, microdynamics, articulation, evolving timbre, natural vocal phrasing/breaths, realistic ambience continuity, transient detail, depth and mastering polish. Repeated sections must sound re-performed, never cloned.'
+    : 'QUALITY: prioritize authentic genre language, strong songwriting, natural dynamics, clean transients and release-ready balance.';
+  return {
+    ...body,
+    sonaraDirectorBypass: true,
+    sonaraQualityUltraStability: VERSION,
+    sonaraStabilityProfile: profile,
+    sonaraStabilityVariant: variantIndex,
+    sonaraCompositionIdentity: variantIndex === 0 ? 'A' : 'B',
+    sonaraIndependentAB: profile === 'ultra',
+    candidateCount: 2,
+    candidate_count: 2,
+    dualFast: true,
+    seed: independentSeed,
+    prompt: [prompt, `SONARA ${profile.toUpperCase()} STABILITY DIRECTOR.`, fidelity, direction, `Independent composition seed=${independentSeed}.`].filter(Boolean).join('\\n\\n').slice(0, 12000)
+  };
+}"""
+          rep(old, new, 'makeVariantBody')
+
+          old = """  const visible = combined.ranked.slice(0, 2).map((item, index) => ({
+    ...(item.candidate && typeof item.candidate === 'object' ? item.candidate : {}),
+    audioUrl: item.url,
+    sonaraQuality: item.report,
+    sonaraRecommended: index === 0,
+    releaseEligible: item.report?.professionalReleasePassed === true,
+    directorRank: index + 1
+  }));"""
+          new = """  let visibleSource = combined.ranked.slice(0, 2);
+  if (state.profile === 'ultra') {
+    const bestByChild = new Map();
+    for (const item of combined.ranked) {
+      const childIndex = Number(item?.report?.childIndex);
+      if (Number.isInteger(childIndex) && !bestByChild.has(childIndex)) bestByChild.set(childIndex, item);
+    }
+    const independent = [bestByChild.get(0), bestByChild.get(1)].filter(Boolean);
+    if (independent.length < 2) {
+      return json(request, {
+        jobId,
+        status: 'FAILED',
+        progress: 100,
+        retryable: true,
+        error: 'ULTRA richiede due brani indipendenti A e B. Uno dei due batch non ha prodotto audio valido: rigenera automaticamente invece di mostrare due variazioni dello stesso brano.',
+        metadata: {
+          profile: state.profile,
+          stabilityGuard: VERSION,
+          independentABRequired: true,
+          independentChildrenReady: independent.length
+        }
+      }, 502);
+    }
+    visibleSource = independent;
+  }
+  const visible = visibleSource.map((item, index) => ({
+    ...(item.candidate && typeof item.candidate === 'object' ? item.candidate : {}),
+    audioUrl: item.url,
+    sonaraQuality: item.report,
+    sonaraRecommended: index === 0,
+    releaseEligible: item.report?.professionalReleasePassed === true,
+    directorRank: index + 1,
+    sonaraCompositionIdentity: index === 0 ? 'A' : 'B',
+    independentComposition: state.profile === 'ultra'
+  }));"""
+          rep(old, new, 'visible selection')
+
+          old = """    if (primaryRank.ranked.length && bestScore >= Number(state.targetScore) && primaryRank.ranked[0]?.report?.professionalReleasePassed === true) {
+      return finalize(request, env, jobId, state, [primaryData], {
+        adaptiveEarlyRelease: true,
+        secondaryBatchSkippedBecauseTargetPassed: true,
+        primaryQualityReportsReused: true
+      });
+    }"""
+          new = """    if (state.profile !== 'ultra' && primaryRank.ranked.length && bestScore >= Number(state.targetScore) && primaryRank.ranked[0]?.report?.professionalReleasePassed === true) {
+      return finalize(request, env, jobId, state, [primaryData], {
+        adaptiveEarlyRelease: true,
+        secondaryBatchSkippedBecauseTargetPassed: true,
+        primaryQualityReportsReused: true
+      });
+    }"""
+          rep(old, new, 'disable ultra early release')
+
+          old = """    if (!secondary.childJobId) {
+      return finalize(request, env, jobId, state, [primaryData], {
+        secondaryBatchDegraded: true,
+        secondarySubmitStatus: secondary.response?.status || 0,
+        primaryQualityReportsReused: true
+      });
+    }"""
+          new = """    if (!secondary.childJobId) {
+      if (state.profile === 'ultra') {
+        return json(request, {
+          jobId,
+          status: 'FAILED',
+          progress: 100,
+          retryable: true,
+          error: 'ULTRA non ha potuto avviare il brano B indipendente. Riprova: A da solo non viene pubblicato come coppia A/B.',
+          metadata: { profile: state.profile, stabilityGuard: VERSION, independentABRequired: true, secondarySubmitStatus: secondary.response?.status || 0 }
+        }, 502);
+      }
+      return finalize(request, env, jobId, state, [primaryData], {
+        secondaryBatchDegraded: true,
+        secondarySubmitStatus: secondary.response?.status || 0,
+        primaryQualityReportsReused: true
+      });
+    }"""
+          rep(old, new, 'secondary submit ultra')
+
+          old = """    if (primaryStatus === 'completed' && (state.secondaryTransientPolls >= MAX_TRANSIENT_POLLS || secondaryAge > SECONDARY_SOFT_TIMEOUT_MS)) {
+      return finalize(request, env, jobId, state, [primaryData], {
+        secondaryBatchTimedOut: true,
+        secondaryTransientPolls: state.secondaryTransientPolls,
+        primaryQualityReportsReused: true
+      });
+    }"""
+          new = """    if (primaryStatus === 'completed' && (state.secondaryTransientPolls >= MAX_TRANSIENT_POLLS || secondaryAge > SECONDARY_SOFT_TIMEOUT_MS)) {
+      if (state.profile === 'ultra') {
+        return json(request, {
+          jobId,
+          status: 'FAILED',
+          progress: 100,
+          retryable: true,
+          error: 'ULTRA: il brano B indipendente ha superato il timeout. Il sistema non sostituisce B con una seconda variazione di A.',
+          metadata: { profile: state.profile, stabilityGuard: VERSION, independentABRequired: true, secondaryTransientPolls: state.secondaryTransientPolls }
+        }, 504);
+      }
+      return finalize(request, env, jobId, state, [primaryData], {
+        secondaryBatchTimedOut: true,
+        secondaryTransientPolls: state.secondaryTransientPolls,
+        primaryQualityReportsReused: true
+      });
+    }"""
+          rep(old, new, 'secondary timeout ultra')
+
+          old = """      secondaryBatchUsed: Boolean(state.secondaryJobId),
+      ...extra"""
+          new = """      secondaryBatchUsed: Boolean(state.secondaryJobId),
+      independentAB: state.profile === 'ultra',
+      independentABSelection: state.profile === 'ultra' ? 'best-one-per-independent-batch' : 'global-ranking',
+      humanRealismRequired: state.profile === 'ultra',
+      ...extra"""
+          rep(old, new, 'metadata')
+
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Validate patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check cloudflare/sonara-quality-ultra-stability-guard.mjs
+          grep -q "sonaraIndependentAB" cloudflare/sonara-quality-ultra-stability-guard.mjs
+          grep -q "best-one-per-independent-batch" cloudflare/sonara-quality-ultra-stability-guard.mjs
+          grep -q "state.profile !== 'ultra'" cloudflare/sonara-quality-ultra-stability-guard.mjs
+          grep -q "Do NOT reuse Song A" cloudflare/sonara-quality-ultra-stability-guard.mjs
+
+      - name: Commit independent A B engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "SONARA Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add cloudflare/sonara-quality-ultra-stability-guard.mjs
+          if git diff --cached --quiet; then
+            echo "Already patched"
+            exit 0
+          fi
+          git commit -m "feat(ultra): enforce two independent realistic A B songs"
+          git push origin HEAD:main
