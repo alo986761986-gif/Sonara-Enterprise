@@ -209,7 +209,7 @@ function openAIError(status: number, raw: string) {
   return { status: 502, code: 'COVER_UPSTREAM_ERROR', message: 'La generazione della copertina non è riuscita.' };
 }
 
-export default async function handler(req: any, res: any) {
+export async function handleMusicCoverRequest(req: any, res: any) {
   res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('X-Content-Type-Options', 'nosniff');
 

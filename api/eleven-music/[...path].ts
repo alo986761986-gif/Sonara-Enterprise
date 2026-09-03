@@ -1,3 +1,4 @@
+import { handleMusicCoverRequest } from '../../src/server/musicCoverApi';
 import { applicationDefault, cert, getApps, initializeApp, type App } from 'firebase-admin/app';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
@@ -354,6 +355,11 @@ async function readJob(jobId: string, res: any) {
 
 export default async function handler(req: any, res: any) {
   const action = actionFromRequest(req);
+
+  // Cover generation deliberately reuses this existing Vercel function so
+  // SONARA stays within the project Serverless Function limit. The cover
+  // handler performs its own native/Firebase user authentication.
+  if (action === 'cover') return handleMusicCoverRequest(req, res);
 
   if (req.method === 'GET' && action === 'health') {
     return json(res, 200, {

@@ -438,7 +438,7 @@ export default function ElevenMusicGenerationControl() {
       ? { ...item, coverStatus: 'PROCESSING', coverError: '', coverRevision: revision }
       : item));
     try {
-      const response = await fetch('/api/music-cover/generate', {
+      const response = await fetch('/api/eleven-music/cover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
