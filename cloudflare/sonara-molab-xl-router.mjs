@@ -89,6 +89,7 @@ function inferenceStepsOf(body = {}, profile = profileOf(body)) {
 
 function samplerOf(body = {}, realMusic = false) {
   const requested = String(body?.sonaraSpeedSampler || body?.sampler_mode || '').trim().toLowerCase();
+  if (realMusic && profileOf(body) === 'ultra') return 'heun';
   if (requested === 'euler' || requested === 'heun') return requested;
   if (body?.sonaraFastUltra === true) return 'euler';
   return realMusic ? 'heun' : 'euler';
@@ -142,12 +143,15 @@ function realMusicInstruction(body = {}) {
     'SONARA REAL MUSIC V1 — REALISM IS A HARD MUSICAL REQUIREMENT.',
     'Create the perceptual behavior of a finished human-produced record, not an AI demo.',
     'Preserve natural micro-dynamics and micro-timing: avoid machine-flat velocity, perfectly repeated transients, identical note envelopes and copy-paste phrasing.',
+    'Keep macro tempo and downbeats solid, but allow genre-appropriate microtiming in hats, percussion, ghost notes, bass articulation, pickups and phrase entrances. Humanization must never sound sloppy or off-grid.',
     'Use instrument-specific articulation, attack, decay, sustain, release, believable register, breathing room and performance variation.',
+    'Repeated sections must sound re-performed rather than cloned: vary fills, note lengths, accents, ornaments, automation, ambience and transition details while preserving the hook identity.',
+    'Maintain continuous room, reverb and delay behavior across edits and transitions; avoid hard ambience resets, identical tails and artificial section seams.',
     'Electronic music must sound like deliberate hardware/software production: stable club timing with subtle groove, evolving synthesis, controlled modulation and non-static drum/bass articulation. Do not imitate acoustic instruments unless requested.',
     'Keep low frequencies physical and controlled, mids dimensional, highs detailed without brittle hash, and stereo width deep but mono-compatible.',
     'Avoid plastic timbre, smeared transients, phasey widening, metallic alias-like texture, over-limiting, pumping without musical intent, accidental silence and abrupt endings.',
     'Keep the exact requested BPM, key, meter, genre identity, lyrics and duration. Realism must never override creator controls.',
-    hasVocals ? 'Voice target: stable singer identity, natural breath placement, intelligible consonants, believable pitch transitions, expressive timing and no synthetic syllable smearing.' : '',
+    hasVocals ? 'Voice target: stable singer identity with natural breath placement, intelligible consonants, small expressive pitch transitions, phrase-dependent vibrato, realistic note attacks/releases and subtle timing freedom. Avoid pitch-staircase tuning, fixed vibrato, identical phrase onsets, breathless delivery and synthetic syllable smearing.' : '',
     'Master target: release-ready but alive. Retain transient contrast and musical dynamics instead of maximizing loudness at all costs.'
   ].filter(Boolean).join('\n');
 }
@@ -195,6 +199,10 @@ export function buildMolabPayload(body, count, capabilities = {}) {
   const controls = qualityControls(body);
   const profile = profileOf(body);
   const realMusic = realMusicEnabled(body, capabilities);
+  const hasVocals = Boolean(String(body.lyrics || '').trim()) && String(body.vocalMode || body.vocal_mode || '').toLowerCase() !== 'instrumental';
+  const humanLmTemperature = realMusic ? (profile === 'ultra' ? clamp(0.78 + controls.weirdness * 0.001, 0.82, 0.88) : clamp(0.74 + controls.weirdness * 0.001, 0.76, 0.84)) : 0.85;
+  const humanLmCfgScale = realMusic ? clamp(2.10 + controls.styleInfluence * 0.004, 2.10, 2.50) : 2.0;
+  const humanTopP = realMusic ? clamp(0.90 + controls.weirdness * 0.0006, 0.90, 0.96) : 0.90;
   const inferenceSteps = inferenceStepsOf(body, profile);
   const samplerMode = samplerOf(body, realMusic);
   const locks = [
@@ -229,19 +237,20 @@ export function buildMolabPayload(body, count, capabilities = {}) {
     guidance_scale: 1.0,
     batch_size: count,
     thinking: realMusic,
-    lm_temperature: realMusic ? (profile === 'ultra' ? 0.68 : 0.76) : 0.85,
-    lm_cfg_scale: realMusic ? (profile === 'ultra' ? 2.4 : 2.2) : 2.0,
+    lm_temperature: humanLmTemperature,
+    lm_cfg_scale: humanLmCfgScale,
     lm_top_k: 0,
-    lm_top_p: 0.9,
+    lm_top_p: humanTopP,
+    lm_repetition_penalty: realMusic ? (profile === 'ultra' ? 1.08 : 1.04) : 1.0,
     lm_negative_prompt: realMusic
-      ? 'generic style drift, wrong BPM, wrong key, robotic quantization, static velocity, copy-paste phrasing, plastic timbre, metallic artifacts, harsh clipping, overcompression, phasey stereo, accidental silence, malformed ending, unwanted vocals'
+      ? 'generic style drift, wrong BPM, wrong key, robotic quantization, static velocity, identical repeated bars, identical drum velocities, copy-paste phrasing, cloned chorus performance, fixed vibrato, pitch-staircase tuning, breathless synthetic vocal, plastic timbre, metallic artifacts, harsh clipping, overcompression, phasey stereo, hard ambience resets, accidental silence, malformed ending, unwanted vocals'
       : 'NO USER INPUT',
     use_format: false,
     use_cot_metas: false,
     use_cot_caption: false,
     use_cot_language: false,
-    use_constrained_decoding: realMusic,
-    constrained_decoding: realMusic,
+    use_constrained_decoding: realMusic && hasVocals,
+    constrained_decoding: realMusic && hasVocals,
     constrained_decoding_debug: false,
     allow_lm_batch: false,
     infer_method: 'ode',
