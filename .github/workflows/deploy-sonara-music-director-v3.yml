@@ -1,6 +1,6 @@
 name: Deploy SONARA Music Director V3
 
-# VOLUME V2 LIVE release trigger 3 2026-09-03
+# DJ FLOATING BANNER REMOVAL release trigger 2026-09-03
 on:
   workflow_dispatch:
   push:
@@ -26,6 +26,7 @@ on:
       - "src/components/generator/GenerationProfileControl.tsx"
       - "src/components/generator/ElevenMusicGenerationControl.tsx"
       - "src/components/player/SonaraProfessionalFixedPlayer.tsx"
+      - "src/components/dj/DJSectionControl.tsx"
       - "src/main.tsx"
       - "scripts/activate-ace-step-production.cjs"
       - "wrangler.jsonc"
@@ -100,11 +101,21 @@ jobs:
           grep -Fq 'VOLUME {candidate.id}' src/components/generator/ElevenMusicGenerationControl.tsx
           grep -Fq 'sonara-pro-volume-label' src/components/player/SonaraProfessionalFixedPlayer.tsx
 
+      - name: Guard DJ floating banner removed
+        run: |
+          ! grep -Fq 'data-sonara-dj-floating-access' src/components/dj/DJSectionControl.tsx
+          ! grep -Fq 'Console Auto-Detect · Live Hardware' src/components/dj/DJSectionControl.tsx
+
       - name: Build production app
         run: npm run build
 
       - name: Guard built native profile markers
         run: grep -R -q 'generationProfileV3' dist
+
+      - name: Guard built DJ floating banner removed
+        run: |
+          ! grep -R -Fq 'data-sonara-dj-floating-access' dist
+          ! grep -R -Fq 'Console Auto-Detect · Live Hardware' dist
 
       - name: Guard Music Director V3 production contract
         run: grep -q 'sonara-quality-ultra-stability-1' cloudflare/sonara-quality-ultra-stability-guard.mjs
