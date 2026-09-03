@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# Trigger marker: 2026-09-03 QUALITY B STRICT V5
 GUARD = Path('cloudflare/sonara-quality-ultra-stability-guard.mjs')
 MOLAB = Path('cloudflare/sonara-molab-xl-router.mjs')
 
