@@ -39,10 +39,10 @@ jobs:
         run: |
           set -euo pipefail
           test -f src/components/generator/SonaraCreatorAudioHub.tsx
-          grep -q 'I miei brani' src/components/generator/SonaraCreatorAudioHub.tsx
-          grep -q 'Carica audio' src/components/generator/SonaraCreatorAudioHub.tsx
-          grep -q 'Registra voce' src/components/generator/SonaraCreatorAudioHub.tsx
-          grep -q 'SonaraCreatorAudioHub' src/main.tsx
+          grep -Fq 'I miei brani' src/components/generator/SonaraCreatorAudioHub.tsx
+          grep -Fq 'Carica audio' src/components/generator/SonaraCreatorAudioHub.tsx
+          grep -Fq 'Registra voce' src/components/generator/SonaraCreatorAudioHub.tsx
+          grep -Fq 'SonaraCreatorAudioHub' src/main.tsx
           echo 'Creator Audio source verified.'
 
       - name: Validate Vercel deployment credential
@@ -76,6 +76,15 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: vercel build --prod --token="${VERCEL_TOKEN}"
 
+      - name: Verify Creator Audio in built artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -R -Fq 'I miei brani' .vercel/output/static/assets
+          grep -R -Fq 'Carica audio' .vercel/output/static/assets
+          grep -R -Fq 'Registra voce' .vercel/output/static/assets
+          echo 'Creator Audio hub verified in built production artifact.'
+
       - name: Deploy prebuilt artifact to production
         id: deploy
         shell: bash
@@ -103,18 +112,22 @@ jobs:
             echo "No JavaScript assets found in deployed page." >&2
             exit 1
           fi
+          found=0
           for asset in "${assets[@]}"; do
             if [[ "${asset}" == http* ]]; then url="${asset}"; else url="${DEPLOY_URL}${asset}"; fi
-            bundle="$(curl -fsS --max-time 30 "${url}")"
-            if printf '%s' "${bundle}" | grep -q 'I miei brani' \
-              && printf '%s' "${bundle}" | grep -q 'Carica audio' \
-              && printf '%s' "${bundle}" | grep -q 'Registra voce'; then
+            curl -fsS --max-time 30 "${url}" -o /tmp/sonara-bundle.js
+            if grep -Fq 'I miei brani' /tmp/sonara-bundle.js \
+              && grep -Fq 'Carica audio' /tmp/sonara-bundle.js \
+              && grep -Fq 'Registra voce' /tmp/sonara-bundle.js; then
               echo "Creator Audio hub verified in ${asset}."
-              exit 0
+              found=1
+              break
             fi
           done
-          echo "Creator Audio hub markers not found in deployed JavaScript bundle." >&2
-          exit 1
+          if [[ "${found}" != "1" ]]; then
+            echo "Creator Audio hub markers not found in deployed JavaScript bundle." >&2
+            exit 1
+          fi
 
       - name: Purge Cloudflare web cache
         if: env.CLOUDFLARE_API_TOKEN != ''
@@ -153,12 +166,13 @@ jobs:
             mapfile -t assets < <(printf '%s' "${html}" | grep -oE 'src="[^"]+\.js"' | sed -E 's/^src="|"$//g' | sort -u)
             for asset in "${assets[@]}"; do
               if [[ "${asset}" == http* ]]; then url="${asset}"; else url="https://sonaraenterprise.com${asset}"; fi
-              bundle="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "${url}" || true)"
-              if printf '%s' "${bundle}" | grep -q 'I miei brani' \
-                && printf '%s' "${bundle}" | grep -q 'Carica audio' \
-                && printf '%s' "${bundle}" | grep -q 'Registra voce'; then
-                echo "Public SONARA production verified with Creator Audio hub."
-                exit 0
+              if curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "${url}" -o /tmp/sonara-public-bundle.js; then
+                if grep -Fq 'I miei brani' /tmp/sonara-public-bundle.js \
+                  && grep -Fq 'Carica audio' /tmp/sonara-public-bundle.js \
+                  && grep -Fq 'Registra voce' /tmp/sonara-public-bundle.js; then
+                  echo "Public SONARA production verified with Creator Audio hub."
+                  exit 0
+                fi
               fi
             done
             echo "Public Creator Audio bundle not refreshed yet (attempt ${attempt}/18)."
