@@ -1,6 +1,6 @@
 name: Deploy SONARA Music Director V3
 
-# VOLUME V2 LIVE release trigger 2026-09-03
+# VOLUME V2 LIVE release trigger 2 2026-09-03
 on:
   workflow_dispatch:
   push:
@@ -89,8 +89,8 @@ jobs:
           ! grep -q 'random.uniform' engine/director_ai.py
           ! grep -q 'overall_score.*9.55' engine/director_ai.py
 
-      - name: Validate existing quality contracts
-        run: npm run test:generation-prompt
+      - name: Validate current music engine contracts
+        run: node --test cloudflare/sonara-engine-v6.test.mjs cloudflare/sonara-engine-v6-final.test.mjs cloudflare/sonara-engine-v9-dual-fast.test.mjs
 
       - name: Guard native generation profile UI
         run: grep -q 'generationProfileV3' src/components/generator/GenerationProfileControl.tsx
