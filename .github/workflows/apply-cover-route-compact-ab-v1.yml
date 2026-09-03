@@ -1,0 +1,57 @@
+name: Apply Cover Route + Compact A B V1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/patch-cover-route-compact-ab-v1.py"
+      - ".github/workflows/apply-cover-route-compact-ab-v1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-cover-route-compact-ab-v1
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Apply cover route + compact UI
+        run: python scripts/patch-cover-route-compact-ab-v1.py
+      - name: Install dependencies
+        run: npm install
+      - name: Validate edge syntax
+        run: node --check cloudflare/sonara-yue-primary-edge.mjs
+      - name: Build production
+        run: npm run build
+      - name: Guard route and compact UI
+        run: |
+          grep -Fq "ELEVEN_COVER_PATH = '/api/eleven-music/cover'" cloudflare/sonara-yue-primary-edge.mjs
+          grep -Fq "return proxyElevenCover(request)" cloudflare/sonara-yue-primary-edge.mjs
+          grep -Fq 'data-sonara-cover-toolbar="compact"' src/components/generator/ElevenMusicGenerationControl.tsx
+          grep -Fq 'sm:grid-cols-[104px_1fr]' src/components/generator/ElevenMusicGenerationControl.tsx
+          grep -R -Fq 'audio + artwork simultanei' dist
+          grep -R -Fq 'SCARICA COVER' dist
+          grep -R -Fq 'RIGENERA COPERTINA' dist
+      - name: Publish source changes
+        run: |
+          git config user.name "SONARA Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add cloudflare/sonara-yue-primary-edge.mjs src/components/generator/ElevenMusicGenerationControl.tsx
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "fix(cover): proxy artwork API and compact A B workspace"
+          git push origin main
