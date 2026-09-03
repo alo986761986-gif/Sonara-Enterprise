@@ -26,7 +26,7 @@ import LandingPromptGuard from './components/home/LandingPromptGuard';
 import SonaraProfessionalFixedPlayer from './components/player/SonaraProfessionalFixedPlayer';
 import SonaraUniversalPlayerBridge from './components/player/SonaraUniversalPlayerBridge';
 import SonaraRemixSection from './components/remix/SonaraRemixSection';
-import SonaraRemixAccessBridge from './components/remix/SonaraRemixAccessBridge';
+import SonaraRemixAccessBridgeV2 from './components/remix/SonaraRemixAccessBridgeV2';
 import StudioSectionControl from './components/studio/StudioSectionControl';
 import VideoAISectionControl from './components/video/VideoAISectionControl';
 import DJSectionControl from './components/dj/DJSectionControl';
@@ -50,7 +50,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <SonaraProfessionalFixedPlayer />
             <SonaraUniversalPlayerBridge />
             <SonaraRemixSection />
-            <SonaraRemixAccessBridge />
+            <SonaraRemixAccessBridgeV2 />
           </>
         </BootAuth>
         <LandingPromptGuard />
