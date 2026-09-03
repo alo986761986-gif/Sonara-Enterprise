@@ -1,0 +1,146 @@
+name: Patch ACE Human Realism V3
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/patch-ace-human-realism-v3.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Patch MoLab ACE-Step human realism
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = 'cloudflare/sonara-molab-xl-router.mjs';
+          let text = fs.readFileSync(path, 'utf8');
+
+          function replaceOnce(oldText, newText, label) {
+            if (!text.includes(oldText)) {
+              if (text.includes(newText)) return;
+              throw new Error(`Missing patch marker: ${label}`);
+            }
+            text = text.replace(oldText, newText);
+          }
+
+          replaceOnce(
+`function samplerOf(body = {}, realMusic = false) {
+  const requested = String(body?.sonaraSpeedSampler || body?.sampler_mode || '').trim().toLowerCase();
+  if (requested === 'euler' || requested === 'heun') return requested;
+  if (body?.sonaraFastUltra === true) return 'euler';
+  return realMusic ? 'heun' : 'euler';
+}`,
+`function samplerOf(body = {}, realMusic = false) {
+  const profile = profileOf(body);
+  const requested = String(body?.sonaraSpeedSampler || body?.sampler_mode || '').trim().toLowerCase();
+  // ULTRA realism deliberately prefers the second-order predictor-corrector.
+  // FAST/QUALITY keep honoring the low-latency requested sampler.
+  if (realMusic && profile === 'ultra') return 'heun';
+  if (requested === 'euler' || requested === 'heun') return requested;
+  if (body?.sonaraFastUltra === true) return 'euler';
+  return realMusic ? 'heun' : 'euler';
+}`,
+            'samplerOf');
+
+          replaceOnce(
+`    'Preserve natural micro-dynamics and micro-timing: avoid machine-flat velocity, perfectly repeated transients, identical note envelopes and copy-paste phrasing.',
+    'Use instrument-specific articulation, attack, decay, sustain, release, believable register, breathing room and performance variation.',
+    'Electronic music must sound like deliberate hardware/software production: stable club timing with subtle groove, evolving synthesis, controlled modulation and non-static drum/bass articulation. Do not imitate acoustic instruments unless requested.',`,
+`    'Preserve natural micro-dynamics and micro-timing: avoid machine-flat velocity, perfectly repeated transients, identical note envelopes and copy-paste phrasing.',
+    'Keep macro tempo and downbeats solid, but allow genre-appropriate microtiming in hats, percussion, ghost notes, bass articulation, pickups and phrase entrances. Humanization must never sound sloppy or off-grid.',
+    'Use instrument-specific articulation, attack, decay, sustain, release, believable register, breathing room and performance variation.',
+    'Repeated sections must sound re-performed rather than cloned: vary fills, note lengths, accents, ornaments, automation, ambience and transition details while preserving the hook identity.',
+    'Electronic music must sound like deliberate hardware/software production: stable club timing with subtle groove, evolving synthesis, controlled modulation and non-static drum/bass articulation. Do not imitate acoustic instruments unless requested.',
+    'Maintain continuous room, reverb and delay behavior across edits and transitions; avoid hard ambience resets, identical tails and artificial section seams.',`,
+            'human-performance-instructions');
+
+          replaceOnce(
+`    hasVocals ? 'Voice target: stable singer identity, natural breath placement, intelligible consonants, believable pitch transitions, expressive timing and no synthetic syllable smearing.' : '',`,
+`    hasVocals ? 'Voice target: stable singer identity with natural breath placement, intelligible consonants, small expressive pitch transitions, phrase-dependent vibrato, realistic note attacks/releases and subtle timing freedom. Avoid pitch-staircase tuning, fixed vibrato, identical phrase onsets, breathless delivery and synthetic syllable smearing.' : '',`,
+            'vocal-humanization');
+
+          replaceOnce(
+`  const realMusic = realMusicEnabled(body, capabilities);
+  const inferenceSteps = inferenceStepsOf(body, profile);`,
+`  const realMusic = realMusicEnabled(body, capabilities);
+  const hasVocals = Boolean(String(body.lyrics || '').trim()) && String(body.vocalMode || body.vocal_mode || '').toLowerCase() !== 'instrumental';
+  const humanLmTemperature = realMusic
+    ? (profile === 'ultra'
+      ? clamp(0.78 + controls.weirdness * 0.001, 0.82, 0.88)
+      : clamp(0.74 + controls.weirdness * 0.001, 0.76, 0.84))
+    : 0.85;
+  const humanLmCfgScale = realMusic
+    ? clamp(2.10 + controls.styleInfluence * 0.004, 2.10, 2.50)
+    : 2.0;
+  const humanTopP = realMusic
+    ? clamp(0.90 + controls.weirdness * 0.0006, 0.90, 0.96)
+    : 0.90;
+  const inferenceSteps = inferenceStepsOf(body, profile);`,
+            'human-lm-controls');
+
+          replaceOnce(
+`    lm_temperature: realMusic ? (profile === 'ultra' ? 0.68 : 0.76) : 0.85,
+    lm_cfg_scale: realMusic ? (profile === 'ultra' ? 2.4 : 2.2) : 2.0,
+    lm_top_k: 0,
+    lm_top_p: 0.9,`,
+`    lm_temperature: humanLmTemperature,
+    lm_cfg_scale: humanLmCfgScale,
+    lm_top_k: 0,
+    lm_top_p: humanTopP,
+    lm_repetition_penalty: realMusic ? (profile === 'ultra' ? 1.08 : 1.04) : 1.0,`,
+            'lm-controls');
+
+          replaceOnce(
+`      ? 'generic style drift, wrong BPM, wrong key, robotic quantization, static velocity, copy-paste phrasing, plastic timbre, metallic artifacts, harsh clipping, overcompression, phasey stereo, accidental silence, malformed ending, unwanted vocals'`,
+`      ? 'generic style drift, wrong BPM, wrong key, robotic quantization, static velocity, identical repeated bars, identical drum velocities, copy-paste phrasing, cloned chorus performance, fixed vibrato, pitch-staircase tuning, breathless synthetic vocal, plastic timbre, metallic artifacts, harsh clipping, overcompression, phasey stereo, hard ambience resets, accidental silence, malformed ending, unwanted vocals'`,
+            'negative-prompt');
+
+          replaceOnce(
+`    use_constrained_decoding: realMusic,
+    constrained_decoding: realMusic,`,
+`    use_constrained_decoding: realMusic && hasVocals,
+    constrained_decoding: realMusic && hasVocals,`,
+            'constrained-decoding');
+
+          fs.writeFileSync(path, text);
+          NODE
+
+      - name: Validate syntax and Human Realism markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check cloudflare/sonara-molab-xl-router.mjs
+          grep -q "profile === 'ultra') return 'heun'" cloudflare/sonara-molab-xl-router.mjs
+          grep -q "lm_repetition_penalty" cloudflare/sonara-molab-xl-router.mjs
+          grep -q "humanLmTemperature" cloudflare/sonara-molab-xl-router.mjs
+          grep -q "Repeated sections must sound re-performed" cloudflare/sonara-molab-xl-router.mjs
+          grep -q "pitch-staircase tuning" cloudflare/sonara-molab-xl-router.mjs
+          grep -q "dcw_scaler: 0.05" cloudflare/sonara-molab-xl-router.mjs
+          grep -q "dcw_high_scaler: 0.02" cloudflare/sonara-molab-xl-router.mjs
+
+      - name: Commit Human Realism V3
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "SONARA Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add cloudflare/sonara-molab-xl-router.mjs
+          if git diff --cached --quiet; then
+            echo "Human Realism V3 already applied."
+            exit 0
+          fi
+          git commit -m "feat(ace): activate Human Realism V3 performance model"
+          git push origin HEAD:main
