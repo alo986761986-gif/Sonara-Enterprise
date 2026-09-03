@@ -82,17 +82,19 @@ function conciseIdea(context: PromptDirectorContext): string {
   return idea;
 }
 
+function tempoInstruction(context: PromptDirectorContext): string {
+  const bpm = Number(context.bpm);
+  if (context.bpmMode === 'manual' && Number.isFinite(bpm) && bpm > 0) return `Tempo is manually locked to exactly ${Math.round(bpm)} BPM.`;
+  if (Number.isFinite(bpm) && bpm > 0) return `AUTO ${Math.round(bpm)} BPM`;
+  return 'AUTO AUTHENTIC BPM';
+}
+
 export function buildPromptDirectorBrief(context: PromptDirectorContext, director: PromptDirectorMode): string {
   const idea = conciseIdea(context);
   const style = compact(context.subgenre || context.genre || context.family) || 'Original';
   const taxonomy = unique([context.family, context.genre, context.subgenre].map(compact)).join(' → ');
   const mood = compact(context.mood) || 'Authentic';
-  const bpm = Number(context.bpm);
-  const tempo = context.bpmMode === 'manual' && Number.isFinite(bpm) && bpm > 0
-    ? `exactly ${Math.round(bpm)} BPM`
-    : Number.isFinite(bpm) && bpm > 0
-      ? `AUTO ${Math.round(bpm)} BPM`
-      : 'AUTO AUTHENTIC BPM';
+  const tempo = tempoInstruction(context);
 
   const vocalMode = compact(context.vocalMode).toLocaleLowerCase('en-US');
   const vocal = vocalMode === 'male'
@@ -118,7 +120,7 @@ export function buildPromptDirectorBrief(context: PromptDirectorContext, directo
       : 'intro > main groove/verse > hook/chorus > contrast > developed return > clean ending';
 
   const line1 = `SONARA MASTER — EXECUTE THIS SONG EXACTLY; DO NOT REINTERPRET. SONG="${idea}"`;
-  const line2 = `LOCK: ${taxonomy || style} | MOOD=${mood} | TEMPO=${tempo} | VOCAL=${vocal}${controls ? ` | ${controls}` : ''}`;
+  const line2 = `LOCK: ${taxonomy || style} | MOOD=${mood} | ${tempo} | VOCAL=${vocal}${controls ? ` | ${controls}` : ''}`;
   const direction = director === 'cinematic' ? `CINEMATIC DIRECTION=${form}` : `FORM=${form}`;
   const line3 = [
     dna ? `DNA=${dna}` : '',
