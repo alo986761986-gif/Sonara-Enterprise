@@ -1,4 +1,4 @@
-SONARA_VERCEL_RELEASE=2026-09-02-VIDEO-MP4-CATCHALL-FINAL
-REASON=Publish Video AI MP4 playback through existing catch-all route, no extra Vercel function
-EXPECTED_VIDEO_ROUTE=/api/video/file/<job>
-SOURCE_COMMIT=6bb8c51b5d0f60a74411f5c0063412864157bee6
+SONARA_VERCEL_RELEASE=2026-09-03-CREATOR-AUDIO-HUB-CLOUDFLARE-PURGE
+REASON=Publish Creator Audio library upload and microphone voice recording hub and purge stale Cloudflare HTML cache
+EXPECTED_CREATOR_AUDIO=library-upload-voice-reference
+SOURCE_COMMIT=6e53da1d5b9c0752d6def9fe70393d63faddcb15
