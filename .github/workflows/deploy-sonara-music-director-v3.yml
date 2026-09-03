@@ -1,6 +1,6 @@
 name: Deploy SONARA Music Director V3
 
-# QUALITY B STRICT V5 release trigger 2026-09-03
+# QUALITY B SINGLE TAKE V6 release trigger 2026-09-03
 on:
   workflow_dispatch:
   push:
