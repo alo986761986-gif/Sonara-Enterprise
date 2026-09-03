@@ -8,6 +8,7 @@ const BILLING_GENERATE_PATH = '/api/billing/generate';
 const ENGINE_GENERATE_PATH = '/api/engine/generate';
 const YUE_JOB_PATH = /^\/api\/music\/job\/yue_[^/]+$/;
 const ELEVEN_JOB_PATH = /^\/api\/music\/job\/(eleven_[^/]+)$/;
+const ELEVEN_COVER_PATH = '/api/eleven-music/cover';
 const YUE_AUDIO_PATH = '/api/yue/audio';
 const VERCEL_ORIGIN = 'https://sonara-enterprise.vercel.app';
 
@@ -38,6 +39,24 @@ async function proxyElevenJob(request, jobId) {
     redirect: 'manual'
   });
   return decorate(response);
+}
+
+async function proxyElevenCover(request) {
+  const target = `${VERCEL_ORIGIN}${ELEVEN_COVER_PATH}`;
+  const headers = new Headers(request.headers);
+  headers.delete('host');
+  headers.delete('content-length');
+  headers.set('accept', 'application/json');
+  headers.set('cache-control', 'no-cache');
+  headers.set('x-sonara-edge-proxy', VERSION);
+
+  const response = await fetch(target, {
+    method: request.method,
+    headers,
+    body: request.method === 'GET' || request.method === 'HEAD' ? undefined : request.body,
+    redirect: 'manual'
+  });
+  return decorate(response, 'cover-art');
 }
 
 async function visibleYueJobResponse(request, env, ctx) {
@@ -90,6 +109,10 @@ export default {
     const elevenMatch = url.pathname.match(ELEVEN_JOB_PATH);
     if (request.method === 'GET' && elevenMatch) {
       return proxyElevenJob(request, decodeURIComponent(elevenMatch[1]));
+    }
+
+    if ((request.method === 'GET' || request.method === 'POST') && url.pathname === ELEVEN_COVER_PATH) {
+      return proxyElevenCover(request);
     }
 
     // Direct engine requests remain a private fallback route for existing integrations.

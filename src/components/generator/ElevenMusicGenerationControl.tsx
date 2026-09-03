@@ -265,7 +265,7 @@ function ProfessionalCandidatePlayer({
   const percent = duration > 0 ? Math.max(0, Math.min(100, (currentTime / duration) * 100)) : 0;
 
   return (
-    <div className="mt-4 rounded-2xl border border-white/[0.07] bg-black/25 p-3.5 shadow-inner shadow-black/20">
+    <div className="mt-2 rounded-xl border border-white/[0.07] bg-black/25 p-2 shadow-inner shadow-black/20">
       <audio
         ref={audioRef}
         src={candidate.audioUrl}
@@ -287,10 +287,10 @@ function ProfessionalCandidatePlayer({
         <button
           type="button"
           onClick={() => void toggle()}
-          className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-white/[0.10] bg-white text-black shadow-lg shadow-black/25 transition hover:scale-[1.03] hover:bg-zinc-100"
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-white/[0.10] bg-white text-black shadow-md shadow-black/20 transition hover:scale-[1.03] hover:bg-zinc-100"
           aria-label={playing ? `Pausa brano ${candidate.id}` : `Riproduci brano ${candidate.id}`}
         >
-          {playing ? <Pause className="h-4 w-4 fill-current" /> : <Play className="ml-0.5 h-4 w-4 fill-current" />}
+          {playing ? <Pause className="h-3.5 w-3.5 fill-current" /> : <Play className="ml-0.5 h-3.5 w-3.5 fill-current" />}
         </button>
 
         <div className="min-w-0 flex-1">
@@ -311,7 +311,7 @@ function ProfessionalCandidatePlayer({
             </div>
           </div>
 
-          <div className="relative mt-3 h-4">
+          <div className="relative mt-1.5 h-3">
             <div className="absolute left-0 right-0 top-1/2 h-1 -translate-y-1/2 overflow-hidden rounded-full bg-white/[0.08]">
               <div className="h-full rounded-full bg-zinc-200 transition-[width] duration-75" style={{ width: `${percent}%` }} />
             </div>
@@ -323,19 +323,19 @@ function ProfessionalCandidatePlayer({
               value={Math.min(currentTime, Math.max(duration, 0.01))}
               onChange={event => seek(Number(event.target.value))}
               aria-label={`Posizione brano ${candidate.id}`}
-              className="absolute inset-0 h-4 w-full cursor-pointer opacity-0"
+              className="absolute inset-0 h-3 w-full cursor-pointer opacity-0"
             />
           </div>
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-3">
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.06] pt-2">
         <span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-600">
           {candidate.audioFormat.toUpperCase()} · READY
         </span>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <div
-            className="flex min-w-[210px] items-center gap-2 rounded-xl border border-violet-400/30 bg-violet-500/10 px-2.5 py-2 shadow-[0_0_22px_rgba(139,92,246,0.10)]"
+            className="flex min-w-[150px] items-center gap-1.5 rounded-lg border border-violet-400/25 bg-violet-500/[0.08] px-2 py-1.5"
             data-sonara-candidate-volume={candidate.id}
             aria-label={`Controllo volume brano ${candidate.id}`}
           >
@@ -343,7 +343,7 @@ function ProfessionalCandidatePlayer({
             <button
               type="button"
               onClick={toggleMute}
-              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-white/[0.08] bg-black/20 text-violet-100 transition hover:bg-violet-500/20 hover:text-white"
+              className="grid h-7 w-7 shrink-0 place-items-center rounded-md border border-white/[0.08] bg-black/20 text-violet-100 transition hover:bg-violet-500/20 hover:text-white"
               aria-label={isMuted ? `Riattiva volume brano ${candidate.id}` : `Silenzia volume brano ${candidate.id}`}
               title={`Volume ${candidate.id}: ${Math.round(volume * 100)}%`}
             >
@@ -357,21 +357,21 @@ function ProfessionalCandidatePlayer({
               value={volume}
               onChange={event => applyVolume(Number(event.target.value))}
               aria-label={`Volume brano ${candidate.id}`}
-              className="h-2 min-w-20 flex-1 cursor-pointer accent-violet-500"
+              className="h-1.5 min-w-16 flex-1 cursor-pointer accent-violet-500"
             />
             <span className="w-9 shrink-0 text-right font-mono text-[9px] font-bold tabular-nums text-violet-100">{Math.round(volume * 100)}%</span>
           </div>
           <button
             type="button"
             onClick={onChoose}
-            className={`rounded-lg px-3 py-2 text-[9px] font-black tracking-[0.08em] transition ${chosen ? 'bg-white text-black' : 'border border-white/[0.09] bg-white/[0.04] text-zinc-300 hover:bg-white/[0.08] hover:text-white'}`}
+            className={`rounded-md px-2.5 py-1.5 text-[8px] font-black tracking-[0.08em] transition ${chosen ? 'bg-white text-black' : 'border border-white/[0.09] bg-white/[0.04] text-zinc-300 hover:bg-white/[0.08] hover:text-white'}`}
           >
             {chosen ? 'SELECTED' : 'SELECT'}
           </button>
           <button
             type="button"
             onClick={onDownload}
-            className="grid h-8 w-8 place-items-center rounded-lg border border-white/[0.09] bg-white/[0.04] text-zinc-400 transition hover:bg-white/[0.08] hover:text-white"
+            className="grid h-7 w-7 place-items-center rounded-md border border-white/[0.09] bg-white/[0.04] text-zinc-400 transition hover:bg-white/[0.08] hover:text-white"
             aria-label={`Scarica brano ${candidate.id}`}
             title={`Scarica ${candidate.audioFormat.toUpperCase()}`}
           >
@@ -709,23 +709,25 @@ export default function ElevenMusicGenerationControl() {
   if (!mountNode) return null;
   return createPortal(
     <div className="mt-6 space-y-4">
-      <div className="grid gap-3 rounded-2xl border border-violet-400/15 bg-violet-500/[0.04] p-3 sm:grid-cols-[1fr_auto_auto] sm:items-center">
-        <label className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-black/20 px-3 py-2.5">
-          <span><strong className="block text-[10px] text-zinc-100">Genera copertine automaticamente</strong><small className="text-[8px] text-zinc-500">A + B insieme all'audio</small></span>
-          <input type="checkbox" checked={autoCover} onChange={event => setAutoCover(event.target.checked)} className="h-4 w-4 accent-violet-500" />
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-violet-400/15 bg-violet-500/[0.035] px-2.5 py-2" data-sonara-cover-toolbar="compact">
+        <label className="inline-flex items-center gap-2 text-[9px] font-bold text-zinc-300">
+          <input type="checkbox" checked={autoCover} onChange={event => setAutoCover(event.target.checked)} className="h-3.5 w-3.5 accent-violet-500" />
+          COVER A+B
         </label>
-        <label className="flex items-center gap-2 text-[9px] text-zinc-400">STILE
-          <select value={coverStyle} onChange={event => setCoverStyle(event.target.value)} className="rounded-lg border border-white/[0.08] bg-[#111117] px-2 py-2 text-[9px] text-zinc-200">
+        <span className="h-4 w-px bg-white/[0.08]" />
+        <label className="inline-flex items-center gap-1.5 text-[8px] font-bold tracking-[0.08em] text-zinc-500">STILE
+          <select value={coverStyle} onChange={event => setCoverStyle(event.target.value)} className="rounded-md border border-white/[0.08] bg-[#111117] px-2 py-1.5 text-[8px] text-zinc-200">
             <option value="auto">Auto</option><option value="cinematic">Cinematica</option><option value="realistic">Realistica</option><option value="abstract">Astratta</option><option value="minimal">Minimal</option><option value="futuristic">Futuristica</option><option value="dark">Dark</option><option value="tropical">Tropical</option><option value="retro">Retro</option>
           </select>
         </label>
-        <label className="flex items-center gap-2 text-[9px] text-zinc-400">TESTO
-          <select value={coverTextMode} onChange={event => setCoverTextMode(event.target.value)} className="rounded-lg border border-white/[0.08] bg-[#111117] px-2 py-2 text-[9px] text-zinc-200">
-            <option value="none">Nessuno</option><option value="title">Titolo</option>
+        <label className="inline-flex items-center gap-1.5 text-[8px] font-bold tracking-[0.08em] text-zinc-500">TESTO
+          <select value={coverTextMode} onChange={event => setCoverTextMode(event.target.value)} className="rounded-md border border-white/[0.08] bg-[#111117] px-2 py-1.5 text-[8px] text-zinc-200">
+            <option value="none">Off</option><option value="title">Titolo</option>
           </select>
         </label>
+        <span className="ml-auto text-[8px] text-zinc-600">audio + artwork simultanei</span>
       </div>
-      <button type="button" onClick={() => void generate()} disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-fuchsia-600 via-purple-600 to-indigo-600 px-6 py-4 font-bold text-white shadow-lg shadow-purple-950/30 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50">
+      <button type="button" onClick={() => void generate()} disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-fuchsia-600 via-purple-600 to-indigo-600 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-purple-950/25 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50">
         {busy ? <><RefreshCw className="h-5 w-5 animate-spin" />SONARA STA GENERANDO AUDIO + COVER...</> : <><Sparkles className="h-5 w-5" />GENERA A + B · AUDIO + COVER</>}
       </button>
       {error && <div className="rounded-xl border border-rose-500/25 bg-rose-500/10 p-4 text-xs text-rose-300">{error}</div>}
@@ -737,12 +739,12 @@ export default function ElevenMusicGenerationControl() {
             return (
               <article
                 key={candidate.id}
-                className={`rounded-[20px] border p-4 transition ${chosen ? 'border-white/20 bg-white/[0.055]' : 'border-white/[0.07] bg-[#101013]'}`}
+                className={`rounded-2xl border p-3 transition ${chosen ? 'border-white/20 bg-white/[0.055]' : 'border-white/[0.07] bg-[#101013]'}`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="grid h-7 w-7 place-items-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-[10px] font-black text-zinc-200">{candidate.id}</span>
+                      <span className="grid h-6 w-6 place-items-center rounded-md border border-white/[0.08] bg-white/[0.04] text-[9px] font-black text-zinc-200">{candidate.id}</span>
                       <div>
                         <div className="text-[11px] font-black tracking-[0.06em] text-white">SONARA MASTER</div>
                         <div className="mt-0.5 truncate text-[9px] text-zinc-600">{candidate.stage}</div>
@@ -769,8 +771,8 @@ export default function ElevenMusicGenerationControl() {
 
                 {completed && (
                   <>
-                    <div className="mt-4 grid gap-4 sm:grid-cols-[180px_1fr]">
-                      <div className="relative aspect-square overflow-hidden rounded-2xl border border-violet-400/20 bg-gradient-to-br from-violet-950/70 via-[#101019] to-blue-950/60 shadow-lg shadow-purple-950/20" data-sonara-candidate-cover={candidate.id}>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-[104px_1fr]">
+                      <div className="relative aspect-square overflow-hidden rounded-xl border border-violet-400/20 bg-gradient-to-br from-violet-950/70 via-[#101019] to-blue-950/60 shadow-md shadow-purple-950/20" data-sonara-candidate-cover={candidate.id}>
                         {candidate.coverDataUrl ? (
                           <img src={candidate.coverDataUrl} alt={`Copertina Master ${candidate.id}`} className="h-full w-full object-cover" />
                         ) : (
@@ -781,17 +783,17 @@ export default function ElevenMusicGenerationControl() {
                         )}
                         <span className="absolute left-2 top-2 rounded-full border border-white/10 bg-black/55 px-2 py-1 text-[8px] font-black tracking-[0.12em] text-white backdrop-blur">MASTER {candidate.id}</span>
                       </div>
-                      <div className="flex min-w-0 flex-col justify-between rounded-2xl border border-white/[0.06] bg-black/20 p-4">
+                      <div className="flex min-w-0 flex-col justify-between rounded-xl border border-white/[0.06] bg-black/20 p-3">
                         <div>
-                          <div className="text-lg font-black tracking-tight text-white">{(() => { try { const textarea = document.getElementById('sonara-prompt') as HTMLTextAreaElement | null; return textarea ? readContext(textarea).title : `SONARA MASTER ${candidate.id}`; } catch { return `SONARA MASTER ${candidate.id}`; } })()}</div>
-                          <div className="mt-1 text-[10px] text-zinc-500">AUDIO + COVER · identità visiva coordinata A/B</div>
+                          <div className="truncate text-sm font-black tracking-tight text-white">{(() => { try { const textarea = document.getElementById('sonara-prompt') as HTMLTextAreaElement | null; return textarea ? readContext(textarea).title : `SONARA MASTER ${candidate.id}`; } catch { return `SONARA MASTER ${candidate.id}`; } })()}</div>
+                          <div className="mt-0.5 text-[9px] text-zinc-500">AUDIO + COVER · A/B coordinati</div>
                         </div>
-                        <div className="mt-4 flex flex-wrap gap-2">
-                          <button type="button" onClick={() => void download(candidate)} className="inline-flex items-center gap-2 rounded-lg border border-white/[0.09] bg-white/[0.04] px-3 py-2 text-[9px] font-black text-zinc-200 hover:bg-white/[0.08]"><Download className="h-3.5 w-3.5" />SCARICA {candidate.audioFormat.toUpperCase()}</button>
-                          <button type="button" onClick={() => downloadCover(candidate)} disabled={!candidate.coverDataUrl} className="inline-flex items-center gap-2 rounded-lg border border-violet-400/20 bg-violet-500/10 px-3 py-2 text-[9px] font-black text-violet-100 disabled:opacity-35"><ImageIcon className="h-3.5 w-3.5" />SCARICA COVER</button>
-                          <button type="button" onClick={() => void regenerateCover(candidate)} disabled={candidate.coverStatus === 'PROCESSING'} className="inline-flex items-center gap-2 rounded-lg border border-blue-400/20 bg-blue-500/10 px-3 py-2 text-[9px] font-black text-blue-100 disabled:opacity-35"><RefreshCw className={`h-3.5 w-3.5 ${candidate.coverStatus === 'PROCESSING' ? 'animate-spin' : ''}`} />RIGENERA COPERTINA</button>
+                        <div className="mt-2 flex items-center gap-1.5">
+                          <button type="button" onClick={() => void download(candidate)} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-white/[0.09] bg-white/[0.04] px-2 text-[8px] font-black text-zinc-200 hover:bg-white/[0.08]" aria-label={`Scarica audio ${candidate.id}`} title={`Scarica ${candidate.audioFormat.toUpperCase()}`}><Download className="h-3.5 w-3.5" /><span>{candidate.audioFormat.toUpperCase()}</span></button>
+                          <button type="button" onClick={() => downloadCover(candidate)} disabled={!candidate.coverDataUrl} className="grid h-8 w-8 place-items-center rounded-md border border-violet-400/20 bg-violet-500/10 text-violet-100 disabled:opacity-35" aria-label={`Scarica cover ${candidate.id}`} title="SCARICA COVER"><ImageIcon className="h-3.5 w-3.5" /><span className="sr-only">SCARICA COVER</span></button>
+                          <button type="button" onClick={() => void regenerateCover(candidate)} disabled={candidate.coverStatus === 'PROCESSING'} className="grid h-8 w-8 place-items-center rounded-md border border-blue-400/20 bg-blue-500/10 text-blue-100 disabled:opacity-35" aria-label={`Rigenera copertina ${candidate.id}`} title="RIGENERA COPERTINA"><RefreshCw className={`h-3.5 w-3.5 ${candidate.coverStatus === 'PROCESSING' ? 'animate-spin' : ''}`} /><span className="sr-only">RIGENERA COPERTINA</span></button>
                         </div>
-                        {candidate.coverError && <div className="mt-3 text-[9px] text-amber-300">Cover: {candidate.coverError}</div>}
+                        {candidate.coverError && <div className="mt-2 truncate text-[8px] text-amber-300" title={candidate.coverError}>Cover: {candidate.coverError}</div>}
                       </div>
                     </div>
                     <ProfessionalCandidatePlayer
