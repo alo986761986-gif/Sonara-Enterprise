@@ -311,15 +311,20 @@ function ProfessionalCandidatePlayer({
           {candidate.audioFormat.toUpperCase()} · READY
         </span>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <div className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] px-1.5 py-1" data-sonara-candidate-volume={candidate.id}>
+          <div
+            className="flex min-w-[210px] items-center gap-2 rounded-xl border border-violet-400/30 bg-violet-500/10 px-2.5 py-2 shadow-[0_0_22px_rgba(139,92,246,0.10)]"
+            data-sonara-candidate-volume={candidate.id}
+            aria-label={`Controllo volume brano ${candidate.id}`}
+          >
+            <span className="shrink-0 text-[9px] font-black tracking-[0.12em] text-violet-200">VOLUME {candidate.id}</span>
             <button
               type="button"
               onClick={toggleMute}
-              className="grid h-7 w-7 place-items-center rounded-md text-zinc-400 transition hover:bg-white/[0.08] hover:text-white"
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-white/[0.08] bg-black/20 text-violet-100 transition hover:bg-violet-500/20 hover:text-white"
               aria-label={isMuted ? `Riattiva volume brano ${candidate.id}` : `Silenzia volume brano ${candidate.id}`}
-              title={`Volume ${Math.round(volume * 100)}%`}
+              title={`Volume ${candidate.id}: ${Math.round(volume * 100)}%`}
             >
-              {isMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+              {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
             </button>
             <input
               type="range"
@@ -329,9 +334,9 @@ function ProfessionalCandidatePlayer({
               value={volume}
               onChange={event => applyVolume(Number(event.target.value))}
               aria-label={`Volume brano ${candidate.id}`}
-              className="h-1 w-20 cursor-pointer accent-violet-500"
+              className="h-2 min-w-20 flex-1 cursor-pointer accent-violet-500"
             />
-            <span className="w-7 text-right font-mono text-[8px] tabular-nums text-zinc-500">{Math.round(volume * 100)}%</span>
+            <span className="w-9 shrink-0 text-right font-mono text-[9px] font-bold tabular-nums text-violet-100">{Math.round(volume * 100)}%</span>
           </div>
           <button
             type="button"
