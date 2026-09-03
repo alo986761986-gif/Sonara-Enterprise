@@ -1,4 +1,4 @@
-SONARA_VERCEL_RELEASE=2026-09-03-CREATOR-AUDIO-HUB-CLOUDFLARE-PURGE-V2
-REASON=Run corrected production verification and purge stale Cloudflare HTML cache for Creator Audio hub
+SONARA_VERCEL_RELEASE=2026-09-03-CREATOR-AUDIO-HUB-CLOUDFLARE-PURGE-V3
+REASON=Redeploy Creator Audio hub after fixing bundle verification broken-pipe failure and purge Cloudflare production cache
 EXPECTED_CREATOR_AUDIO=library-upload-voice-reference
-SOURCE_COMMIT=2647d6c4d119a9cd9ca44f732678f7bb0779c696
+SOURCE_COMMIT=9495f7aff13a55d0102dc72f74573f19f0d5dbf7
