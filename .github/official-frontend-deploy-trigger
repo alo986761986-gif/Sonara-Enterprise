@@ -1,4 +1,4 @@
-SONARA_OFFICIAL_FRONTEND_RELEASE=2026-09-03-CREATOR-VOICE-CLIP-EDITOR-V1
-REASON=Publish recorded voice transport, playback, clipping and editing inside Creator prompt
-SOURCE_COMMIT=cb6c3709edccb6f13a3ecd92d34873f7e98868f6
-EXPECTED=Voce-registrata,Crea-clip,Modifica,Applica-clip,Voice-Identity
+SONARA_OFFICIAL_FRONTEND_RELEASE=2026-09-03-CREATOR-PRO-LAYOUT-V2
+REASON=Reorganize Creator into centered professional minimal studio layout and remove forced right column
+SOURCE_COMMIT=41146399735ab2791e7bdbdf77824d987c086b87
+EXPECTED=SONARA-CREATE,Prompt,Voice,Create,Workspace
