@@ -181,13 +181,19 @@ function makeVariantBody(body, profile, variantIndex) {
   const entropy = crypto.getRandomValues(new Uint32Array(2));
   const suppliedSeed = Number(body.seed) > 0 ? Math.floor(Number(body.seed)) : Number(entropy[0]);
   const independentSeed = Math.max(1, (suppliedSeed + Number(entropy[0]) + Number(entropy[1]) + (variantIndex + 1) * 15485863) % 1999999973);
-  const promptFidelity = 'FINAL PROMPT FIDELITY CONTRACT — NON-NEGOTIABLE: the creator prompt is the source of truth for BOTH Song A and Song B. Preserve every explicit semantic requirement from the prompt: musical concept, genre and subgenre, mood, era, energy, instrumentation, production style, rhythmic feel, vocal role and identity, language, lyrics, theme/story, atmosphere, exclusions, exact BPM/key/duration when specified, and all named creative details. Song B must sound like a second original composition commissioned from the EXACT SAME brief, never like a different prompt. Independence applies only to the musical solution, not to the requested identity or meaning.';
-  const direction = variantIndex === 0
-    ? 'SONARA SONG A — compose the first complete realization of the creator prompt. Follow the prompt literally and musically: no genre drift, no mood drift, no missing requested instruments or vocal intent.'
-    : 'SONARA SONG B — compose a genuinely different song for the EXACT SAME creator prompt. Use a new melody, harmonic route/voicings, bass phrasing, drum details, hook contour, transitions and section development, while preserving ALL prompt semantics and stylistic requirements. Do not change concept, genre/subgenre, mood, era, instrumentation brief, production character, vocal intent, lyrics/theme or requested atmosphere. If novelty conflicts with prompt fidelity, PROMPT FIDELITY ALWAYS WINS.';
+  const promptFidelity = profile === 'quality'
+    ? 'QUALITY SAME-PROMPT CONTRACT — ABSOLUTE: both visible songs must execute the exact same creator brief. Preserve concept, genre/subgenre, mood, era, energy, requested instruments, rhythmic feel, production character, vocal role/identity, language, lyrics/theme, atmosphere, exclusions, BPM, key and duration. Do not invent a neighboring style, new concept, unrelated instrumentation or experimental detour. Candidate B is an alternate TAKE of the same requested song brief, not a reinterpretation.'
+    : 'FINAL PROMPT FIDELITY CONTRACT — NON-NEGOTIABLE: the creator prompt is the source of truth for BOTH Song A and Song B. Preserve every explicit semantic requirement from the prompt: musical concept, genre and subgenre, mood, era, energy, instrumentation, production style, rhythmic feel, vocal role and identity, language, lyrics, theme/story, atmosphere, exclusions, exact BPM/key/duration when specified, and all named creative details. Song B must sound like a second original composition commissioned from the EXACT SAME brief, never like a different prompt. Independence applies only to the musical solution, not to the requested identity or meaning.';
+  const direction = profile === 'quality'
+    ? (variantIndex === 0
+      ? 'SONARA QUALITY A/B — render two faithful takes of this exact prompt. A and B must immediately sound like the same requested musical brief. Variation is bounded: change only melody phrasing, chord voicing detail, fills and transition details that are fully native to the requested style. Keep the same musical identity, palette, mood, groove family and production language.'
+      : 'SONARA QUALITY B RECOVERY — regenerate the exact same creator prompt conservatively. This is not a new concept and not an independent stylistic experiment. Preserve the requested musical identity literally; use only small genre-authentic changes in melody phrasing, voicing, fills and transitions. PROMPT FIDELITY OVERRIDES NOVELTY.')
+    : (variantIndex === 0
+      ? 'SONARA SONG A — compose the first complete realization of the creator prompt. Follow the prompt literally and musically: no genre drift, no mood drift, no missing requested instruments or vocal intent.'
+      : 'SONARA SONG B — compose a genuinely different song for the EXACT SAME creator prompt. Use a new melody, harmonic route/voicings, bass phrasing, drum details, hook contour, transitions and section development, while preserving ALL prompt semantics and stylistic requirements. Do not change concept, genre/subgenre, mood, era, instrumentation brief, production character, vocal intent, lyrics/theme or requested atmosphere. If novelty conflicts with prompt fidelity, PROMPT FIDELITY ALWAYS WINS.');
   const fidelity = profile === 'ultra'
     ? 'ULTRA: maximize realism, transient detail, depth, natural vocals, human micro-variation and mastering polish without changing the creator intent.'
-    : 'QUALITY: prioritize authentic genre language, strong songwriting, natural dynamics, clean transients and release-ready balance.';
+    : 'QUALITY STRICT: literal prompt fidelity first; authentic genre language, coherent songwriting, natural dynamics, clean transients and release-ready balance. Never trade prompt accuracy for novelty.';
   return {
     ...body,
     sonaraDirectorBypass: true,
@@ -200,9 +206,10 @@ function makeVariantBody(body, profile, variantIndex) {
     seed: independentSeed,
     sonaraCompositionIdentity: variantIndex === 0 ? 'A' : 'B',
     sonaraIndependentAB: profile === 'ultra',
-    sonaraPromptFidelity: 'strict',
+    sonaraPromptFidelity: profile === 'quality' ? 'literal-same-brief' : 'strict',
     sonaraCreatorIntentLocked: true,
-    prompt: [prompt, `SONARA ${profile.toUpperCase()} STABILITY DIRECTOR.`, fidelity, direction, promptFidelity, `Independent composition seed=${independentSeed}.`].filter(Boolean).join('\n\n').slice(0, 12000)
+    sonaraQualityBSafeV5: profile === 'quality',
+    prompt: [prompt, `SONARA ${profile.toUpperCase()} STABILITY DIRECTOR.`, fidelity, direction, promptFidelity, `${profile === 'quality' ? 'Faithful take' : 'Independent composition'} seed=${independentSeed}.`].filter(Boolean).join('\n\n').slice(0, 12000)
   };
 }
 
@@ -515,8 +522,9 @@ async function startStable(request, env, ctx, body, profile) {
       incrementalQualityAnalysis: true,
       maxQualityAnalysesPerPoll: 1,
       qualityCachePrecedence: true,
-      generatedCandidateTarget: 4,
+      generatedCandidateTarget: profile === 'quality' ? 2 : 4,
       visibleCandidateTarget: 2,
+      qualitySamePromptPairPreferred: profile === 'quality',
       professionalTargetScore: state.targetScore,
       currentStage: `SONARA ${profile.toUpperCase()}: primo batch sicuro avviato`
     }
@@ -609,6 +617,14 @@ async function stableJob(request, env, ctx, jobId) {
     state.qualityReportCache = mergeQualityCache(state.qualityReportCache, primaryRank.ranked);
     await saveState(env, jobId, state);
     const bestScore = Number(primaryRank.summary?.bestProfessionalScore || 0);
+    if (state.profile === 'quality' && primaryRank.ranked.length >= 2) {
+      return finalize(request, env, jobId, state, [primaryData], {
+        qualitySamePromptPair: true,
+        qualityBPromptFidelity: 'literal-same-brief',
+        secondaryBatchSkippedForPromptFidelity: true,
+        primaryQualityReportsReused: true
+      });
+    }
     if (state.profile !== 'ultra' && primaryRank.ranked.length && bestScore >= Number(state.targetScore) && primaryRank.ranked[0]?.report?.professionalReleasePassed === true) {
       return finalize(request, env, jobId, state, [primaryData], {
         adaptiveEarlyRelease: true,
