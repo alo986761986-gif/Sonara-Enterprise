@@ -1,4 +1,4 @@
-SONARA_OFFICIAL_FRONTEND_RELEASE=2026-09-03-SONARA-REMIX-YOUTUBE-V2
-REASON=Place Remix directly under Crea la mia musica and add validated YouTube reference input with rights confirmation and preview
-SOURCE_COMMIT=27e3b923182938e4c6e7717812bda1266555ed21
+SONARA_OFFICIAL_FRONTEND_RELEASE=2026-09-03-SONARA-REMIX-YOUTUBE-V3
+REASON=Fix failed Remix deployment, use stable sidebar injection under Crea la mia musica and compatible YouTube reference bridge
+SOURCE_COMMIT=0374b934d706f6883e8c3eeaadf573acb02c5202
 EXPECTED=Crea-la-mia-musica,Remix,YouTube-link,Upload-audio,Use-reference,Create-remix
