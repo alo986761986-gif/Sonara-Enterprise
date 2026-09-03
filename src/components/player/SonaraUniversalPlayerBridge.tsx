@@ -14,6 +14,7 @@ type UniversalTrack = {
   audioUrl: string;
   audioFormat?: string;
   title: string;
+  coverUrl?: string;
   variationId?: string;
   jobId?: string;
   assetId?: string;
@@ -107,11 +108,14 @@ function candidateTrackFromAudio(audio: HTMLAudioElement): UniversalTrack | null
   const variationMatch = label.match(/brano\s+([AB])/i);
   const variationId = variationMatch?.[1]?.toUpperCase();
   const id = `generated-${variationId || absoluteUrl(audioUrl)}`;
+  const article = audio.closest('article');
+  const cover = article?.querySelector<HTMLImageElement>('[data-sonara-candidate-cover] img')?.src || '';
   return {
     id,
     audioUrl,
     audioFormat: audioUrl.split('?')[0].split('.').pop()?.toLowerCase() || 'audio',
     title: variationId ? `SONARA Master ${variationId}` : 'SONARA generated track',
+    coverUrl: cover,
     variationId,
     source: 'generated'
   };
@@ -158,6 +162,7 @@ function playerSelectionDetail(track: UniversalTrack, audioUrl: string) {
     audioUrl,
     audioFormat: track.audioFormat,
     title: track.title,
+    coverUrl: track.coverUrl,
     source: track.source,
     assetId: track.assetId,
     selectedAt: new Date().toISOString()
@@ -332,6 +337,7 @@ export default function SonaraUniversalPlayerBridge() {
           audioUrl: detail.audioUrl || '',
           audioFormat: detail.audioFormat,
           title: detail.title || 'SONARA Track',
+          coverUrl: detail.coverUrl,
           variationId: detail.variationId,
           jobId: detail.jobId,
           assetId: detail.assetId,
@@ -351,6 +357,7 @@ export default function SonaraUniversalPlayerBridge() {
         audioUrl: String(detail.audioUrl),
         audioFormat: detail.audioFormat,
         title: detail.title || (detail.variationId ? `SONARA Master ${detail.variationId}` : 'SONARA Track'),
+        coverUrl: detail.coverUrl,
         variationId: detail.variationId,
         jobId: detail.jobId,
         assetId: detail.assetId,

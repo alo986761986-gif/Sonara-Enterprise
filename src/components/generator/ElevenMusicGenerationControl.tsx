@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Download, Pause, Play, RefreshCw, Sparkles, Volume2, VolumeX } from 'lucide-react';
+import { Check, Download, Image as ImageIcon, Pause, Play, RefreshCw, Sparkles, Volume2, VolumeX } from 'lucide-react';
 import { buildGenerationPrompt, type VocalMode } from '../../generationPrompt';
 import { getFirebaseIdToken } from '../../lib/firebaseClient';
 import { archiveGeneratedProject } from '../../services/generatedAssetVault';
@@ -13,6 +13,13 @@ type CandidateState = {
   stage: string;
   audioUrl: string;
   audioFormat: string;
+  coverDataUrl: string;
+  coverMime: string;
+  coverFormat: string;
+  coverPrompt: string;
+  coverStatus: 'IDLE' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+  coverError: string;
+  coverRevision: number;
   jobId: string;
   error: string;
 };
@@ -33,6 +40,15 @@ type Context = {
   vocalLanguageCode: string;
   vocalLanguageName: string;
   lyrics: string;
+};
+
+type CoverResponse = {
+  coverDataUrl?: string;
+  coverMime?: string;
+  coverFormat?: string;
+  coverPrompt?: string;
+  variationId?: CandidateId;
+  error?: { code?: string; message?: string } | string;
 };
 
 type JobResponse = {
@@ -57,6 +73,13 @@ const empty = (id: CandidateId): CandidateState => ({
   stage: 'Pronto',
   audioUrl: '',
   audioFormat: 'mp3',
+  coverDataUrl: '',
+  coverMime: 'image/webp',
+  coverFormat: 'webp',
+  coverPrompt: '',
+  coverStatus: 'IDLE',
+  coverError: '',
+  coverRevision: 0,
   jobId: '',
   error: ''
 });
@@ -365,6 +388,9 @@ export default function ElevenMusicGenerationControl() {
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<CandidateId | null>(null);
   const [error, setError] = useState('');
+  const [autoCover, setAutoCover] = useState(true);
+  const [coverStyle, setCoverStyle] = useState('auto');
+  const [coverTextMode, setCoverTextMode] = useState('none');
   const [candidates, setCandidates] = useState<CandidateState[]>([empty('A'), empty('B')]);
 
   useEffect(() => {
@@ -401,6 +427,90 @@ export default function ElevenMusicGenerationControl() {
     setCandidates(previous => previous.map(item => item.audioUrl ? item : ({ ...item, status: 'PROCESSING', progress, stage, jobId })));
   };
 
+  const generateCover = async (
+    candidateId: CandidateId,
+    context: Context,
+    generationId: string,
+    token: string,
+    revision = 0
+  ) => {
+    setCandidates(previous => previous.map(item => item.id === candidateId
+      ? { ...item, coverStatus: 'PROCESSING', coverError: '', coverRevision: revision }
+      : item));
+    try {
+      const response = await fetch('/api/music-cover/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          rawPrompt: context.rawPrompt,
+          title: context.title,
+          genreFamily: context.genreFamily,
+          genre: context.genre,
+          subgenre: context.subgenre,
+          mood: context.mood,
+          bpm: context.bpm,
+          keySignature: context.keySignature,
+          vocalMode: context.vocalMode,
+          variationId: candidateId,
+          generationPairId: generationId,
+          style: coverStyle,
+          textMode: coverTextMode,
+          revision
+        })
+      });
+      const payload = await readJson<CoverResponse>(response);
+      if (!response.ok || !payload.coverDataUrl) {
+        const message = typeof payload.error === 'string'
+          ? payload.error
+          : payload.error?.message || `Copertina ${candidateId} non generata (HTTP ${response.status}).`;
+        throw new Error(message);
+      }
+      setCandidates(previous => previous.map(item => item.id === candidateId ? {
+        ...item,
+        coverDataUrl: String(payload.coverDataUrl),
+        coverMime: String(payload.coverMime || 'image/webp'),
+        coverFormat: String(payload.coverFormat || 'webp'),
+        coverPrompt: String(payload.coverPrompt || ''),
+        coverStatus: 'COMPLETED',
+        coverError: '',
+        coverRevision: revision
+      } : item));
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setCandidates(previous => previous.map(item => item.id === candidateId
+        ? { ...item, coverStatus: 'FAILED', coverError: message, coverRevision: revision }
+        : item));
+    }
+  };
+
+  const regenerateCover = async (candidate: CandidateState) => {
+    const textarea = document.getElementById('sonara-prompt') as HTMLTextAreaElement | null;
+    if (!textarea) return;
+    try {
+      const context = readContext(textarea);
+      const token = await getFirebaseIdToken(true);
+      const stored = localStorage.getItem('sonara.lastGenerationPairId');
+      const generationId = stored || `cover-${Date.now()}`;
+      await generateCover(candidate.id, context, generationId, token, candidate.coverRevision + 1);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      setCandidates(previous => previous.map(item => item.id === candidate.id ? { ...item, coverStatus: 'FAILED', coverError: message } : item));
+    }
+  };
+
+  const downloadCover = (candidate: CandidateState) => {
+    if (!candidate.coverDataUrl) return;
+    const textarea = document.getElementById('sonara-prompt') as HTMLTextAreaElement | null;
+    let title = 'sonara-track';
+    try { if (textarea) title = readContext(textarea).title; } catch {}
+    const link = document.createElement('a');
+    link.href = candidate.coverDataUrl;
+    link.download = `${safeFileName(title)}-${candidate.id}-cover.${candidate.coverFormat || 'webp'}`.toLowerCase();
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
   const applyCompleted = async (jobId: string, response: JobResponse, context: Context, generationId: string, token: string) => {
     const outputs = candidatesFrom(response);
     if (outputs.length < 2 || !outputs[0]?.audioUrl || !outputs[1]?.audioUrl) {
@@ -417,10 +527,12 @@ export default function ElevenMusicGenerationControl() {
       error: ''
     }));
 
-    // The generation is finished as soon as the playable masters are available.
-    // Archiving the audio and refreshing billing are secondary tasks and must never
-    // keep the Generate button spinning after the user can already play the tracks.
-    setCandidates(completed);
+    // Audio and cover generation are parallel. Preserve any cover that completed
+    // while the music engine was rendering instead of overwriting its state here.
+    setCandidates(previous => completed.map(candidate => {
+      const existing = previous.find(item => item.id === candidate.id) || empty(candidate.id);
+      return { ...existing, ...candidate };
+    }));
     setBusy(false);
 
     void Promise.allSettled(completed.map(candidate => archiveGeneratedProject({
@@ -433,6 +545,8 @@ export default function ElevenMusicGenerationControl() {
       durationSec: context.durationSec,
       primaryAudioUrl: candidate.audioUrl,
       audioFormat: candidate.audioFormat,
+      primaryImageUrl: candidate.coverDataUrl || undefined,
+      imageFormat: candidate.coverFormat || undefined,
       response: {
         generationPairId: generationId,
         variationId: candidate.id,
@@ -485,7 +599,13 @@ export default function ElevenMusicGenerationControl() {
 
       const token = await getFirebaseIdToken(true);
       const generationId = crypto.randomUUID ? crypto.randomUUID() : `generation-${Date.now()}`;
-      processing('', 8, 'SONARA: generazione dei 2 master');
+      localStorage.setItem('sonara.lastGenerationPairId', generationId);
+      processing('', 8, autoCover ? 'SONARA: audio + copertine A/B in parallelo' : 'SONARA: generazione dei 2 master');
+
+      if (autoCover) {
+        void generateCover('A', context, generationId, token, 0);
+        void generateCover('B', context, generationId, token, 0);
+      }
 
       const response = await fetch('/api/billing/generate', {
         method: 'POST',
@@ -559,7 +679,7 @@ export default function ElevenMusicGenerationControl() {
   const choose = (candidate: CandidateState) => {
     if (!candidate.audioUrl) return;
     setSelected(candidate.id);
-    const detail = { variationId: candidate.id, jobId: candidate.jobId, audioUrl: candidate.audioUrl, audioFormat: candidate.audioFormat, selectedAt: new Date().toISOString() };
+    const detail = { variationId: candidate.id, jobId: candidate.jobId, audioUrl: candidate.audioUrl, audioFormat: candidate.audioFormat, coverUrl: candidate.coverDataUrl, title: `SONARA Master ${candidate.id}`, selectedAt: new Date().toISOString() };
     localStorage.setItem('sonara.selectedGeneratedTrack', JSON.stringify(detail));
     window.dispatchEvent(new CustomEvent('sonara:generated-track-selected', { detail }));
   };
@@ -589,8 +709,24 @@ export default function ElevenMusicGenerationControl() {
   if (!mountNode) return null;
   return createPortal(
     <div className="mt-6 space-y-4">
+      <div className="grid gap-3 rounded-2xl border border-violet-400/15 bg-violet-500/[0.04] p-3 sm:grid-cols-[1fr_auto_auto] sm:items-center">
+        <label className="flex items-center justify-between gap-3 rounded-xl border border-white/[0.07] bg-black/20 px-3 py-2.5">
+          <span><strong className="block text-[10px] text-zinc-100">Genera copertine automaticamente</strong><small className="text-[8px] text-zinc-500">A + B insieme all'audio</small></span>
+          <input type="checkbox" checked={autoCover} onChange={event => setAutoCover(event.target.checked)} className="h-4 w-4 accent-violet-500" />
+        </label>
+        <label className="flex items-center gap-2 text-[9px] text-zinc-400">STILE
+          <select value={coverStyle} onChange={event => setCoverStyle(event.target.value)} className="rounded-lg border border-white/[0.08] bg-[#111117] px-2 py-2 text-[9px] text-zinc-200">
+            <option value="auto">Auto</option><option value="cinematic">Cinematica</option><option value="realistic">Realistica</option><option value="abstract">Astratta</option><option value="minimal">Minimal</option><option value="futuristic">Futuristica</option><option value="dark">Dark</option><option value="tropical">Tropical</option><option value="retro">Retro</option>
+          </select>
+        </label>
+        <label className="flex items-center gap-2 text-[9px] text-zinc-400">TESTO
+          <select value={coverTextMode} onChange={event => setCoverTextMode(event.target.value)} className="rounded-lg border border-white/[0.08] bg-[#111117] px-2 py-2 text-[9px] text-zinc-200">
+            <option value="none">Nessuno</option><option value="title">Titolo</option>
+          </select>
+        </label>
+      </div>
       <button type="button" onClick={() => void generate()} disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-fuchsia-600 via-purple-600 to-indigo-600 px-6 py-4 font-bold text-white shadow-lg shadow-purple-950/30 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50">
-        {busy ? <><RefreshCw className="h-5 w-5 animate-spin" />SONARA STA GENERANDO...</> : <><Sparkles className="h-5 w-5" />GENERA 2 BRANI</>}
+        {busy ? <><RefreshCw className="h-5 w-5 animate-spin" />SONARA STA GENERANDO AUDIO + COVER...</> : <><Sparkles className="h-5 w-5" />GENERA A + B · AUDIO + COVER</>}
       </button>
       {error && <div className="rounded-xl border border-rose-500/25 bg-rose-500/10 p-4 text-xs text-rose-300">{error}</div>}
       {candidates.some(candidate => candidate.status !== 'IDLE') && (
@@ -632,12 +768,39 @@ export default function ElevenMusicGenerationControl() {
                 {candidate.error && <div className="mt-4 rounded-xl border border-rose-500/15 bg-rose-500/[0.06] p-3 text-[10px] text-rose-300">{candidate.error}</div>}
 
                 {completed && (
-                  <ProfessionalCandidatePlayer
-                    candidate={candidate}
-                    chosen={chosen}
-                    onChoose={() => choose(candidate)}
-                    onDownload={() => void download(candidate)}
-                  />
+                  <>
+                    <div className="mt-4 grid gap-4 sm:grid-cols-[180px_1fr]">
+                      <div className="relative aspect-square overflow-hidden rounded-2xl border border-violet-400/20 bg-gradient-to-br from-violet-950/70 via-[#101019] to-blue-950/60 shadow-lg shadow-purple-950/20" data-sonara-candidate-cover={candidate.id}>
+                        {candidate.coverDataUrl ? (
+                          <img src={candidate.coverDataUrl} alt={`Copertina Master ${candidate.id}`} className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="grid h-full place-items-center p-4 text-center">
+                            {candidate.coverStatus === 'PROCESSING' ? <RefreshCw className="h-7 w-7 animate-spin text-violet-300" /> : <ImageIcon className="h-8 w-8 text-zinc-600" />}
+                            <span className="absolute bottom-3 left-3 right-3 text-[8px] font-bold uppercase tracking-[0.12em] text-zinc-500">{candidate.coverStatus === 'PROCESSING' ? 'CREAZIONE COVER' : 'COVER NON DISPONIBILE'}</span>
+                          </div>
+                        )}
+                        <span className="absolute left-2 top-2 rounded-full border border-white/10 bg-black/55 px-2 py-1 text-[8px] font-black tracking-[0.12em] text-white backdrop-blur">MASTER {candidate.id}</span>
+                      </div>
+                      <div className="flex min-w-0 flex-col justify-between rounded-2xl border border-white/[0.06] bg-black/20 p-4">
+                        <div>
+                          <div className="text-lg font-black tracking-tight text-white">{(() => { try { const textarea = document.getElementById('sonara-prompt') as HTMLTextAreaElement | null; return textarea ? readContext(textarea).title : `SONARA MASTER ${candidate.id}`; } catch { return `SONARA MASTER ${candidate.id}`; } })()}</div>
+                          <div className="mt-1 text-[10px] text-zinc-500">AUDIO + COVER · identità visiva coordinata A/B</div>
+                        </div>
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          <button type="button" onClick={() => void download(candidate)} className="inline-flex items-center gap-2 rounded-lg border border-white/[0.09] bg-white/[0.04] px-3 py-2 text-[9px] font-black text-zinc-200 hover:bg-white/[0.08]"><Download className="h-3.5 w-3.5" />SCARICA {candidate.audioFormat.toUpperCase()}</button>
+                          <button type="button" onClick={() => downloadCover(candidate)} disabled={!candidate.coverDataUrl} className="inline-flex items-center gap-2 rounded-lg border border-violet-400/20 bg-violet-500/10 px-3 py-2 text-[9px] font-black text-violet-100 disabled:opacity-35"><ImageIcon className="h-3.5 w-3.5" />SCARICA COVER</button>
+                          <button type="button" onClick={() => void regenerateCover(candidate)} disabled={candidate.coverStatus === 'PROCESSING'} className="inline-flex items-center gap-2 rounded-lg border border-blue-400/20 bg-blue-500/10 px-3 py-2 text-[9px] font-black text-blue-100 disabled:opacity-35"><RefreshCw className={`h-3.5 w-3.5 ${candidate.coverStatus === 'PROCESSING' ? 'animate-spin' : ''}`} />RIGENERA COPERTINA</button>
+                        </div>
+                        {candidate.coverError && <div className="mt-3 text-[9px] text-amber-300">Cover: {candidate.coverError}</div>}
+                      </div>
+                    </div>
+                    <ProfessionalCandidatePlayer
+                      candidate={candidate}
+                      chosen={chosen}
+                      onChoose={() => choose(candidate)}
+                      onDownload={() => void download(candidate)}
+                    />
+                  </>
                 )}
               </article>
             );

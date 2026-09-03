@@ -38,6 +38,8 @@ export interface ArchiveGenerationInput {
   durationSec: number;
   primaryAudioUrl?: string;
   audioFormat?: string;
+  primaryImageUrl?: string;
+  imageFormat?: string;
   response: unknown;
 }
 
@@ -288,6 +290,13 @@ export async function archiveGeneratedProject(input: ArchiveGenerationInput): Pr
       url: input.primaryAudioUrl,
       label: 'Master audio',
       formatHint: input.audioFormat || 'wav'
+    });
+  }
+  if (input.primaryImageUrl) {
+    candidateMap.set(input.primaryImageUrl, {
+      url: input.primaryImageUrl,
+      label: 'Cover artwork',
+      formatHint: input.imageFormat || 'webp'
     });
   }
 

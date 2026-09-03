@@ -42,6 +42,7 @@ type SonaraTrack = {
   audioUrl: string;
   audioFormat?: string;
   title?: string;
+  coverUrl?: string;
 };
 
 function readStoredTrack(): SonaraTrack | null {
@@ -332,7 +333,7 @@ export default function SonaraProfessionalFixedPlayer() {
       <footer className="sonara-pro-fixed-player" aria-label="SONARA professional fixed audio player">
         <div className="sonara-pro-player-track">
           <button type="button" className="sonara-pro-player-art" onClick={openLibrary} aria-label="Open SONARA Library">
-            <Music2 />
+            {activeTrack?.coverUrl ? <img src={activeTrack.coverUrl} alt="Copertina brano selezionato" className="h-full w-full object-cover" /> : <Music2 />}
             <i />
           </button>
           <div className="sonara-pro-player-title">
