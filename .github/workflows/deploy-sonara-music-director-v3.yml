@@ -1,6 +1,6 @@
 name: Deploy SONARA Music Director V3
 
-# A/B AUDIO + COVER release trigger 2026-09-03
+# A/B AUDIO + COVER serverless-safe release trigger 2026-09-03
 on:
   workflow_dispatch:
   push:
@@ -22,7 +22,8 @@ on:
       - "engine/director_ai.py"
       - "engine/dsp_engine.py"
       - "engine/inference.py"
-      - "api/music-cover/generate.ts"
+      - "src/server/musicCoverApi.ts"
+      - "api/eleven-music/[...path].ts"
       - "src/services/promptDirector.ts"
       - "src/services/generatedAssetVault.ts"
       - "src/components/generator/GenerationProfileControl.tsx"
@@ -106,14 +107,16 @@ jobs:
 
       - name: Guard integrated A B cover generation
         run: |
-          grep -Fq "'/api/music-cover/generate'" src/components/generator/ElevenMusicGenerationControl.tsx
+          test ! -f api/music-cover/generate.ts
+          grep -Fq "'/api/eleven-music/cover'" src/components/generator/ElevenMusicGenerationControl.tsx
           grep -Fq 'GENERA A + B · AUDIO + COVER' src/components/generator/ElevenMusicGenerationControl.tsx
           grep -Fq 'SCARICA COVER' src/components/generator/ElevenMusicGenerationControl.tsx
           grep -Fq 'RIGENERA COPERTINA' src/components/generator/ElevenMusicGenerationControl.tsx
           grep -Fq 'primaryImageUrl' src/services/generatedAssetVault.ts
           grep -Fq 'coverUrl' src/components/player/SonaraProfessionalFixedPlayer.tsx
           grep -Fq 'coverUrl' src/components/player/SonaraUniversalPlayerBridge.tsx
-          grep -Fq 'OPENAI_IMAGES_URL' api/music-cover/generate.ts
+          grep -Fq 'OPENAI_IMAGES_URL' src/server/musicCoverApi.ts
+          grep -Fq "action === 'cover'" 'api/eleven-music/[...path].ts'
 
       - name: Guard DJ floating banner removed
         run: |
