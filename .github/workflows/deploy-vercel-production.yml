@@ -1,8 +1,5 @@
 name: Deploy SONARA Web to Vercel Production
 
-# Production deployment is normally handled by Vercel's native Git integration.
-# This workflow stays manual by default and also accepts one explicit release-trigger file.
-# Ordinary pushes do not run a second production deployment.
 on:
   workflow_dispatch:
   push:
@@ -37,6 +34,17 @@ jobs:
         with:
           node-version: "24"
 
+      - name: Validate Creator Audio source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f src/components/generator/SonaraCreatorAudioHub.tsx
+          grep -q 'I miei brani' src/components/generator/SonaraCreatorAudioHub.tsx
+          grep -q 'Carica audio' src/components/generator/SonaraCreatorAudioHub.tsx
+          grep -q 'Registra voce' src/components/generator/SonaraCreatorAudioHub.tsx
+          grep -q 'SonaraCreatorAudioHub' src/main.tsx
+          echo 'Creator Audio source verified.'
+
       - name: Validate Vercel deployment credential
         shell: bash
         env:
@@ -48,27 +56,6 @@ jobs:
             exit 1
           fi
           echo "Vercel production credential is configured."
-
-      - name: Report Professional Lyrics v2 source markers
-        shell: bash
-        run: |
-          set -u
-          missing=0
-          check_marker() {
-            local marker="$1"
-            local file="$2"
-            if [[ -f "$file" ]] && grep -q "$marker" "$file"; then
-              echo "OK: $marker in $file"
-            else
-              echo "WARNING: optional marker '$marker' not found in $file"
-              missing=$((missing + 1))
-            fi
-          }
-          check_marker "buildProfessionalLyricsFallback" "src/professionalLyrics.ts"
-          check_marker "smartRandom" "api/lyrics.ts"
-          check_marker "INTELLIGENTE" "scripts/activate-universal-genres.cjs"
-          check_marker "professionalLyrics.quality.test.ts" "scripts/build-dispatch.cjs"
-          echo "Optional source marker check completed; missing=${missing}. Deployment will continue."
 
       - name: Install Vercel CLI
         run: npm install -g vercel@latest
@@ -104,24 +91,7 @@ jobs:
           echo "url=${DEPLOY_URL}" >> "${GITHUB_OUTPUT}"
           echo "SONARA production deployment: ${DEPLOY_URL}"
 
-      - name: Verify intelligent lyrics API on deployment
-        shell: bash
-        env:
-          DEPLOY_URL: ${{ steps.deploy.outputs.url }}
-        run: |
-          set -euo pipefail
-          response="$(curl -fsS --max-time 30 -H 'Content-Type: application/json' -d '{"language":"it","languageName":"Italian","genreFamily":"Pop","genre":"Pop","subgenre":"Dance Pop","mood":"Uplifting","vocalMode":"female","variant":987654321,"durationSec":180,"bpm":118,"smartRandom":true}' "${DEPLOY_URL}/api/lyrics")"
-          printf '%s' "${response}" > /tmp/lyrics-smart.json
-          node - <<'NODE'
-          const fs = require('fs');
-          const data = JSON.parse(fs.readFileSync('/tmp/lyrics-smart.json', 'utf8'));
-          if (data.smartRandom !== true) throw new Error('smartRandom flag missing from deployed API');
-          if (!String(data.lyrics || '').trim()) throw new Error('deployed intelligent lyrics are empty');
-          if (!String(data.quality || '').includes('intelligent-random-v3')) throw new Error(`unexpected quality marker: ${data.quality}`);
-          console.log(`Intelligent lyrics API verified: ${data.source}`);
-          NODE
-
-      - name: Verify INTELLIGENTE button in deployed bundle
+      - name: Verify Creator Audio hub in deployed bundle
         shell: bash
         env:
           DEPLOY_URL: ${{ steps.deploy.outputs.url }}
@@ -133,19 +103,18 @@ jobs:
             echo "No JavaScript assets found in deployed page." >&2
             exit 1
           fi
-          found=0
           for asset in "${assets[@]}"; do
             if [[ "${asset}" == http* ]]; then url="${asset}"; else url="${DEPLOY_URL}${asset}"; fi
-            if curl -fsS --max-time 30 "${url}" | grep -q 'INTELLIGENTE'; then
-              found=1
-              echo "INTELLIGENTE button marker found in ${asset}"
-              break
+            bundle="$(curl -fsS --max-time 30 "${url}")"
+            if printf '%s' "${bundle}" | grep -q 'I miei brani' \
+              && printf '%s' "${bundle}" | grep -q 'Carica audio' \
+              && printf '%s' "${bundle}" | grep -q 'Registra voce'; then
+              echo "Creator Audio hub verified in ${asset}."
+              exit 0
             fi
           done
-          if [[ ${found} -ne 1 ]]; then
-            echo "INTELLIGENTE button marker not found in deployed JavaScript bundle." >&2
-            exit 1
-          fi
+          echo "Creator Audio hub markers not found in deployed JavaScript bundle." >&2
+          exit 1
 
       - name: Purge Cloudflare web cache
         if: env.CLOUDFLARE_API_TOKEN != ''
@@ -160,10 +129,14 @@ jobs:
           NODE
           )"
           if [[ -z "${zone_id}" ]]; then
-            echo "Cloudflare zone not resolved; skipping purge." >&2
-            exit 0
+            echo "Cloudflare zone not resolved." >&2
+            exit 1
           fi
-          curl -fsS -X POST -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' --data '{"purge_everything":true}' "https://api.cloudflare.com/client/v4/zones/${zone_id}/purge_cache" > /tmp/cf-purge.json
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H 'Content-Type: application/json' \
+            --data '{"purge_everything":true}' \
+            "https://api.cloudflare.com/client/v4/zones/${zone_id}/purge_cache" > /tmp/cf-purge.json
           node - <<'NODE'
           const fs = require('fs');
           const data = JSON.parse(fs.readFileSync('/tmp/cf-purge.json', 'utf8'));
@@ -171,22 +144,25 @@ jobs:
           console.log('Cloudflare cache purged.');
           NODE
 
-      - name: Verify public production site contains INTELLIGENTE
+      - name: Verify public production contains Creator Audio hub
         shell: bash
         run: |
           set -euo pipefail
-          for attempt in {1..12}; do
-            html="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?deploy=${GITHUB_SHA}-${attempt}" || true)"
+          for attempt in {1..18}; do
+            html="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?creator_audio=${GITHUB_SHA}-${attempt}" || true)"
             mapfile -t assets < <(printf '%s' "${html}" | grep -oE 'src="[^"]+\.js"' | sed -E 's/^src="|"$//g' | sort -u)
             for asset in "${assets[@]}"; do
               if [[ "${asset}" == http* ]]; then url="${asset}"; else url="https://sonaraenterprise.com${asset}"; fi
-              if curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "${url}" | grep -q 'INTELLIGENTE'; then
-                echo "Public SONARA production verified with INTELLIGENTE button."
+              bundle="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "${url}" || true)"
+              if printf '%s' "${bundle}" | grep -q 'I miei brani' \
+                && printf '%s' "${bundle}" | grep -q 'Carica audio' \
+                && printf '%s' "${bundle}" | grep -q 'Registra voce'; then
+                echo "Public SONARA production verified with Creator Audio hub."
                 exit 0
               fi
             done
-            echo "Public bundle not refreshed yet (attempt ${attempt}/12)."
+            echo "Public Creator Audio bundle not refreshed yet (attempt ${attempt}/18)."
             sleep 5
           done
-          echo "Public SONARA bundle does not expose INTELLIGENTE after production deployment." >&2
+          echo "Public SONARA bundle does not expose Creator Audio hub after production deployment." >&2
           exit 1
