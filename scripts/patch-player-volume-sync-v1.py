@@ -3,6 +3,8 @@ from pathlib import Path
 CANDIDATE = Path('src/components/generator/ElevenMusicGenerationControl.tsx')
 FIXED = Path('src/components/player/SonaraProfessionalFixedPlayer.tsx')
 
+# Trigger V1 after workflow registration.
+
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
     if new in text:
