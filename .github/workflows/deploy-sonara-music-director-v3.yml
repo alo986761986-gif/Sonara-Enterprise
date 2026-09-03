@@ -1,6 +1,6 @@
 name: Deploy SONARA Music Director V3
 
-# VOLUME V2 + QUALITY B HARD LOCK V7 release trigger 2026-09-03
+# VOLUME V2 LIVE release trigger 2026-09-03
 on:
   workflow_dispatch:
   push:
