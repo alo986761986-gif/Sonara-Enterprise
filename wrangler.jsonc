@@ -7,7 +7,7 @@
   "keep_vars": true,
   "vars": {
     "SONARA_YUE_WORKER_URL": "https://yue.sonaraenterprise.com",
-    "SONARA_PRODUCTION_CHAIN": "sonara-ultra-diversity-v1-edge.mjs -> sonara-speed-v4-edge.mjs -> sonara-real-music-v2-edge.mjs -> sonara-studio-pitch-key-upload-bridge.mjs -> sonara-studio-native-pitch-bridge.mjs -> sonara-studio-key-pitch-guard.mjs -> sonara-quality-ultra-stability-guard.mjs"
+    "SONARA_PRODUCTION_CHAIN": "sonara-ultra-diversity-v1-edge.mjs -> sonara-speed-v4-edge.mjs -> sonara-real-music-v2-edge.mjs -> sonara-studio-pitch-key-upload-bridge.mjs -> sonara-studio-native-pitch-bridge.mjs -> sonara-studio-key-pitch-guard.mjs -> sonara-quality-ultra-stability-guard.mjs [INDEPENDENT_AB_V3]"
   },
   "assets": {
     "directory": "./dist",
