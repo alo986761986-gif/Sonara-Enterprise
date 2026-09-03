@@ -1,4 +1,4 @@
-SONARA_OFFICIAL_FRONTEND_RELEASE=2026-09-03-SONARA-REMIX-V1
-REASON=Publish dedicated professional audio-to-audio Remix studio with source selection, waveform trimming, prompt controls, variance, style influence, lyrics and real XL Turbo generation
-SOURCE_COMMIT=0b83315084720606e2a174df3b87fd958d16371e
-EXPECTED=REMIX,Your-songs,Upload-audio,Variance,Style-Influence,Create-remix,Results
+SONARA_OFFICIAL_FRONTEND_RELEASE=2026-09-03-SONARA-REMIX-YOUTUBE-V2
+REASON=Place Remix directly under Crea la mia musica and add validated YouTube reference input with rights confirmation and preview
+SOURCE_COMMIT=27e3b923182938e4c6e7717812bda1266555ed21
+EXPECTED=Crea-la-mia-musica,Remix,YouTube-link,Upload-audio,Use-reference,Create-remix
