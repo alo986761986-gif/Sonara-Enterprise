@@ -4,6 +4,8 @@ export { SonaraJobState, SonaraAuthStore };
 
 const VERSION = 'sonara-ultra-diversity-v1';
 const GENERATE_PATHS = new Set(['/api/engine/generate', '/api/billing/generate']);
+const ELEVEN_COVER_PATH = '/api/eleven-music/cover';
+const VERCEL_ORIGIN = 'https://sonara-enterprise.vercel.app';
 
 const clean = value => String(value ?? '').trim();
 
@@ -73,9 +75,39 @@ function decorate(response, seed = null) {
   });
 }
 
+async function proxyElevenCover(request) {
+  const headers = new Headers(request.headers);
+  headers.delete('host');
+  headers.delete('content-length');
+  headers.set('accept', 'application/json');
+  headers.set('cache-control', 'no-cache');
+  headers.set('x-sonara-edge-proxy', 'cover-public-entry-v1');
+
+  const response = await fetch(`${VERCEL_ORIGIN}${ELEVEN_COVER_PATH}`, {
+    method: request.method,
+    headers,
+    body: request.method === 'GET' || request.method === 'HEAD' ? undefined : request.body,
+    redirect: 'manual'
+  });
+
+  const responseHeaders = new Headers(response.headers);
+  responseHeaders.set('cache-control', 'private, no-store');
+  responseHeaders.set('x-sonara-cover-route', 'public-worker-entry-v1');
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: responseHeaders
+  });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+
+    if ((request.method === 'GET' || request.method === 'POST') && url.pathname === ELEVEN_COVER_PATH) {
+      return proxyElevenCover(request);
+    }
+
     if (request.method !== 'POST' || !GENERATE_PATHS.has(url.pathname)) {
       return runtime.fetch(request, env, ctx);
     }
