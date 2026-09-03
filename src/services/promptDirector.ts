@@ -85,31 +85,31 @@ function conciseIdea(context: PromptDirectorContext): string {
 export function buildPromptDirectorBrief(context: PromptDirectorContext, director: PromptDirectorMode): string {
   const idea = conciseIdea(context);
   const style = compact(context.subgenre || context.genre || context.family) || 'Original';
-  const taxonomy = unique([context.family, context.genre, context.subgenre].map(compact)).join(' > ');
+  const taxonomy = unique([context.family, context.genre, context.subgenre].map(compact)).join(' → ');
   const mood = compact(context.mood) || 'Authentic';
   const bpm = Number(context.bpm);
   const tempo = context.bpmMode === 'manual' && Number.isFinite(bpm) && bpm > 0
-    ? `${Math.round(bpm)} BPM EXACT`
+    ? `exactly ${Math.round(bpm)} BPM`
     : Number.isFinite(bpm) && bpm > 0
       ? `AUTO ${Math.round(bpm)} BPM`
       : 'AUTO AUTHENTIC BPM';
 
   const vocalMode = compact(context.vocalMode).toLocaleLowerCase('en-US');
   const vocal = vocalMode === 'male'
-    ? 'male lead'
+    ? 'Male lead vocal'
     : vocalMode === 'female'
-      ? 'female lead'
+      ? 'Female lead vocal'
       : vocalMode === 'duet'
-        ? 'male/female duet'
-        : 'instrumental only';
+        ? 'Male and female duet'
+        : 'Instrumental only';
 
   const dna = styleDetail(context, director === 'essential' ? 3 : 5);
   const weirdness = Number(context.weirdness);
   const influence = Number(context.styleInfluence);
   const controls = [
-    Number.isFinite(weirdness) ? `WEIRD=${Math.round(weirdness)}` : '',
-    Number.isFinite(influence) ? `STYLE=${Math.round(influence)}` : ''
-  ].filter(Boolean).join(' ');
+    Number.isFinite(weirdness) ? `Weirdness ${Math.round(weirdness)}%` : '',
+    Number.isFinite(influence) ? `Style Influence ${Math.round(influence)}%` : ''
+  ].filter(Boolean).join('; ');
 
   const form = director === 'cinematic'
     ? 'intro > build > tension > peak > release > final resolution'
@@ -119,9 +119,10 @@ export function buildPromptDirectorBrief(context: PromptDirectorContext, directo
 
   const line1 = `SONARA MASTER — EXECUTE THIS SONG EXACTLY; DO NOT REINTERPRET. SONG="${idea}"`;
   const line2 = `LOCK: ${taxonomy || style} | MOOD=${mood} | TEMPO=${tempo} | VOCAL=${vocal}${controls ? ` | ${controls}` : ''}`;
+  const direction = director === 'cinematic' ? `CINEMATIC DIRECTION=${form}` : `FORM=${form}`;
   const line3 = [
     dna ? `DNA=${dna}` : '',
-    `FORM=${form}`,
+    direction,
     'REALISM=human groove, micro-dynamics, natural articulation, evolving performance, re-performed repeats',
     `STYLE RULE=stay unmistakably ${style}`,
     'AVOID=genre drift, generic filler, cloned loops, artificial phrasing'
