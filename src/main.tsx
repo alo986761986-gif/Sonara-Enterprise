@@ -14,6 +14,7 @@ import BpmModeControl from './components/generator/BpmModeControl';
 import SonaraCreatorSkin from './components/generator/SonaraCreatorSkin';
 import SonaraCreatorAudioHub from './components/generator/SonaraCreatorAudioHub';
 import SonaraCreatorVoiceLauncher from './components/generator/SonaraCreatorVoiceLauncher';
+import SonaraCreatorVoiceClipShelf from './components/generator/SonaraCreatorVoiceClipShelf';
 import SunoStylePromptControl from './components/generator/SunoStylePromptControl';
 import GlobalMusicSuggestionControl from './components/generator/GlobalMusicSuggestionControl';
 import SonaraInteractiveMiniGuide from './components/generator/SonaraInteractiveMiniGuide';
@@ -64,6 +65,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <SonaraCreatorSkin />
         <SonaraCreatorAudioHub />
         <SonaraCreatorVoiceLauncher />
+        <SonaraCreatorVoiceClipShelf />
         <StudioSectionControl />
         <VideoAISectionControl />
         <DJSectionControl />
