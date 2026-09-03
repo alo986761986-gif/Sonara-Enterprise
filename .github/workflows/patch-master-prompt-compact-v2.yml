@@ -1,0 +1,122 @@
+name: Patch Compact Authoritative Master Prompt V2
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/patch-master-prompt-compact-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Replace verbose Master Prompt builder
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('src/services/promptDirector.ts')
+          text = path.read_text(encoding='utf-8')
+
+          replacement = r'''export function buildPromptDirectorBrief(context: PromptDirectorContext, director: PromptDirectorMode): string {
+  const normalized = normalizeIdea(context);
+  const previousModern = normalized.match(/\bSONG\s*=\s*"([^"]+)"/i)?.[1];
+  const previousLegacy = normalized.match(/CREATOR IDEA\s*[—-]\s*preserve the intent:\s*(.*?)(?=\s+LOCKED SONARA SELECTION|$)/i)?.[1];
+  let idea = compact(previousModern || previousLegacy || normalized).replace(/^["'`]+|["'`]+$/g, '');
+  if (idea.length > 260) idea = `${idea.slice(0, 257).replace(/\s+\S*$/, '')}...`;
+
+  const style = compact(context.subgenre || context.genre || context.family) || 'Original';
+  const taxonomy = unique([context.family, context.genre, context.subgenre].map(compact)).join(' > ');
+  const mood = compact(context.mood) || 'Authentic';
+  const bpm = Number(context.bpm);
+  const tempo = context.bpmMode === 'manual' && Number.isFinite(bpm) && bpm > 0
+    ? `${Math.round(bpm)} BPM EXACT`
+    : Number.isFinite(bpm) && bpm > 0
+      ? `AUTO ${Math.round(bpm)} BPM`
+      : 'AUTO AUTHENTIC BPM';
+
+  const vocalMode = compact(context.vocalMode).toLocaleLowerCase('en-US');
+  const vocal = vocalMode === 'male'
+    ? 'male lead'
+    : vocalMode === 'female'
+      ? 'female lead'
+      : vocalMode === 'duet'
+        ? 'male/female duet'
+        : 'instrumental only';
+
+  const dna = styleDetail(context, director === 'essential' ? 3 : 5);
+  const weirdness = Number(context.weirdness);
+  const influence = Number(context.styleInfluence);
+  const controls = [
+    Number.isFinite(weirdness) ? `WEIRD=${Math.round(weirdness)}` : '',
+    Number.isFinite(influence) ? `STYLE=${Math.round(influence)}` : ''
+  ].filter(Boolean).join(' ');
+
+  const form = director === 'cinematic'
+    ? 'intro > build > tension > peak > release > final resolution'
+    : director === 'essential'
+      ? 'clear hook > evolving sections > musical ending'
+      : 'intro > main groove/verse > hook/chorus > contrast > developed return > clean ending';
+
+  const line1 = `SONARA MASTER — EXECUTE THIS SONG EXACTLY; DO NOT REINTERPRET. SONG="${idea}"`;
+  const line2 = `LOCK: ${taxonomy || style} | MOOD=${mood} | TEMPO=${tempo} | VOCAL=${vocal}${controls ? ` | ${controls}` : ''}`;
+  const line3 = [
+    dna ? `DNA=${dna}` : '',
+    `FORM=${form}`,
+    'REALISM=human groove, micro-dynamics, natural articulation, evolving performance, re-performed repeats',
+    `STYLE RULE=stay unmistakably ${style}`,
+    'AVOID=genre drift, generic filler, cloned loops, artificial phrasing'
+  ].filter(Boolean).join(' | ');
+
+  return [line1, line2, line3].join('\n');
+}
+
+export function buildPromptContextChips'''
+
+          pattern = re.compile(
+              r'export function buildPromptDirectorBrief\(context: PromptDirectorContext, director: PromptDirectorMode\): string \{.*?\n\}\n\nexport function buildPromptContextChips',
+              re.S,
+          )
+          next_text, count = pattern.subn(replacement, text, count=1)
+          if count != 1:
+              raise SystemExit(f'Expected one Master Prompt builder, replaced {count}')
+          path.write_text(next_text, encoding='utf-8')
+          PY
+
+      - name: Validate compact Master Prompt
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes tsc --noEmit --pretty false >/tmp/tsc.log 2>&1 || {
+            cat /tmp/tsc.log
+            exit 1
+          }
+          grep -q 'EXECUTE THIS SONG EXACTLY' src/services/promptDirector.ts
+          grep -q 'REALISM=human groove' src/services/promptDirector.ts
+          grep -q 'AVOID=genre drift' src/services/promptDirector.ts
+          grep -q 'idea.length > 260' src/services/promptDirector.ts
+
+      - name: Commit Master Prompt V2
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "SONARA Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/services/promptDirector.ts
+          if git diff --cached --quiet; then
+            echo "Master Prompt already patched"
+            exit 0
+          fi
+          git commit -m "feat(prompt): make Master Prompt concise and authoritative"
+          git push origin HEAD:main
