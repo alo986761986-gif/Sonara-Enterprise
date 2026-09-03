@@ -1,0 +1,33 @@
+name: Apply ULTRA Independent AB V3
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - scripts/patch-ultra-independent-ab-v3.py
+      - .github/workflows/apply-ultra-independent-ab-v3.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - run: python3 scripts/patch-ultra-independent-ab-v3.py
+      - run: node --check cloudflare/sonara-quality-ultra-stability-guard.mjs
+      - run: grep -q 'best-one-per-independent-batch' cloudflare/sonara-quality-ultra-stability-guard.mjs
+      - run: |
+          git config user.name "SONARA Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add cloudflare/sonara-quality-ultra-stability-guard.mjs
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "feat(ultra): enforce two independent realistic A B songs live"
+          git push origin HEAD:main
