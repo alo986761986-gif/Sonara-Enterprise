@@ -1,4 +1,4 @@
-name: Apply QUALITY B Prompt Fidelity V4
+name: Apply QUALITY B Prompt Fidelity V5
 
 on:
   push:
@@ -20,12 +20,14 @@ jobs:
           fetch-depth: 0
       - run: python3 scripts/patch-quality-b-prompt-fidelity-v4.py
       - run: node --check cloudflare/sonara-quality-ultra-stability-guard.mjs
-      - run: grep -Fq 'FINAL PROMPT FIDELITY CONTRACT' cloudflare/sonara-quality-ultra-stability-guard.mjs
-      - run: grep -Fq 'PROMPT FIDELITY ALWAYS WINS' cloudflare/sonara-quality-ultra-stability-guard.mjs
+      - run: node --check cloudflare/sonara-molab-xl-router.mjs
+      - run: grep -Fq 'QUALITY SAME-PROMPT CONTRACT' cloudflare/sonara-quality-ultra-stability-guard.mjs
+      - run: grep -Fq 'qualitySamePromptPair' cloudflare/sonara-quality-ultra-stability-guard.mjs
+      - run: grep -Fq "clamp(0.74 + controls.weirdness * 0.0006, 0.77, 0.74, 0.80)" cloudflare/sonara-molab-xl-router.mjs
       - run: |
           git config user.name "SONARA Automation"
           git config user.email "actions@users.noreply.github.com"
-          git add cloudflare/sonara-quality-ultra-stability-guard.mjs
+          git add cloudflare/sonara-quality-ultra-stability-guard.mjs cloudflare/sonara-molab-xl-router.mjs
           if git diff --cached --quiet; then exit 0; fi
-          git commit -m "fix(quality): make Song B faithful to the exact creator prompt"
+          git commit -m "fix(quality): keep B on the exact same prompt brief"
           git push origin HEAD:main
