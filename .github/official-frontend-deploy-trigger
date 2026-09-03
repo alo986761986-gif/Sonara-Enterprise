@@ -1,4 +1,4 @@
-SONARA_OFFICIAL_FRONTEND_RELEASE=2026-09-03-CREATOR-AUDIO-HUB-V2
-REASON=Publish Creator Audio hub to official Cloudflare Worker using Wrangler account discovery from the configured token
-SOURCE_COMMIT=8aaf9f60d9e1555e3f78e8f778cb81687b0f38db
-EXPECTED=I-miei-brani,Carica-audio,Registra-voce
+SONARA_OFFICIAL_FRONTEND_RELEASE=2026-09-03-CREATOR-VOICE-RECORDER-V1
+REASON=Publish dedicated Voice recording section from Creator toolbar to official Cloudflare Worker
+SOURCE_COMMIT=3e232dcc9189281b6c3d7f3ed4bf68f3c23b68b3
+EXPECTED=Voice,Registra-la-tua-voce,Inizia-registrazione,Usa-questa-voce
