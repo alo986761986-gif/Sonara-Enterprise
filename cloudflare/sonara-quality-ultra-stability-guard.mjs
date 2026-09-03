@@ -178,9 +178,12 @@ function transientPayload(response, data) {
 
 function makeVariantBody(body, profile, variantIndex) {
   const prompt = clean(body.prompt || body.creatorPrompt || body.rawPrompt || body.musicPrompt);
+  const entropy = crypto.getRandomValues(new Uint32Array(2));
+  const suppliedSeed = Number(body.seed) > 0 ? Math.floor(Number(body.seed)) : Number(entropy[0]);
+  const independentSeed = Math.max(1, (suppliedSeed + Number(entropy[0]) + Number(entropy[1]) + (variantIndex + 1) * 15485863) % 1999999973);
   const direction = variantIndex === 0
-    ? 'Candidate batch A: prioritize hook strength, groove, vocal clarity, coherent arrangement and clean release-ready balance.'
-    : 'Candidate batch B: preserve the exact genre, BPM, key, lyrics and singer identity, but use a different melody, voicing, transitions, fills and timbral balance.';
+    ? 'SONARA SONG A — independent composition. Create a complete song with its own melody, harmony, bass phrasing, drum groove, hook, arrangement, transitions, sound palette, climax and ending.'
+    : 'SONARA SONG B — completely independent composition. Do NOT reuse Song A melodic contour, chord progression or voicing flow, bass rhythm, drum groove, hook rhythm, intro, build, drop or chorus contour, fills, transitions, sound palette or section architecture. Preserve only the creator locks: requested genre and subgenre, exact BPM, key, duration, lyrics and language, and singer identity.';
   const fidelity = profile === 'ultra'
     ? 'ULTRA: maximize realism, transient detail, depth, natural vocals, human micro-variation and mastering polish without changing the creator intent.'
     : 'QUALITY: prioritize authentic genre language, strong songwriting, natural dynamics, clean transients and release-ready balance.';
@@ -193,8 +196,10 @@ function makeVariantBody(body, profile, variantIndex) {
     candidateCount: 2,
     candidate_count: 2,
     dualFast: true,
-    seed: Number(body.seed) > 0 ? Math.floor(Number(body.seed)) + variantIndex * 104729 : undefined,
-    prompt: [prompt, `SONARA ${profile.toUpperCase()} STABILITY DIRECTOR.`, fidelity, direction].filter(Boolean).join('\n\n').slice(0, 12000)
+    seed: independentSeed,
+    sonaraCompositionIdentity: variantIndex === 0 ? 'A' : 'B',
+    sonaraIndependentAB: profile === 'ultra',
+    prompt: [prompt, `SONARA ${profile.toUpperCase()} STABILITY DIRECTOR.`, fidelity, direction, `Independent composition seed=${independentSeed}.`].filter(Boolean).join('\n\n').slice(0, 12000)
   };
 }
 
@@ -385,13 +390,34 @@ async function finalize(request, env, jobId, state, childData, extra = {}) {
     }, 502);
   }
 
-  const visible = combined.ranked.slice(0, 2).map((item, index) => ({
+  let visibleSource = combined.ranked.slice(0, 2);
+  if (state.profile === 'ultra') {
+    const bestByChild = new Map();
+    for (const item of combined.ranked) {
+      const childIndex = Number(item?.report?.childIndex);
+      if (Number.isInteger(childIndex) && !bestByChild.has(childIndex)) bestByChild.set(childIndex, item);
+    }
+    visibleSource = [bestByChild.get(0), bestByChild.get(1)].filter(Boolean);
+    if (visibleSource.length < 2) {
+      return json(request, {
+        jobId,
+        status: 'FAILED',
+        progress: 100,
+        retryable: true,
+        error: 'ULTRA richiede due brani indipendenti A e B. Uno dei due batch non ha prodotto audio valido.',
+        metadata: { profile: state.profile, stabilityGuard: VERSION, independentABRequired: true, independentChildrenReady: visibleSource.length }
+      }, 502);
+    }
+  }
+  const visible = visibleSource.map((item, index) => ({
     ...(item.candidate && typeof item.candidate === 'object' ? item.candidate : {}),
     audioUrl: item.url,
     sonaraQuality: item.report,
     sonaraRecommended: index === 0,
     releaseEligible: item.report?.professionalReleasePassed === true,
-    directorRank: index + 1
+    directorRank: index + 1,
+    sonaraCompositionIdentity: index === 0 ? 'A' : 'B',
+    independentComposition: state.profile === 'ultra'
   }));
   const target = Number(state.targetScore || targetOf(state.profile));
   const bestScore = Number(combined.summary?.bestProfessionalScore || 0);
@@ -422,6 +448,9 @@ async function finalize(request, env, jobId, state, childData, extra = {}) {
       bestProfessionalScore: bestScore,
       releaseReady: bestScore >= target,
       secondaryBatchUsed: Boolean(state.secondaryJobId),
+      independentAB: state.profile === 'ultra',
+      independentABSelection: state.profile === 'ultra' ? 'best-one-per-independent-batch' : 'global-ranking',
+      humanRealismRequired: state.profile === 'ultra',
       ...extra
     }
   };
@@ -577,7 +606,7 @@ async function stableJob(request, env, ctx, jobId) {
     state.qualityReportCache = mergeQualityCache(state.qualityReportCache, primaryRank.ranked);
     await saveState(env, jobId, state);
     const bestScore = Number(primaryRank.summary?.bestProfessionalScore || 0);
-    if (primaryRank.ranked.length && bestScore >= Number(state.targetScore) && primaryRank.ranked[0]?.report?.professionalReleasePassed === true) {
+    if (state.profile !== 'ultra' && primaryRank.ranked.length && bestScore >= Number(state.targetScore) && primaryRank.ranked[0]?.report?.professionalReleasePassed === true) {
       return finalize(request, env, jobId, state, [primaryData], {
         adaptiveEarlyRelease: true,
         secondaryBatchSkippedBecauseTargetPassed: true,
@@ -586,6 +615,16 @@ async function stableJob(request, env, ctx, jobId) {
     }
     const secondary = await submitSecondary(request, env, ctx, state, jobId);
     if (!secondary.childJobId) {
+      if (state.profile === 'ultra') {
+        return json(request, {
+          jobId,
+          status: 'FAILED',
+          progress: 100,
+          retryable: true,
+          error: 'ULTRA non ha potuto avviare il brano B indipendente. La coppia A/B non viene completata con due variazioni dello stesso batch.',
+          metadata: { profile: state.profile, stabilityGuard: VERSION, independentABRequired: true, secondarySubmitStatus: secondary.response?.status || 0 }
+        }, 502);
+      }
       return finalize(request, env, jobId, state, [primaryData], {
         secondaryBatchDegraded: true,
         secondarySubmitStatus: secondary.response?.status || 0,
@@ -616,6 +655,16 @@ async function stableJob(request, env, ctx, jobId) {
   }
 
   if (!state.secondaryJobId) {
+    if (primaryStatus === 'completed' && state.profile === 'ultra') {
+      return json(request, {
+        jobId,
+        status: 'FAILED',
+        progress: 100,
+        retryable: true,
+        error: 'ULTRA richiede entrambi i brani indipendenti A e B; il brano B non è disponibile.',
+        metadata: { profile: state.profile, stabilityGuard: VERSION, independentABRequired: true }
+      }, 502);
+    }
     if (primaryStatus === 'completed') return finalize(request, env, jobId, state, [primaryData], { secondaryBatchDegraded: true });
     return primaryResponse;
   }
@@ -630,6 +679,16 @@ async function stableJob(request, env, ctx, jobId) {
     state.secondaryTransientPolls = transient ? Number(state.secondaryTransientPolls || 0) + 1 : 0;
     await saveState(env, jobId, state);
     if (primaryStatus === 'completed' && (state.secondaryTransientPolls >= MAX_TRANSIENT_POLLS || secondaryAge > SECONDARY_SOFT_TIMEOUT_MS)) {
+      if (state.profile === 'ultra') {
+        return json(request, {
+          jobId,
+          status: 'FAILED',
+          progress: 100,
+          retryable: true,
+          error: 'ULTRA: il brano B indipendente ha superato il timeout. B non viene sostituito con una variazione di A.',
+          metadata: { profile: state.profile, stabilityGuard: VERSION, independentABRequired: true, secondaryTransientPolls: state.secondaryTransientPolls }
+        }, 504);
+      }
       return finalize(request, env, jobId, state, [primaryData], {
         secondaryBatchTimedOut: true,
         secondaryTransientPolls: state.secondaryTransientPolls,
