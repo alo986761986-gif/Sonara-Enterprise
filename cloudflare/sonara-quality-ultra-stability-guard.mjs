@@ -176,18 +176,21 @@ function transientPayload(response, data) {
   return [502, 503, 504].includes(response?.status) || /non json|timeout|timed out|riconnessione|502|503|504/.test(text);
 }
 
-function makeVariantBody(body, profile, variantIndex) {
+function makeVariantBody(body, profile, variantIndex, retryIndex = 0) {
   const prompt = clean(body.prompt || body.creatorPrompt || body.rawPrompt || body.musicPrompt);
   const entropy = crypto.getRandomValues(new Uint32Array(2));
   const suppliedSeed = Number(body.seed) > 0 ? Math.floor(Number(body.seed)) : Number(entropy[0]);
-  const independentSeed = Math.max(1, (suppliedSeed + Number(entropy[0]) + Number(entropy[1]) + (variantIndex + 1) * 15485863) % 1999999973);
+  const qualitySeed = Math.max(1, (suppliedSeed + variantIndex * 104729 + retryIndex * 32452843) % 1999999973);
+  const independentSeed = profile === 'quality'
+    ? qualitySeed
+    : Math.max(1, (suppliedSeed + Number(entropy[0]) + Number(entropy[1]) + (variantIndex + 1) * 15485863) % 1999999973);
   const promptFidelity = profile === 'quality'
     ? 'QUALITY SAME-PROMPT CONTRACT — ABSOLUTE: both visible songs must execute the exact same creator brief. Preserve concept, genre/subgenre, mood, era, energy, requested instruments, rhythmic feel, production character, vocal role/identity, language, lyrics/theme, atmosphere, exclusions, BPM, key and duration. Do not invent a neighboring style, new concept, unrelated instrumentation or experimental detour. Candidate B is an alternate TAKE of the same requested song brief, not a reinterpretation.'
     : 'FINAL PROMPT FIDELITY CONTRACT — NON-NEGOTIABLE: the creator prompt is the source of truth for BOTH Song A and Song B. Preserve every explicit semantic requirement from the prompt: musical concept, genre and subgenre, mood, era, energy, instrumentation, production style, rhythmic feel, vocal role and identity, language, lyrics, theme/story, atmosphere, exclusions, exact BPM/key/duration when specified, and all named creative details. Song B must sound like a second original composition commissioned from the EXACT SAME brief, never like a different prompt. Independence applies only to the musical solution, not to the requested identity or meaning.';
   const direction = profile === 'quality'
     ? (variantIndex === 0
-      ? 'SONARA QUALITY A/B — render two faithful takes of this exact prompt. A and B must immediately sound like the same requested musical brief. Variation is bounded: change only melody phrasing, chord voicing detail, fills and transition details that are fully native to the requested style. Keep the same musical identity, palette, mood, groove family and production language.'
-      : 'SONARA QUALITY B RECOVERY — regenerate the exact same creator prompt conservatively. This is not a new concept and not an independent stylistic experiment. Preserve the requested musical identity literally; use only small genre-authentic changes in melody phrasing, voicing, fills and transitions. PROMPT FIDELITY OVERRIDES NOVELTY.')
+      ? 'SONARA QUALITY A PRIMARY SINGLE TAKE — render one complete, literal realization of this exact creator brief. Stay inside the requested genre, mood, instrumentation, groove family, vocal intent and production language. This take establishes the reference identity for QUALITY.'
+      : 'SONARA QUALITY B SAFE SINGLE TAKE — render one conservative alternate take of the EXACT SAME creator brief. B is not a new concept, remix, neighboring genre or experimental interpretation. Preserve the same genre/subgenre, mood, era, instrumentation palette, groove family, production language, vocal identity, lyrics/language, BPM, key and atmosphere. Only small genre-authentic differences in melody phrasing, voicings, fills and transitions are allowed. PROMPT FIDELITY OVERRIDES NOVELTY.')
     : (variantIndex === 0
       ? 'SONARA SONG A — compose the first complete realization of the creator prompt. Follow the prompt literally and musically: no genre drift, no mood drift, no missing requested instruments or vocal intent.'
       : 'SONARA SONG B — compose a genuinely different song for the EXACT SAME creator prompt. Use a new melody, harmonic route/voicings, bass phrasing, drum details, hook contour, transitions and section development, while preserving ALL prompt semantics and stylistic requirements. Do not change concept, genre/subgenre, mood, era, instrumentation brief, production character, vocal intent, lyrics/theme or requested atmosphere. If novelty conflicts with prompt fidelity, PROMPT FIDELITY ALWAYS WINS.');
@@ -200,16 +203,21 @@ function makeVariantBody(body, profile, variantIndex) {
     sonaraQualityUltraStability: VERSION,
     sonaraStabilityProfile: profile,
     sonaraStabilityVariant: variantIndex,
-    candidateCount: 2,
-    candidate_count: 2,
-    dualFast: true,
+    candidateCount: profile === 'quality' ? 1 : 2,
+    candidate_count: profile === 'quality' ? 1 : 2,
+    dualFast: profile !== 'quality',
     seed: independentSeed,
     sonaraCompositionIdentity: variantIndex === 0 ? 'A' : 'B',
     sonaraIndependentAB: profile === 'ultra',
     sonaraPromptFidelity: profile === 'quality' ? 'literal-same-brief' : 'strict',
     sonaraCreatorIntentLocked: true,
     sonaraQualityBSafeV5: profile === 'quality',
-    prompt: [prompt, `SONARA ${profile.toUpperCase()} STABILITY DIRECTOR.`, fidelity, direction, promptFidelity, `${profile === 'quality' ? 'Faithful take' : 'Independent composition'} seed=${independentSeed}.`].filter(Boolean).join('\n\n').slice(0, 12000)
+    sonaraQualityBSafeV6: profile === 'quality',
+    sonaraQualitySafeB: profile === 'quality' && variantIndex === 1,
+    sonaraQualityRetry: retryIndex,
+    sonaraStabilityInstruction: [fidelity, direction, promptFidelity].filter(Boolean).join('\n\n').slice(0, 6000),
+    sonaraQualityTakeInstruction: profile === 'quality' ? [direction, promptFidelity].filter(Boolean).join('\n\n').slice(0, 5000) : '',
+    prompt: [prompt, `SONARA ${profile.toUpperCase()} STABILITY DIRECTOR.`, fidelity, direction, promptFidelity, `${profile === 'quality' ? 'Controlled take' : 'Independent composition'} seed=${independentSeed}.`].filter(Boolean).join('\n\n').slice(0, 12000)
   };
 }
 
@@ -401,6 +409,24 @@ async function finalize(request, env, jobId, state, childData, extra = {}) {
   }
 
   let visibleSource = combined.ranked.slice(0, 2);
+  if (state.profile === 'quality') {
+    const bestByChild = new Map();
+    for (const item of combined.ranked) {
+      const childIndex = Number(item?.report?.childIndex);
+      if (Number.isInteger(childIndex) && !bestByChild.has(childIndex)) bestByChild.set(childIndex, item);
+    }
+    visibleSource = [bestByChild.get(0), bestByChild.get(1)].filter(Boolean);
+    if (visibleSource.length < 2) {
+      return json(request, {
+        jobId,
+        status: 'FAILED',
+        progress: 100,
+        retryable: true,
+        error: 'QUALITY richiede due take singole valide A e B. Il lato B non viene pubblicato se manca o non completa correttamente.',
+        metadata: { profile: state.profile, stabilityGuard: VERSION, qualitySequentialSingleTakes: true, validTakes: visibleSource.length }
+      }, 502);
+    }
+  }
   if (state.profile === 'ultra') {
     const bestByChild = new Map();
     for (const item of combined.ranked) {
@@ -459,7 +485,9 @@ async function finalize(request, env, jobId, state, childData, extra = {}) {
       releaseReady: bestScore >= target,
       secondaryBatchUsed: Boolean(state.secondaryJobId),
       independentAB: state.profile === 'ultra',
-      independentABSelection: state.profile === 'ultra' ? 'best-one-per-independent-batch' : 'global-ranking',
+      independentABSelection: state.profile === 'ultra' ? 'best-one-per-independent-batch' : (state.profile === 'quality' ? 'one-approved-take-per-sequential-job' : 'global-ranking'),
+      qualitySequentialSingleTakes: state.profile === 'quality',
+      qualityBStrictPublishGate: state.profile === 'quality',
       humanRealismRequired: state.profile === 'ultra',
       ...extra
     }
@@ -469,8 +497,8 @@ async function finalize(request, env, jobId, state, childData, extra = {}) {
   return json(request, result);
 }
 
-async function submitSecondary(request, env, ctx, state, jobId) {
-  const body = makeVariantBody(state.originalBody || {}, state.profile, 1);
+async function submitSecondary(request, env, ctx, state, jobId, retryIndex = Number(state.secondaryRetryCount || 0)) {
+  const body = makeVariantBody(state.originalBody || {}, state.profile, 1, retryIndex);
   const response = await runtime.fetch(buildChildRequest(request, body, '/api/engine/generate', env), env, ctx);
   const data = await readJson(response);
   const childJobId = extractJobId(data);
@@ -483,7 +511,11 @@ async function submitSecondary(request, env, ctx, state, jobId) {
 }
 
 async function startStable(request, env, ctx, body, profile) {
-  const primaryBody = makeVariantBody(body, profile, 0);
+  const qualityBaseSeed = profile === 'quality'
+    ? Math.max(1, (Number(body.seed) > 0 ? Math.floor(Number(body.seed)) : Number(crypto.getRandomValues(new Uint32Array(1))[0])) % 1999999973)
+    : null;
+  const stableBody = qualityBaseSeed ? { ...body, seed: qualityBaseSeed, sonaraQualityBaseSeed: qualityBaseSeed } : body;
+  const primaryBody = makeVariantBody(stableBody, profile, 0);
   const primaryResponse = await runtime.fetch(buildChildRequest(request, primaryBody, null, env), env, ctx);
   const primaryData = await readJson(primaryResponse);
   const primaryJobId = extractJobId(primaryData);
@@ -495,11 +527,12 @@ async function startStable(request, env, ctx, body, profile) {
     profile,
     targetScore: targetOf(profile),
     requested: requested(body),
-    originalBody: body,
+    originalBody: stableBody,
     primaryJobId,
     secondaryJobId: '',
     secondarySubmittedAt: 0,
     secondarySubmitFailed: false,
+    secondaryRetryCount: 0,
     primaryTransientPolls: 0,
     secondaryTransientPolls: 0,
     qualityReportCache: {},
@@ -525,6 +558,8 @@ async function startStable(request, env, ctx, body, profile) {
       generatedCandidateTarget: profile === 'quality' ? 2 : 4,
       visibleCandidateTarget: 2,
       qualitySamePromptPairPreferred: profile === 'quality',
+      qualitySequentialSingleTakes: profile === 'quality',
+      qualityBStrictPublishGate: profile === 'quality',
       professionalTargetScore: state.targetScore,
       currentStage: `SONARA ${profile.toUpperCase()}: primo batch sicuro avviato`
     }
@@ -625,7 +660,7 @@ async function stableJob(request, env, ctx, jobId) {
         primaryQualityReportsReused: true
       });
     }
-    if (state.profile !== 'ultra' && primaryRank.ranked.length && bestScore >= Number(state.targetScore) && primaryRank.ranked[0]?.report?.professionalReleasePassed === true) {
+    if (state.profile === 'fast' && primaryRank.ranked.length && bestScore >= Number(state.targetScore) && primaryRank.ranked[0]?.report?.professionalReleasePassed === true) {
       return finalize(request, env, jobId, state, [primaryData], {
         adaptiveEarlyRelease: true,
         secondaryBatchSkippedBecauseTargetPassed: true,
@@ -730,6 +765,74 @@ async function stableJob(request, env, ctx, jobId) {
         secondaryTransientPolls: state.secondaryTransientPolls
       }
     });
+  }
+
+  if (state.profile === 'quality' && primaryStatus === 'completed' && secondaryStatus === 'completed') {
+    const warmB = await warmNextQualityReport([secondaryData], state.requested || {}, state, env, jobId);
+    if (warmB.warmed) {
+      return json(request, {
+        jobId,
+        status: 'PROCESSING',
+        progress: 91,
+        stage: 'SONARA QUALITY: verifica professionale obbligatoria del lato B',
+        metadata: {
+          profile: state.profile,
+          stabilityGuard: VERSION,
+          qualityBStrictPublishGate: true,
+          secondaryRetryCount: Number(state.secondaryRetryCount || 0),
+          cachedQualityReports: warmB.cachedCount
+        }
+      });
+    }
+    const bRank = await rankChildren([secondaryData], state.requested || {}, state.qualityReportCache || {});
+    state.qualityReportCache = mergeQualityCache(state.qualityReportCache, bRank.ranked);
+    await saveState(env, jobId, state);
+    const bItem = bRank.ranked[0] || null;
+    const bScore = Number(bItem?.report?.professionalScore || 0);
+    const bPassed = Boolean(bItem && bItem.report?.professionalReleasePassed === true && bScore >= Number(state.targetScore || PROFESSIONAL_RELEASE_SCORE));
+    if (!bPassed) {
+      const retries = Number(state.secondaryRetryCount || 0);
+      if (retries < 1) {
+        state.secondaryRetryCount = retries + 1;
+        state.secondaryJobId = '';
+        state.secondarySubmitFailed = false;
+        state.secondarySubmittedAt = 0;
+        state.secondaryTransientPolls = 0;
+        await saveState(env, jobId, state);
+        const retry = await submitSecondary(request, env, ctx, state, jobId, state.secondaryRetryCount);
+        if (retry.childJobId) {
+          return json(request, {
+            jobId,
+            status: 'PROCESSING',
+            progress: 84,
+            stage: 'SONARA QUALITY: lato B scartato, rigenerazione sicura automatica',
+            metadata: {
+              profile: state.profile,
+              stabilityGuard: VERSION,
+              qualityBStrictPublishGate: true,
+              qualityBAutoRetry: true,
+              rejectedBScore: bScore,
+              secondaryRetryCount: state.secondaryRetryCount
+            }
+          });
+        }
+      }
+      return json(request, {
+        jobId,
+        status: 'FAILED',
+        progress: 100,
+        retryable: true,
+        error: 'QUALITY B e stato scartato dal controllo professionale anche dopo la rigenerazione sicura. SONARA non pubblica piu un lato B sotto standard.',
+        metadata: {
+          profile: state.profile,
+          stabilityGuard: VERSION,
+          qualityBStrictPublishGate: true,
+          rejectedBScore: bScore,
+          requiredBScore: Number(state.targetScore || PROFESSIONAL_RELEASE_SCORE),
+          secondaryRetryCount: Number(state.secondaryRetryCount || 0)
+        }
+      }, 502);
+    }
   }
 
   const completed = [];

@@ -196,14 +196,21 @@ function realMusicEnabled(body = {}, capabilities = {}) {
 export function buildMolabPayload(body, count, capabilities = {}) {
   const seed = Math.max(1, Number(body?.seed) > 0 ? Number(body.seed) : Math.floor(Date.now() % 2_000_000_000));
   const base = buildStudioPayload(body, 'structure', seed + 104729);
-  const controls = qualityControls(body);
+  const rawControls = qualityControls(body);
   const profile = profileOf(body);
+  const qualitySafeB = profile === 'quality' && (body?.sonaraQualitySafeB === true || Number(body?.sonaraStabilityVariant) === 1);
+  const controls = {
+    weirdness: qualitySafeB ? Math.min(rawControls.weirdness, 25) : rawControls.weirdness,
+    styleInfluence: qualitySafeB ? Math.max(rawControls.styleInfluence, 85) : rawControls.styleInfluence
+  };
   const realMusic = realMusicEnabled(body, capabilities);
   const hasVocals = Boolean(String(body.lyrics || '').trim()) && String(body.vocalMode || body.vocal_mode || '').toLowerCase() !== 'instrumental';
   const humanLmTemperature = realMusic
     ? (profile === 'ultra'
       ? clamp(0.82 + controls.weirdness * 0.0006, 0.85, 0.82, 0.88)
-      : clamp(0.74 + controls.weirdness * 0.0006, 0.77, 0.74, 0.80))
+      : (qualitySafeB
+        ? clamp(0.72 + controls.weirdness * 0.0004, 0.73, 0.72, 0.74)
+        : clamp(0.74 + controls.weirdness * 0.0006, 0.77, 0.74, 0.80)))
     : 0.85;
   const humanLmCfgScale = realMusic ? clamp(2.10 + controls.styleInfluence * 0.004, 2.30, 2.10, 2.50) : 2.0;
   const humanTopP = realMusic ? clamp(0.90 + controls.weirdness * 0.0006, 0.93, 0.90, 0.96) : 0.90;
@@ -219,16 +226,22 @@ export function buildMolabPayload(body, count, capabilities = {}) {
 
   const authoritativePrompt = String(body.prompt || '').trim().slice(0, 7600);
   const finalInstruction = fidelityInstruction(body, controls).slice(0, 4000);
-  const candidateDirection = count === 2
-    ? (profile === 'quality'
-      ? 'QUALITY TWO-TAKE RULE: render two candidates from the EXACT SAME creator brief. A and B must share the requested concept, genre/subgenre, mood, era, instrumentation palette, groove family, production character, vocal intent, lyrics/language, BPM, key and atmosphere. Candidate B is only a faithful alternate take: vary melody phrasing, chord voicing details, fills and transitions inside the exact style. Do NOT introduce a new style, new concept, unrelated instruments, experimental detour or different emotional direction. If uncertain, repeat the creator intent more literally rather than becoming novel.'
-      : 'Render two candidates in one GPU batch. Both MUST preserve the same creator style, BPM, key, lyrics and vocal-language locks. Candidate A prioritizes hook and groove. Candidate B changes melody, voicing, transitions and timbral balance without changing genre identity.')
-    : 'Render one highly faithful professional master with strong hook, groove, coherent structure and production detail.';
+  const stabilityInstruction = String(body.sonaraStabilityInstruction || body.sonaraQualityTakeInstruction || '').trim().slice(0, 6000);
+  const candidateDirection = qualitySafeB
+    ? 'QUALITY B SAFE SINGLE TAKE V6: execute the same creator brief literally. This is a conservative second take, not a new composition concept. Keep genre/subgenre, mood, era, groove family, instruments, production language, singer identity, lyrics/language, BPM, key and atmosphere locked. Use only small musical-performance differences. No experimental detours, no neighboring genre, no unrelated instruments, no bizarre harmony, no random structure. If there is any ambiguity, choose the most conventional genre-authentic solution.'
+    : (count === 2
+      ? (profile === 'quality'
+        ? 'QUALITY TWO-TAKE RULE: render two candidates from the EXACT SAME creator brief. A and B must share the requested concept, genre/subgenre, mood, era, instrumentation palette, groove family, production character, vocal intent, lyrics/language, BPM, key and atmosphere.'
+        : 'Render two candidates in one GPU batch. Both MUST preserve the same creator style, BPM, key, lyrics and vocal-language locks. Candidate A prioritizes hook and groove. Candidate B changes melody, voicing, transitions and timbral balance without changing genre identity.')
+      : (profile === 'quality'
+        ? 'QUALITY A SINGLE TAKE V6: render one highly faithful professional master that establishes the exact requested musical identity. Stay literal, coherent and genre-authentic.'
+        : 'Render one highly faithful professional master with strong hook, groove, coherent structure and production detail.'));
 
   const prompt = [
     authoritativePrompt,
     realMusic ? 'SONARA MOLAB RTX PRO 6000 — REAL MUSIC MODE.' : 'SONARA MOLAB RTX PRO 6000 — STABLE HIGH-FIDELITY MODE.',
     finalInstruction,
+    stabilityInstruction,
     realMusic ? realMusicInstruction(body) : '',
     locks,
     `Weirdness=${controls.weirdness}/100 controls creativity INSIDE the requested style. Style Influence=${controls.styleInfluence}/100 controls adherence to the creator style.`,
@@ -247,7 +260,7 @@ export function buildMolabPayload(body, count, capabilities = {}) {
     lm_cfg_scale: humanLmCfgScale,
     lm_top_k: 0,
     lm_top_p: humanTopP,
-    lm_repetition_penalty: realMusic ? (profile === 'ultra' ? 1.08 : 1.04) : 1.0,
+    lm_repetition_penalty: realMusic ? (profile === 'ultra' ? 1.08 : (qualitySafeB ? 1.02 : 1.04)) : 1.0,
     lm_negative_prompt: realMusic
       ? 'generic style drift, wrong BPM, wrong key, robotic quantization, static velocity, identical repeated bars, identical drum velocities, copy-paste phrasing, cloned chorus performance, fixed vibrato, pitch-staircase tuning, breathless synthetic vocal, plastic timbre, metallic artifacts, harsh clipping, overcompression, phasey stereo, hard ambience resets, accidental silence, malformed ending, unwanted vocals'
       : 'NO USER INPUT',
@@ -268,7 +281,9 @@ export function buildMolabPayload(body, count, capabilities = {}) {
     dcw_high_scaler: 0.02,
     enable_normalization: true,
     normalization_db: -1.0,
-    use_random_seed: true,
+    use_random_seed: profile !== 'quality',
+    sonara_quality_safe_b_v6: qualitySafeB,
+    sonara_quality_seed_locked_v6: profile === 'quality',
     sonara_real_music_v1: realMusic,
     sonara_generation_profile: profile,
     sonara_speed_inference_steps: inferenceSteps,
