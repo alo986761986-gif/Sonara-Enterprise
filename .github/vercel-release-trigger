@@ -1,4 +1,4 @@
-SONARA_VERCEL_RELEASE=2026-09-03-CREATOR-AUDIO-HUB-CLOUDFLARE-PURGE
-REASON=Publish Creator Audio library upload and microphone voice recording hub and purge stale Cloudflare HTML cache
+SONARA_VERCEL_RELEASE=2026-09-03-CREATOR-AUDIO-HUB-CLOUDFLARE-PURGE-V2
+REASON=Run corrected production verification and purge stale Cloudflare HTML cache for Creator Audio hub
 EXPECTED_CREATOR_AUDIO=library-upload-voice-reference
-SOURCE_COMMIT=6e53da1d5b9c0752d6def9fe70393d63faddcb15
+SOURCE_COMMIT=2647d6c4d119a9cd9ca44f732678f7bb0779c696
