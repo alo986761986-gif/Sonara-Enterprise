@@ -28,6 +28,7 @@ import SidebarIconPolish from './components/navigation/SidebarIconPolish';
 import SonaraBrandControl from './components/brand/SonaraBrandControl';
 import './index.css';
 
+// SONARA A/B audio + cover production release marker (2026-09-03).
 const legalPath = window.location.pathname.replace(/\/+$/, '').toLowerCase();
 const legalKind = legalPath === '/terms' ? 'terms' : legalPath === '/privacy' ? 'privacy' : null;
 
