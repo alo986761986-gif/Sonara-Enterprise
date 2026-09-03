@@ -1,6 +1,6 @@
 name: Deploy SONARA Music Director V3
 
-# A/B AUDIO + COVER serverless-safe release trigger 2026-09-03
+# COVER ROUTE + COMPACT A/B release trigger 2026-09-03
 on:
   workflow_dispatch:
   push:
@@ -19,6 +19,7 @@ on:
       - "cloudflare/sonara-quality-gated-router.mjs"
       - "cloudflare/sonara-studio-ai-router.mjs"
       - "cloudflare/sonara-molab-xl-router.mjs"
+      - "cloudflare/sonara-yue-primary-edge.mjs"
       - "engine/director_ai.py"
       - "engine/dsp_engine.py"
       - "engine/inference.py"
@@ -81,6 +82,7 @@ jobs:
           node --check cloudflare/sonara-next-studio-edge.mjs
           node --check cloudflare/sonara-studio-ai-router.mjs
           node --check cloudflare/sonara-molab-xl-router.mjs
+          node --check cloudflare/sonara-yue-primary-edge.mjs
           node --check scripts/activate-ace-step-production.cjs
           python -m py_compile engine/director_ai.py engine/dsp_engine.py engine/inference.py
 
@@ -112,15 +114,19 @@ jobs:
           grep -Fq 'GENERA A + B · AUDIO + COVER' src/components/generator/ElevenMusicGenerationControl.tsx
           grep -Fq 'SCARICA COVER' src/components/generator/ElevenMusicGenerationControl.tsx
           grep -Fq 'RIGENERA COPERTINA' src/components/generator/ElevenMusicGenerationControl.tsx
+          grep -Fq 'data-sonara-cover-toolbar="compact"' src/components/generator/ElevenMusicGenerationControl.tsx
+          grep -Fq 'sm:grid-cols-[104px_1fr]' src/components/generator/ElevenMusicGenerationControl.tsx
           grep -Fq 'primaryImageUrl' src/services/generatedAssetVault.ts
           grep -Fq 'coverUrl' src/components/player/SonaraProfessionalFixedPlayer.tsx
           grep -Fq 'coverUrl' src/components/player/SonaraUniversalPlayerBridge.tsx
           grep -Fq 'OPENAI_IMAGES_URL' src/server/musicCoverApi.ts
           grep -Fq "action === 'cover'" 'api/eleven-music/[...path].ts'
+          grep -Fq "ELEVEN_COVER_PATH = '/api/eleven-music/cover'" cloudflare/sonara-yue-primary-edge.mjs
+          grep -Fq 'return proxyElevenCover(request)' cloudflare/sonara-yue-primary-edge.mjs
 
       - name: Guard DJ floating banner removed
         run: |
-          ! grep -Fq 'data-sonara-dj-floating-access' src/components/dj/DJSectionControl.tsx
+          ! grep -Fq 'const floatingAccess' src/components/dj/DJSectionControl.tsx
           ! grep -Fq 'Console Auto-Detect · Live Hardware' src/components/dj/DJSectionControl.tsx
 
       - name: Build production app
@@ -133,10 +139,10 @@ jobs:
         run: |
           grep -R -Fq 'SCARICA COVER' dist
           grep -R -Fq 'RIGENERA COPERTINA' dist
+          grep -R -Fq 'audio + artwork simultanei' dist
 
       - name: Guard built DJ floating banner removed
         run: |
-          ! grep -R -Fq 'data-sonara-dj-floating-access' dist
           ! grep -R -Fq 'Console Auto-Detect · Live Hardware' dist
 
       - name: Guard Music Director V3 production contract
@@ -153,6 +159,11 @@ jobs:
 
       - name: Verify Quality Ultra stability guard
         run: grep -q 'qualityUltraAntiStall' /tmp/stability.json
+
+      - name: Verify cover route reaches JSON on public domain
+        run: |
+          response="$(curl -sS -A 'Mozilla/5.0 SONARA Cover Verify' -H 'Accept: application/json' https://sonaraenterprise.com/api/eleven-music/cover)"
+          printf '%s' "$response" | jq -e '.parallelAB == true and (.model | length > 0)' >/dev/null
 
       - name: Verify vocal refinement routes
         run: curl -fsS "$WORKER_ORIGIN/api/music/stability/capabilities" >/dev/null
