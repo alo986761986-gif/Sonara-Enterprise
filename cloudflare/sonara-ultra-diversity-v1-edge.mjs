@@ -1,3 +1,4 @@
+// SONARA COVER ROUTE V2 production trigger 2026-09-03
 import runtime, { SonaraJobState, SonaraAuthStore } from './sonara-speed-v4-edge.mjs';
 
 export { SonaraJobState, SonaraAuthStore };
