@@ -1,4 +1,4 @@
-SONARA_OFFICIAL_FRONTEND_RELEASE=2026-09-03-CREATOR-AUDIO-HUB-V1
-REASON=Publish Creator Audio library upload and voice recording hub to the official Cloudflare Worker site
-SOURCE_COMMIT=1ad287ad0e4d51fbc1ed36e7885c72d1e3d3d2a9
+SONARA_OFFICIAL_FRONTEND_RELEASE=2026-09-03-CREATOR-AUDIO-HUB-V2
+REASON=Publish Creator Audio hub to official Cloudflare Worker using Wrangler account discovery from the configured token
+SOURCE_COMMIT=8aaf9f60d9e1555e3f78e8f778cb81687b0f38db
 EXPECTED=I-miei-brani,Carica-audio,Registra-voce
