@@ -1,6 +1,6 @@
 name: Deploy SONARA Music Director V3
 
-# DJ FLOATING BANNER REMOVAL release trigger 2026-09-03
+# A/B AUDIO + COVER release trigger 2026-09-03
 on:
   workflow_dispatch:
   push:
@@ -22,10 +22,13 @@ on:
       - "engine/director_ai.py"
       - "engine/dsp_engine.py"
       - "engine/inference.py"
+      - "api/music-cover/generate.ts"
       - "src/services/promptDirector.ts"
+      - "src/services/generatedAssetVault.ts"
       - "src/components/generator/GenerationProfileControl.tsx"
       - "src/components/generator/ElevenMusicGenerationControl.tsx"
       - "src/components/player/SonaraProfessionalFixedPlayer.tsx"
+      - "src/components/player/SonaraUniversalPlayerBridge.tsx"
       - "src/components/dj/DJSectionControl.tsx"
       - "src/main.tsx"
       - "scripts/activate-ace-step-production.cjs"
@@ -101,6 +104,17 @@ jobs:
           grep -Fq 'VOLUME {candidate.id}' src/components/generator/ElevenMusicGenerationControl.tsx
           grep -Fq 'sonara-pro-volume-label' src/components/player/SonaraProfessionalFixedPlayer.tsx
 
+      - name: Guard integrated A B cover generation
+        run: |
+          grep -Fq "'/api/music-cover/generate'" src/components/generator/ElevenMusicGenerationControl.tsx
+          grep -Fq 'GENERA A + B · AUDIO + COVER' src/components/generator/ElevenMusicGenerationControl.tsx
+          grep -Fq 'SCARICA COVER' src/components/generator/ElevenMusicGenerationControl.tsx
+          grep -Fq 'RIGENERA COPERTINA' src/components/generator/ElevenMusicGenerationControl.tsx
+          grep -Fq 'primaryImageUrl' src/services/generatedAssetVault.ts
+          grep -Fq 'coverUrl' src/components/player/SonaraProfessionalFixedPlayer.tsx
+          grep -Fq 'coverUrl' src/components/player/SonaraUniversalPlayerBridge.tsx
+          grep -Fq 'OPENAI_IMAGES_URL' api/music-cover/generate.ts
+
       - name: Guard DJ floating banner removed
         run: |
           ! grep -Fq 'data-sonara-dj-floating-access' src/components/dj/DJSectionControl.tsx
@@ -111,6 +125,11 @@ jobs:
 
       - name: Guard built native profile markers
         run: grep -R -q 'generationProfileV3' dist
+
+      - name: Guard built A B cover markers
+        run: |
+          grep -R -Fq 'SCARICA COVER' dist
+          grep -R -Fq 'RIGENERA COPERTINA' dist
 
       - name: Guard built DJ floating banner removed
         run: |
