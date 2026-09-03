@@ -12,6 +12,7 @@ import LyricsApiCompatibilityBridge from './components/generator/LyricsApiCompat
 import RealMusicIntelligenceBridge from './components/generator/RealMusicIntelligenceBridge';
 import BpmModeControl from './components/generator/BpmModeControl';
 import SonaraCreatorSkin from './components/generator/SonaraCreatorSkin';
+import SonaraCreatorLayoutPolish from './components/generator/SonaraCreatorLayoutPolish';
 import SonaraCreatorAudioHub from './components/generator/SonaraCreatorAudioHub';
 import SonaraCreatorVoiceLauncher from './components/generator/SonaraCreatorVoiceLauncher';
 import SonaraCreatorVoiceClipShelf from './components/generator/SonaraCreatorVoiceClipShelf';
@@ -63,6 +64,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <GenerationProfileControl />
         <DirectorResultPanel />
         <SonaraCreatorSkin />
+        <SonaraCreatorLayoutPolish />
         <SonaraCreatorAudioHub />
         <SonaraCreatorVoiceLauncher />
         <SonaraCreatorVoiceClipShelf />
