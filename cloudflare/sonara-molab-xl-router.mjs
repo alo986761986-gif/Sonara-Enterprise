@@ -200,8 +200,8 @@ export function buildMolabPayload(body, count, capabilities = {}) {
   const profile = profileOf(body);
   const qualitySafeB = profile === 'quality' && (body?.sonaraQualitySafeB === true || Number(body?.sonaraStabilityVariant) === 1);
   const controls = {
-    weirdness: qualitySafeB ? Math.min(rawControls.weirdness, 25) : rawControls.weirdness,
-    styleInfluence: qualitySafeB ? Math.max(rawControls.styleInfluence, 85) : rawControls.styleInfluence
+    weirdness: qualitySafeB ? 0 : rawControls.weirdness,
+    styleInfluence: qualitySafeB ? 100 : rawControls.styleInfluence
   };
   const realMusic = realMusicEnabled(body, capabilities);
   const hasVocals = Boolean(String(body.lyrics || '').trim()) && String(body.vocalMode || body.vocal_mode || '').toLowerCase() !== 'instrumental';
@@ -209,11 +209,11 @@ export function buildMolabPayload(body, count, capabilities = {}) {
     ? (profile === 'ultra'
       ? clamp(0.82 + controls.weirdness * 0.0006, 0.85, 0.82, 0.88)
       : (qualitySafeB
-        ? clamp(0.72 + controls.weirdness * 0.0004, 0.73, 0.72, 0.74)
+        ? 0.68
         : clamp(0.74 + controls.weirdness * 0.0006, 0.77, 0.74, 0.80)))
     : 0.85;
-  const humanLmCfgScale = realMusic ? clamp(2.10 + controls.styleInfluence * 0.004, 2.30, 2.10, 2.50) : 2.0;
-  const humanTopP = realMusic ? clamp(0.90 + controls.weirdness * 0.0006, 0.93, 0.90, 0.96) : 0.90;
+  const humanLmCfgScale = realMusic ? (qualitySafeB ? 2.50 : clamp(2.10 + controls.styleInfluence * 0.004, 2.30, 2.10, 2.50)) : 2.0;
+  const humanTopP = realMusic ? (qualitySafeB ? 0.88 : clamp(0.90 + controls.weirdness * 0.0006, 0.93, 0.90, 0.96)) : 0.90;
   const inferenceSteps = inferenceStepsOf(body, profile);
   const samplerMode = samplerOf(body, realMusic);
   const locks = [
@@ -228,7 +228,7 @@ export function buildMolabPayload(body, count, capabilities = {}) {
   const finalInstruction = fidelityInstruction(body, controls).slice(0, 4000);
   const stabilityInstruction = String(body.sonaraStabilityInstruction || body.sonaraQualityTakeInstruction || '').trim().slice(0, 6000);
   const candidateDirection = qualitySafeB
-    ? 'QUALITY B SAFE SINGLE TAKE V6: execute the same creator brief literally. This is a conservative second take, not a new composition concept. Keep genre/subgenre, mood, era, groove family, instruments, production language, singer identity, lyrics/language, BPM, key and atmosphere locked. Use only small musical-performance differences. No experimental detours, no neighboring genre, no unrelated instruments, no bizarre harmony, no random structure. If there is any ambiguity, choose the most conventional genre-authentic solution.'
+    ? 'QUALITY B HARD-LOCK V7: use the EXACT SAME song world and seed-base as A. Preserve creator prompt, genre/subgenre, mood, era, groove family, instrument palette, production language, singer identity, lyrics/language, BPM, key and atmosphere literally. Weirdness is forced to zero and style adherence to maximum. B may differ only in conservative phrase timing, voicings, fills and transitions. Never create a remix, hybrid, experimental version, neighboring genre, bizarre harmony, random structure or unrelated instrumentation. If uncertain, stay closer to A and to the creator brief.'
     : (count === 2
       ? (profile === 'quality'
         ? 'QUALITY TWO-TAKE RULE: render two candidates from the EXACT SAME creator brief. A and B must share the requested concept, genre/subgenre, mood, era, instrumentation palette, groove family, production character, vocal intent, lyrics/language, BPM, key and atmosphere.'
@@ -283,6 +283,8 @@ export function buildMolabPayload(body, count, capabilities = {}) {
     normalization_db: -1.0,
     use_random_seed: profile !== 'quality',
     sonara_quality_safe_b_v6: qualitySafeB,
+    sonara_quality_b_hard_lock_v7: qualitySafeB,
+    sonara_quality_same_seed_base_v7: profile === 'quality',
     sonara_quality_seed_locked_v6: profile === 'quality',
     sonara_real_music_v1: realMusic,
     sonara_generation_profile: profile,

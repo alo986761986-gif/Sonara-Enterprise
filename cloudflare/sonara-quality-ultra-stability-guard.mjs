@@ -180,7 +180,7 @@ function makeVariantBody(body, profile, variantIndex, retryIndex = 0) {
   const prompt = clean(body.prompt || body.creatorPrompt || body.rawPrompt || body.musicPrompt);
   const entropy = crypto.getRandomValues(new Uint32Array(2));
   const suppliedSeed = Number(body.seed) > 0 ? Math.floor(Number(body.seed)) : Number(entropy[0]);
-  const qualitySeed = Math.max(1, (suppliedSeed + variantIndex * 104729 + retryIndex * 32452843) % 1999999973);
+  const qualitySeed = Math.max(1, suppliedSeed % 1999999973);
   const independentSeed = profile === 'quality'
     ? qualitySeed
     : Math.max(1, (suppliedSeed + Number(entropy[0]) + Number(entropy[1]) + (variantIndex + 1) * 15485863) % 1999999973);
@@ -190,7 +190,7 @@ function makeVariantBody(body, profile, variantIndex, retryIndex = 0) {
   const direction = profile === 'quality'
     ? (variantIndex === 0
       ? 'SONARA QUALITY A PRIMARY SINGLE TAKE — render one complete, literal realization of this exact creator brief. Stay inside the requested genre, mood, instrumentation, groove family, vocal intent and production language. This take establishes the reference identity for QUALITY.'
-      : 'SONARA QUALITY B SAFE SINGLE TAKE — render one conservative alternate take of the EXACT SAME creator brief. B is not a new concept, remix, neighboring genre or experimental interpretation. Preserve the same genre/subgenre, mood, era, instrumentation palette, groove family, production language, vocal identity, lyrics/language, BPM, key and atmosphere. Only small genre-authentic differences in melody phrasing, voicings, fills and transitions are allowed. PROMPT FIDELITY OVERRIDES NOVELTY.')
+      : 'SONARA QUALITY B HARD-LOCK V7 — render a second safe take from the EXACT SAME musical identity as A. Use the same creator brief and same seed-base. B must immediately sound like the same commissioned song world: identical genre/subgenre, mood, era, groove family, instrument palette, production language, singer identity, lyrics/language, BPM, key and atmosphere. Do not reinterpret, remix, hybridize or experiment. Only conservative phrase, voicing, fill and transition differences are allowed. If any choice could change the identity, choose the most literal conventional solution. PROMPT FIDELITY AND A/B COHERENCE OVERRIDE NOVELTY.')
     : (variantIndex === 0
       ? 'SONARA SONG A — compose the first complete realization of the creator prompt. Follow the prompt literally and musically: no genre drift, no mood drift, no missing requested instruments or vocal intent.'
       : 'SONARA SONG B — compose a genuinely different song for the EXACT SAME creator prompt. Use a new melody, harmonic route/voicings, bass phrasing, drum details, hook contour, transitions and section development, while preserving ALL prompt semantics and stylistic requirements. Do not change concept, genre/subgenre, mood, era, instrumentation brief, production character, vocal intent, lyrics/theme or requested atmosphere. If novelty conflicts with prompt fidelity, PROMPT FIDELITY ALWAYS WINS.');
@@ -206,6 +206,9 @@ function makeVariantBody(body, profile, variantIndex, retryIndex = 0) {
     candidateCount: profile === 'quality' ? 1 : 2,
     candidate_count: profile === 'quality' ? 1 : 2,
     dualFast: profile !== 'quality',
+    weirdness: profile === 'quality' && variantIndex === 1 ? 0 : body.weirdness,
+    styleInfluence: profile === 'quality' && variantIndex === 1 ? 100 : (body.styleInfluence ?? body.style_influence),
+    style_influence: profile === 'quality' && variantIndex === 1 ? 100 : (body.style_influence ?? body.styleInfluence),
     seed: independentSeed,
     sonaraCompositionIdentity: variantIndex === 0 ? 'A' : 'B',
     sonaraIndependentAB: profile === 'ultra',
@@ -213,6 +216,8 @@ function makeVariantBody(body, profile, variantIndex, retryIndex = 0) {
     sonaraCreatorIntentLocked: true,
     sonaraQualityBSafeV5: profile === 'quality',
     sonaraQualityBSafeV6: profile === 'quality',
+    sonaraQualityBHardLockV7: profile === 'quality',
+    sonaraQualitySameSeedBaseV7: profile === 'quality',
     sonaraQualitySafeB: profile === 'quality' && variantIndex === 1,
     sonaraQualityRetry: retryIndex,
     sonaraStabilityInstruction: [fidelity, direction, promptFidelity].filter(Boolean).join('\n\n').slice(0, 6000),
@@ -255,6 +260,38 @@ function reportUsable(report) {
 
 function cacheReportReady(report) {
   return Boolean(reportUsable(report) || report?.qualityAnalysisAttempted === true);
+}
+
+function qualityPairCoherence(a = {}, b = {}) {
+  const reasons = [];
+  const number = value => Number.isFinite(Number(value)) ? Number(value) : null;
+  const aBpm = number(a.detectedBpm);
+  const bBpm = number(b.detectedBpm);
+  if (aBpm !== null && bBpm !== null && Math.abs(aBpm - bBpm) > 3) reasons.push('a-b-tempo-divergence');
+
+  const aRms = number(a.rmsDb);
+  const bRms = number(b.rmsDb);
+  if (aRms !== null && bRms !== null && Math.abs(aRms - bRms) > 7.5) reasons.push('a-b-energy-divergence');
+
+  const aCrest = number(a.crestDb);
+  const bCrest = number(b.crestDb);
+  if (aCrest !== null && bCrest !== null && Math.abs(aCrest - bCrest) > 8) reasons.push('a-b-dynamics-divergence');
+
+  const aZcr = number(a.zeroCrossingRate);
+  const bZcr = number(b.zeroCrossingRate);
+  if (aZcr !== null && bZcr !== null && aZcr > 0 && bZcr > 0) {
+    const ratio = Math.max(aZcr, bZcr) / Math.max(0.000001, Math.min(aZcr, bZcr));
+    if (ratio > 3) reasons.push('a-b-timbre-divergence');
+  }
+
+  const aDuration = number(a.declaredDurationSec);
+  const bDuration = number(b.declaredDurationSec);
+  if (aDuration !== null && bDuration !== null) {
+    const tolerance = Math.max(5, Math.max(aDuration, bDuration) * 0.10);
+    if (Math.abs(aDuration - bDuration) > tolerance) reasons.push('a-b-duration-divergence');
+  }
+
+  return { passed: reasons.length === 0, reasons };
 }
 
 function candidateEntries(children = []) {
@@ -488,6 +525,9 @@ async function finalize(request, env, jobId, state, childData, extra = {}) {
       independentABSelection: state.profile === 'ultra' ? 'best-one-per-independent-batch' : (state.profile === 'quality' ? 'one-approved-take-per-sequential-job' : 'global-ranking'),
       qualitySequentialSingleTakes: state.profile === 'quality',
       qualityBStrictPublishGate: state.profile === 'quality',
+      qualityBHardLockV7: state.profile === 'quality',
+      qualityBSameSeedBaseV7: state.profile === 'quality',
+      qualityBPairCoherence: state.profile === 'quality' ? (state.qualityBPairCoherence || null) : null,
       humanRealismRequired: state.profile === 'ultra',
       ...extra
     }
@@ -585,7 +625,19 @@ async function stableJob(request, env, ctx, jobId) {
       const d = await readJson(r);
       if (statusOf(d, r) === 'completed') data.push(d);
     }
-    if (data.length) return finalize(request, env, jobId, state, data, { hardTimeoutFallback: true });
+    if (data.length) {
+      if (state.profile === 'quality') {
+        return json(request, {
+          jobId,
+          status: 'FAILED',
+          progress: 100,
+          retryable: true,
+          error: 'QUALITY B V7: timeout prima della validazione completa A/B. SONARA non pubblica una coppia non verificata.',
+          metadata: { profile: state.profile, stabilityGuard: VERSION, qualityBHardLockV7: true, hardTimeoutBeforePairValidation: true }
+        }, 504);
+      }
+      return finalize(request, env, jobId, state, data, { hardTimeoutFallback: true });
+    }
     return json(request, {
       jobId,
       status: 'FAILED',
@@ -653,12 +705,8 @@ async function stableJob(request, env, ctx, jobId) {
     await saveState(env, jobId, state);
     const bestScore = Number(primaryRank.summary?.bestProfessionalScore || 0);
     if (state.profile === 'quality' && primaryRank.ranked.length >= 2) {
-      return finalize(request, env, jobId, state, [primaryData], {
-        qualitySamePromptPair: true,
-        qualityBPromptFidelity: 'literal-same-brief',
-        secondaryBatchSkippedForPromptFidelity: true,
-        primaryQualityReportsReused: true
-      });
+      state.primaryUnexpectedExtraCandidates = primaryRank.ranked.length;
+      await saveState(env, jobId, state);
     }
     if (state.profile === 'fast' && primaryRank.ranked.length && bestScore >= Number(state.targetScore) && primaryRank.ranked[0]?.report?.professionalReleasePassed === true) {
       return finalize(request, env, jobId, state, [primaryData], {
@@ -719,6 +767,16 @@ async function stableJob(request, env, ctx, jobId) {
         metadata: { profile: state.profile, stabilityGuard: VERSION, independentABRequired: true }
       }, 502);
     }
+    if (primaryStatus === 'completed' && state.profile === 'quality') {
+      return json(request, {
+        jobId,
+        status: 'FAILED',
+        progress: 100,
+        retryable: true,
+        error: 'QUALITY B V7: il secondo take obbligatorio non e disponibile. A non viene trasformato artificialmente in una coppia A/B.',
+        metadata: { profile: state.profile, stabilityGuard: VERSION, qualityBHardLockV7: true, secondaryRequired: true }
+      }, 502);
+    }
     if (primaryStatus === 'completed') return finalize(request, env, jobId, state, [primaryData], { secondaryBatchDegraded: true });
     return primaryResponse;
   }
@@ -741,6 +799,16 @@ async function stableJob(request, env, ctx, jobId) {
           retryable: true,
           error: 'ULTRA: il brano B indipendente ha superato il timeout. B non viene sostituito con una variazione di A.',
           metadata: { profile: state.profile, stabilityGuard: VERSION, independentABRequired: true, secondaryTransientPolls: state.secondaryTransientPolls }
+        }, 504);
+      }
+      if (state.profile === 'quality') {
+        return json(request, {
+          jobId,
+          status: 'FAILED',
+          progress: 100,
+          retryable: true,
+          error: 'QUALITY B V7: il lato B ha superato il timeout e viene rifiutato, non sostituito con un output non verificato.',
+          metadata: { profile: state.profile, stabilityGuard: VERSION, qualityBHardLockV7: true, secondaryTransientPolls: state.secondaryTransientPolls }
         }, 504);
       }
       return finalize(request, env, jobId, state, [primaryData], {
@@ -789,7 +857,18 @@ async function stableJob(request, env, ctx, jobId) {
     await saveState(env, jobId, state);
     const bItem = bRank.ranked[0] || null;
     const bScore = Number(bItem?.report?.professionalScore || 0);
-    const bPassed = Boolean(bItem && bItem.report?.professionalReleasePassed === true && bScore >= Number(state.targetScore || PROFESSIONAL_RELEASE_SCORE));
+    const aRank = await rankChildren([primaryData], state.requested || {}, state.qualityReportCache || {});
+    state.qualityReportCache = mergeQualityCache(state.qualityReportCache, aRank.ranked);
+    const aItem = aRank.ranked[0] || null;
+    const pairCoherence = qualityPairCoherence(aItem?.report || {}, bItem?.report || {});
+    state.qualityBPairCoherence = pairCoherence;
+    await saveState(env, jobId, state);
+    const bPassed = Boolean(
+      bItem &&
+      bItem.report?.professionalReleasePassed === true &&
+      bScore >= Number(state.targetScore || PROFESSIONAL_RELEASE_SCORE) &&
+      pairCoherence.passed === true
+    );
     if (!bPassed) {
       const retries = Number(state.secondaryRetryCount || 0);
       if (retries < 1) {
@@ -812,6 +891,8 @@ async function stableJob(request, env, ctx, jobId) {
               qualityBStrictPublishGate: true,
               qualityBAutoRetry: true,
               rejectedBScore: bScore,
+              pairCoherencePassed: pairCoherence.passed,
+              pairCoherenceReasons: pairCoherence.reasons,
               secondaryRetryCount: state.secondaryRetryCount
             }
           });
@@ -829,6 +910,8 @@ async function stableJob(request, env, ctx, jobId) {
           qualityBStrictPublishGate: true,
           rejectedBScore: bScore,
           requiredBScore: Number(state.targetScore || PROFESSIONAL_RELEASE_SCORE),
+          pairCoherencePassed: pairCoherence.passed,
+          pairCoherenceReasons: pairCoherence.reasons,
           secondaryRetryCount: Number(state.secondaryRetryCount || 0)
         }
       }, 502);
