@@ -1,6 +1,6 @@
 name: Deploy SONARA Music Director V3
 
-# QUALITY B HARD LOCK V7 release trigger 2026-09-03
+# VOLUME V2 + QUALITY B HARD LOCK V7 release trigger 2026-09-03
 on:
   workflow_dispatch:
   push:
@@ -24,6 +24,8 @@ on:
       - "engine/inference.py"
       - "src/services/promptDirector.ts"
       - "src/components/generator/GenerationProfileControl.tsx"
+      - "src/components/generator/ElevenMusicGenerationControl.tsx"
+      - "src/components/player/SonaraProfessionalFixedPlayer.tsx"
       - "src/main.tsx"
       - "scripts/activate-ace-step-production.cjs"
       - "wrangler.jsonc"
@@ -88,10 +90,15 @@ jobs:
           ! grep -q 'overall_score.*9.55' engine/director_ai.py
 
       - name: Validate existing quality contracts
-        run: npm run test:unit -- --runInBand
+        run: npm run test:generation-prompt
 
       - name: Guard native generation profile UI
         run: grep -q 'generationProfileV3' src/components/generator/GenerationProfileControl.tsx
+
+      - name: Guard visible volume controls
+        run: |
+          grep -Fq 'VOLUME {candidate.id}' src/components/generator/ElevenMusicGenerationControl.tsx
+          grep -Fq 'sonara-pro-volume-label' src/components/player/SonaraProfessionalFixedPlayer.tsx
 
       - name: Build production app
         run: npm run build
