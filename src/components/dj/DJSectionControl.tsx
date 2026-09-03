@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Disc3, X, Zap } from 'lucide-react';
+import { Disc3, X } from 'lucide-react';
 import ProfessionalHardwareSetup from './ProfessionalHardwareSetup';
 import SonaraProLiveSkin from './SonaraProLiveSkin';
 import SonaraZ1MixerSkin from './SonaraZ1MixerSkin';
@@ -30,6 +30,21 @@ export default function DJSectionControl() {
     mountNav();
     const timer = window.setInterval(mountNav, 900);
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const legacyWindow = window as Window & { __sonaraDjFallbackV1?: boolean };
+    legacyWindow.__sonaraDjFallbackV1 = true;
+
+    const removeFloatingBanner = () => {
+      document.getElementById('sonara-dj-pro-edge-access')?.remove();
+      document.querySelectorAll('[data-sonara-dj-floating-access="true"]').forEach(node => node.remove());
+    };
+
+    removeFloatingBanner();
+    const observer = new MutationObserver(removeFloatingBanner);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
   }, []);
 
   useEffect(() => {
@@ -66,23 +81,6 @@ export default function DJSectionControl() {
     </div>
   ), [open]);
 
-  const floatingAccess = !open ? (
-    <button
-      type="button"
-      onClick={() => setOpen(true)}
-      className="fixed bottom-5 right-5 z-[2147481700] flex items-center gap-3 rounded-2xl border border-cyan-400/25 bg-[#080b13]/95 px-4 py-3 text-left shadow-2xl shadow-black/50 backdrop-blur-xl transition hover:-translate-y-0.5 hover:border-cyan-300/50 sm:bottom-6 sm:right-6"
-      aria-label="Apri SONARA DJ PRO"
-      data-sonara-dj-floating-access="true"
-    >
-      <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-500/15"><Disc3 className="h-5 w-5 text-cyan-300" /></span>
-      <span className="min-w-0">
-        <span className="flex items-center gap-2 text-[11px] font-black text-white">DJ PRO <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[7px] tracking-wider text-emerald-300">AUTO</span></span>
-        <span className="mt-0.5 block text-[8px] font-bold text-slate-500">Console Auto-Detect · Live Hardware</span>
-      </span>
-      <Zap className="h-4 w-4 text-cyan-300" />
-    </button>
-  ) : null;
-
   return (
     <>
       {navHost && createPortal(
@@ -92,7 +90,6 @@ export default function DJSectionControl() {
           <span className="ml-auto rounded-full border border-slate-700 bg-slate-950 px-1.5 py-0.5 text-[8px] font-black tracking-wider text-slate-400">AUTO</span>
         </button>, navHost
       )}
-      {floatingAccess && createPortal(floatingAccess, document.body)}
       {overlay && createPortal(overlay, document.body)}
     </>
   );
