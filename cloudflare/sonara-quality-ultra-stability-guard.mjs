@@ -181,9 +181,10 @@ function makeVariantBody(body, profile, variantIndex) {
   const entropy = crypto.getRandomValues(new Uint32Array(2));
   const suppliedSeed = Number(body.seed) > 0 ? Math.floor(Number(body.seed)) : Number(entropy[0]);
   const independentSeed = Math.max(1, (suppliedSeed + Number(entropy[0]) + Number(entropy[1]) + (variantIndex + 1) * 15485863) % 1999999973);
+  const promptFidelity = 'FINAL PROMPT FIDELITY CONTRACT — NON-NEGOTIABLE: the creator prompt is the source of truth for BOTH Song A and Song B. Preserve every explicit semantic requirement from the prompt: musical concept, genre and subgenre, mood, era, energy, instrumentation, production style, rhythmic feel, vocal role and identity, language, lyrics, theme/story, atmosphere, exclusions, exact BPM/key/duration when specified, and all named creative details. Song B must sound like a second original composition commissioned from the EXACT SAME brief, never like a different prompt. Independence applies only to the musical solution, not to the requested identity or meaning.';
   const direction = variantIndex === 0
-    ? 'SONARA SONG A — independent composition. Create a complete song with its own melody, harmony, bass phrasing, drum groove, hook, arrangement, transitions, sound palette, climax and ending.'
-    : 'SONARA SONG B — completely independent composition. Do NOT reuse Song A melodic contour, chord progression or voicing flow, bass rhythm, drum groove, hook rhythm, intro, build, drop or chorus contour, fills, transitions, sound palette or section architecture. Preserve only the creator locks: requested genre and subgenre, exact BPM, key, duration, lyrics and language, and singer identity.';
+    ? 'SONARA SONG A — compose the first complete realization of the creator prompt. Follow the prompt literally and musically: no genre drift, no mood drift, no missing requested instruments or vocal intent.'
+    : 'SONARA SONG B — compose a genuinely different song for the EXACT SAME creator prompt. Use a new melody, harmonic route/voicings, bass phrasing, drum details, hook contour, transitions and section development, while preserving ALL prompt semantics and stylistic requirements. Do not change concept, genre/subgenre, mood, era, instrumentation brief, production character, vocal intent, lyrics/theme or requested atmosphere. If novelty conflicts with prompt fidelity, PROMPT FIDELITY ALWAYS WINS.';
   const fidelity = profile === 'ultra'
     ? 'ULTRA: maximize realism, transient detail, depth, natural vocals, human micro-variation and mastering polish without changing the creator intent.'
     : 'QUALITY: prioritize authentic genre language, strong songwriting, natural dynamics, clean transients and release-ready balance.';
@@ -199,7 +200,9 @@ function makeVariantBody(body, profile, variantIndex) {
     seed: independentSeed,
     sonaraCompositionIdentity: variantIndex === 0 ? 'A' : 'B',
     sonaraIndependentAB: profile === 'ultra',
-    prompt: [prompt, `SONARA ${profile.toUpperCase()} STABILITY DIRECTOR.`, fidelity, direction, `Independent composition seed=${independentSeed}.`].filter(Boolean).join('\n\n').slice(0, 12000)
+    sonaraPromptFidelity: 'strict',
+    sonaraCreatorIntentLocked: true,
+    prompt: [prompt, `SONARA ${profile.toUpperCase()} STABILITY DIRECTOR.`, fidelity, direction, promptFidelity, `Independent composition seed=${independentSeed}.`].filter(Boolean).join('\n\n').slice(0, 12000)
   };
 }
 
