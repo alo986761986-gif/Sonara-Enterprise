@@ -1,0 +1,107 @@
+name: Fix ULTRA Independent A B Live V2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-ultra-ab-live-v2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Patch ULTRA A B engine
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('cloudflare/sonara-quality-ultra-stability-guard.mjs')
+          s = p.read_text()
+
+          s = s.replace(
+          """  const direction = variantIndex === 0
+    ? 'Candidate batch A: prioritize hook strength, groove, vocal clarity, coherent arrangement and clean release-ready balance.'
+    : 'Candidate batch B: preserve the exact genre, BPM, key, lyrics and singer identity, but use a different melody, voicing, transitions, fills and timbral balance.';""",
+          """  const entropy = crypto.getRandomValues(new Uint32Array(2));
+  const baseSeed = Number(body.seed) > 0 ? Math.floor(Number(body.seed)) : Number(entropy[0]);
+  const independentSeed = Math.max(1, (baseSeed + Number(entropy[0]) + Number(entropy[1]) + (variantIndex + 1) * 15485863) % 1999999973);
+  const direction = variantIndex === 0
+    ? 'SONARA SONG A: create a complete independent composition with its own melody, harmony, bass phrasing, groove, arrangement, transitions and sound palette.'
+    : 'SONARA SONG B: create a completely different independent composition. Do not reuse Song A melody, chord flow, bass rhythm, drum groove, hook rhythm, intro, build, chorus/drop contour, fills, transitions, sound palette or section architecture. Preserve only genre, BPM, key, duration, lyrics/language and singer identity.';"""
+          )
+
+          s = s.replace(
+          """    seed: Number(body.seed) > 0 ? Math.floor(Number(body.seed)) + variantIndex * 104729 : undefined,
+    prompt: [prompt, `SONARA ${profile.toUpperCase()} STABILITY DIRECTOR.`, fidelity, direction].filter(Boolean).join('\\n\\n').slice(0, 12000)""",
+          """    seed: independentSeed,
+    sonaraCompositionIdentity: variantIndex === 0 ? 'A' : 'B',
+    sonaraIndependentAB: profile === 'ultra',
+    prompt: [prompt, `SONARA ${profile.toUpperCase()} STABILITY DIRECTOR.`, fidelity, direction, `Independent composition seed=${independentSeed}.`].filter(Boolean).join('\\n\\n').slice(0, 12000)"""
+          )
+
+          s = s.replace(
+          """  const visible = combined.ranked.slice(0, 2).map((item, index) => ({
+    ...(item.candidate && typeof item.candidate === 'object' ? item.candidate : {}),
+    audioUrl: item.url,
+    sonaraQuality: item.report,
+    sonaraRecommended: index === 0,
+    releaseEligible: item.report?.professionalReleasePassed === true,
+    directorRank: index + 1
+  }));""",
+          """  let visibleSource = combined.ranked.slice(0, 2);
+  if (state.profile === 'ultra') {
+    const bestByChild = new Map();
+    for (const item of combined.ranked) {
+      const childIndex = Number(item?.report?.childIndex);
+      if (Number.isInteger(childIndex) && !bestByChild.has(childIndex)) bestByChild.set(childIndex, item);
+    }
+    visibleSource = [bestByChild.get(0), bestByChild.get(1)].filter(Boolean);
+    if (visibleSource.length < 2) {
+      return json(request, { jobId, status: 'FAILED', progress: 100, retryable: true, error: 'ULTRA richiede due brani indipendenti A e B; uno dei due batch non ha prodotto audio valido.', metadata: { profile: state.profile, independentABRequired: true } }, 502);
+    }
+  }
+  const visible = visibleSource.map((item, index) => ({
+    ...(item.candidate && typeof item.candidate === 'object' ? item.candidate : {}),
+    audioUrl: item.url,
+    sonaraQuality: item.report,
+    sonaraRecommended: index === 0,
+    releaseEligible: item.report?.professionalReleasePassed === true,
+    directorRank: index + 1,
+    sonaraCompositionIdentity: index === 0 ? 'A' : 'B',
+    independentComposition: state.profile === 'ultra'
+  }));"""
+          )
+
+          s = s.replace(
+          "if (primaryRank.ranked.length && bestScore >= Number(state.targetScore) && primaryRank.ranked[0]?.report?.professionalReleasePassed === true) {",
+          "if (state.profile !== 'ultra' && primaryRank.ranked.length && bestScore >= Number(state.targetScore) && primaryRank.ranked[0]?.report?.professionalReleasePassed === true) {"
+          )
+
+          s = s.replace(
+          "secondaryBatchUsed: Boolean(state.secondaryJobId),",
+          "secondaryBatchUsed: Boolean(state.secondaryJobId),\n      independentAB: state.profile === 'ultra',\n      independentABSelection: state.profile === 'ultra' ? 'best-one-per-independent-batch' : 'global-ranking',"
+          )
+
+          required = ['sonaraIndependentAB', 'best-one-per-independent-batch', "state.profile !== 'ultra'", 'SONARA SONG B']
+          for marker in required:
+              if marker not in s:
+                  raise SystemExit(f'missing marker after patch: {marker}')
+          p.write_text(s)
+          PY
+          node --check cloudflare/sonara-quality-ultra-stability-guard.mjs
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name 'SONARA Automation'
+          git config user.email 'actions@users.noreply.github.com'
+          git add cloudflare/sonara-quality-ultra-stability-guard.mjs
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m 'feat(ultra): enforce independent A B selection in live engine'
+          git push origin HEAD:main
