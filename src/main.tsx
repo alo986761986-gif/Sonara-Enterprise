@@ -12,6 +12,7 @@ import LyricsApiCompatibilityBridge from './components/generator/LyricsApiCompat
 import RealMusicIntelligenceBridge from './components/generator/RealMusicIntelligenceBridge';
 import BpmModeControl from './components/generator/BpmModeControl';
 import SonaraCreatorSkin from './components/generator/SonaraCreatorSkin';
+import SonaraCreatorAudioHub from './components/generator/SonaraCreatorAudioHub';
 import SunoStylePromptControl from './components/generator/SunoStylePromptControl';
 import GlobalMusicSuggestionControl from './components/generator/GlobalMusicSuggestionControl';
 import SonaraInteractiveMiniGuide from './components/generator/SonaraInteractiveMiniGuide';
@@ -60,6 +61,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <GenerationProfileControl />
         <DirectorResultPanel />
         <SonaraCreatorSkin />
+        <SonaraCreatorAudioHub />
         <StudioSectionControl />
         <VideoAISectionControl />
         <DJSectionControl />
