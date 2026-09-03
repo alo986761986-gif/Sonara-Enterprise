@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, Download, Pause, Play, RefreshCw, Sparkles } from 'lucide-react';
+import { Check, Download, Pause, Play, RefreshCw, Sparkles, Volume2, VolumeX } from 'lucide-react';
 import { buildGenerationPrompt, type VocalMode } from '../../generationPrompt';
 import { getFirebaseIdToken } from '../../lib/firebaseClient';
 import { archiveGeneratedProject } from '../../services/generatedAssetVault';
@@ -135,6 +135,19 @@ function formatTime(seconds: number) {
   return `${minutes}:${remainder}`;
 }
 
+const GLOBAL_VOLUME_EVENT = 'sonara:global-player-volume';
+const GLOBAL_VOLUME_STORAGE = 'sonara.globalPlayerVolume';
+
+function readGlobalVolume() {
+  if (typeof window === 'undefined') return 0.82;
+  try {
+    const stored = Number(window.localStorage.getItem(GLOBAL_VOLUME_STORAGE));
+    return Number.isFinite(stored) ? Math.max(0, Math.min(1, stored)) : 0.82;
+  } catch {
+    return 0.82;
+  }
+}
+
 function ProfessionalCandidatePlayer({
   candidate,
   chosen,
@@ -150,12 +163,37 @@ function ProfessionalCandidatePlayer({
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(readGlobalVolume);
+  const [lastVolume, setLastVolume] = useState(() => {
+    const initial = readGlobalVolume();
+    return initial > 0.01 ? initial : 0.82;
+  });
+  const isMuted = volume <= 0.001;
 
   useEffect(() => {
     setPlaying(false);
     setCurrentTime(0);
     setDuration(0);
   }, [candidate.audioUrl]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (audio) audio.volume = volume;
+  }, [candidate.audioUrl, volume]);
+
+  useEffect(() => {
+    const onGlobalVolume = (event: Event) => {
+      const detail = (event as CustomEvent<{ volume?: number }>).detail;
+      const next = Number(detail?.volume);
+      if (!Number.isFinite(next)) return;
+      const clamped = Math.max(0, Math.min(1, next));
+      setVolume(clamped);
+      if (clamped > 0.01) setLastVolume(clamped);
+      if (audioRef.current) audioRef.current.volume = clamped;
+    };
+    window.addEventListener(GLOBAL_VOLUME_EVENT, onGlobalVolume);
+    return () => window.removeEventListener(GLOBAL_VOLUME_EVENT, onGlobalVolume);
+  }, []);
 
   const toggle = async () => {
     const audio = audioRef.current;
@@ -179,6 +217,26 @@ function ProfessionalCandidatePlayer({
     const next = Math.max(0, Math.min(audio.duration, value));
     audio.currentTime = next;
     setCurrentTime(next);
+  };
+
+  const applyVolume = (value: number) => {
+    const next = Math.max(0, Math.min(1, value));
+    setVolume(next);
+    if (next > 0.01) setLastVolume(next);
+    if (audioRef.current) audioRef.current.volume = next;
+    try { window.localStorage.setItem(GLOBAL_VOLUME_STORAGE, String(next)); } catch {}
+    window.dispatchEvent(new CustomEvent(GLOBAL_VOLUME_EVENT, {
+      detail: { volume: next, source: `candidate-${candidate.id}` }
+    }));
+  };
+
+  const toggleMute = () => {
+    if (isMuted) {
+      applyVolume(lastVolume > 0.01 ? lastVolume : 0.82);
+      return;
+    }
+    setLastVolume(volume);
+    applyVolume(0);
   };
 
   const percent = duration > 0 ? Math.max(0, Math.min(100, (currentTime / duration) * 100)) : 0;
@@ -248,11 +306,33 @@ function ProfessionalCandidatePlayer({
         </div>
       </div>
 
-      <div className="mt-3 flex items-center justify-between border-t border-white/[0.06] pt-3">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-3">
         <span className="text-[9px] font-semibold uppercase tracking-[0.14em] text-zinc-600">
           {candidate.audioFormat.toUpperCase()} · READY
         </span>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex items-center gap-1.5 rounded-lg border border-white/[0.08] bg-white/[0.03] px-1.5 py-1" data-sonara-candidate-volume={candidate.id}>
+            <button
+              type="button"
+              onClick={toggleMute}
+              className="grid h-7 w-7 place-items-center rounded-md text-zinc-400 transition hover:bg-white/[0.08] hover:text-white"
+              aria-label={isMuted ? `Riattiva volume brano ${candidate.id}` : `Silenzia volume brano ${candidate.id}`}
+              title={`Volume ${Math.round(volume * 100)}%`}
+            >
+              {isMuted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={volume}
+              onChange={event => applyVolume(Number(event.target.value))}
+              aria-label={`Volume brano ${candidate.id}`}
+              className="h-1 w-20 cursor-pointer accent-violet-500"
+            />
+            <span className="w-7 text-right font-mono text-[8px] tabular-nums text-zinc-500">{Math.round(volume * 100)}%</span>
+          </div>
           <button
             type="button"
             onClick={onChoose}

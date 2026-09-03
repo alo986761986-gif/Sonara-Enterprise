@@ -23,6 +23,19 @@ import {
 
 type RepeatMode = 'off' | 'all' | 'one';
 
+const GLOBAL_VOLUME_EVENT = 'sonara:global-player-volume';
+const GLOBAL_VOLUME_STORAGE = 'sonara.globalPlayerVolume';
+
+function readStoredVolume() {
+  if (typeof window === 'undefined') return 0.82;
+  try {
+    const stored = Number(window.localStorage.getItem(GLOBAL_VOLUME_STORAGE));
+    return Number.isFinite(stored) ? Math.max(0, Math.min(1, stored)) : 0.82;
+  } catch {
+    return 0.82;
+  }
+}
+
 type SonaraTrack = {
   variationId?: string;
   jobId?: string;
@@ -72,8 +85,11 @@ export default function SonaraProfessionalFixedPlayer() {
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [volume, setVolume] = useState(0.82);
-  const [lastVolume, setLastVolume] = useState(0.82);
+  const [volume, setVolume] = useState(readStoredVolume);
+  const [lastVolume, setLastVolume] = useState(() => {
+    const initial = readStoredVolume();
+    return initial > 0.01 ? initial : 0.82;
+  });
   const [shuffle, setShuffle] = useState(false);
   const [repeatMode, setRepeatMode] = useState<RepeatMode>('off');
   const [likedUrls, setLikedUrls] = useState<Set<string>>(() => new Set());
@@ -110,9 +126,27 @@ export default function SonaraProfessionalFixedPlayer() {
 
   useEffect(() => {
     const audio = audioRef.current;
-    if (!audio) return;
-    audio.volume = volume;
+    if (audio) audio.volume = volume;
+    if (volume > 0.01) setLastVolume(volume);
+    try { window.localStorage.setItem(GLOBAL_VOLUME_STORAGE, String(volume)); } catch {}
+    window.dispatchEvent(new CustomEvent(GLOBAL_VOLUME_EVENT, {
+      detail: { volume, source: 'universal-player' }
+    }));
   }, [volume]);
+
+  useEffect(() => {
+    const onGlobalVolume = (event: Event) => {
+      const detail = (event as CustomEvent<{ volume?: number; source?: string }>).detail;
+      if (detail?.source === 'universal-player') return;
+      const next = Number(detail?.volume);
+      if (!Number.isFinite(next)) return;
+      const clamped = Math.max(0, Math.min(1, next));
+      setVolume(clamped);
+      if (clamped > 0.01) setLastVolume(clamped);
+    };
+    window.addEventListener(GLOBAL_VOLUME_EVENT, onGlobalVolume);
+    return () => window.removeEventListener(GLOBAL_VOLUME_EVENT, onGlobalVolume);
+  }, []);
 
   useEffect(() => {
     setCurrentTime(0);
@@ -340,9 +374,9 @@ export default function SonaraProfessionalFixedPlayer() {
           <button type="button" className="sonara-pro-icon-button" onClick={() => setExpanded(value => !value)} aria-label="Play queue"><ListMusic /></button>
           <button type="button" className="sonara-pro-icon-button" onClick={() => void downloadTrack()} disabled={!activeTrack} aria-label="Download"><Download /></button>
           <button type="button" className="sonara-pro-icon-button" onClick={() => void shareTrack()} disabled={!activeTrack} aria-label="Share"><Share2 /></button>
-          <div className="sonara-pro-volume">
-            <button type="button" className="sonara-pro-icon-button" onClick={toggleMute} aria-label={isMuted ? 'Unmute' : 'Mute'}>{isMuted ? <VolumeX /> : <Volume2 />}</button>
-            <input type="range" min={0} max={1} step={0.01} value={volume} onChange={event => setVolume(Number(event.target.value))} aria-label="Volume" />
+          <div className="sonara-pro-volume" data-sonara-universal-volume="true" title={`Volume ${Math.round(volume * 100)}%`}>
+            <button type="button" className="sonara-pro-icon-button" onClick={toggleMute} aria-label={isMuted ? 'Riattiva volume' : `Silenzia volume ${Math.round(volume * 100)}%`}>{isMuted ? <VolumeX /> : <Volume2 />}<small>{Math.round(volume * 100)}</small></button>
+            <input type="range" min={0} max={1} step={0.01} value={volume} onChange={event => setVolume(Number(event.target.value))} aria-label={`Volume universale ${Math.round(volume * 100)}%`} />
           </div>
           <button type="button" className="sonara-pro-icon-button" onClick={() => setExpanded(value => !value)} aria-label={expanded ? 'Collapse player' : 'Expand player'}>{expanded ? <Minimize2 /> : <Maximize2 />}</button>
           <div className="sonara-pro-menu-wrap">
@@ -366,7 +400,7 @@ export default function SonaraProfessionalFixedPlayer() {
         .sonara-pro-player-actions{display:flex;align-items:center;justify-content:flex-end;gap:4px;min-width:0}.sonara-pro-volume{display:grid;grid-template-columns:36px 92px;align-items:center;gap:4px}.sonara-pro-menu-wrap{position:relative}.sonara-pro-menu{position:absolute;right:0;bottom:46px;display:grid;min-width:180px;overflow:hidden;border:1px solid rgba(139,92,246,.25);border-radius:13px;background:#080b1d;box-shadow:0 18px 45px rgba(0,0,0,.45);padding:6px}.sonara-pro-menu button{display:flex;align-items:center;gap:9px;height:38px;border:0;border-radius:8px;background:transparent;color:#cbd5e1;padding:0 10px;text-align:left;font-size:10px;font-weight:750}.sonara-pro-menu button:hover:not(:disabled){background:rgba(139,92,246,.14);color:white}.sonara-pro-menu button:disabled{opacity:.32}.sonara-pro-menu svg{width:15px;height:15px}
         .sonara-pro-player-drawer{position:fixed;z-index:11990;left:50%;bottom:96px;width:min(760px,calc(100vw - 28px));transform:translateX(-50%);overflow:hidden;border:1px solid rgba(139,92,246,.28);border-bottom:0;border-radius:18px 18px 0 0;background:rgba(5,8,24,.98);box-shadow:0 -24px 60px rgba(2,6,23,.48);backdrop-filter:blur(26px);color:#f8fafc;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.sonara-pro-player-drawer-head{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(139,92,246,.16);padding:13px 15px}.sonara-pro-player-drawer-head>div{display:flex;align-items:center;gap:9px}.sonara-pro-player-drawer-head svg{width:17px;height:17px;color:#c084fc}.sonara-pro-player-drawer-head strong,.sonara-pro-player-drawer-head small{display:block}.sonara-pro-player-drawer-head strong{font-size:10px;letter-spacing:.08em}.sonara-pro-player-drawer-head small{margin-top:2px;color:#64748b;font-size:8px}.sonara-pro-player-drawer-head>button{display:grid;place-items:center;width:34px;height:34px;border:0;border-radius:9px;background:transparent;color:#94a3b8}.sonara-pro-player-queue{max-height:300px;overflow:auto;padding:7px}.sonara-pro-player-queue>button{display:grid;grid-template-columns:38px minmax(0,1fr);align-items:center;gap:8px;width:100%;border:0;border-radius:10px;background:transparent;color:#cbd5e1;padding:9px 10px;text-align:left}.sonara-pro-player-queue>button:hover,.sonara-pro-player-queue>button[data-active="true"]{background:rgba(109,40,217,.15);color:white}.sonara-pro-player-queue-index{color:#8b5cf6;font-size:9px;font-weight:900}.sonara-pro-player-queue strong,.sonara-pro-player-queue small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sonara-pro-player-queue strong{font-size:10px}.sonara-pro-player-queue small{margin-top:3px;color:#64748b;font-size:8px}
         @media(max-width:1100px){.sonara-pro-fixed-player{grid-template-columns:minmax(210px,.9fr) minmax(380px,1.5fr) auto;gap:14px;padding:10px 14px}.sonara-pro-player-actions>.sonara-pro-icon-button:nth-child(2),.sonara-pro-player-actions>.sonara-pro-icon-button:nth-child(3){display:none}.sonara-pro-volume{grid-template-columns:36px 72px}}
-        @media(max-width:760px){.sonara-pro-fixed-player{grid-template-columns:minmax(0,1fr) auto;min-height:82px;padding:9px 10px}.sonara-pro-player-transport{display:none}.sonara-pro-player-track{grid-template-columns:46px minmax(0,1fr) 34px;gap:9px}.sonara-pro-player-art{width:46px;height:46px;border-radius:12px}.sonara-pro-player-actions>.sonara-pro-icon-button,.sonara-pro-volume input,.sonara-pro-menu-wrap{display:none}.sonara-pro-volume{display:block}.sonara-pro-volume .sonara-pro-icon-button{display:grid}.sonara-pro-player-actions::before{content:''}.sonara-pro-player-actions .sonara-pro-icon-button:first-child{display:grid}.sonara-pro-player-drawer{bottom:82px}.sonara-pro-player-title strong{font-size:11px}.sonara-pro-player-title small{font-size:9px}}
+        @media(max-width:760px){.sonara-pro-fixed-player{grid-template-columns:minmax(0,1fr) auto;min-height:82px;padding:9px 10px}.sonara-pro-player-transport{display:none}.sonara-pro-player-track{grid-template-columns:46px minmax(0,1fr) 34px;gap:9px}.sonara-pro-player-art{width:46px;height:46px;border-radius:12px}.sonara-pro-player-actions>.sonara-pro-icon-button,.sonara-pro-menu-wrap{display:none}.sonara-pro-volume{display:grid;grid-template-columns:34px 64px;gap:2px}.sonara-pro-volume .sonara-pro-icon-button{display:grid;width:34px;height:34px}.sonara-pro-volume input{display:block;width:64px}.sonara-pro-player-actions::before{content:''}.sonara-pro-player-actions .sonara-pro-icon-button:first-child{display:grid}.sonara-pro-player-drawer{bottom:82px}.sonara-pro-player-title strong{font-size:11px}.sonara-pro-player-title small{font-size:9px}}
       `}</style>
     </>
   );
