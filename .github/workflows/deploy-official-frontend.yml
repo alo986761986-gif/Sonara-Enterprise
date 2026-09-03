@@ -1,0 +1,98 @@
+name: Deploy SONARA Official Frontend
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/official-frontend-deploy-trigger"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonara-official-frontend-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build and deploy official SONARA frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+
+    steps:
+      - name: Checkout SONARA main
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Validate Cloudflare Worker credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID}"
+          echo "Cloudflare Worker deployment credentials are configured."
+
+      - name: Validate Creator Audio source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f src/components/generator/SonaraCreatorAudioHub.tsx
+          grep -Fq 'I miei brani' src/components/generator/SonaraCreatorAudioHub.tsx
+          grep -Fq 'Carica audio' src/components/generator/SonaraCreatorAudioHub.tsx
+          grep -Fq 'Registra voce' src/components/generator/SonaraCreatorAudioHub.tsx
+          grep -Fq 'SonaraCreatorAudioHub' src/main.tsx
+          echo "Creator Audio source verified."
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build official SONARA frontend
+        run: npm run build
+
+      - name: Verify Creator Audio in official build
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d dist/assets
+          grep -R -Fq 'I miei brani' dist/assets
+          grep -R -Fq 'Carica audio' dist/assets
+          grep -R -Fq 'Registra voce' dist/assets
+          echo "Creator Audio hub verified in official dist bundle."
+
+      - name: Deploy official Cloudflare Worker and assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@latest deploy --config wrangler.jsonc
+
+      - name: Verify Creator Audio on sonaraenterprise.com
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in {1..30}; do
+            html="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?creator_audio_worker=${GITHUB_SHA}-${attempt}" || true)"
+            asset="$(printf '%s' "${html}" | grep -oE 'src="/assets/index-[^"]+\.js"' | head -n1 | cut -d'"' -f2 || true)"
+            if [[ -n "${asset}" ]]; then
+              if curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com${asset}?creator_audio_worker=${GITHUB_SHA}-${attempt}" -o /tmp/sonara-live.js; then
+                if grep -Fq 'I miei brani' /tmp/sonara-live.js \
+                  && grep -Fq 'Carica audio' /tmp/sonara-live.js \
+                  && grep -Fq 'Registra voce' /tmp/sonara-live.js; then
+                  echo "Creator Audio hub is live on sonaraenterprise.com: ${asset}"
+                  exit 0
+                fi
+              fi
+            fi
+            echo "Official frontend propagation check ${attempt}/30."
+            sleep 4
+          done
+          echo "Creator Audio hub is not visible on public SONARA after Worker deployment." >&2
+          exit 1
