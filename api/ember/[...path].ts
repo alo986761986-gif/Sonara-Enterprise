@@ -9,6 +9,8 @@ import {
 } from '../../backend/src/services/EmberService';
 
 const RATE_WINDOW_MS = 5 * 60 * 1000;
+const DEFAULT_APP_URL = 'https://sonaraenterprise.com';
+const NATIVE_SESSION_MARKER = 'sonara-native-session';
 const limits = new Map<string, { startedAt: number; chat: number; speech: number; realtime: number }>();
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -93,13 +95,15 @@ function rateLimited(userId: string, kind: 'chat' | 'speech' | 'realtime'): bool
   return false;
 }
 
-async function authenticatedUserId(req: any): Promise<string | null> {
-  const authorization = String(req.headers?.authorization || '');
-  const token = authorization.match(/^Bearer\s+(.+)$/i)?.[1]?.trim() || '';
+function bearerToken(req: any): string {
+  return String(req.headers?.authorization || '').match(/^Bearer\s+(.+)$/i)?.[1]?.trim() || '';
+}
+
+async function authenticateWithFirebaseRest(token: string): Promise<string | null> {
   const firebaseApiKey = String(
     process.env.VITE_FIREBASE_API_KEY || process.env.SONARA_FIREBASE_API_KEY || ''
   ).trim();
-  if (!token || !firebaseApiKey) return null;
+  if (!token || !firebaseApiKey || token === NATIVE_SESSION_MARKER) return null;
 
   try {
     const response = await fetch(
@@ -118,6 +122,52 @@ async function authenticatedUserId(req: any): Promise<string | null> {
   }
 }
 
+async function authenticateWithNativeSession(req: any): Promise<string | null> {
+  const cookie = String(req.headers?.cookie || '').trim();
+  if (!cookie || !/(?:^|;\s*)sonara_session=/.test(cookie)) return null;
+
+  const authBase = String(process.env.SONARA_NATIVE_AUTH_URL || DEFAULT_APP_URL).replace(/\/$/, '');
+  try {
+    const response = await fetch(`${authBase}/api/sonara-auth/session`, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        Cookie: cookie
+      },
+      redirect: 'manual'
+    });
+    if (!response.ok) return null;
+    const payload = await response.json() as {
+      authenticated?: boolean;
+      user?: { uid?: string } | null;
+    };
+    if (!payload?.authenticated) return null;
+    return String(payload.user?.uid || '').trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+async function authenticatedUserId(req: any): Promise<string | null> {
+  const token = bearerToken(req);
+  if (token && token !== NATIVE_SESSION_MARKER) {
+    const firebaseUserId = await authenticateWithFirebaseRest(token);
+    if (firebaseUserId) return firebaseUserId;
+  }
+  return authenticateWithNativeSession(req);
+}
+
+function emberConfig() {
+  return {
+    chatEnabled: EmberService.isConfigured(),
+    voiceEnabled: EmberService.voiceEnabled(),
+    realtimeEnabled: EmberService.realtimeEnabled(),
+    voice: String(process.env.EMBER_TTS_VOICE || '').trim() || 'alloy',
+    realtimeVoice: String(process.env.EMBER_REALTIME_VOICE || '').trim() || 'marin',
+    authMode: 'sonara-native-or-firebase'
+  };
+}
+
 export default async function handler(req: any, res: any) {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -126,21 +176,14 @@ export default async function handler(req: any, res: any) {
     return sendError(res, 403, 'EMBER_CROSS_SITE_REJECTED', 'Cross-site requests are not allowed.');
   }
 
-  const userId = await authenticatedUserId(req);
-  if (!userId) {
-    return sendError(res, 401, 'AUTH_TOKEN_INVALID', 'A valid Firebase session is required.');
+  const action = resolveEmberAction(req);
+  if (req.method === 'GET' && action === 'config') {
+    return res.status(200).json(emberConfig());
   }
 
-  const action = resolveEmberAction(req);
-
-  if (req.method === 'GET' && action === 'config') {
-    return res.status(200).json({
-      chatEnabled: EmberService.isConfigured(),
-      voiceEnabled: EmberService.voiceEnabled(),
-      realtimeEnabled: EmberService.realtimeEnabled(),
-      voice: String(process.env.EMBER_TTS_VOICE || '').trim() || 'alloy',
-      realtimeVoice: String(process.env.EMBER_REALTIME_VOICE || '').trim() || 'marin'
-    });
+  const userId = await authenticatedUserId(req);
+  if (!userId) {
+    return sendError(res, 401, 'AUTH_SESSION_INVALID', 'A valid SONARA or Firebase session is required.');
   }
 
   if (req.method === 'POST' && action === 'chat') {
