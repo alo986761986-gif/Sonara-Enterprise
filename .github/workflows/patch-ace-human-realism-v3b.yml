@@ -1,0 +1,57 @@
+name: ACE Human Realism V3B
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/patch-ace-human-realism-v3b.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Apply patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('cloudflare/sonara-molab-xl-router.mjs')
+          s=p.read_text()
+          pairs=[
+          ("if (requested === 'euler' || requested === 'heun') return requested;\n  if (body?.sonaraFastUltra === true) return 'euler';",
+           "if (realMusic && profileOf(body) === 'ultra') return 'heun';\n  if (requested === 'euler' || requested === 'heun') return requested;\n  if (body?.sonaraFastUltra === true) return 'euler';"),
+          ("    'Use instrument-specific articulation, attack, decay, sustain, release, believable register, breathing room and performance variation.',",
+           "    'Keep macro tempo and downbeats solid, but allow genre-appropriate microtiming in hats, percussion, ghost notes, bass articulation, pickups and phrase entrances. Humanization must never sound sloppy or off-grid.',\n    'Use instrument-specific articulation, attack, decay, sustain, release, believable register, breathing room and performance variation.',\n    'Repeated sections must sound re-performed rather than cloned: vary fills, note lengths, accents, ornaments, automation, ambience and transition details while preserving the hook identity.',\n    'Maintain continuous room, reverb and delay behavior across edits and transitions; avoid hard ambience resets, identical tails and artificial section seams.',"),
+          ("hasVocals ? 'Voice target: stable singer identity, natural breath placement, intelligible consonants, believable pitch transitions, expressive timing and no synthetic syllable smearing.' : ''",
+           "hasVocals ? 'Voice target: stable singer identity with natural breath placement, intelligible consonants, small expressive pitch transitions, phrase-dependent vibrato, realistic note attacks/releases and subtle timing freedom. Avoid pitch-staircase tuning, fixed vibrato, identical phrase onsets, breathless delivery and synthetic syllable smearing.' : ''"),
+          ("  const inferenceSteps = inferenceStepsOf(body, profile);",
+           "  const hasVocals = Boolean(String(body.lyrics || '').trim()) && String(body.vocalMode || body.vocal_mode || '').toLowerCase() !== 'instrumental';\n  const humanLmTemperature = realMusic ? (profile === 'ultra' ? clamp(0.78 + controls.weirdness * 0.001, 0.82, 0.88) : clamp(0.74 + controls.weirdness * 0.001, 0.76, 0.84)) : 0.85;\n  const humanLmCfgScale = realMusic ? clamp(2.10 + controls.styleInfluence * 0.004, 2.10, 2.50) : 2.0;\n  const humanTopP = realMusic ? clamp(0.90 + controls.weirdness * 0.0006, 0.90, 0.96) : 0.90;\n  const inferenceSteps = inferenceStepsOf(body, profile);"),
+          ("    lm_temperature: realMusic ? (profile === 'ultra' ? 0.68 : 0.76) : 0.85,\n    lm_cfg_scale: realMusic ? (profile === 'ultra' ? 2.4 : 2.2) : 2.0,\n    lm_top_k: 0,\n    lm_top_p: 0.9,",
+           "    lm_temperature: humanLmTemperature,\n    lm_cfg_scale: humanLmCfgScale,\n    lm_top_k: 0,\n    lm_top_p: humanTopP,\n    lm_repetition_penalty: realMusic ? (profile === 'ultra' ? 1.08 : 1.04) : 1.0,"),
+          ("generic style drift, wrong BPM, wrong key, robotic quantization, static velocity, copy-paste phrasing, plastic timbre, metallic artifacts, harsh clipping, overcompression, phasey stereo, accidental silence, malformed ending, unwanted vocals",
+           "generic style drift, wrong BPM, wrong key, robotic quantization, static velocity, identical repeated bars, identical drum velocities, copy-paste phrasing, cloned chorus performance, fixed vibrato, pitch-staircase tuning, breathless synthetic vocal, plastic timbre, metallic artifacts, harsh clipping, overcompression, phasey stereo, hard ambience resets, accidental silence, malformed ending, unwanted vocals"),
+          ("    use_constrained_decoding: realMusic,\n    constrained_decoding: realMusic,",
+           "    use_constrained_decoding: realMusic && hasVocals,\n    constrained_decoding: realMusic && hasVocals,")]
+          for old,new in pairs:
+              if old in s:
+                  s=s.replace(old,new,1)
+              elif new not in s:
+                  raise SystemExit('PATCH_MARKER_MISSING: '+old[:80])
+          p.write_text(s)
+          PY
+          node --check cloudflare/sonara-molab-xl-router.mjs
+          grep -q "lm_repetition_penalty" cloudflare/sonara-molab-xl-router.mjs
+          grep -q "humanLmTemperature" cloudflare/sonara-molab-xl-router.mjs
+          grep -q "profileOf(body) === 'ultra') return 'heun'" cloudflare/sonara-molab-xl-router.mjs
+      - name: Commit
+        shell: bash
+        run: |
+          git config user.name 'SONARA Automation'
+          git config user.email 'actions@users.noreply.github.com'
+          git add cloudflare/sonara-molab-xl-router.mjs
+          git commit -m 'feat(ace): activate Human Realism V3 performance model' || exit 0
+          git push origin HEAD:main
