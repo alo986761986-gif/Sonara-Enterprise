@@ -1,0 +1,92 @@
+name: Deploy SONARA Cover Route V2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "cloudflare/sonara-ultra-diversity-v1-edge.mjs"
+      - "cloudflare/sonara-yue-primary-edge.mjs"
+      - "src/components/generator/ElevenMusicGenerationControl.tsx"
+      - "src/server/musicCoverApi.ts"
+      - "api/eleven-music/[...path].ts"
+      - ".github/workflows/deploy-cover-route-production-v2.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonara-cover-route-production-v2
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Validate public cover route
+        run: |
+          node --check cloudflare/sonara-ultra-diversity-v1-edge.mjs
+          node --check cloudflare/sonara-yue-primary-edge.mjs
+          grep -Fq "ELEVEN_COVER_PATH = '/api/eleven-music/cover'" cloudflare/sonara-ultra-diversity-v1-edge.mjs
+          grep -Fq "return proxyElevenCover(request)" cloudflare/sonara-ultra-diversity-v1-edge.mjs
+          grep -Fq "'/api/eleven-music/cover'" src/components/generator/ElevenMusicGenerationControl.tsx
+          grep -Fq "action === 'cover'" 'api/eleven-music/[...path].ts'
+          grep -Fq 'OPENAI_IMAGES_URL' src/server/musicCoverApi.ts
+
+      - name: Validate compact professional A B UI
+        run: |
+          grep -Fq 'data-sonara-cover-toolbar="compact"' src/components/generator/ElevenMusicGenerationControl.tsx
+          grep -Fq 'sm:grid-cols-[104px_1fr]' src/components/generator/ElevenMusicGenerationControl.tsx
+          grep -Fq 'SCARICA COVER' src/components/generator/ElevenMusicGenerationControl.tsx
+          grep -Fq 'RIGENERA COPERTINA' src/components/generator/ElevenMusicGenerationControl.tsx
+
+      - name: Build production app
+        run: npm run build
+
+      - name: Validate built compact UI
+        run: |
+          grep -R -Fq 'audio + artwork simultanei' dist
+          grep -R -Fq 'SCARICA COVER' dist
+          grep -R -Fq 'RIGENERA COPERTINA' dist
+
+      - name: Verify Vercel cover origin
+        run: |
+          response="$(curl -fsS -A 'SONARA-Cover-Origin-Verify/2.0' -H 'Accept: application/json' https://sonara-enterprise.vercel.app/api/eleven-music/cover)"
+          printf '%s' "$response" | jq -e '.parallelAB == true and .enabled == true' >/dev/null
+
+      - name: Resolve Cloudflare account
+        run: npx --yes wrangler@latest whoami --config wrangler.jsonc
+
+      - name: Deploy Worker and web assets
+        run: npx --yes wrangler@latest deploy --config wrangler.jsonc
+
+      - name: Verify public cover route is JSON
+        run: |
+          for attempt in $(seq 1 12); do
+            response="$(curl -sS --connect-timeout 8 --max-time 25 -A 'SONARA-Cover-Public-Verify/2.0' -H 'Accept: application/json' -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/api/eleven-music/cover?verify=${GITHUB_SHA}-${attempt}" || true)"
+            if [[ -n "$response" ]] && printf '%s' "$response" | jq -e '.parallelAB == true and .enabled == true and (.model | length > 0)' >/dev/null 2>&1; then
+              printf '%s\n' "$response" | jq '{enabled, model, size, outputFormat, parallelAB}'
+              echo 'PUBLIC_COVER_ROUTE=READY'
+              exit 0
+            fi
+            echo "Public cover route propagation attempt ${attempt}/12"
+            sleep 5
+          done
+          echo 'Public cover route did not return valid SONARA JSON.' >&2
+          exit 1
