@@ -18,6 +18,11 @@ FULL_INSTALLER_URL = (
     'alo986761986-gif/Sonara-Enterprise/main/scripts/'
     'ace-step-xl-turbo-real-music-v3-full-fresh-install-0904.py'
 )
+ASR_FIX_URL = (
+    'https://raw.githubusercontent.com/'
+    'alo986761986-gif/Sonara-Enterprise/main/scripts/'
+    'ace-step-vocal-asr-v3-install-fix-0902.py'
+)
 SPEED_V9_URL = (
     'https://raw.githubusercontent.com/'
     'alo986761986-gif/Sonara-Enterprise/main/scripts/'
@@ -33,7 +38,7 @@ def banner(text: str) -> None:
 
 def download(url: str, target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
-    req = urllib.request.Request(url, headers={'User-Agent': 'SONARA-QUALITY-V10-Bootstrap/1.0'})
+    req = urllib.request.Request(url, headers={'User-Agent': 'SONARA-QUALITY-V10-Bootstrap/1.1'})
     with urllib.request.urlopen(req, timeout=180) as response:
         target.write_bytes(response.read())
 
@@ -60,7 +65,7 @@ def runtime_complete() -> bool:
 
 
 def run_full_bootstrap() -> None:
-    banner('SONARA QUALITY V10 - FRESH NOTEBOOK AUTO-BOOTSTRAP')
+    banner('SONARA QUALITY V10 - FRESH NOTEBOOK AUTO-BOOTSTRAP V2')
     print(f'ROOT={ROOT}', flush=True)
     print(f'RUNTIME_COMPLETE_BEFORE={runtime_complete()}', flush=True)
 
@@ -96,10 +101,15 @@ def run_full_bootstrap() -> None:
     v2.patch_health_marker()
     v2.verify_code()
 
-    banner('4/8 - VOCAL ASR V3')
-    asr_mod.install_asr()
+    banner('4/8 - VOCAL ASR V3 RESILIENT INSTALL')
+    asr_fix = load_remote_module('sonara_asr_install_fix', ASR_FIX_URL)
+    asr_fix.install_packages()
+    asr_fix.export_cuda_library_path()
+    if not asr_fix.import_ok():
+        raise RuntimeError('faster-whisper/ctranslate2 non importabili dopo il repair ASR.')
     asr_mod.patch_api()
     asr_mod.verify_syntax()
+    print('VOCAL_ASR_V3_INSTALL=READY', flush=True)
 
     banner('5/8 - LM4B + XL-BASE')
     v3.ensure_runtime()
@@ -115,14 +125,16 @@ def run_full_bootstrap() -> None:
             'Bootstrap incompleto: servono runtime, XL-Turbo, XL-Base e LM4B prima del supervisor V9.'
         )
 
-    banner('6/8 - VERIFICA PYTHON/CUDA')
+    banner('6/8 - VERIFICA PYTHON/CUDA + ASR IMPORT')
     probe = subprocess.run(
         [str(PYTHON), '-c', (
-            'import torch; '
+            'import torch, faster_whisper, ctranslate2; '
             'assert torch.cuda.is_available(); '
             'print("CUDA=True"); '
             'print("GPU=" + torch.cuda.get_device_name(0)); '
-            'print("VRAM_GB=" + str(round(torch.cuda.get_device_properties(0).total_memory/1024**3, 2)))'
+            'print("VRAM_GB=" + str(round(torch.cuda.get_device_properties(0).total_memory/1024**3, 2))); '
+            'print("FASTER_WHISPER=READY"); '
+            'print("CT2_CUDA_DEVICES=" + str(ctranslate2.get_cuda_device_count()))'
         )],
         cwd=str(ROOT),
         text=True,
@@ -132,14 +144,14 @@ def run_full_bootstrap() -> None:
     )
     print(probe.stdout or '', flush=True)
     if probe.returncode != 0:
-        raise RuntimeError('Verifica CUDA fallita:\n' + (probe.stdout or ''))
+        raise RuntimeError('Verifica CUDA/ASR fallita:\n' + (probe.stdout or ''))
 
     banner('7/8 - BOOTSTRAP COMPLETO')
     print('RUNTIME_COMPLETE_AFTER=true', flush=True)
     print('XL_TURBO=READY', flush=True)
     print('XL_BASE=READY', flush=True)
     print('LM4B=READY', flush=True)
-    print('ASR_V3_CODE=READY', flush=True)
+    print('ASR_V3=READY', flush=True)
 
 
 def launch_speed_v9() -> None:
