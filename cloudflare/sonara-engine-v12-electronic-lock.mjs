@@ -29,13 +29,12 @@ const ELECTRONIC_SIGNATURES = {
   'minimal dnb': 'minimal drum and bass, stripped fast drums, deep sub bass, sparse clicks and percussion, negative space, tiny tonal fragments and restrained hypnotic movement.',
   'ragga jungle': 'ragga jungle, chopped Amen breaks, heavy jungle sub, dancehall/ragga vocal phrases, dub sirens, energetic edits and raw sound-system rave character.',
 
-  // Dubstep (9)
+  // Dubstep (8)
   'uk dubstep': 'authentic UK dubstep, around 140 BPM half-time feel, enormous clean sub bass, sparse swung drums, dark atmospheres, minimal midrange, dub space and London sound-system weight.',
   'deep dubstep': 'deep dubstep, low sub-focused bass, half-time sparse drums, restrained percussion, dark pads, dub echoes and meditative spacious pressure.',
   brostep: 'brostep, huge half-time drums, aggressive growl and talking mid-bass sound design, bright synth layers, dramatic builds and high-impact bass drops.',
   riddim: 'riddim dubstep, repetitive square/wonk bass patterns, minimal half-time drums, syncopated bass gaps, clipped vocal chops and hypnotic heavy repetition.',
   'melodic dubstep': 'melodic dubstep, emotional chords, airy vocal chops, cinematic pads, half-time drums, powerful sub and melodic bass drop with clear harmonic resolution.',
-  'future garage': 'future garage, fragile 2-step rhythm, deep sub bass, pitched/chopped vocals, rain-like ambience, soft pads and intimate nocturnal atmosphere.',
   'post dubstep': 'post-dubstep, deconstructed bass rhythm, sparse syncopated drums, sub bass, electronic soul chords, textural vocals and experimental spacious production.',
   chillstep: 'chillstep, soft half-time drums, warm sub bass, dreamy pads, gentle plucks, emotional vocal textures and relaxed melodic bass movement.',
   deathstep: 'deathstep, brutal half-time drums, extreme distorted bass growls, metallic impacts, horror ambience, aggressive fills and punishing high-density drops.',
