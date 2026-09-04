@@ -1,0 +1,58 @@
+name: Verify Real Music V3 Runtime
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-real-music-v3-runtime.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-real-music-v3-runtime
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify public V3 and MoLab runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify Real Music V3 public contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          caps="$(curl -fsS --max-time 20 -H 'Accept: application/json' -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/api/real-music/v3/capabilities?runtime=${GITHUB_SHA}")"
+          printf '%s\n' "$caps" | jq '{version, model, lmModel, trackGenome, humanPerformanceContract, vocalRealismContract, automaticCandidateRanking, automaticRepair, fourInternalCandidates, baseModelPostProduction}'
+          printf '%s' "$caps" | jq -e '.version == "sonara-real-music-v3-auto-refine-1" and .trackGenome == true and .humanPerformanceContract == true and .automaticCandidateRanking == true and .automaticRepair == true and .fourInternalCandidates == true' >/dev/null
+
+      - name: Probe live MoLab capabilities
+        id: molab
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl -sS --max-time 20 -o /tmp/molab.json -w '%{http_code}' -H 'Accept: application/json' -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/api/molab/capabilities?runtime=${GITHUB_SHA}" || true)"
+          echo "HTTP=${code}"
+          if [[ -s /tmp/molab.json ]]; then
+            jq '{ready, provider, configured, loadedModel, currentProductionModel, currentProductionInferenceSteps, turboAvailable, baseModel, baseGenerationAvailable, modelCatalogReachable, recommendedProfiles}' /tmp/molab.json || cat /tmp/molab.json
+          fi
+          if [[ "$code" != "200" ]]; then
+            echo "MOLAB_RUNTIME_READY=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          ready="$(jq -r '.ready == true' /tmp/molab.json)"
+          turbo="$(jq -r '.turboAvailable == true' /tmp/molab.json)"
+          base="$(jq -r '.baseGenerationAvailable == true' /tmp/molab.json)"
+          echo "MOLAB_RUNTIME_READY=${ready}" >> "$GITHUB_OUTPUT"
+          echo "MOLAB_TURBO_READY=${turbo}" >> "$GITHUB_OUTPUT"
+          echo "MOLAB_BASE_READY=${base}" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize runtime status
+        shell: bash
+        run: |
+          echo "REAL_MUSIC_V3=LIVE"
+          echo "MOLAB_RUNTIME_READY=${{ steps.molab.outputs.MOLAB_RUNTIME_READY || 'false' }}"
+          echo "MOLAB_TURBO_READY=${{ steps.molab.outputs.MOLAB_TURBO_READY || 'false' }}"
+          echo "MOLAB_BASE_READY=${{ steps.molab.outputs.MOLAB_BASE_READY || 'false' }}"
