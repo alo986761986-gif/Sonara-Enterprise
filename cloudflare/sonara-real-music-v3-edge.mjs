@@ -2,7 +2,7 @@ import runtime, { SonaraJobState, SonaraAuthStore } from './sonara-ultra-diversi
 
 export { SonaraJobState, SonaraAuthStore };
 
-const VERSION = 'sonara-real-music-v3-auto-refine-1';
+const VERSION = 'sonara-real-music-v3-auto-refine-2-quality-fast-batch';
 const GENRE_FINGERPRINT_REVISION = 'electronic-v12-future-garage-canonical-1';
 const GENERATE_PATHS = new Set(['/api/engine/generate', '/api/billing/generate']);
 const HEALTH_PATHS = new Set(['/api/health', '/api/engine/ready', '/api/molab/ready', '/api/studio/capabilities']);
@@ -61,7 +61,7 @@ function trackGenome(body = {}) {
     structureIntent: durationSec && durationSec > 210 ? 'long-form-evolving' : durationSec && durationSec < 80 ? 'compact-complete' : 'full-song-arc',
     humanPerformance: true,
     stableSingerIdentity: !/instrumental|no vocals|senza voce/.test(vocalMode),
-    qualityGateRequired: profileOf(body) !== 'fast'
+    qualityGateRequired: profileOf(body) === 'ultra'
   };
 }
 
@@ -128,6 +128,7 @@ function enrich(body = {}) {
   if (profile === 'fast') return { ...body, sonaraRealMusicV3: false, sonaraRealMusicV3Version: VERSION };
 
   const genome = trackGenome(body);
+  const qualityFastBatch = profile === 'quality';
   return {
     ...body,
     sonaraRealMusic: true,
@@ -139,11 +140,18 @@ function enrich(body = {}) {
     sonaraHumanizerEnabled: true,
     sonaraVocalRefinementEnabled: true,
     sonaraStemPostProductionReady: true,
-    sonaraAutoRepair: true,
-    sonaraAutomaticCandidateRanking: true,
-    sonaraDirectorBypass: false,
+    sonaraAutoRepair: profile === 'ultra',
+    sonaraAutomaticCandidateRanking: profile === 'ultra',
+    sonaraDirectorBypass: qualityFastBatch,
+    sonaraQualityFastBatchV8: qualityFastBatch,
+    sonaraQualitySequentialSingleTakes: false,
+    sonaraQualityBStrictPublishGate: false,
+    sonaraQualityBAutoRetry: false,
+    candidateCount: qualityFastBatch ? 2 : body.candidateCount,
+    candidate_count: qualityFastBatch ? 2 : body.candidate_count,
+    dualFast: qualityFastBatch ? true : body.dualFast,
     sonaraVisibleCandidateTarget: 2,
-    sonaraInternalCandidateTarget: 4,
+    sonaraInternalCandidateTarget: qualityFastBatch ? 2 : 4,
     verifyLyrics: !/instrumental|no vocals|senza voce/.test(genome.vocalMode),
     sonaraLyricsVerification: !/instrumental|no vocals|senza voce/.test(genome.vocalMode),
     sonaraStudioMaxHookContract: hookContract(genome),
@@ -151,7 +159,7 @@ function enrich(body = {}) {
     sonaraStudioMaxContinuityContract: humanizerContract(genome),
     sonaraStudioMaxArrangementContract: arrangementContract(genome),
     sonaraStudioMaxProductionContract: productionContract(genome),
-    sonaraRealMusicV3RepairPolicy: profile === 'ultra' ? 'professional-score-92-plus-auto-repair' : 'professional-release-gate-auto-repair'
+    sonaraRealMusicV3RepairPolicy: profile === 'ultra' ? 'professional-score-92-plus-auto-repair' : 'quality-fast-batch-no-blocking-repair'
   };
 }
 
@@ -185,20 +193,24 @@ function capabilities() {
     genreFingerprintRevision: GENRE_FINGERPRINT_REVISION,
     enabledFor: ['quality', 'ultra'],
     fastModeUnchanged: true,
+    qualityFastBatch: true,
+    qualityCandidatesOneGpuBatch: 2,
+    qualityBlockingRepair: false,
+    qualitySequentialSingleTakes: false,
     trackGenome: true,
     exactBpmKeyDurationContracts: true,
     humanPerformanceContract: true,
     stableSingerIdentityContract: true,
     lyricVerificationRequestedForVocals: true,
     arrangementDirector: true,
-    fourInternalCandidates: true,
-    realWavRanking: true,
-    automaticRepair: true,
+    fourInternalCandidates: false,
+    realWavRanking: false,
+    automaticRepair: false,
     stemsPostProductionReady: true,
     turboModel: 'acestep-v15-xl-turbo',
     refinementModel: 'acestep-v15-xl-base',
     lmModel: 'acestep-5Hz-lm-4B',
-    qualityTarget: 'professional-release-gate',
+    qualityTarget: 'real-music-fast-batch',
     ultraTargetScore: 92
   };
 }
@@ -239,7 +251,11 @@ export default {
             trackGenomeEnabled: profileOf(body) !== 'fast',
             humanizerEnabled: profileOf(body) !== 'fast',
             vocalRefinementEnabled: profileOf(body) !== 'fast',
-            automaticQualityRepair: profileOf(body) !== 'fast'
+            automaticQualityRepair: profileOf(body) === 'ultra',
+            qualityFastBatch: profileOf(body) === 'quality',
+            qualitySequentialSingleTakes: false,
+            qualityBlockingWavAnalysis: false,
+            candidateCount: profileOf(body) === 'quality' ? 2 : data?.metadata?.candidateCount
           }
         }));
       } catch {
