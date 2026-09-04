@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import time
 import urllib.request
@@ -32,7 +31,11 @@ def load_supervisor() -> SimpleNamespace:
     code = urllib.request.urlopen(BASE_SUPERVISOR_URL, timeout=120).read().decode('utf-8')
     scope = {'__name__': 'sonara_v3_base_supervisor'}
     exec(compile(code, '<sonara-v3-base-supervisor>', 'exec'), scope)
-    return SimpleNamespace(**scope)
+    m = SimpleNamespace(**scope)
+    # Critical: functions created by exec keep `scope` as __globals__.
+    # Later speed overrides MUST patch this dict, not only the namespace attribute.
+    m._scope = scope
+    return m
 
 
 def can_import(module: str) -> bool:
@@ -120,10 +123,18 @@ def patch_fast4_quality4() -> None:
 
 def speed_env(base_env_fn, backend: str, compile_model: bool, flash_attention: bool) -> dict:
     env = base_env_fn()
+    enabled = 'true' if compile_model else 'false'
+    flash = 'true' if flash_attention else 'false'
     env.update({
+        # /v1/init in ACE-Step 1.5 reads ACESTEP_LM_BACKEND.
         'ACESTEP_LM_BACKEND': backend,
-        'ACESTEP_COMPILE_MODEL': 'true' if compile_model else 'false',
-        'ACESTEP_USE_FLASH_ATTENTION': 'true' if flash_attention else 'false',
+        # Some launch paths / containers use ACESTEP_LLM_BACKEND. Set both.
+        'ACESTEP_LLM_BACKEND': backend,
+        'ACESTEP_COMPILE_MODEL': enabled,
+        'ACESTEP_USE_FLASH_ATTENTION': flash,
+        'ACESTEP_OFFLOAD_TO_CPU': 'false',
+        'ACESTEP_OFFLOAD_DIT_TO_CPU': 'false',
+        'ACESTEP_LM_OFFLOAD_TO_CPU': 'false',
         'CUDA_MODULE_LOADING': 'LAZY',
         'TORCH_ALLOW_TF32_CUBLAS_OVERRIDE': '1',
         'NVIDIA_TF32_OVERRIDE': '1',
@@ -134,6 +145,23 @@ def speed_env(base_env_fn, backend: str, compile_model: bool, flash_attention: b
     return env
 
 
+def bind_runtime_env(m, env: dict):
+    """Bind env override into the REAL globals used by exec-created supervisor functions."""
+    scope = m.start_api.__globals__
+    original = scope.get('safe_env')
+    override = lambda env=env: env.copy()
+    scope['safe_env'] = override
+    m.safe_env = override
+    return original
+
+
+def restore_runtime_env(m, original_safe_env) -> None:
+    if original_safe_env is None:
+        return
+    m.start_api.__globals__['safe_env'] = original_safe_env
+    m.safe_env = original_safe_env
+
+
 def select_attempts() -> list[tuple[str, bool, bool]]:
     nano_vllm = ensure_nanovllm()
     triton = can_import('triton')
@@ -142,8 +170,6 @@ def select_attempts() -> list[tuple[str, bool, bool]]:
     print(f'FLASH_ATTN_IMPORT={"READY" if flash else "UNAVAILABLE"}', flush=True)
     attempts: list[tuple[str, bool, bool]] = []
     if nano_vllm:
-        # ACE-Step 1.5 calls this backend "vllm" but imports its bundled package as `nanovllm`.
-        # It can still run in eager/SDPA mode when flash-attn is absent.
         attempts.append(('vllm', True, flash))
         attempts.append(('vllm', False, flash))
     attempts.append(('pt', True, flash))
@@ -158,13 +184,15 @@ def select_attempts() -> list[tuple[str, bool, bool]]:
 
 
 def start_best_runtime(m):
-    banner('2/7 - RTX 6000 PRO MAX SPEED STARTUP WITH NANO-VLLM FIRST')
-    original_safe_env = m.safe_env
+    banner('2/7 - RTX 6000 PRO MAX SPEED STARTUP - REAL ENV OVERRIDE')
+    base_safe_env = m.start_api.__globals__.get('safe_env')
+    if not callable(base_safe_env):
+        raise RuntimeError('safe_env globale del supervisor non trovato.')
     last_error = ''
     for backend, compile_model, flash_attention in select_attempts():
         api_proc = None
-        env = speed_env(original_safe_env, backend, compile_model, flash_attention)
-        m.safe_env = lambda env=env: env.copy()
+        env = speed_env(base_safe_env, backend, compile_model, flash_attention)
+        bind_runtime_env(m, env)
         print(
             f'ATTEMPT backend={backend} compile={str(compile_model).lower()} '
             f'flash={str(flash_attention).lower()}', flush=True,
@@ -174,14 +202,18 @@ def start_best_runtime(m):
             api_proc = m.start_api()
             health = m.init_models()
             data = m.health_data(health)
-            actual_backend = str(data.get('sonara_lm_backend') or backend).strip().lower()
+            actual_backend = str(data.get('sonara_lm_backend') or '').strip().lower()
+            actual_compile = data.get('sonara_compile_model') is True
             print(f'API_REQUESTED_BACKEND={backend}', flush=True)
-            print(f'API_SELECTED_BACKEND={actual_backend}', flush=True)
-            print(f'TORCH_COMPILE={str(compile_model).lower()}', flush=True)
-            print(f'FLASH_ATTENTION={str(flash_attention).lower()}', flush=True)
-            if backend == 'vllm' and actual_backend != 'vllm':
-                raise RuntimeError(f'ACE-Step ha ripiegato su {actual_backend}; provo il profilo successivo.')
-            return api_proc, actual_backend, compile_model, flash_attention, health, original_safe_env
+            print(f'API_SELECTED_BACKEND={actual_backend or "unknown"}', flush=True)
+            print(f'COMPILE_REQUESTED={str(compile_model).lower()}', flush=True)
+            print(f'COMPILE_ACTUAL={str(actual_compile).lower()}', flush=True)
+            print(f'FLASH_ATTENTION_REQUESTED={str(flash_attention).lower()}', flush=True)
+            if actual_backend != backend:
+                raise RuntimeError(f'Backend richiesto={backend}, attivo={actual_backend or "unknown"}.')
+            if compile_model and not actual_compile:
+                raise RuntimeError('torch.compile richiesto ma health riporta sonara_compile_model=false.')
+            return api_proc, backend, actual_compile, flash_attention, health, base_safe_env
         except Exception as exc:
             last_error = f'{type(exc).__name__}: {exc}'
             print('ATTEMPT_FAILED=' + last_error, flush=True)
@@ -191,15 +223,16 @@ def start_best_runtime(m):
                 print(m.tail(m.API_LOG, 9000), flush=True)
             except Exception:
                 pass
+            restore_runtime_env(m, base_safe_env)
             time.sleep(3)
-    m.safe_env = original_safe_env
+    restore_runtime_env(m, base_safe_env)
     raise RuntimeError('Nessun profilo speed stabile. Ultimo errore: ' + last_error)
 
 
 def write_speed_state(m, public_url: str, backend: str, compile_model: bool, flash_attention: bool, health: dict, asr: dict) -> None:
     payload = {
         'ok': True,
-        'profile': 'SONARA REAL MUSIC V3 SPEED SUPERVISOR',
+        'profile': 'SONARA REAL MUSIC V3 SPEED SUPERVISOR V9',
         'public_url': public_url,
         'model': m.TURBO,
         'refinement_model': m.BASE,
@@ -220,14 +253,14 @@ def write_speed_state(m, public_url: str, backend: str, compile_model: bool, fla
 
 
 def main() -> None:
-    banner('SONARA REAL MUSIC V3 - RTX 6000 PRO SPEED SUPERVISOR V8')
+    banner('SONARA REAL MUSIC V3 - RTX 6000 PRO SPEED SUPERVISOR V9')
     m = load_supervisor()
     m.verify_existing_install()
     patch_fast4_quality4()
     api_proc = None
     tunnel_proc = None
     public_url = ''
-    original_safe_env = m.safe_env
+    original_safe_env = m.start_api.__globals__.get('safe_env')
     try:
         api_proc, backend, compile_model, flash_attention, health, original_safe_env = start_best_runtime(m)
         banner('3/7 - VERIFY VOCAL ASR V3')
@@ -258,21 +291,25 @@ def main() -> None:
             public = m.request_json(public_url + '/health', 15)
             local_ok = m.api_ready(local)
             public_ok = m.api_ready(public)
+            local_data = m.health_data(local)
+            live_backend = str(local_data.get('sonara_lm_backend') or '').upper()
+            live_compile = local_data.get('sonara_compile_model') is True
             print(
-                f'[{time.strftime("%H:%M:%S")}] SPEED V8 | '
+                f'[{time.strftime("%H:%M:%S")}] SPEED V9 | '
                 f'API={"UP" if local_ok else "DOWN"} | PUBLIC={"UP" if public_ok else "DOWN"} | '
-                f'FAST=4 | QUALITY=4+BATCH2 | LM={backend.upper()} | '
-                f'COMPILE={"ON" if compile_model else "OFF"} | '
+                f'FAST=4 | QUALITY=4+BATCH2 | LM={live_backend or "UNKNOWN"} | '
+                f'COMPILE={"ON" if live_compile else "OFF"} | '
                 f'FLASH={"ON" if flash_attention else "OFF"} | {public_url}', flush=True,
             )
             if not local_ok or not public_ok:
                 raise RuntimeError('Health speed supervisor non valido; fermo la cella per evitare routing lento/corrotto.')
+            if backend == 'vllm' and live_backend != 'VLLM':
+                raise RuntimeError('Il backend LM e ricaduto fuori da vLLM; fermo il runtime lento.')
+            if compile_model and not live_compile:
+                raise RuntimeError('torch.compile e caduto OFF; fermo il runtime lento.')
             time.sleep(45)
     finally:
-        try:
-            m.safe_env = original_safe_env
-        except Exception:
-            pass
+        restore_runtime_env(m, original_safe_env)
         if tunnel_proc is not None:
             m.stop_proc(tunnel_proc)
         if api_proc is not None:
