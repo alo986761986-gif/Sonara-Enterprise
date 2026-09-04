@@ -64,6 +64,22 @@ function vocalInstruction(mode: string): string {
   return 'INSTRUMENTAL LOCK: no sung vocals, no singer and no lyrics. Vocal-like textures may only be non-lexical instruments if musically appropriate.';
 }
 
+function fullInstrumentationInstruction(context: CreatorContext, profileInstrumentation: string, selectedInstruments: string[]): string {
+  const lock = selectedInstruments.length
+    ? `Start from the creator-locked instruments (${selectedInstruments.join(', ')}) and preserve every one of them.`
+    : 'Start from the authentic instrument palette defined by SONARA style intelligence.';
+  return [
+    `FULL GENRE-AUTHENTIC ARRANGEMENT — ${context.family} → ${context.genre} → ${context.subgenre}.`,
+    lock,
+    `Core style palette: ${compact(profileInstrumentation, 620)}.`,
+    'Make the record feel FULL, RICH and PROFESSIONALLY ARRANGED: use multiple complementary layers instead of a sparse demo.',
+    'Target roughly 8–12 distinct musical/production roles when the genre supports it: primary drums, secondary percussion, bass, chord/harmonic instrument, supporting harmony layer, lead/hook instrument, counter-melody or response layer, atmospheric/textural layer, fills/ornaments, transition elements and genre-authentic ear-candy.',
+    'Layer instruments by frequency and musical function so every part has a purpose. Use call-and-response, octave/register separation, evolving automation and section-specific entrances/exits.',
+    'Do NOT add unrelated instruments just to increase the count. Every added instrument must belong naturally to the requested genre/subgenre, era and production language.',
+    'Avoid overcrowding: create a dense, expensive-sounding arrangement while preserving groove, clarity, headroom, vocal space and a controlled low end.'
+  ].join(' ');
+}
+
 function buildIntelligentBrief(currentPrompt: string, context: CreatorContext): string {
   const fallback = `Create an original, professional ${context.subgenre} track.`;
   const sanitizedPrompt = context.vocalMode === 'instrumental' ? stripVocalLanguageForInstrumental(currentPrompt) : currentPrompt;
@@ -79,12 +95,14 @@ function buildIntelligentBrief(currentPrompt: string, context: CreatorContext): 
     ? `SONARA AUTO BPM selected ${context.bpm} BPM from the live musical context${context.bpmReason ? ` (${context.bpmReason})` : ''}. Treat this as the intelligent tempo choice for this creation and keep it coherent with genre, subgenre, mood and groove.`
     : `Manual BPM lock: exactly ${context.bpm} BPM. The creator chose this tempo explicitly; do not change it.`;
   const creativityInstruction = `Weirdness ${Math.round(context.weirdness)}% controls novelty and experimental deviation. Style Influence ${Math.round(context.styleInfluence)}% controls adherence to the selected genre/subgenre DNA. These controls must shape interpretation without overriding explicit creator instructions or the selected taxonomy.`;
+  const fullInstrumentation = fullInstrumentationInstruction(context, profile.instrumentation, selectedInstruments);
 
   const sections = [
     `CREATOR INTENT — PRESERVE AS AUTHORITATIVE:\n${creatorIntent}`,
     instrumentLock,
     `SONARA INTELLIGENT STYLE INTERPRETATION — ${context.subgenre}:\n${compact(profile.identity, 620)}`,
     `AUTHENTIC INSTRUMENTATION:\n${compact(profile.instrumentation, analysis.detailed ? 420 : 620)}${selectedInstruments.length ? '\nUse this style instrumentation only as supporting context around the creator-locked instruments above.' : ''}`,
+    `FULL INSTRUMENTATION ENGINE:\n${compact(fullInstrumentation, analysis.detailed ? 760 : 980)}`,
     `RHYTHM AND GROOVE:\n${compact(profile.rhythm, analysis.detailed ? 420 : 620)}`,
     `HARMONY / MUSICAL LANGUAGE:\n${compact(profile.harmony, analysis.detailed ? 360 : 520)}`,
     `ARRANGEMENT DIRECTION:\n${compact(profile.arrangement, analysis.detailed ? 360 : 520)}`,
@@ -94,7 +112,7 @@ function buildIntelligentBrief(currentPrompt: string, context: CreatorContext): 
     `CREATIVITY CONTROLS:\n${creativityInstruction}`,
     `TECHNICAL LOCKS:\n${context.family} → ${context.genre} → ${context.subgenre}; atmosphere ${context.mood}; active tempo ${context.bpm} BPM; key ${context.keySignature}; approximately ${context.durationSec} seconds with a complete musical-bar ending.`,
     exclusions,
-    'INTELLIGENT PRIORITY RULE: explicit interface selections are authoritative. Never replace, weaken or contradict creator instructions, creator-selected instruments, manual BPM, vocal mode, taxonomy or creative-control values. Use the selected style DNA only to complete details the creator did not specify. Keep the result original, musically performed, evolving and release-ready.'
+    'INTELLIGENT PRIORITY RULE: explicit interface selections are authoritative. Never replace, weaken or contradict creator instructions, creator-selected instruments, manual BPM, vocal mode, taxonomy or creative-control values. Use the selected style DNA only to complete details the creator did not specify. Keep the result original, musically performed, evolving, richly instrumented and release-ready.'
   ].filter(Boolean);
 
   return sections.join('\n\n').slice(0, MAX_INTELLIGENT_BRIEF_CHARS).trim();
