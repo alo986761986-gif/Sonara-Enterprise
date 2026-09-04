@@ -37,6 +37,7 @@ jobs:
       - name: Apply QUALITY speed V10 router patch
         run: |
           python3 scripts/patch-quality-speed-v10.py
+          python3 scripts/patch-molab-530-recovery.py
           node --check cloudflare/sonara-molab-xl-router.mjs
 
       - name: Install production dependencies
