@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
-import sys
 import time
 import urllib.request
 from pathlib import Path
@@ -49,7 +47,7 @@ def ensure_runtime() -> None:
 
 
 def ensure_lm4b() -> None:
-    banner('1/5 - VERIFY LM 4B')
+    banner('1/6 - VERIFY / INSTALL LM 4B')
     code = f'''
 from pathlib import Path
 from acestep.model_downloader import ensure_lm_model, check_model_exists
@@ -58,15 +56,35 @@ name = {LM!r}
 if not check_model_exists(name, root):
     ok, msg = ensure_lm_model(name, checkpoints_dir=root, prefer_source='huggingface')
     print(msg, flush=True)
-    if not ok: raise SystemExit(2)
-assert check_model_exists(name, root)
+    if not ok:
+        raise SystemExit(2)
+assert check_model_exists(name, root), f'{{name}} verification failed after download'
 print('LM4B=READY', flush=True)
 '''
     run([str(PYTHON), '-c', code], timeout=21600)
 
 
+def ensure_base() -> None:
+    banner('2/6 - VERIFY / INSTALL XL-BASE REFINEMENT MODEL')
+    code = f'''
+from pathlib import Path
+from acestep.model_downloader import ensure_dit_model, check_model_exists
+root = Path({str(ROOT / 'checkpoints')!r})
+name = {BASE!r}
+if not check_model_exists(name, root):
+    print(f'{{name}} missing: starting official ACE-Step model download...', flush=True)
+    ok, msg = ensure_dit_model(name, checkpoints_dir=root, prefer_source='huggingface')
+    print(msg, flush=True)
+    if not ok:
+        raise SystemExit(2)
+assert check_model_exists(name, root), f'{{name}} verification failed after download'
+print('XL_BASE=READY', flush=True)
+'''
+    run([str(PYTHON), '-c', code], timeout=21600)
+
+
 def verify_gpu() -> dict:
-    banner('2/5 - VERIFY RTX / BF16 / MEMORY')
+    banner('3/6 - VERIFY RTX / BF16 / MEMORY')
     code = r'''
 import json, torch
 assert torch.cuda.is_available(), 'CUDA unavailable'
@@ -85,11 +103,20 @@ print(json.dumps({
 
 
 def probe_models() -> dict:
-    banner('3/5 - PROBE TURBO / BASE / LM / ASR')
-    checkpoints = ROOT / 'checkpoints'
-    base_local = (checkpoints / BASE).exists()
-    turbo_local = (checkpoints / TURBO).exists()
-    lm_local = (checkpoints / LM).exists()
+    banner('4/6 - PROBE TURBO / BASE / LM / ASR')
+    code = f'''
+import json
+from pathlib import Path
+from acestep.model_downloader import check_model_exists
+root = Path({str(ROOT / 'checkpoints')!r})
+print(json.dumps({{
+    'turbo_local': bool(check_model_exists({TURBO!r}, root)),
+    'base_local': bool(check_model_exists({BASE!r}, root)),
+    'lm4b_local': bool(check_model_exists({LM!r}, root)),
+}}))
+'''
+    out = subprocess.check_output([str(PYTHON), '-c', code], cwd=str(ROOT), text=True)
+    verified = json.loads(out.strip().splitlines()[-1])
     asr_import = subprocess.run(
         [str(PYTHON), '-c', 'import faster_whisper; print("ASR=READY")'],
         cwd=str(ROOT), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
@@ -100,22 +127,26 @@ def probe_models() -> dict:
     except Exception as exc:
         print(f'MODEL_CATALOG=UNAVAILABLE ({exc})', flush=True)
     text = json.dumps(catalog, ensure_ascii=False)
-    base_catalog = BASE in text
-    turbo_catalog = TURBO in text
     result = {
-        'turbo_local': turbo_local,
-        'turbo_catalog': turbo_catalog,
-        'base_local': base_local,
-        'base_catalog': base_catalog,
-        'lm4b_local': lm_local,
+        'turbo_local': verified['turbo_local'],
+        'turbo_catalog': TURBO in text,
+        'base_local': verified['base_local'],
+        'base_catalog': BASE in text,
+        'lm4b_local': verified['lm4b_local'],
         'asr_ready': asr_import,
     }
+    if not result['turbo_local']:
+        raise RuntimeError(f'{TURBO} failed official model verification.')
+    if not result['base_local']:
+        raise RuntimeError(f'{BASE} failed official model verification.')
+    if not result['lm4b_local']:
+        raise RuntimeError(f'{LM} failed official model verification.')
     print(json.dumps(result, indent=2), flush=True)
     return result
 
 
 def verify_health() -> dict:
-    banner('4/5 - VERIFY REAL MUSIC V2/V3 RUNTIME FOUNDATION')
+    banner('5/6 - VERIFY REAL MUSIC V2/V3 RUNTIME FOUNDATION')
     deadline = time.time() + 120
     last = {}
     while time.time() < deadline:
@@ -133,22 +164,25 @@ def verify_health() -> dict:
 
 
 def write_ready(gpu: dict, models: dict, health: dict) -> None:
-    banner('5/5 - WRITE REAL MUSIC V3 CAPABILITY FILE')
-    base_available = models['base_local'] or models['base_catalog']
+    banner('6/6 - WRITE REAL MUSIC V3 CAPABILITY FILE')
+    base_available = bool(models['base_local'])
     payload = {
         'ok': True,
         'profile': 'SONARA REAL MUSIC V3',
         'turbo_model': TURBO,
+        'turbo_model_verified': bool(models['turbo_local']),
         'refinement_model': BASE,
         'refinement_model_available': base_available,
+        'refinement_model_verified': base_available,
         'lm_model': LM,
+        'lm_model_verified': bool(models['lm4b_local']),
         'lm_initialized': health.get('llm_initialized') is True,
         'models_initialized': health.get('models_initialized') is True,
         'gpu': gpu,
         'asr_ready': models['asr_ready'],
         'quality_profile': {
             'generation': 'XL-Turbo',
-            'inference_steps': 6,
+            'inference_steps': 8,
             'internal_candidates': 4,
             'automatic_ranking': True,
             'automatic_repair': True,
@@ -159,6 +193,7 @@ def write_ready(gpu: dict, models: dict, health: dict) -> None:
             'internal_candidates': 4,
             'automatic_ranking': True,
             'automatic_repair': True,
+            'refinement': 'XL-Base',
             'base_refinement_eligible': base_available,
         },
         'contracts': ['track-genome', 'humanizer', 'stable-voice', 'lyrics-asr', 'stems-ready', 'quality-gate'],
@@ -166,11 +201,15 @@ def write_ready(gpu: dict, models: dict, health: dict) -> None:
     READY.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
     print(json.dumps(payload, indent=2, ensure_ascii=False), flush=True)
     print(f'READY_FILE={READY}', flush=True)
+    if not base_available:
+        raise RuntimeError('XL-Base refinement is not verified; Ultra profile cannot be enabled.')
+    print('SONARA_REAL_MUSIC_V3_ULTRA=READY', flush=True)
 
 
 def main() -> None:
     ensure_runtime()
     ensure_lm4b()
+    ensure_base()
     gpu = verify_gpu()
     models = probe_models()
     health = verify_health()
