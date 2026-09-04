@@ -3,7 +3,7 @@ import { buildVocalLyricsV3Body, prepareVocalLyricsV3, VOCAL_LYRICS_DIRECTOR_V3 
 
 export { SonaraJobState, SonaraAuthStore };
 
-const VERSION = 'sonara-speed-v4.1-quality-ultra-fast';
+const VERSION = 'sonara-speed-v4.2-director-aware';
 const STATE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/speed-v4/';
 const STATE_TTL = 6 * 60 * 60;
 const JOB_RE = /^\/api\/music\/job\/([^/]+)$/;
@@ -188,17 +188,55 @@ function speedBody(body, profile) {
       candidateCount: 2,
       candidate_count: 2,
       dualFast: true,
-      sonaraDirectorBypass: true,
-      sonaraAutoRepair: false,
+      sonaraDirectorBypass: false,
+      sonaraRealMusic: true,
+      sonara_real_music: true,
+      sonaraAutoRepair: true,
       sonaraSpeedV4: VERSION,
-      sonaraFastUltra: true,
+      sonaraFastUltra: false,
       sonaraSpeedInferenceSteps: ULTRA_STEPS,
-      sonaraSpeedSampler: 'euler',
-      sonaraSpeedExecutionProfile: 'ultra-fast-single-batch',
+      sonaraSpeedSampler: 'heun',
+      sonaraSpeedExecutionProfile: 'ultra-director-auto-refine',
       sonaraRequestedGenerationProfile: profile,
       sonaraAutomaticCandidateRanking: true,
       sonaraVisibleCandidateTarget: 2,
-      sonaraInternalCandidateTarget: 2
+      sonaraInternalCandidateTarget: 4,
+      sonaraRealMusicV3: true,
+      sonaraTrackGenomeEnabled: true,
+      sonaraHumanizerEnabled: true,
+      sonaraVocalRefinementEnabled: true,
+      sonaraStemPostProductionReady: true
+    };
+  }
+
+  if (profile === 'quality') {
+    return {
+      ...body,
+      generationProfileV3: 'quality',
+      renderProfile: 'quality',
+      generationProfile: 'quality',
+      qualityProfile: 'quality',
+      candidateCount: 2,
+      candidate_count: 2,
+      dualFast: true,
+      sonaraDirectorBypass: false,
+      sonaraRealMusic: true,
+      sonara_real_music: true,
+      sonaraAutoRepair: true,
+      sonaraSpeedV4: VERSION,
+      sonaraFastUltra: false,
+      sonaraSpeedInferenceSteps: QUALITY_STEPS,
+      sonaraSpeedSampler: 'euler',
+      sonaraSpeedExecutionProfile: 'quality-director-auto-refine',
+      sonaraRequestedGenerationProfile: profile,
+      sonaraAutomaticCandidateRanking: true,
+      sonaraVisibleCandidateTarget: 2,
+      sonaraInternalCandidateTarget: 4,
+      sonaraRealMusicV3: true,
+      sonaraTrackGenomeEnabled: true,
+      sonaraHumanizerEnabled: true,
+      sonaraVocalRefinementEnabled: true,
+      sonaraStemPostProductionReady: true
     };
   }
 
@@ -218,12 +256,27 @@ function speedBody(body, profile) {
     sonaraSpeedV4: VERSION,
     sonaraSpeedInferenceSteps: QUALITY_STEPS,
     sonaraSpeedSampler: 'euler',
-    sonaraSpeedExecutionProfile: 'quality-fast-single-batch',
+    sonaraSpeedExecutionProfile: 'fast-single-batch',
     sonaraRequestedGenerationProfile: profile,
     sonaraAutomaticCandidateRanking: true,
     sonaraVisibleCandidateTarget: 2,
-    sonaraInternalCandidateTarget: 2
+    sonaraInternalCandidateTarget: 2,
+    sonaraRealMusicV3: false
   };
+}
+
+function executionProfileOf(profile) {
+  if (profile === 'ultra') return 'ultra-director-auto-refine';
+  if (profile === 'quality') return 'quality-director-auto-refine';
+  return 'fast-single-batch';
+}
+
+function inferenceStepsOf(profile) {
+  return profile === 'ultra' ? ULTRA_STEPS : QUALITY_STEPS;
+}
+
+function samplerOf(profile) {
+  return profile === 'ultra' ? 'heun' : 'euler';
 }
 
 async function prepareGeneration(request, env, ctx) {
@@ -268,9 +321,10 @@ async function prepareGeneration(request, env, ctx) {
   catch { return response; }
 
   const jobId = firstJobId(payload);
-  const verifyAfter = prepared?.enabled === true && (body?.verifyLyrics === true || body?.sonaraLyricsVerification === true);
-  const executionProfile = profile === 'ultra' ? 'ultra-fast-single-batch' : 'quality-fast-single-batch';
-  const inferenceSteps = profile === 'ultra' ? ULTRA_STEPS : QUALITY_STEPS;
+  const verifyAfter = prepared?.enabled === true && (body?.verifyLyrics === true || body?.sonaraLyricsVerification === true || profile !== 'fast');
+  const executionProfile = executionProfileOf(profile);
+  const inferenceSteps = inferenceStepsOf(profile);
+  const samplerMode = samplerOf(profile);
   if (jobId && prepared?.enabled) {
     await saveState(env, jobId, {
       jobId,
@@ -280,6 +334,7 @@ async function prepareGeneration(request, env, ctx) {
       requestedProfile: profile,
       executionProfile,
       inferenceSteps,
+      samplerMode,
       verifyAfter,
       createdAt: Date.now(),
       verifying: false,
@@ -296,10 +351,18 @@ async function prepareGeneration(request, env, ctx) {
       requestedGenerationProfile: profile,
       executionProfile,
       inferenceSteps,
-      samplerMode: 'euler',
-      singleGpuBatch: true,
+      samplerMode,
+      singleGpuBatch: profile === 'fast',
       visibleCandidateTarget: 2,
-      automaticSecondBatch: false,
+      internalCandidateTarget: profile === 'fast' ? 2 : 4,
+      automaticSecondBatch: profile !== 'fast',
+      automaticCandidateRanking: true,
+      automaticQualityRepair: profile !== 'fast',
+      realMusicV3: profile !== 'fast',
+      trackGenome: profile !== 'fast',
+      humanizer: profile !== 'fast',
+      vocalRefinement: profile !== 'fast',
+      stemPostProductionReady: profile !== 'fast',
       lmThinking: profile === 'ultra',
       lyricVerificationMode: verifyAfter ? 'deferred' : 'on-demand',
       lyricVerificationPending: false
@@ -325,7 +388,8 @@ async function decorateJob(request, env, ctx, jobId) {
       speedProfile: VERSION,
       executionProfile: state.executionProfile,
       inferenceSteps: state.inferenceSteps,
-      samplerMode: 'euler'
+      samplerMode: state.samplerMode || samplerOf(state.requestedProfile),
+      realMusicV3: state.requestedProfile !== 'fast'
     }
   });
 
@@ -336,7 +400,8 @@ async function decorateJob(request, env, ctx, jobId) {
       speedProfile: VERSION,
       executionProfile: state.executionProfile,
       inferenceSteps: state.inferenceSteps,
-      samplerMode: 'euler',
+      samplerMode: state.samplerMode || samplerOf(state.requestedProfile),
+      realMusicV3: state.requestedProfile !== 'fast',
       lyricVerificationMode: state.verifyAfter ? 'deferred' : 'on-demand',
       lyricVerificationPending: state.verifyAfter === true
     }
