@@ -34,6 +34,11 @@ jobs:
         with:
           node-version: "24"
 
+      - name: Apply QUALITY speed V10 router patch
+        run: |
+          python3 scripts/patch-quality-speed-v10.py
+          node --check cloudflare/sonara-molab-xl-router.mjs
+
       - name: Install production dependencies
         run: npm install
 
@@ -62,7 +67,6 @@ jobs:
           set -euo pipefail
           for attempt in $(seq 1 8); do
             health="$(curl -fsS --connect-timeout 8 --max-time 15 -A "${SONARA_BROWSER_UA}" -H 'Accept: application/json' -H 'Cache-Control: no-cache' "${MOLAB_XL_URL}/health" || true)"
-
             health_ok=false
             model_ok=false
             if [[ -n "${health}" ]] && printf '%s' "${health}" | jq -e '
@@ -72,7 +76,6 @@ jobs:
             ' >/dev/null 2>&1; then
               health_ok=true
             fi
-
             if [[ -n "${health}" ]] && printf '%s' "${health}" | jq -e '
               def d: (.data // .);
               (((d.loaded_model // d.default_model // d.model // "") | tostring) | contains("acestep-v15-xl-turbo")) and
@@ -80,7 +83,6 @@ jobs:
             ' >/dev/null 2>&1; then
               model_ok=true
             fi
-
             inventory=""
             if [[ "${model_ok}" != true ]]; then
               inventory="$(curl -fsS --connect-timeout 8 --max-time 12 -A "${SONARA_BROWSER_UA}" -H 'Accept: application/json' -H 'Cache-Control: no-cache' "${MOLAB_XL_URL}/v1/model_inventory" || true)"
@@ -100,14 +102,12 @@ jobs:
                 model_ok=true
               fi
             fi
-
             if [[ "${health_ok}" == true && "${model_ok}" == true ]]; then
               echo "MoLab XL-Turbo healthy: ${MOLAB_XL_URL}"
               printf '%s\n' "${health}" | jq '.' || true
               if [[ -n "${inventory}" ]]; then printf '%s\n' "${inventory}" | jq '.' || true; fi
               exit 0
             fi
-
             echo "MoLab XL health attempt ${attempt}/8 failed (health=${health_ok}, model=${model_ok})"
             sleep 4
           done
@@ -148,14 +148,16 @@ jobs:
               .provider == "molab" and
               .model == "acestep-v15-xl-turbo" and
               .kaggleEnabled == false and
-              .ready == true
+              .ready == true and
+              .inferenceSteps == 4 and
+              .maxBatchSize == 2
             ' >/dev/null 2>&1; then
               printf '%s\n' "${response}" | jq '{ready, profile, engine, provider, model, inferenceSteps, maxBatchSize, kaggleEnabled}'
-              echo "SONARA MoLab XL-only routing verified."
+              echo "SONARA QUALITY V10 routing verified: 4 steps, batch 2."
               exit 0
             fi
-            echo "Production MoLab-only verification attempt ${attempt}/12 failed"
+            echo "Production QUALITY V10 verification attempt ${attempt}/12 failed"
             sleep 5
           done
-          echo "Production MoLab-only router did not verify." >&2
+          echo "Production QUALITY V10 router did not verify." >&2
           exit 1
