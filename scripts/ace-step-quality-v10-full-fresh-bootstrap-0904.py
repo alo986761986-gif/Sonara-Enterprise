@@ -38,7 +38,7 @@ def banner(text: str) -> None:
 
 def download(url: str, target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
-    req = urllib.request.Request(url, headers={'User-Agent': 'SONARA-QUALITY-V10-Bootstrap/1.1'})
+    req = urllib.request.Request(url, headers={'User-Agent': 'SONARA-QUALITY-V10-Bootstrap/1.2'})
     with urllib.request.urlopen(req, timeout=180) as response:
         target.write_bytes(response.read())
 
@@ -64,8 +64,34 @@ def runtime_complete() -> bool:
     ])
 
 
+def make_fresh_patcher_idempotent(fresh) -> None:
+    """Allow the pinned V1 patcher to recognize semantics already rewritten by V2."""
+    original_replace_once = fresh.replace_once
+    semantic_markers = {
+        'REQUEST_SAMPLER_MODE': 'sampler_mode: Literal["euler", "heun"]',
+        'REQUEST_COT_METAS': 'use_cot_metas: bool = True',
+        'SETUP_SAMPLER_MODE': 'req.sonara_generation_profile == "ultra"',
+        'SETUP_COT_METAS': 'use_cot_metas=req.use_cot_metas if not sample_mode else False,',
+        'SETUP_CONSTRAINED_DECODING': 'use_constrained_decoding=req.constrained_decoding,',
+        'HEALTH_REALISM_MARKER': '"sonara_realism_api": "sonara-realism-api-v1"',
+    }
+
+    def compat_replace_once(text: str, old: str, new: str, label: str) -> str:
+        if new in text:
+            print(f'{label}=ALREADY_PATCHED', flush=True)
+            return text
+        marker = semantic_markers.get(label)
+        if marker and marker in text:
+            print(f'{label}=ALREADY_PATCHED_SEMANTIC', flush=True)
+            return text
+        return original_replace_once(text, old, new, label)
+
+    fresh.replace_once = compat_replace_once
+    print('V1_PATCHER_IDEMPOTENCE_GUARD=ON', flush=True)
+
+
 def run_full_bootstrap() -> None:
-    banner('SONARA QUALITY V10 - FRESH NOTEBOOK AUTO-BOOTSTRAP V2')
+    banner('SONARA QUALITY V10 - FRESH NOTEBOOK AUTO-BOOTSTRAP V3')
     print(f'ROOT={ROOT}', flush=True)
     print(f'RUNTIME_COMPLETE_BEFORE={runtime_complete()}', flush=True)
 
@@ -76,6 +102,7 @@ def run_full_bootstrap() -> None:
     v2 = full.load_module('v2', full.DEPENDENCIES['v2'])
     asr_mod = full.load_module('asr', full.DEPENDENCIES['asr'])
     v3 = full.load_module('v3', full.DEPENDENCIES['v3'])
+    make_fresh_patcher_idempotent(fresh)
 
     if not ROOT.exists() or not PYTHON.exists() or not TURBO.exists():
         banner('1/8 - INSTALLAZIONE ACE-STEP 1.5 + PYTHON/CUDA + XL-TURBO')
