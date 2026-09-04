@@ -1,5 +1,5 @@
 SONARA_MOLAB_XL_URL=https://marilyn-agreements-fits-agrees.trycloudflare.com
 MODEL=acestep-v15-xl-turbo
 MODE=MOLAB_XL_ONLY
-ACTION=bind-real-music-v3-speed-supervisor
-VERIFY=20260904-FAST4-QUALITY4-BATCH2-V8-NANOVLLM-DETECT-COMPILE-ON
+ACTION=bind-real-music-v3-speed-supervisor-v9
+VERIFY=20260904-QUALITY-V10-4STEP-BATCH2-EULER-LM-BATCH-CANONICAL
