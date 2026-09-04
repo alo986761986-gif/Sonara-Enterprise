@@ -14,8 +14,11 @@ on:
       - "scripts/activate-studio-key-control.cjs"
       - "scripts/activate-studio-sessions-native.cjs"
       - "scripts/build-dispatch.cjs"
+      - "scripts/ace-step-real-music-v3-molab-activate-0904.py"
       - "public/sonara-studio-pitch-key-dsp-v6.js"
       - "public/sonara-studio-wav-cleanup-v7.js"
+      - "cloudflare/sonara-real-music-v3-edge.mjs"
+      - "cloudflare/sonara-speed-v4-edge.mjs"
       - "cloudflare/sonara-studio-pitch-key-upload-bridge.mjs"
       - "cloudflare/sonara-studio-key-pitch-guard.mjs"
       - "cloudflare/sonara-studio-native-pitch-bridge.mjs"
@@ -51,7 +54,7 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Validate Studio DSP Pitch Key V6 + WAV Cleanup V7 source
+      - name: Validate Studio DSP Pitch Key V6 + WAV Cleanup V7 + Real Music V3 source
         shell: bash
         run: |
           set -euo pipefail
@@ -60,7 +63,10 @@ jobs:
           node --check scripts/activate-studio-key-control.cjs
           node --check public/sonara-studio-pitch-key-dsp-v6.js
           node --check public/sonara-studio-wav-cleanup-v7.js
+          node --check cloudflare/sonara-real-music-v3-edge.mjs
+          node --check cloudflare/sonara-speed-v4-edge.mjs
           node --check cloudflare/sonara-studio-pitch-key-upload-bridge.mjs
+          python -m py_compile scripts/ace-step-real-music-v3-molab-activate-0904.py
           grep -Fq 'parseMidiBlob' src/components/studio/studioRealEngine.ts
           grep -Fq 'saveStudioAsset' src/components/studio/studioRealEngine.ts
           grep -Fq 'loadStudioAsset' src/components/studio/studioRealEngine.ts
@@ -84,6 +90,13 @@ jobs:
           grep -Fq 'encodeWav' public/sonara-studio-pitch-key-dsp-v6.js
           grep -Fq 'new Worker' public/sonara-studio-pitch-key-dsp-v6.js
           grep -Fq 'SONARA_PITCH_KEY_LOCAL_DSP_ONLY' cloudflare/sonara-studio-pitch-key-upload-bridge.mjs
+          grep -Fq "const VERSION = 'sonara-real-music-v3-auto-refine-1'" cloudflare/sonara-real-music-v3-edge.mjs
+          grep -Fq 'sonaraTrackGenomeEnabled: true' cloudflare/sonara-real-music-v3-edge.mjs
+          grep -Fq 'sonaraHumanizerEnabled: true' cloudflare/sonara-real-music-v3-edge.mjs
+          grep -Fq 'sonaraVocalRefinementEnabled: true' cloudflare/sonara-real-music-v3-edge.mjs
+          grep -Fq 'sonaraInternalCandidateTarget: 4' cloudflare/sonara-real-music-v3-edge.mjs
+          grep -Fq "sonaraDirectorBypass: false" cloudflare/sonara-speed-v4-edge.mjs
+          grep -Fq '"main": "cloudflare/sonara-real-music-v3-edge.mjs"' wrangler.jsonc
           if grep -Fq "url.pathname = '/api/studio/repair'" cloudflare/sonara-studio-pitch-key-upload-bridge.mjs; then echo 'FAIL generative repair forwarding still present' >&2; exit 1; fi
           if grep -Fq 'sonara-studio-pitch-key-safe-v5.js?v=5' index.html; then echo 'FAIL legacy Pitch Key V5 still loaded' >&2; exit 1; fi
 
@@ -142,7 +155,7 @@ jobs:
           check cleanup-hiss-reduction 'lowPassHiss' dist/sonara-studio-wav-cleanup-v7.js
           check cleanup-rumble-dc 'dcAndRumble' dist/sonara-studio-wav-cleanup-v7.js
           if grep -Fq 'sonara-studio-pitch-key-safe-v5.js?v=5' dist/index.html; then echo 'FAIL legacy Pitch Key V5 in dist' >&2; exit 1; fi
-          echo "Studio Real Engine + Pitch & Key V6 + WAV Cleanup DSP V7 verified."
+          echo "Studio Real Engine + Real Music V3 + Pitch & Key V6 + WAV Cleanup DSP V7 verified."
 
       - name: Resolve Cloudflare account
         shell: bash
@@ -166,7 +179,7 @@ jobs:
       - name: Deploy Studio Real Engine and assets
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
 
-      - name: Verify Studio Pitch Key V6 + WAV Cleanup V7 publicly
+      - name: Verify Studio + Real Music V3 publicly
         shell: bash
         run: |
           set -euo pipefail
@@ -174,6 +187,7 @@ jobs:
             page="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?studio-real=${GITHUB_SHA}-${attempt}" || true)"
             script="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/sonara-studio-pitch-key-dsp-v6.js?v=6&verify=${GITHUB_SHA}-${attempt}" || true)"
             cleanup="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/sonara-studio-wav-cleanup-v7.js?v=7&verify=${GITHUB_SHA}-${attempt}" || true)"
+            caps="$(curl -fsS --max-time 20 -H 'Accept: application/json' -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/api/real-music/v3/capabilities?verify=${GITHUB_SHA}-${attempt}" || true)"
             if printf '%s' "${page}" | grep -Fq 'sonara-studio-real-engine-v2' \
               && printf '%s' "${page}" | grep -Fq 'sonara-studio-video-v1' \
               && printf '%s' "${page}" | grep -Fq 'sonara-studio-pitch-key-dsp-v6.js?v=6' \
@@ -186,12 +200,13 @@ jobs:
               && printf '%s' "${cleanup}" | grep -Fq '__sonaraStudioWavCleanupV7' \
               && printf '%s' "${cleanup}" | grep -Fq 'adaptiveExpander' \
               && printf '%s' "${cleanup}" | grep -Fq 'removeHum' \
-              && printf '%s' "${cleanup}" | grep -Fq 'PULISCI WAV'; then
-              echo "SONARA Studio Pitch & Key V6 + WAV Cleanup DSP V7 is live."
+              && printf '%s' "${cleanup}" | grep -Fq 'PULISCI WAV' \
+              && printf '%s' "${caps}" | jq -e '.version == "sonara-real-music-v3-auto-refine-1" and .trackGenome == true and .humanPerformanceContract == true and .automaticRepair == true and .fourInternalCandidates == true' >/dev/null 2>&1; then
+              echo "SONARA Studio + Real Music V3 is live and verified."
               exit 0
             fi
-            echo "Waiting for Studio V7 propagation (${attempt}/30)."
+            echo "Waiting for Studio/Real Music V3 propagation (${attempt}/30)."
             sleep 4
           done
-          echo "Studio V7 public verification failed." >&2
+          echo "Studio/Real Music V3 public verification failed." >&2
           exit 1
