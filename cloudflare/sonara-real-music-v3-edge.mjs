@@ -3,6 +3,7 @@ import runtime, { SonaraJobState, SonaraAuthStore } from './sonara-ultra-diversi
 export { SonaraJobState, SonaraAuthStore };
 
 const VERSION = 'sonara-real-music-v3-auto-refine-1';
+const GENRE_FINGERPRINT_REVISION = 'electronic-v12-future-garage-canonical-1';
 const GENERATE_PATHS = new Set(['/api/engine/generate', '/api/billing/generate']);
 const HEALTH_PATHS = new Set(['/api/health', '/api/engine/ready', '/api/molab/ready', '/api/studio/capabilities']);
 
@@ -157,6 +158,7 @@ function enrich(body = {}) {
 function withVersion(response) {
   const headers = new Headers(response.headers);
   headers.set('x-sonara-real-music-v3', VERSION);
+  headers.set('x-sonara-genre-fingerprint-revision', GENRE_FINGERPRINT_REVISION);
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
@@ -170,6 +172,7 @@ async function transformJson(response, transform) {
     headers.delete('content-length');
     headers.set('content-type', 'application/json; charset=UTF-8');
     headers.set('x-sonara-real-music-v3', VERSION);
+    headers.set('x-sonara-genre-fingerprint-revision', GENRE_FINGERPRINT_REVISION);
     return new Response(JSON.stringify(next), { status: response.status, statusText: response.statusText, headers });
   } catch {
     return withVersion(response);
@@ -179,6 +182,7 @@ async function transformJson(response, transform) {
 function capabilities() {
   return {
     version: VERSION,
+    genreFingerprintRevision: GENRE_FINGERPRINT_REVISION,
     enabledFor: ['quality', 'ultra'],
     fastModeUnchanged: true,
     trackGenome: true,
@@ -206,7 +210,7 @@ export default {
     if (request.method === 'GET' && url.pathname === '/api/real-music/v3/capabilities') {
       return new Response(JSON.stringify(capabilities()), {
         status: 200,
-        headers: { 'content-type': 'application/json; charset=UTF-8', 'cache-control': 'private, no-store', 'x-sonara-real-music-v3': VERSION }
+        headers: { 'content-type': 'application/json; charset=UTF-8', 'cache-control': 'private, no-store', 'x-sonara-real-music-v3': VERSION, 'x-sonara-genre-fingerprint-revision': GENRE_FINGERPRINT_REVISION }
       });
     }
 
@@ -218,6 +222,7 @@ export default {
         headers.delete('content-length');
         headers.set('content-type', 'application/json');
         headers.set('x-sonara-real-music-v3', VERSION);
+        headers.set('x-sonara-genre-fingerprint-revision', GENRE_FINGERPRINT_REVISION);
         const response = await runtime.fetch(new Request(request.url, {
           method: 'POST',
           headers,
@@ -229,6 +234,7 @@ export default {
           metadata: {
             ...(data?.metadata || {}),
             sonaraRealMusicV3: VERSION,
+            genreFingerprintRevision: GENRE_FINGERPRINT_REVISION,
             realMusicV3Enabled: profileOf(body) !== 'fast',
             trackGenomeEnabled: profileOf(body) !== 'fast',
             humanizerEnabled: profileOf(body) !== 'fast',
