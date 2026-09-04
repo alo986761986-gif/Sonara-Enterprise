@@ -1,0 +1,73 @@
+{
+  "version": "sonara-real-music-v3-lora-matrix-1",
+  "base_model": "acestep-v15-xl-base",
+  "production_model": "acestep-v15-xl-turbo",
+  "legal_dataset_policy": "train_only_on_owned_or_explicitly_licensed_audio",
+  "minimum_gold_samples_per_genre": 1000,
+  "benchmark": {
+    "ranks": [32, 64, 128],
+    "alpha_multiplier": 2,
+    "dropout": 0.05,
+    "learning_rates": [0.0001, 0.0002],
+    "epochs": [6, 10],
+    "seeds": [42, 1337],
+    "promotion_requires": {
+      "real_wav_quality_score_min": 90,
+      "prompt_fidelity_min": 0.9,
+      "bpm_pass_rate_min": 0.98,
+      "key_pass_rate_min": 0.95,
+      "artifact_failure_rate_max": 0.02,
+      "must_beat_base": true
+    }
+  },
+  "profiles": [
+    {
+      "id": "deep_house_v3",
+      "family": "House",
+      "genre": "Deep House",
+      "focus": ["warm_sub_bass", "human_groove", "deep_chords", "late_night_space", "natural_vocal_texture"]
+    },
+    {
+      "id": "tech_house_v3",
+      "family": "House",
+      "genre": "Tech House",
+      "focus": ["kick_bass_lock", "club_weight", "percussive_attack", "pitch_bent_bass", "low_mid_cleaning"]
+    },
+    {
+      "id": "melodic_house_v3",
+      "family": "House",
+      "genre": "Melodic House",
+      "focus": ["emotional_harmony", "evolving_arpeggios", "wide_atmosphere", "dynamic_builds", "hook_development"]
+    },
+    {
+      "id": "melodic_techno_v3",
+      "family": "Techno",
+      "genre": "Melodic Techno",
+      "focus": ["driving_low_end", "hypnotic_motif", "tension_release", "analog_motion", "long_form_arrangement"]
+    },
+    {
+      "id": "hard_techno_v3",
+      "family": "Techno",
+      "genre": "Hard Techno",
+      "focus": ["hard_kick_transient", "controlled_distortion", "rumble_depth", "industrial_texture", "peak_energy"]
+    },
+    {
+      "id": "trap_v3",
+      "family": "Hip Hop",
+      "genre": "Trap",
+      "focus": ["808_pitch_control", "hi_hat_expression", "vocal_space", "drum_swing", "hook_clarity"]
+    },
+    {
+      "id": "edm_v3",
+      "family": "Electronic",
+      "genre": "EDM",
+      "focus": ["impactful_drop", "festival_translation", "clean_layers", "hook_memory", "macro_dynamics"]
+    },
+    {
+      "id": "future_bass_v3",
+      "family": "Electronic",
+      "genre": "Future Bass",
+      "focus": ["expressive_chords", "vocal_chops", "dynamic_sidechain", "bright_texture", "emotional_drop"]
+    }
+  ]
+}
