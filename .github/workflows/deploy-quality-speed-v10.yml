@@ -1,0 +1,64 @@
+name: Deploy SONARA QUALITY Speed V10
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/patch-quality-speed-v10.py"
+      - ".github/workflows/deploy-quality-speed-v10.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonara-quality-speed-v10
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Apply QUALITY speed V10 router patch
+        run: python3 scripts/patch-quality-speed-v10.py
+      - name: Validate router syntax
+        run: node --check cloudflare/sonara-molab-xl-router.mjs
+      - name: Install dependencies
+        run: npm install
+      - name: Build production
+        run: npm run build
+      - name: Resolve Cloudflare account
+        shell: bash
+        run: |
+          set -euo pipefail
+          account_id="${CLOUDFLARE_ACCOUNT_ID}"
+          if [[ -z "${account_id}" ]]; then
+            zone_response="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' 'https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50')"
+            account_id="$(printf '%s' "${zone_response}" | jq -r '.result[] | select(.name == "sonaraenterprise.com") | .account.id' | head -n 1)"
+          fi
+          test -n "${account_id}"
+          echo "::add-mask::${account_id}"
+          echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
+      - name: Deploy QUALITY speed V10
+        run: npx --yes wrangler@latest deploy --config wrangler.jsonc
+      - name: Verify production router
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 10); do
+            body="$(curl -fsS --max-time 20 -H 'Accept: application/json' -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/molab/ready?v10=${GITHUB_SHA}-${i}" || true)"
+            if [[ -n "${body}" ]] && printf '%s' "${body}" | jq -e '.ready == true and .provider == "molab" and .model == "acestep-v15-xl-turbo"' >/dev/null 2>&1; then
+              printf '%s\n' "${body}" | jq '{ready,provider,model,inferenceSteps,maxBatchSize}'
+              exit 0
+            fi
+            sleep 4
+          done
+          exit 1
