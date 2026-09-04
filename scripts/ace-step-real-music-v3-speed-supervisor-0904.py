@@ -18,7 +18,8 @@ BASE_SUPERVISOR_URL = (
 )
 SETUP = ROOT / 'acestep/api/job_generation_setup.py'
 SPEED_STATE = ROOT / 'SONARA_REAL_MUSIC_V3_SPEED_SUPERVISOR_READY.json'
-MARKER = 'SONARA_SPEED_MAX_V1_FAST4'
+MARKER = 'SONARA_SPEED_MAX_V2_QUALITY4'
+OLD_MARKER = 'SONARA_SPEED_MAX_V1_FAST4'
 
 
 def banner(text: str) -> None:
@@ -45,16 +46,24 @@ def can_import(module: str) -> bool:
     return done.returncode == 0
 
 
-def patch_fast4() -> None:
-    banner('1/7 - PATCH FAST PROFILE: 4 STEPS')
+def patch_fast4_quality4() -> None:
+    banner('1/7 - PATCH FAST + QUALITY: 4 STEPS XL-TURBO')
     if not SETUP.exists():
         raise RuntimeError(f'File ACE-Step non trovato: {SETUP}')
     text = SETUP.read_text(encoding='utf-8')
+
+    new_block = (
+        '        # SONARA_SPEED_MAX_V2_QUALITY4\n'
+        '        inference_steps=(\n'
+        '            4 if getattr(req, "sonara_generation_profile", "auto") in {"fast", "quality"}\n'
+        '            else req.inference_steps\n'
+        '        ),\n'
+    )
+
     if MARKER in text:
-        print('FAST4_PATCH=ALREADY_ACTIVE', flush=True)
+        print('QUALITY4_PATCH=ALREADY_ACTIVE', flush=True)
     else:
-        old = '        inference_steps=req.inference_steps,\n'
-        new = (
+        old_block = (
             '        # SONARA_SPEED_MAX_V1_FAST4\n'
             '        inference_steps=(\n'
             '            4 if getattr(req, "sonara_generation_profile", "auto") == "fast"\n'
@@ -62,13 +71,21 @@ def patch_fast4() -> None:
             '            else req.inference_steps\n'
             '        ),\n'
         )
-        if old not in text:
-            raise RuntimeError('Pattern inference_steps non trovato; non applico una patch cieca.')
-        backup = SETUP.with_suffix(SETUP.suffix + '.before-speed-max-v1')
-        if not backup.exists():
-            backup.write_text(text, encoding='utf-8')
-        SETUP.write_text(text.replace(old, new, 1), encoding='utf-8')
-        print('FAST4_PATCH=APPLIED', flush=True)
+        if old_block in text:
+            backup = SETUP.with_suffix(SETUP.suffix + '.before-speed-max-v2')
+            if not backup.exists():
+                backup.write_text(text, encoding='utf-8')
+            SETUP.write_text(text.replace(old_block, new_block, 1), encoding='utf-8')
+            print('QUALITY4_PATCH=UPGRADED_FROM_V1', flush=True)
+        else:
+            old = '        inference_steps=req.inference_steps,\n'
+            if old not in text:
+                raise RuntimeError('Pattern inference_steps non trovato; non applico una patch cieca.')
+            backup = SETUP.with_suffix(SETUP.suffix + '.before-speed-max-v2')
+            if not backup.exists():
+                backup.write_text(text, encoding='utf-8')
+            SETUP.write_text(text.replace(old, new_block, 1), encoding='utf-8')
+            print('QUALITY4_PATCH=APPLIED', flush=True)
 
     done = subprocess.run(
         [str(PYTHON), '-m', 'py_compile', str(SETUP)],
@@ -81,7 +98,7 @@ def patch_fast4() -> None:
     if done.returncode != 0:
         raise RuntimeError('Syntax check fallito:\n' + (done.stdout or ''))
     print('FAST_INFERENCE_STEPS=4', flush=True)
-    print('QUALITY_INFERENCE_STEPS=6', flush=True)
+    print('QUALITY_INFERENCE_STEPS=4', flush=True)
     print('ULTRA_INFERENCE_STEPS=8', flush=True)
 
 
@@ -172,7 +189,7 @@ def write_speed_state(m, public_url: str, backend: str, compile_model: bool, fla
         'torch_compile': compile_model,
         'flash_attention': flash_attention,
         'fast_inference_steps': 4,
-        'quality_inference_steps': 6,
+        'quality_inference_steps': 4,
         'ultra_inference_steps': 8,
         'cpu_offload': False,
         'health': health,
@@ -186,7 +203,7 @@ def main() -> None:
     banner('SONARA REAL MUSIC V3 - RTX 6000 PRO SPEED SUPERVISOR')
     m = load_supervisor()
     m.verify_existing_install()
-    patch_fast4()
+    patch_fast4_quality4()
 
     api_proc = None
     tunnel_proc = None
@@ -211,7 +228,7 @@ def main() -> None:
         print(f'TORCH_COMPILE={str(compile_model).lower()}', flush=True)
         print(f'FLASH_ATTENTION={str(flash_attention).lower()}', flush=True)
         print('FAST=4_STEPS+2_CANDIDATES_ONE_GPU_BATCH+NO_REPAIR', flush=True)
-        print('QUALITY=6_STEPS+LM4B+EULER', flush=True)
+        print('QUALITY=4_STEPS+LM4B+EULER+REAL_MUSIC', flush=True)
         print('ULTRA=8_STEPS+LM4B+HEUN+XL_BASE', flush=True)
         print(f'READY_FILE={SPEED_STATE}', flush=True)
         print('QUESTA E LA SOLA CELLA DA LASCIARE ATTIVA.', flush=True)
@@ -230,7 +247,7 @@ def main() -> None:
                 f'[{time.strftime("%H:%M:%S")}] SPEED V3 | '
                 f'API={"UP" if local_ok else "DOWN"} | '
                 f'PUBLIC={"UP" if public_ok else "DOWN"} | '
-                f'FAST=4 | LM={backend.upper()} | '
+                f'FAST=4 | QUALITY=4 | LM={backend.upper()} | '
                 f'COMPILE={"ON" if compile_model else "OFF"} | '
                 f'FLASH={"ON" if flash_attention else "OFF"} | {public_url}',
                 flush=True,
