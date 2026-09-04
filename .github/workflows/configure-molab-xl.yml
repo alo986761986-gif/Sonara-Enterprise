@@ -34,9 +34,10 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Apply QUALITY speed V10 router patch
+      - name: Apply QUALITY speed V11 router patches
         run: |
           python3 scripts/patch-quality-speed-v10.py
+          python3 scripts/patch-quality-speed-v11-low-latency.py
           python3 scripts/patch-molab-530-recovery.py
           node --check cloudflare/sonara-molab-xl-router.mjs
 
@@ -154,11 +155,11 @@ jobs:
               .maxBatchSize == 2
             ' >/dev/null 2>&1; then
               printf '%s\n' "${response}" | jq '{ready, profile, engine, provider, model, inferenceSteps, maxBatchSize, kaggleEnabled}'
-              echo "SONARA QUALITY V10 routing verified: 4 steps, batch 2."
+              echo "SONARA QUALITY V11 low-latency routing verified: 4 steps, batch 2."
               exit 0
             fi
-            echo "Production QUALITY V10 verification attempt ${attempt}/12 failed"
+            echo "Production QUALITY V11 verification attempt ${attempt}/12 failed"
             sleep 5
           done
-          echo "Production QUALITY V10 router did not verify." >&2
+          echo "Production QUALITY V11 router did not verify." >&2
           exit 1
