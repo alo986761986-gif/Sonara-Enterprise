@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "scripts/patch-natural-tone-v14.py"
+      - "scripts/patch-natural-tone-v14-edge.py"
       - "cloudflare/sonara-natural-tone-v14.test.mjs"
       - ".github/workflows/deploy-natural-tone-v14.yml"
   workflow_dispatch:
@@ -35,15 +36,21 @@ jobs:
           node-version: "24"
 
       - name: Apply Natural Tone V14
-        run: python scripts/patch-natural-tone-v14.py
+        run: |
+          python scripts/patch-natural-tone-v14.py
+          python scripts/patch-natural-tone-v14-edge.py
 
       - name: Validate tone, richness and speed
         run: |
           node --check cloudflare/sonara-engine-v15-authoritative-prompt.mjs
           node --check cloudflare/sonara-molab-xl-router.mjs
+          node --check cloudflare/sonara-real-music-v2-edge.mjs
           node cloudflare/sonara-engine-v15-authoritative-prompt.test.mjs
           node cloudflare/sonara-rich-arrangement-v13.test.mjs
           node cloudflare/sonara-natural-tone-v14.test.mjs
+          grep -Fq "const NATURAL_TONE_PROFILE = 'sonara-natural-tone-v14';" cloudflare/sonara-real-music-v2-edge.mjs
+          ! grep -Fq "dcwMode: 'double'" cloudflare/sonara-real-music-v2-edge.mjs
+          ! grep -Fq "dcwHighScaler: 0.06" cloudflare/sonara-real-music-v2-edge.mjs
           node scripts/verify-quality-latency-v14.mjs
 
       - name: Install and build
@@ -58,6 +65,10 @@ jobs:
           grep -Fq "dcw_mode: 'low'" cloudflare/sonara-molab-xl-router.mjs
           grep -Fq "dcw_scaler: 0.02" cloudflare/sonara-molab-xl-router.mjs
           grep -Fq "dcw_high_scaler: 0.0" cloudflare/sonara-molab-xl-router.mjs
+          grep -Fq "const NATURAL_TONE_PROFILE = 'sonara-natural-tone-v14';" cloudflare/sonara-real-music-v2-edge.mjs
+          grep -Fq "dcwMode: 'low'" cloudflare/sonara-real-music-v2-edge.mjs
+          grep -Fq "dcwHighScaler: 0.0" cloudflare/sonara-real-music-v2-edge.mjs
+          ! grep -Fq "dcwHighScaler: 0.06" cloudflare/sonara-real-music-v2-edge.mjs
 
       - name: Verify MoLab RTX endpoint
         shell: bash
@@ -107,7 +118,7 @@ jobs:
             last_response="${response}"
             if [[ -n "${response}" ]]; then
               echo "LIVE_READY_ATTEMPT=${attempt}"
-              printf '%s\n' "${response}" | jq -c '{ready, profile, fidelityProfile, richArrangementProfile, naturalToneProfile, harshnessGuard, smoothTopEnd, fxRestraint, dcwEnabled, dcwMode, dcwScaler, dcwHighScaler, fastInferenceSteps, qualityInferenceSteps, ultraInferenceSteps, maxBatchSize}' 2>/dev/null || printf '%s\n' "${response}" | head -c 1200
+              printf '%s\n' "${response}" | jq -c '{ready, profile, fidelityProfile, richArrangementProfile, naturalToneProfile, harshnessGuard, smoothTopEnd, fxRestraint, dcwEnabled, dcwMode, dcwScaler, dcwLowScaler, dcwHighScaler, fastInferenceSteps, qualityInferenceSteps, ultraInferenceSteps, maxBatchSize}' 2>/dev/null || printf '%s\n' "${response}" | head -c 1200
               echo
             fi
             if [[ -n "${response}" ]] && printf '%s' "${response}" | jq -e '
@@ -118,7 +129,7 @@ jobs:
               .smoothTopEnd == true and
               .fxRestraint == true and
               .dcwMode == "low" and
-              .dcwScaler == 0.02 and
+              ((.dcwScaler // .dcwLowScaler) == 0.02) and
               .dcwHighScaler == 0 and
               .qualityInferenceSteps == 2 and
               .fastInferenceSteps == 1 and
@@ -142,9 +153,9 @@ jobs:
           set -euo pipefail
           git config user.name "sonara-production-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add cloudflare/sonara-engine-v15-authoritative-prompt.mjs cloudflare/sonara-molab-xl-router.mjs
+          git add cloudflare/sonara-engine-v15-authoritative-prompt.mjs cloudflare/sonara-molab-xl-router.mjs cloudflare/sonara-real-music-v2-edge.mjs
           if git diff --cached --quiet; then exit 0; fi
-          git commit -m "fix: activate natural tone v14 in production engine"
+          git commit -m "fix: activate natural tone v14 across production chain"
           for attempt in 1 2; do
             if git push origin HEAD:main; then exit 0; fi
             git fetch origin main
