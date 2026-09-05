@@ -34,11 +34,12 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Apply QUALITY V11 and full instrumentation V12 router patches
+      - name: Apply QUALITY V13 instant RTX 6000 and full instrumentation V12 router patches
         run: |
           python3 scripts/patch-quality-speed-v10.py
           python3 scripts/patch-quality-speed-v11-low-latency.py
           python3 scripts/patch-full-instrumentation-v12.py
+          python3 scripts/patch-quality-speed-v13-instant.py
           python3 scripts/patch-molab-530-recovery.py
           node --check cloudflare/sonara-molab-xl-router.mjs
 
@@ -152,15 +153,18 @@ jobs:
               .model == "acestep-v15-xl-turbo" and
               .kaggleEnabled == false and
               .ready == true and
-              .inferenceSteps == 4 and
+              .inferenceSteps == 1 and
+              .qualityInferenceSteps == 2 and
+              .fastInferenceSteps == 1 and
+              .ultraInferenceSteps == 8 and
               .maxBatchSize == 2
             ' >/dev/null 2>&1; then
-              printf '%s\n' "${response}" | jq '{ready, profile, engine, provider, model, inferenceSteps, maxBatchSize, kaggleEnabled}'
-              echo "SONARA QUALITY V11 + FULL INSTRUMENTATION V12 routing verified."
+              printf '%s\n' "${response}" | jq '{ready, profile, engine, provider, model, inferenceSteps, fastInferenceSteps, qualityInferenceSteps, ultraInferenceSteps, maxBatchSize, kaggleEnabled}'
+              echo "SONARA V13 INSTANT RTX 6000 routing verified: FAST=1, QUALITY=2, ULTRA=8, BATCH=2."
               exit 0
             fi
-            echo "Production QUALITY V11/V12 verification attempt ${attempt}/12 failed"
+            echo "Production V13 INSTANT verification attempt ${attempt}/12 failed"
             sleep 5
           done
-          echo "Production QUALITY V11/V12 router did not verify." >&2
+          echo "Production V13 INSTANT router did not verify." >&2
           exit 1
