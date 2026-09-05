@@ -4,8 +4,9 @@ const LOCK_ID = 'v15-authoritative-ui-taxonomy-v5';
 const TEMPO_LOCK_ID = 'v15-authoritative-bpm-v5-ui';
 const PROMPT_INTELLIGENCE_ID = 'sonara-prompt-intelligence-v2';
 const COHERENCE_CRITIC_ID = 'sonara-musical-coherence-critic-v1';
-const MAX_PROMPT_CHARS = 2200;
-const MAX_CREATOR_BRIEF_CHARS = 520;
+const RICH_ARRANGEMENT_ID = 'sonara-rich-arrangement-v13';
+const MAX_PROMPT_CHARS = 3600;
+const MAX_CREATOR_BRIEF_CHARS = 900;
 const BPM_MIN = 40;
 const BPM_MAX = 220;
 
@@ -140,6 +141,117 @@ function musicalDNA(body = {}) {
   };
 }
 
+
+    function richProductionDNA(body = {}) {
+      const style = normalizedStyle(body);
+      const acoustic = /jazz|blues|classical|orchestral|folk|country|acoustic|bluegrass/.test(style);
+      const peak = acoustic ? '7-11' : '9-14';
+      const density = `at peak sections use about ${peak} complementary musical/production roles when authentic: core drums, secondary percussion/groove detail, bass, harmony, support harmony, hook/lead, counter-response, atmosphere/room, fills/ornaments and transition/FX. Thin intros, verses and breakdowns intentionally, then rebuild; do not run every layer continuously.`;
+    
+      if (/deep house|tech house|house|garage|afro house|amapiano|progressive house|melodic house/.test(style)) return {
+    instruments: 'layered club drums, secondary percussion, authoritative bass, chord/stab or Rhodes layer, supporting pad/pluck, hook motif, counter-response, atmosphere and section fills chosen for the exact house subgenre',
+    effects: 'filter sweeps, reverse cymbals/claps, noise or organic risers, impacts, downlifters, delay throws, reverb tails, micro-fills and automation that announce or connect sections',
+    performance: 'stable club pulse with evolving hats/percussion, bass articulation, note lengths, filter/envelope movement and re-performed fills instead of copy-paste loops',
+    density
+      };
+      if (/techno|hardgroove|minimal techno/.test(style)) return {
+    instruments: 'physical kick, rumble/sub, layered hats, claps/rims/toms, syncopated percussion, hypnotic stab or sequence, textural synth layer, restrained hook and atmosphere',
+    effects: 'rumble tails, reverse percussion, metallic impacts, noise sweeps, delay-feedback moments, modulation, automation and industrial ambience only when genre-authentic',
+    performance: 'keep the pulse relentless but evolve accents, ghost hits, modulation, fills and texture every phrase so the groove never becomes a static loop',
+    density
+      };
+      if (/trance|psytrance/.test(style)) return {
+    instruments: 'driving kick/bass lock, layered hats/percussion, arpeggio or rhythmic synth, pads, supporting plucks, lead motif, counterline and atmospheric layers',
+    effects: 'uplifters, reverse crashes, filtered risers, impacts, gated/long reverb tails, delay throws, downlifters and automation sweeps shaped around sections',
+    performance: 'preserve energetic pulse while arps, filters, accents and layered motifs evolve toward deliberate tension-and-release peaks',
+    density
+      };
+      if (/drum.*bass|dnb|jungle|breakbeat/.test(style)) return {
+    instruments: 'layered/chopped breaks, kick/snare reinforcement, ghost percussion, sub or Reese bass as appropriate, atmospheric pad, concise motif, counter texture and fills',
+    effects: 'break edits, reverse hits, filtered noise, impacts, bass automation, short delays, reverb throws and transition edits without masking the breakbeat',
+    performance: 'vary break edits, ghost notes, accents and bass articulation while keeping full-time momentum and a coherent main groove',
+    density
+      };
+      if (/trap|drill|hip.?hop|rap|boom bap|freestyle/.test(style)) return {
+    instruments: 'character kick/snare, detailed hats/percussion, 808 or focused bass, sample/keys/chord bed, main motif, supporting texture, counter accents and selective fills with clear space for vocals',
+    effects: 'reverse samples, vinyl/tape texture when authentic, drops, impacts, filtered transitions, delay/reverb throws, beat cuts and ear-candy accents between phrases',
+    performance: 'humanize pocket, hat subdivisions, ghost notes, 808 articulation and sample phrasing; repeat hooks with small fills/accents rather than identical bars',
+    density
+      };
+      if (/r&b|rnb|neo soul|soul|funk|disco/.test(style)) return {
+    instruments: 'live-feeling drums/percussion, melodic bass, Rhodes/piano or guitar chords, supporting harmony, hook instrument, counterline, tasteful strings/brass/synth support and room detail where authentic',
+    effects: 'plate/room reverb, tape or analog saturation character, delay throws, filtered transitions, reverse swells and subtle ear candy that supports groove',
+    performance: 'use pocket, ghost notes, syncopation, expressive note lengths, chord voicing changes and section-specific fills with believable ensemble interaction',
+    density
+      };
+      if (/pop|synthpop|electropop/.test(style)) return {
+    instruments: 'punchy drums, bass, primary chord layer, secondary harmonic support, signature hook, counter-melody, pads/textures, vocal-support layers and section fills',
+    effects: 'reverse swells, risers, impacts, downlifters, delays, reverbs, filtered transitions, ear-candy one-shots and automation placed around hooks and section changes',
+    performance: 'keep hooks immediately recognizable but vary drum fills, bass articulation, support layers and transitions across verses, choruses and bridge',
+    density
+      };
+      if (/metal|hard rock|punk/.test(style)) return {
+    instruments: 'multi-mic-feeling acoustic drums, electric bass, double-tracked rhythm guitars, lead/texture guitar, room/amp character and only genre-authentic supporting layers',
+    effects: 'amp/room ambience, feedback, cymbal swells, pick slides, tom fills, short delays/reverbs and performance-led transitions instead of EDM risers',
+    performance: 'preserve human drum dynamics, pick attack, fret/amp variation, realistic guitar articulation and non-identical repeated sections',
+    density
+      };
+      if (/rock|indie|alternative|grunge/.test(style)) return {
+    instruments: 'realistic drum kit, electric bass, rhythm guitar layers, lead/texture guitar, optional keys/organ and room/amp depth appropriate to the era',
+    effects: 'room and amp tails, feedback, cymbal swells, reverse guitar or tape texture when authentic, short delays/reverbs and natural fills into section changes',
+    performance: 'use believable drummer/bassist/guitarist interaction, dynamic strums, note-length variation, fills and section-dependent intensity rather than rigid quantization',
+    density
+      };
+      if (/jazz|bebop|swing|fusion/.test(style)) return {
+    instruments: 'acoustic drum kit with ride/brush detail, upright/electric bass as appropriate, piano/Rhodes or guitar comping, lead horn/voice, optional horn responses and natural room',
+    effects: 'mostly natural room, plate/room reverb and subtle tape/console character; transitions should come from fills, turnarounds, pickups and ensemble cues rather than synthetic FX',
+    performance: 'human swing, velocity nuance, articulation, comping variation, call-and-response and genuine ensemble interaction; never clone repeated phrases',
+    density
+      };
+      if (/blues/.test(style)) return {
+    instruments: 'human drum kit, bass, expressive electric/acoustic guitar, piano/organ, optional harmonica or horn support and natural room',
+    effects: 'amp spring/room reverb, tremolo, tasteful slap/tape delay, slide noises and performance fills instead of electronic transition effects',
+    performance: 'expressive bends, vibrato, shuffle/swing pocket, dynamic comping and spontaneous fills with believable live interaction',
+    density
+      };
+      if (/reggae|dub|dancehall/.test(style)) return {
+    instruments: 'deep bass, one-drop/steppers/dancehall drums as requested, skank guitar/keys, bubble organ, percussion, melodic accents and spacious dub-compatible layers',
+    effects: 'dub delay throws, spring/plate reverb, filter/mute drops, tape feedback, percussion echoes and dramatic space used rhythmically',
+    performance: 'keep bass/drum pocket authoritative while skanks, percussion and dub sends breathe and vary across sections',
+    density
+      };
+      if (/reggaeton|dembow|latin trap|salsa|bachata|merengue|cumbia|latin/.test(style)) return {
+    instruments: 'genre-correct core rhythm, bass, percussion family, chord instrument, lead/hook instrument, counter-response, fills and authentic acoustic/electronic supporting colors',
+    effects: 'reverse percussion, fills, impacts, vocal/instrument delay throws, reverbs and transition swells that support the Latin rhythmic language without EDM overproduction',
+    performance: 'preserve clave/dembow or requested rhythmic identity, interlocking percussion, natural accents and call-and-response with evolving fills',
+    density
+      };
+      if (/classical|orchestral|cinematic|score/.test(style)) return {
+    instruments: 'orchestrated strings by register, woodwinds, brass, tuned/untuned percussion and selective piano/choir/synth layers only when the requested palette calls for them',
+    effects: 'natural hall/room, orchestral swells, cymbal rolls, impacts, low booms and transition tails integrated as part of the score rather than pasted-on SFX',
+    performance: 'use expressive dynamics, articulation changes, phrase breathing, realistic register/voicing and evolving orchestration instead of static sustained layers',
+    density
+      };
+      if (/country|folk|bluegrass|acoustic|americana/.test(style)) return {
+    instruments: 'human drums/percussion when appropriate, acoustic bass, acoustic/electric guitar, mandolin/banjo/fiddle/piano or pedal steel only as genre-authentic supporting voices',
+    effects: 'natural room, plate, tape/slap character and performance transitions such as pickups, stops, fills and swells rather than synthetic EDM FX',
+    performance: 'realistic picking/strumming, fret and bow articulation, human timing, dynamic ensemble changes and re-performed repeated sections',
+    density
+      };
+      if (/ambient|downtempo|chill|lo.?fi/.test(style)) return {
+    instruments: 'soft drums or percussion when appropriate, warm bass, keys/chords, pad bed, motif, counter texture, field/room layer and evolving tonal details',
+    effects: 'long reverbs, tape echo, filtered noise/field texture, reverse tails, granular or modulation detail and slow automation with clear musical purpose',
+    performance: 'favor subtle evolution, breathing envelopes, texture changes and organic micro-variation so minimalism never becomes empty or static',
+    density
+      };
+      return {
+    instruments: 'genre-authentic core drums, secondary rhythm detail, bass, harmony, supporting harmony, hook/lead, counter-response, atmosphere, fills/ornaments and transition layers chosen only when musically appropriate',
+    effects: 'genre-authentic transition FX, reverbs, delays, impacts, swells, reverse elements, automation and ear candy used to connect sections rather than create random noise',
+    performance: 'vary dynamics, articulation, accents, fills, note lengths, ambience and automation so repeated sections feel produced and performed rather than cloned',
+    density
+      };
+    }
+    
 function creativeProfile(weirdness, styleInfluence, subgenre) {
   const weird = weirdness >= 80
     ? 'high experimentation inside the selected DNA'
@@ -177,7 +289,7 @@ function coherenceCritic(body, dna, bpm, creatorBrief) {
   const conflictHint = creatorBrief && /\b(bpm|house|techno|trap|jungle|drum|bass|rock|jazz|pop|reggae|afro|trance|hardcore)\b/i.test(creatorBrief)
     ? 'If the brief names a conflicting genre, keep only compatible sonic qualities; never switch taxonomy.'
     : '';
-  return `CRITIC: reject contradictions and genre drift. ${selected}, key, duration and structured controls win. ${bpmRule} ${conflictHint} Harmony, groove, sound and arrangement must reinforce each other. Avoid ${dna.avoid}.`;
+  return `CRITIC: reject contradictions, genre drift and demo-like sparsity. ${selected}, key, duration and structured controls win. ${bpmRule} ${conflictHint} Harmony, groove, instrumentation, density, effects and arrangement must reinforce each other. Avoid ${dna.avoid}.`;
 }
 
 function authoritativePrompt(body) {
@@ -193,6 +305,7 @@ function authoritativePrompt(body) {
   const creatorBrief = extractCreatorBrief(body);
   const tempo = bpm === null ? 'TEMPO: infer a genre-authentic stable tempo.' : `TEMPO: ${bpm} BPM exact; ${tempoProfile(bpm, body).instruction}.`;
   const dna = musicalDNA({ ...body, genreFamily: family, genre, subgenre });
+  const rich = richProductionDNA({ ...body, genreFamily: family, genre, subgenre });
 
   const compact = [
     `SONARA MUSIC DIRECTOR. STYLE LOCK: ${family} > ${genre} > ${subgenre}. Mood: ${mood}. UI taxonomy overrides conflicting free text; no neighboring-genre drift.`,
@@ -202,7 +315,11 @@ function authoritativePrompt(body) {
     `HARMONY: ${dna.harmony}.`,
     `GROOVE: ${dna.groove}.`,
     `SOUND: ${dna.sound}.`,
+    `INSTRUMENTATION: ${rich.instruments}.`,
+    `DENSITY: ${rich.density}.`,
     `ARRANGEMENT: ${dna.arrangement}.`,
+    `FX/SOUND DESIGN: ${rich.effects}. Effects must announce, connect or resolve sections; never become random noise or replace musical content.`,
+    `PERFORMANCE: ${rich.performance}.`,
     vocalProfile(body),
     `CREATIVE CONTROLS: style ${styleInfluence}/100, weirdness ${weirdness}/100; ${creativeProfile(weirdness, styleInfluence, subgenre)}.`,
     mixProfile(),
@@ -252,6 +369,7 @@ export async function rewriteGenerationRequest(request) {
     sonaraTempoLock: bpm === null ? undefined : TEMPO_LOCK_ID,
     sonaraPromptIntelligence: PROMPT_INTELLIGENCE_ID,
     sonaraCoherenceCritic: COHERENCE_CRITIC_ID,
+    sonaraRichArrangement: RICH_ARRANGEMENT_ID,
     sonaraCreatorStylePriority: false,
     sonaraUiTaxonomyAuthoritative: true,
     sonaraAtmosphereAuthoritative: true,
@@ -261,6 +379,10 @@ export async function rewriteGenerationRequest(request) {
     sonaraGrooveIntelligence: true,
     sonaraSoundDesignIntelligence: true,
     sonaraArrangementIntelligence: true,
+    sonaraFullInstrumentation: true,
+    sonaraSectionDensityIntelligence: true,
+    sonaraSoundEffectsIntelligence: true,
+    sonaraHumanPerformanceIntelligence: true,
     sonaraVocalIntelligence: true,
     sonaraMixMasterIntelligence: true,
     sonaraNegativePromptIntelligence: true,
@@ -274,6 +396,7 @@ export async function rewriteGenerationRequest(request) {
   headers.set('x-sonara-atmosphere-lock', mood);
   headers.set('x-sonara-prompt-intelligence', PROMPT_INTELLIGENCE_ID);
   headers.set('x-sonara-coherence-critic', COHERENCE_CRITIC_ID);
+  headers.set('x-sonara-rich-arrangement', RICH_ARRANGEMENT_ID);
   if (bpm !== null) {
     headers.set('x-sonara-bpm-lock', `exact-${bpm}`);
     headers.set('x-sonara-tempo-class', profile.label);
@@ -301,6 +424,7 @@ async function decorateHealth(request, response) {
       authoritativeTempoLock: TEMPO_LOCK_ID,
       promptIntelligence: PROMPT_INTELLIGENCE_ID,
       coherenceCritic: COHERENCE_CRITIC_ID,
+      richArrangement: RICH_ARRANGEMENT_ID,
       bpmRange: `${BPM_MIN}-${BPM_MAX}`,
       promptGenrePriority: false,
       promptBpmPriority: false,
@@ -315,6 +439,10 @@ async function decorateHealth(request, response) {
       grooveIntelligence: true,
       soundDesignIntelligence: true,
       arrangementIntelligence: true,
+      fullInstrumentation: true,
+      sectionDensityIntelligence: true,
+      soundEffectsIntelligence: true,
+      humanPerformanceIntelligence: true,
       vocalIntelligence: true,
       mixMasterIntelligence: true,
       negativePromptIntelligence: true,

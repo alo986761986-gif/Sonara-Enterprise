@@ -8,6 +8,7 @@ const VERSION = 'sonara-molab-xl-only-v1';
 const FIDELITY_PROFILE = 'sonara-fidelity-v14-single-batch-fast1-quality2';
 const REAL_MUSIC_PROFILE = 'sonara-real-music-v1';
 const REALISM_API_MARKER = 'sonara-realism-api-v1';
+const RICH_ARRANGEMENT_PROFILE = 'sonara-rich-arrangement-v13';
 const MODEL = 'acestep-v15-xl-turbo';
 const PUBLIC_API_ORIGIN = 'https://api.sonaraenterprise.com';
 const CACHE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/molab-xl-only-v1/';
@@ -44,6 +45,7 @@ function json(request, data, status = 200) {
       'x-sonara-molab-profile': VERSION,
       'x-sonara-fidelity-profile': FIDELITY_PROFILE,
       'x-sonara-real-music': REAL_MUSIC_PROFILE,
+      'x-sonara-rich-arrangement': RICH_ARRANGEMENT_PROFILE,
       ...cors(request)
     }
   });
@@ -474,6 +476,11 @@ function qualityMetadata(count, payload = {}) {
     constrainedDecoding: realMusic,
     fidelityProfile: FIDELITY_PROFILE,
     realMusicProfile: realMusic ? REAL_MUSIC_PROFILE : null,
+    richArrangementProfile: RICH_ARRANGEMENT_PROFILE,
+    fullInstrumentation: true,
+    sectionDensityIntelligence: true,
+    soundEffectsIntelligence: true,
+    humanPerformanceIntelligence: true,
     generationProfile: payload?.sonara_generation_profile || 'quality',
     speedProfile: VERSION,
     inferenceSteps,
@@ -677,6 +684,7 @@ async function proxyAudio(request, env) {
   out.set('x-sonara-molab-profile', VERSION);
   out.set('x-sonara-fidelity-profile', FIDELITY_PROFILE);
   out.set('x-sonara-real-music', REAL_MUSIC_PROFILE);
+  out.set('x-sonara-rich-arrangement', RICH_ARRANGEMENT_PROFILE);
   out.set('x-sonara-ace-worker', 'molab-xl');
   return new Response(request.method === 'HEAD' ? null : upstream.body, {
     status: upstream.status,
@@ -712,6 +720,11 @@ async function readiness(request, env) {
     profile: VERSION,
     fidelityProfile: FIDELITY_PROFILE,
     realMusicProfile: REAL_MUSIC_PROFILE,
+    richArrangementProfile: RICH_ARRANGEMENT_PROFILE,
+    fullInstrumentation: true,
+    sectionDensityIntelligence: true,
+    soundEffectsIntelligence: true,
+    humanPerformanceIntelligence: true,
     realMusicReady,
     realismApiMarker: health.realismApiV1 ? REALISM_API_MARKER : null,
     engine: realMusicReady ? 'SONARA MoLab RTX PRO 6000 XL-Turbo Real Music' : 'SONARA MoLab RTX PRO 6000 XL-Turbo Fidelity',
@@ -739,6 +752,7 @@ function withHeaders(response) {
   headers.set('x-sonara-molab-profile', VERSION);
   headers.set('x-sonara-fidelity-profile', FIDELITY_PROFILE);
   headers.set('x-sonara-real-music', REAL_MUSIC_PROFILE);
+  headers.set('x-sonara-rich-arrangement', RICH_ARRANGEMENT_PROFILE);
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
