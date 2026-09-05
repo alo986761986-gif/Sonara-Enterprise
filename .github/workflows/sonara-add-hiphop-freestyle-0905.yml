@@ -1,0 +1,86 @@
+name: SONARA Add Hip-Hop Rap Freestyle
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/sonara-add-hiphop-freestyle-0905.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Add Freestyle genre and subgenres
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/data/worldMusicGenres.ts')
+          text = path.read_text(encoding='utf-8')
+
+          marker = "{ name: 'Freestyle', subgenres: ['Classic Hip-Hop Freestyle'"
+          if marker in text:
+              print('FREESTYLE_TAXONOMY=ALREADY_PRESENT')
+          else:
+              old = "      { name: 'Global Rap', subgenres: ['Grime', 'Afro Trap', 'French Rap', 'Italian Rap', 'German Rap', 'Spanish Rap', 'Korean Hip-Hop', 'Japanese Hip-Hop', 'Arabic Hip-Hop', 'Brazilian Rap'] }\n"
+              new = "      { name: 'Global Rap', subgenres: ['Grime', 'Afro Trap', 'French Rap', 'Italian Rap', 'German Rap', 'Spanish Rap', 'Korean Hip-Hop', 'Japanese Hip-Hop', 'Arabic Hip-Hop', 'Brazilian Rap'] },\n      { name: 'Freestyle', subgenres: ['Classic Hip-Hop Freestyle', 'Off-the-Dome Freestyle', 'Battle Freestyle', 'Cypher Freestyle', 'Boom Bap Freestyle', 'Trap Freestyle', 'Drill Freestyle', 'Melodic Freestyle', 'Conscious Freestyle', 'Storytelling Freestyle', 'Double-Time Freestyle', 'Acapella Freestyle'] }\n"
+              if old not in text:
+                  raise SystemExit('HIP_HOP_GLOBAL_RAP_ANCHOR_NOT_FOUND')
+              text = text.replace(old, new, 1)
+              path.write_text(text, encoding='utf-8')
+              print('FREESTYLE_TAXONOMY=ADDED')
+
+          verify = path.read_text(encoding='utf-8')
+          required = [
+              "family: 'Hip-Hop / Rap'",
+              "name: 'Freestyle'",
+              "'Classic Hip-Hop Freestyle'",
+              "'Off-the-Dome Freestyle'",
+              "'Battle Freestyle'",
+              "'Cypher Freestyle'",
+              "'Boom Bap Freestyle'",
+              "'Trap Freestyle'",
+              "'Drill Freestyle'",
+              "'Melodic Freestyle'",
+              "'Conscious Freestyle'",
+              "'Storytelling Freestyle'",
+              "'Double-Time Freestyle'",
+              "'Acapella Freestyle'",
+          ]
+          missing = [item for item in required if item not in verify]
+          if missing:
+              raise SystemExit('FREESTYLE_VERIFY_MISSING=' + ','.join(missing))
+          print('FREESTYLE_SUBGENRES=12')
+          print('FREESTYLE_VERIFY=OK')
+          PY
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Verify production build
+        run: npm run build
+
+      - name: Commit taxonomy upgrade
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/sonara-add-hiphop-freestyle-0905.yml
+          git config user.name "SONARA Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/data/worldMusicGenres.ts .github/workflows/sonara-add-hiphop-freestyle-0905.yml
+          if git diff --cached --quiet; then
+            echo "NO_CHANGES_TO_COMMIT"
+            exit 0
+          fi
+          git commit -m "feat: add Freestyle genre to Hip-Hop Rap taxonomy"
+          git push origin HEAD:main
