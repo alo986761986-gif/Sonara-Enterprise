@@ -85,8 +85,9 @@ assert.ok(genreCount > 140, `professional hierarchy must expose real genres inst
 // The legacy catalog contained 720 menu positions, but Jazz Fusion appeared twice:
 // once incorrectly under Jazz and once under its real Jazz Fusion parent. Exact-parent
 // normalization intentionally deduplicates that single legacy duplicate, leaving 719
-// real selectable taxonomy paths without removing any unique musical style.
-assert.equal(subgenreCount, 719, 'all 719 exact selectable musical styles must remain available after Jazz Fusion deduplication');
+// legacy selectable taxonomy paths. Hip-Hop / Rap Freestyle adds 12 authentic
+// selectable freestyle paths, for a current canonical total of 731.
+assert.equal(subgenreCount, 731, 'all 731 exact selectable musical styles must remain available, including 12 Hip-Hop Rap Freestyle paths');
 assert.equal(allFingerprints.size, subgenreCount, 'every taxonomy path must produce a distinct professional fingerprint');
 
 function family(name: string) {
