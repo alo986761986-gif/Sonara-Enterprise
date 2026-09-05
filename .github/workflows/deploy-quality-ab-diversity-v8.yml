@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "scripts/patch-quality-ab-diversity-v8.py"
+      - "scripts/fix-quality-ab-metadata-scope-v8.py"
       - "cloudflare/sonara-quality-ab-diversity-v8.test.mjs"
       - "scripts/sonara-quality-ab-diversity-e2e.mjs"
       - ".github/workflows/deploy-quality-ab-diversity-v8.yml"
@@ -38,7 +39,9 @@ jobs:
           node-version: "24"
 
       - name: Apply Quality AB diversity v8
-        run: python scripts/patch-quality-ab-diversity-v8.py
+        run: |
+          python scripts/patch-quality-ab-diversity-v8.py
+          python scripts/fix-quality-ab-metadata-scope-v8.py
 
       - name: Validate diversity and latency contracts
         run: |
@@ -48,6 +51,7 @@ jobs:
           node cloudflare/sonara-quality-47-rescue-v1.test.mjs
           node cloudflare/sonara-natural-tone-v14.test.mjs
           node scripts/verify-quality-latency-v14.mjs
+          ! grep -q "qualityABDiversificationProfile: profile === 'quality'" cloudflare/sonara-molab-xl-router.mjs
 
       - name: Install and build
         run: |
