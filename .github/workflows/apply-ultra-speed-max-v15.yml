@@ -1,0 +1,63 @@
+name: Apply SONARA Ultra Speed Max V15
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/ultra-speed-max-v15-trigger'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sonara-ultra-speed-max-v15
+  cancel-in-progress: true
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Apply Ultra Speed Max V15
+        run: node scripts/patch-ultra-speed-max-v15.mjs
+
+      - name: Validate patched routers
+        run: |
+          node --check cloudflare/sonara-molab-xl-router.mjs
+          node --check cloudflare/sonara-speed-v4-edge.mjs
+          node --check cloudflare/sonara-real-music-v3-edge.mjs
+          node scripts/verify-quality-latency-v14.mjs
+
+      - name: Refresh MoLab deployment trigger
+        shell: bash
+        run: |
+          cat > .github/molab-xl-trigger <<'EOF'
+          SONARA_MOLAB_XL_URL=https://violation-difficulties-california-ctrl.trycloudflare.com
+          MODEL=acestep-v15-xl-turbo
+          MODE=MOLAB_XL_ONLY
+          ACTION=bind-ultra-speed-max-v15
+          VERIFY=20260905-ULTRA-SPEED-MAX-V15-FAST1-QUALITY2-ULTRA2-EULER
+          EOF
+
+      - name: Commit Ultra Speed Max V15
+        shell: bash
+        run: |
+          git config user.name 'sonara-enterprise-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git add cloudflare scripts src .github/molab-xl-trigger
+          if git diff --cached --quiet; then
+            echo 'No changes to commit.'
+            exit 0
+          fi
+          git commit -m 'perf: activate Ultra Speed Max V15'
+          git push origin main
