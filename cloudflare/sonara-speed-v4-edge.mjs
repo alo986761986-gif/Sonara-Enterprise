@@ -3,13 +3,14 @@ import { buildVocalLyricsV3Body, prepareVocalLyricsV3, VOCAL_LYRICS_DIRECTOR_V3 
 
 export { SonaraJobState, SonaraAuthStore };
 
-const VERSION = 'sonara-speed-v4.2-director-aware';
+const VERSION = 'sonara-speed-v4.3-single-batch-quality';
 const STATE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/speed-v4/';
 const STATE_TTL = 6 * 60 * 60;
 const JOB_RE = /^\/api\/music\/job\/([^/]+)$/;
 const GENERATE_PATHS = new Set(['/api/engine/generate', '/api/billing/generate']);
 const ASR_TIMEOUT = 180_000;
-const QUALITY_STEPS = 6;
+const FAST_STEPS = 1;
+const QUALITY_STEPS = 2;
 const ULTRA_STEPS = 8;
 
 const clean = value => String(value ?? '').trim();
@@ -222,16 +223,16 @@ function speedBody(body, profile) {
       sonaraDirectorBypass: false,
       sonaraRealMusic: true,
       sonara_real_music: true,
-      sonaraAutoRepair: true,
+      sonaraAutoRepair: false,
       sonaraSpeedV4: VERSION,
       sonaraFastUltra: false,
       sonaraSpeedInferenceSteps: QUALITY_STEPS,
       sonaraSpeedSampler: 'euler',
-      sonaraSpeedExecutionProfile: 'quality-director-auto-refine',
+      sonaraSpeedExecutionProfile: 'quality-single-gpu-batch',
       sonaraRequestedGenerationProfile: profile,
       sonaraAutomaticCandidateRanking: true,
       sonaraVisibleCandidateTarget: 2,
-      sonaraInternalCandidateTarget: 4,
+      sonaraInternalCandidateTarget: 2,
       sonaraRealMusicV3: true,
       sonaraTrackGenomeEnabled: true,
       sonaraHumanizerEnabled: true,
@@ -254,9 +255,9 @@ function speedBody(body, profile) {
     sonara_real_music: false,
     sonaraAutoRepair: false,
     sonaraSpeedV4: VERSION,
-    sonaraSpeedInferenceSteps: QUALITY_STEPS,
+    sonaraSpeedInferenceSteps: FAST_STEPS,
     sonaraSpeedSampler: 'euler',
-    sonaraSpeedExecutionProfile: 'fast-single-batch',
+    sonaraSpeedExecutionProfile: 'fast-single-gpu-batch',
     sonaraRequestedGenerationProfile: profile,
     sonaraAutomaticCandidateRanking: true,
     sonaraVisibleCandidateTarget: 2,
@@ -267,12 +268,14 @@ function speedBody(body, profile) {
 
 function executionProfileOf(profile) {
   if (profile === 'ultra') return 'ultra-director-auto-refine';
-  if (profile === 'quality') return 'quality-director-auto-refine';
-  return 'fast-single-batch';
+  if (profile === 'quality') return 'quality-single-gpu-batch';
+  return 'fast-single-gpu-batch';
 }
 
 function inferenceStepsOf(profile) {
-  return profile === 'ultra' ? ULTRA_STEPS : QUALITY_STEPS;
+  if (profile === 'ultra') return ULTRA_STEPS;
+  if (profile === 'quality') return QUALITY_STEPS;
+  return FAST_STEPS;
 }
 
 function samplerOf(profile) {

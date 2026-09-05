@@ -34,7 +34,7 @@ function profileOf(body = {}) {
 function profileSpec(profile) {
   if (profile === 'fast') return { profile, internalBatches: 1, candidatesPerBatch: 2, targetScore: 82, autoRepair: false, downstreamProfile: 'fast' };
   if (profile === 'ultra') return { profile, internalBatches: 2, candidatesPerBatch: 2, targetScore: 92, autoRepair: true, downstreamProfile: 'quality' };
-  return { profile: 'quality', internalBatches: 2, candidatesPerBatch: 2, targetScore: PROFESSIONAL_RELEASE_SCORE, autoRepair: true, downstreamProfile: 'quality' };
+  return { profile: 'quality', internalBatches: 1, candidatesPerBatch: 2, targetScore: PROFESSIONAL_RELEASE_SCORE, autoRepair: false, downstreamProfile: 'quality' };
 }
 
 function requested(body = {}) {
@@ -291,11 +291,19 @@ async function submitDirector(request, env, ctx) {
 
   const profile = profileOf(body);
   const spec = profileSpec(profile);
-  if (profile === 'fast') {
+  if (spec.internalBatches === 1) {
     const response = await runtime.fetch(buildChildRequest(request, enrichBody(body, profile, 0)), env, ctx);
     return transformJson(response, data => ({
       ...data,
-      metadata: { ...(data?.metadata || {}), sonaraMusicDirector: VERSION, profile, generatedCandidateTarget: 2, visibleCandidateTarget: 2, autoRepair: false }
+      metadata: {
+        ...(data?.metadata || {}),
+        sonaraMusicDirector: VERSION,
+        profile,
+        generatedCandidateTarget: spec.candidatesPerBatch,
+        visibleCandidateTarget: 2,
+        autoRepair: spec.autoRepair,
+        singleGpuBatch: true
+      }
     }));
   }
 

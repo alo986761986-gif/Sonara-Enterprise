@@ -5,7 +5,7 @@ export { SonaraJobState } from './sonara-instant-speed-router.mjs';
 
 // Keep this public contract stable: configure-molab-xl.yml verifies it.
 const VERSION = 'sonara-molab-xl-only-v1';
-const FIDELITY_PROFILE = 'sonara-fidelity-v2-stable8';
+const FIDELITY_PROFILE = 'sonara-fidelity-v14-single-batch-fast1-quality2';
 const REAL_MUSIC_PROFILE = 'sonara-real-music-v1';
 const REALISM_API_MARKER = 'sonara-realism-api-v1';
 const MODEL = 'acestep-v15-xl-turbo';
@@ -16,7 +16,7 @@ const QUERY_TIMEOUT = 12_000;
 const SUBMIT_TIMEOUT = 120_000;
 const AUDIO_TIMEOUT = 120_000;
 const HEALTH_TIMEOUT = 10_000;
-const INFERENCE_STEPS = 8;
+const INFERENCE_STEPS = 1;
 const STALL_TIMEOUT = 12 * 60 * 1000;
 
 const cleanUrl = value => String(value || '').trim().replace(/\/$/, '');
@@ -81,18 +81,18 @@ function profileOf(body = {}) {
   return 'quality';
 }
 
-function inferenceStepsOf(body = {}, profile = profileOf(body)) {
-  const requested = Number(body?.sonaraSpeedInferenceSteps ?? body?.inference_steps ?? body?.inferenceSteps);
-  if (Number.isFinite(requested)) return Math.round(clamp(requested, profile === 'ultra' ? 8 : 6, 4, 8));
-  return profile === 'ultra' ? 8 : profile === 'fast' ? 6 : 6;
+function inferenceStepsOf(_body = {}, profile = profileOf(_body)) {
+  if (profile === 'ultra') return 8;
+  if (profile === 'quality') return 2;
+  return 1;
 }
 
 function samplerOf(body = {}, realMusic = false) {
   const requested = String(body?.sonaraSpeedSampler || body?.sampler_mode || '').trim().toLowerCase();
-  if (realMusic && profileOf(body) === 'ultra') return 'heun';
+  if (profileOf(body) === 'ultra' && realMusic) return 'heun';
+  if (profileOf(body) === 'quality') return 'euler';
   if (requested === 'euler' || requested === 'heun') return requested;
-  if (body?.sonaraFastUltra === true) return 'euler';
-  return realMusic ? 'heun' : 'euler';
+  return 'euler';
 }
 
 function creatorIntent(body = {}) {
@@ -131,6 +131,11 @@ function fidelityInstruction(body = {}, controls = qualityControls(body)) {
     creativity,
     'Do not collapse the result into generic EDM, generic pop, generic house, or any neighboring genre unless the creator explicitly asked for it.',
     'Use genre-authentic drums, bass language, instrumentation, harmonic vocabulary, melodic phrasing, transitions, mix balance and mastering character.',
+    'SONARA FULL INSTRUMENTATION V12: make the arrangement feel full, rich, layered and professionally produced rather than sparse or demo-like.',
+    'When the requested genre supports it, build roughly 8-12 distinct complementary musical/production roles: primary drums, secondary percussion, bass, chord/harmonic instrument, supporting harmony layer, lead or hook instrument, counter-melody/response layer, atmosphere/texture, fills/ornaments, transitions and genre-authentic ear-candy.',
+    'Add instruments ONLY when they naturally belong to the requested genre/subgenre, era and production language. Never inflate the arrangement with unrelated instruments.',
+    'Distribute layers by register, frequency and musical function. Use section-specific entrances/exits, call-and-response, evolving automation and contrast so the track feels dense and expensive without becoming muddy or overcrowded.',
+    'Preserve creator-selected instruments as authoritative anchors; supporting instruments may expand the arrangement but must never remove, replace or contradict explicitly requested instruments.',
     'For vocals, preserve supplied lyrics, requested language and singer intent. For instrumental requests, do not invent lead vocals.',
     'Create a memorable hook or motif, meaningful section development, professional transitions, a deliberate climax and a composed ending. Avoid copy-paste looping.',
     'Prioritize clean transients, controlled low end, intelligible mids, non-harsh highs, stereo depth, dynamics and a release-ready master.'
@@ -159,7 +164,7 @@ function realMusicInstruction(body = {}) {
 async function workerHealth(baseUrl, env) {
   try {
     const response = await fetch(`${baseUrl}/health`, {
-      headers: authHeaders(env, { Accept: 'application/json', 'Cache-Control': 'no-cache' }),
+      headers: authHeaders(env, { Accept: 'application/json', 'Cache-Control': 'no-cache', 'User-Agent': 'SONARA-MoLab-Edge/14.0' }),
       signal: AbortSignal.timeout(HEALTH_TIMEOUT)
     });
     const raw = response.ok ? await response.json() : {};
@@ -212,7 +217,7 @@ export function buildMolabPayload(body, count, capabilities = {}) {
         ? 0.68
         : clamp(0.74 + controls.weirdness * 0.0006, 0.77, 0.74, 0.80)))
     : 0.85;
-  const humanLmCfgScale = realMusic ? (qualitySafeB ? 2.50 : clamp(2.10 + controls.styleInfluence * 0.004, 2.30, 2.10, 2.50)) : 2.0;
+  const humanLmCfgScale = realMusic && profile === 'ultra' ? (qualitySafeB ? 2.50 : clamp(2.10 + controls.styleInfluence * 0.004, 2.30, 2.10, 2.50)) : 1.0;
   const humanTopP = realMusic ? (qualitySafeB ? 0.88 : clamp(0.90 + controls.weirdness * 0.0006, 0.93, 0.90, 0.96)) : 0.90;
   const inferenceSteps = inferenceStepsOf(body, profile);
   const samplerMode = samplerOf(body, realMusic);
@@ -255,7 +260,7 @@ export function buildMolabPayload(body, count, capabilities = {}) {
     inference_steps: inferenceSteps,
     guidance_scale: 1.0,
     batch_size: count,
-    thinking: realMusic,
+    thinking: profile === 'ultra' && realMusic,
     lm_temperature: humanLmTemperature,
     lm_cfg_scale: humanLmCfgScale,
     lm_top_k: 0,
@@ -268,10 +273,11 @@ export function buildMolabPayload(body, count, capabilities = {}) {
     use_cot_metas: false,
     use_cot_caption: false,
     use_cot_language: false,
-    use_constrained_decoding: realMusic && hasVocals,
-    constrained_decoding: realMusic && hasVocals,
+    use_constrained_decoding: profile === 'ultra' && realMusic && hasVocals,
+    constrained_decoding: profile === 'ultra' && realMusic && hasVocals,
     constrained_decoding_debug: false,
-    allow_lm_batch: false,
+    allow_lm_batch: profile === 'ultra' && realMusic && count > 1,
+    lm_batch_chunk_size: profile === 'ultra' && realMusic && count > 1 ? 8 : 1,
     infer_method: 'ode',
     sampler_mode: samplerMode,
     shift: realMusic ? Number(base.shift || 1.0) : 1.0,
@@ -287,7 +293,7 @@ export function buildMolabPayload(body, count, capabilities = {}) {
     sonara_quality_same_seed_base_v7: profile === 'quality',
     sonara_quality_seed_locked_v6: profile === 'quality',
     sonara_real_music_v1: realMusic,
-    sonara_generation_profile: profile,
+    sonara_generation_profile: profile === 'ultra' ? 'ultra' : 'auto',
     sonara_speed_inference_steps: inferenceSteps,
     sonara_speed_sampler: samplerMode
   };
@@ -303,6 +309,9 @@ async function submit(baseUrl, env, payload) {
     signal: AbortSignal.timeout(SUBMIT_TIMEOUT)
   });
   const raw = await response.text();
+  if (response.status === 530) {
+    throw new Error('MoLab XL tunnel offline (HTTP 530). Il Quick Tunnel Cloudflare non e piu raggiungibile: riavvia il supervisor MoLab e collega il nuovo SONARA_MOLAB_XL_URL.');
+  }
   let data = {};
   try { data = raw ? JSON.parse(raw) : {}; }
   catch { throw new Error(`MoLab XL: risposta non JSON (HTTP ${response.status}).`); }
@@ -322,6 +331,9 @@ async function query(baseUrl, env, taskId) {
     signal: AbortSignal.timeout(QUERY_TIMEOUT)
   });
   const raw = await response.text();
+  if (response.status === 530) {
+    throw new Error('MoLab XL tunnel offline durante query (HTTP 530). Il Quick Tunnel Cloudflare non e piu raggiungibile.');
+  }
   let data = {};
   try { data = raw ? JSON.parse(raw) : {}; }
   catch { throw new Error(`MoLab XL query: risposta non JSON (HTTP ${response.status}).`); }
@@ -711,7 +723,8 @@ async function readiness(request, env) {
     formatEnhancement: false,
     constrainedDecoding: realMusicReady,
     inferenceSteps: INFERENCE_STEPS,
-    qualityInferenceSteps: 6,
+    fastInferenceSteps: 1,
+    qualityInferenceSteps: 2,
     ultraInferenceSteps: 8,
     samplerMode: 'euler',
     dcwEnabled: true,

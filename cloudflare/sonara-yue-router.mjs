@@ -2,7 +2,7 @@ import molabRuntime, { SonaraJobState } from './sonara-molab-xl-router.mjs';
 
 export { SonaraJobState };
 
-const VERSION = 'sonara-yue-v10.4-dual-fidelity-routing';
+const VERSION = 'sonara-yue-v10.5-single-batch-dual-routing';
 const PUBLIC_API_ORIGIN = 'https://api.sonaraenterprise.com';
 const CACHE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/yue-v104/';
 const CACHE_TTL = 12 * 60 * 60;
@@ -72,8 +72,6 @@ function requestedProfile(body = {}) {
 }
 
 function requestedCandidates(body = {}) {
-  const profile = requestedProfile(body);
-  if (profile === 'quality') return 1;
   return Math.round(clamp(body.candidateCount ?? body.candidate_count, 2, 1, 2));
 }
 

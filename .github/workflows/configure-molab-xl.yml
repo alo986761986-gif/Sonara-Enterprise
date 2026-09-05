@@ -34,14 +34,13 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Apply QUALITY V13 instant RTX 6000 and full instrumentation V12 router patches
+      - name: Validate V14 single-batch RTX 6000 routing
         run: |
-          python3 scripts/patch-quality-speed-v10.py
-          python3 scripts/patch-quality-speed-v11-low-latency.py
-          python3 scripts/patch-full-instrumentation-v12.py
-          python3 scripts/patch-quality-speed-v13-instant.py
-          python3 scripts/patch-molab-530-recovery.py
           node --check cloudflare/sonara-molab-xl-router.mjs
+          node --check cloudflare/sonara-speed-v4-edge.mjs
+          node --check cloudflare/sonara-music-director-v3-entry.mjs
+          node --check cloudflare/sonara-yue-router.mjs
+          node scripts/verify-quality-latency-v14.mjs
 
       - name: Install production dependencies
         run: npm install
@@ -153,18 +152,21 @@ jobs:
               .model == "acestep-v15-xl-turbo" and
               .kaggleEnabled == false and
               .ready == true and
+              .fidelityProfile == "sonara-fidelity-v14-single-batch-fast1-quality2" and
               .inferenceSteps == 1 and
               .qualityInferenceSteps == 2 and
               .fastInferenceSteps == 1 and
               .ultraInferenceSteps == 8 and
               .maxBatchSize == 2
             ' >/dev/null 2>&1; then
-              printf '%s\n' "${response}" | jq '{ready, profile, engine, provider, model, inferenceSteps, fastInferenceSteps, qualityInferenceSteps, ultraInferenceSteps, maxBatchSize, kaggleEnabled}'
-              echo "SONARA V13 INSTANT RTX 6000 routing verified: FAST=1, QUALITY=2, ULTRA=8, BATCH=2."
+              printf '%s\n' "${response}" | jq '{ready, profile, fidelityProfile, engine, provider, model, inferenceSteps, fastInferenceSteps, qualityInferenceSteps, ultraInferenceSteps, maxBatchSize, kaggleEnabled}'
+              echo "SONARA V14 RTX 6000 verified: FAST=1, QUALITY=2, one batch with 2 tracks; ULTRA=8."
               exit 0
             fi
-            echo "Production V13 INSTANT verification attempt ${attempt}/12 failed"
+            echo "Production V14 verification attempt ${attempt}/12 failed"
+            printf '%s\n' "${response}" | jq -c '{ready, profile, fidelityProfile, provider, model, inferenceSteps, fastInferenceSteps, qualityInferenceSteps, ultraInferenceSteps, maxBatchSize, healthError, reason}' 2>/dev/null || printf '%s\n' "${response}" | head -c 1200
             sleep 5
           done
-          echo "Production V13 INSTANT router did not verify." >&2
+          echo "Production V14 router did not verify. Last response:" >&2
+          printf '%s\n' "${response}" | jq '.' 2>/dev/null || printf '%s\n' "${response}" | head -c 4000
           exit 1

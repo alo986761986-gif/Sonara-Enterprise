@@ -65,7 +65,7 @@ const EMPTY_CANDIDATE = (id: CandidateId): CandidateState => ({
 const INITIAL: CandidateState[] = [EMPTY_CANDIDATE('A'), EMPTY_CANDIDATE('B')];
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-const JOB_POLL_INTERVAL_MS = 2_000;
+const JOB_POLL_INTERVAL_MS = 1_000;
 const MIN_JOB_TIMEOUT_MS = 30 * 60 * 1_000;
 
 function generationTimeoutMs(durationSec: number): number {
@@ -186,7 +186,7 @@ export default function DualTrackGenerationControl() {
         ...candidate,
         status: 'COMPLETED',
         progress: 100,
-        stage: `Brano ${candidate.id} YuE pronto`,
+        stage: `Brano ${candidate.id} SONARA pronto`,
         audioUrl: String(output.audioUrl),
         audioFormat: String(output.audioFormat || 'wav').toLowerCase(),
         jobId,
@@ -237,7 +237,7 @@ export default function DualTrackGenerationControl() {
 
       const token = await getFirebaseIdToken(true);
       const generationId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `generation-${Date.now()}`;
-      setAllProcessing('', 5, 'SONARA YuE: avvio dei 2 brani');
+      setAllProcessing('', 5, 'SONARA RTX 6000: avvio batch unico dei 2 brani');
 
       const response = await fetch('/api/billing/generate', {
         method: 'POST',
@@ -266,24 +266,24 @@ export default function DualTrackGenerationControl() {
           styleInfluence: context.styleInfluence,
           outputFormat: 'wav',
           audioQuality: 'lossless',
-          engineId: 'sonara_yue_v104_dual_fidelity',
+          engineId: 'sonara_rtx6000_v14_single_batch',
           qualityProfile: 'fast',
           generationProfile: 'fast',
           yueProfile: 'fast',
-          dualFast: false,
+          dualFast: true,
           candidateCount: 2,
           candidate_count: 2,
           generationPairId: generationId,
-          variationPolicy: 'yue-dual-fidelity-safe'
+          variationPolicy: 'single-gpu-batch-two-tracks'
         })
       });
 
       const initialResponse = await readJson<JobResponse>(response);
-      if (!response.ok) throw new Error(readError(initialResponse, `Generazione YuE non avviata (HTTP ${response.status}).`));
+      if (!response.ok) throw new Error(readError(initialResponse, `Generazione SONARA non avviata (HTTP ${response.status}).`));
       const initial = normalizeJob(initialResponse);
       const jobId = initialResponse.jobId || initialResponse.result?.jobId || initial.jobId;
-      if (!jobId) throw new Error('SONARA non ha restituito il job ID YuE.');
-      setAllProcessing(jobId, Math.max(10, Number(initial.progress || 10)), String(initial.metadata?.currentStage || 'SONARA YuE: generazione brano A'));
+      if (!jobId) throw new Error('SONARA non ha restituito il job ID SONARA.');
+      setAllProcessing(jobId, Math.max(10, Number(initial.progress || 10)), String(initial.metadata?.currentStage || 'SONARA RTX 6000: generazione brano A'));
 
       const pollDeadline = Date.now() + generationTimeoutMs(context.durationSec);
       while (Date.now() < pollDeadline) {
@@ -293,22 +293,22 @@ export default function DualTrackGenerationControl() {
         const current = normalizeJob(await readJson<JobResponse>(poll));
         const status = String(current.status || 'PROCESSING').toUpperCase();
         mergeReadyCandidates(jobId, current);
-        if (status === 'FAILED') throw new Error(readError(current, 'Generazione YuE fallita.'));
+        if (status === 'FAILED') throw new Error(readError(current, 'Generazione SONARA fallita.'));
         if (status !== 'COMPLETED') {
-          setAllProcessing(jobId, Math.max(10, Number(current.progress || 10)), String(current.metadata?.currentStage || 'SONARA YuE: rendering dei 2 brani'));
+          setAllProcessing(jobId, Math.max(10, Number(current.progress || 10)), String(current.metadata?.currentStage || 'SONARA RTX 6000: rendering dei 2 brani'));
           continue;
         }
 
         const outputCandidates = readCandidates(current);
         if (outputCandidates.length < 2 || !outputCandidates[0]?.audioUrl || !outputCandidates[1]?.audioUrl) {
-          throw new Error('SONARA YuE ha completato il job ma non ha restituito entrambi i brani.');
+          throw new Error('SONARA RTX 6000 ha completato il job ma non ha restituito entrambi i brani.');
         }
 
         const completed = outputCandidates.slice(0, 2).map((candidate, index) => ({
           id: (index === 0 ? 'A' : 'B') as CandidateId,
           status: 'COMPLETED' as CandidateStatus,
           progress: 100,
-          stage: `Brano ${index === 0 ? 'A' : 'B'} YuE pronto`,
+          stage: `Brano ${index === 0 ? 'A' : 'B'} SONARA pronto`,
           audioUrl: String(candidate.audioUrl),
           audioFormat: String(candidate.audioFormat || 'wav').toLowerCase(),
           jobId,
@@ -330,7 +330,7 @@ export default function DualTrackGenerationControl() {
             generationPairId: generationId,
             variationId: candidate.id,
             completedJob: current,
-            performanceProfile: 'yue-v10.4-dual-fidelity-fast',
+            performanceProfile: 'rtx6000-v14-single-batch',
             creativeControls: { weirdness: context.weirdness, styleInfluence: context.styleInfluence }
           }
         })));
@@ -382,10 +382,10 @@ export default function DualTrackGenerationControl() {
   return createPortal(
     <div className="mt-6 space-y-4">
       <button type="button" onClick={() => void generatePair()} disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-fuchsia-600 via-purple-600 to-indigo-600 px-6 py-4 font-bold text-white shadow-lg shadow-purple-950/30 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50">
-        {busy ? <><RefreshCw className="h-5 w-5 animate-spin" />GENERAZIONE 2 BRANI YuE...</> : <><Sparkles className="h-5 w-5" />GENERA 2 BRANI YuE</>}
+        {busy ? <><RefreshCw className="h-5 w-5 animate-spin" />GENERAZIONE 2 BRANI SONARA...</> : <><Sparkles className="h-5 w-5" />GENERA 2 BRANI SONARA</>}
       </button>
       <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-4 py-3 text-[11px] leading-5 text-slate-400">
-        <strong className="text-cyan-200">YuE Dual Fidelity</strong>: due variazioni reali dello stesso prompt. Il brano A diventa ascoltabile appena pronto mentre SONARA completa il brano B. Prompt, BPM, lingua e durata selezionata restano vincoli della generazione.
+        <strong className="text-cyan-200">SONARA RTX 6000 Single Batch</strong>: i 2 brani completi vengono creati insieme in un solo batch GPU. Prompt, BPM, lingua e durata selezionata restano vincoli della generazione.
       </div>
       {globalError && <div className="rounded-xl border border-rose-500/25 bg-rose-500/10 p-4 text-xs text-rose-300">{globalError}</div>}
       {candidates.some(candidate => candidate.status !== 'IDLE') && (
