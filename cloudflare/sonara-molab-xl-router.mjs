@@ -10,6 +10,7 @@ const REAL_MUSIC_PROFILE = 'sonara-real-music-v1';
 const REALISM_API_MARKER = 'sonara-realism-api-v1';
 const RICH_ARRANGEMENT_PROFILE = 'sonara-rich-arrangement-v13';
 const NATURAL_TONE_PROFILE = 'sonara-natural-tone-v14';
+const QUALITY_47_RESCUE_PROFILE = 'sonara-quality-47-rescue-v1';
 const MODEL = 'acestep-v15-xl-turbo';
 const PUBLIC_API_ORIGIN = 'https://api.sonaraenterprise.com';
 const CACHE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/molab-xl-only-v1/';
@@ -20,6 +21,8 @@ const AUDIO_TIMEOUT = 120_000;
 const HEALTH_TIMEOUT = 10_000;
 const INFERENCE_STEPS = 1;
 const STALL_TIMEOUT = 12 * 60 * 1000;
+const HIGH_PROGRESS_RESCUE_THRESHOLD = 93;
+const HIGH_PROGRESS_MAX_POLLS = 6;
 
 const cleanUrl = value => String(value || '').trim().replace(/\/$/, '');
 const molabUrl = env => cleanUrl(env.SONARA_MOLAB_XL_URL || env.MOLAB_ACESTEP_URL || '');
@@ -480,6 +483,7 @@ function qualityMetadata(count, payload = {}) {
     realMusicProfile: realMusic ? REAL_MUSIC_PROFILE : null,
     richArrangementProfile: RICH_ARRANGEMENT_PROFILE,
     naturalToneProfile: NATURAL_TONE_PROFILE,
+    quality47RescueProfile: QUALITY_47_RESCUE_PROFILE,
     harshnessGuard: true,
     smoothTopEnd: true,
     fxRestraint: true,
@@ -534,7 +538,9 @@ async function startMolab(request, env) {
         realismApiV1: capabilities.realismApiV1 === true,
         loadedModel: capabilities.loadedModel || ''
       },
-      payload
+      payload,
+      highProgressPolls: 0,
+      lastObservedProgress: 0
     });
     const meta = qualityMetadata(count, payload);
     return json(request, {
@@ -578,8 +584,21 @@ async function pollMolab(request, env, jobId) {
     const expectedCount = Math.max(1, Math.min(2, Number(state.expectedCount || 2)));
     const meta = qualityMetadata(expectedCount, payload);
 
-    if (status === 1) {
-      const refs = refsFrom(task, state.baseUrl).slice(0, expectedCount);
+    const refs = refsFrom(task, state.baseUrl).slice(0, expectedCount);
+    const highProgress = info.progress >= HIGH_PROGRESS_RESCUE_THRESHOLD;
+    if (highProgress) {
+      const previous = Number(state.lastObservedProgress || 0);
+      state.highProgressPolls = info.progress <= previous + 0.1
+        ? Number(state.highProgressPolls || 0) + 1
+        : 1;
+      state.lastObservedProgress = info.progress;
+    } else {
+      state.highProgressPolls = 0;
+      state.lastObservedProgress = info.progress;
+    }
+
+    const completedByArtifacts = status === 0 && highProgress && refs.length >= expectedCount;
+    if (status === 1 || completedByArtifacts) {
       if (refs.length < expectedCount) {
         return json(request, {
           jobId,
@@ -599,6 +618,8 @@ async function pollMolab(request, env, jobId) {
         candidates,
         metadata: {
           ...meta,
+          quality47RescueProfile: QUALITY_47_RESCUE_PROFILE,
+          completionRescuedFromArtifacts: completedByArtifacts,
           candidateCount: candidates.length,
           currentStage: meta.thinking
             ? (candidates.length === 2 ? '2 master Real Music pronti' : 'Master Real Music pronto')
@@ -616,6 +637,24 @@ async function pollMolab(request, env, jobId) {
         error: String(task?.error || task?.message || `Generazione MoLab XL-Turbo fallita (status=${String(task?.status)}).`),
         metadata: { ...meta, currentStage: 'Generazione MoLab fallita' }
       }, 502);
+    }
+
+    if (status === 0 && highProgress && Number(state.highProgressPolls || 0) >= HIGH_PROGRESS_MAX_POLLS) {
+      await saveState(env, jobId, state);
+      return json(request, {
+        jobId,
+        status: 'FAILED',
+        progress: 100,
+        retryable: true,
+        error: 'MoLab e rimasto fermo nella fase finale senza pubblicare i file audio. Il job e stato chiuso automaticamente invece di restare al 47.4%.',
+        metadata: {
+          ...meta,
+          quality47RescueProfile: QUALITY_47_RESCUE_PROFILE,
+          highProgressPolls: state.highProgressPolls,
+          observedProgress: info.progress,
+          currentStage: 'Anti-stallo finale Quality attivato'
+        }
+      }, 504);
     }
 
     if (Date.now() - Number(state.createdAt || Date.now()) > STALL_TIMEOUT && info.progress <= 0) {
@@ -641,6 +680,8 @@ async function pollMolab(request, env, jobId) {
       candidates: [],
       metadata: {
         ...meta,
+        quality47RescueProfile: QUALITY_47_RESCUE_PROFILE,
+        highProgressPolls: Number(state.highProgressPolls || 0),
         currentStage: info.stage || (meta.thinking ? `Real Music: LM 4B + ${meta.samplerMode}, ${meta.inferenceSteps} step sulla RTX PRO 6000` : `MoLab XL-Turbo ${meta.inferenceSteps} step sulla RTX PRO 6000`)
       }
     });
