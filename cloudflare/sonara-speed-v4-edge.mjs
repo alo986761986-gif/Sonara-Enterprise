@@ -11,7 +11,7 @@ const GENERATE_PATHS = new Set(['/api/engine/generate', '/api/billing/generate']
 const ASR_TIMEOUT = 180_000;
 const FAST_STEPS = 1;
 const QUALITY_STEPS = 2;
-const ULTRA_STEPS = 8;
+const ULTRA_STEPS = 2;
 
 const clean = value => String(value ?? '').trim();
 const cleanUrl = value => clean(value).replace(/\/$/, '');
@@ -189,14 +189,14 @@ function speedBody(body, profile) {
       candidateCount: 2,
       candidate_count: 2,
       dualFast: true,
-      sonaraDirectorBypass: false,
+      sonaraDirectorBypass: true,
       sonaraRealMusic: true,
       sonara_real_music: true,
-      sonaraAutoRepair: true,
+      sonaraAutoRepair: false,
       sonaraSpeedV4: VERSION,
-      sonaraFastUltra: false,
+      sonaraFastUltra: true,
       sonaraSpeedInferenceSteps: ULTRA_STEPS,
-      sonaraSpeedSampler: 'heun',
+      sonaraSpeedSampler: 'euler',
       sonaraSpeedExecutionProfile: 'ultra-director-auto-refine',
       sonaraRequestedGenerationProfile: profile,
       sonaraAutomaticCandidateRanking: true,
@@ -366,7 +366,7 @@ async function prepareGeneration(request, env, ctx) {
       humanizer: profile !== 'fast',
       vocalRefinement: profile !== 'fast',
       stemPostProductionReady: profile !== 'fast',
-      lmThinking: profile === 'ultra',
+      lmThinking: false,
       lyricVerificationMode: verifyAfter ? 'deferred' : 'on-demand',
       lyricVerificationPending: false
     }

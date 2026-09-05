@@ -12,7 +12,7 @@ assert.match(source, /completedFastByArtifacts/);
 assert.match(source, /Fast anti-stallo: render riavviato automaticamente/);
 assert.match(source, /fastInferenceSteps: 1/);
 assert.match(source, /qualityInferenceSteps: 2/);
-assert.match(source, /ultraInferenceSteps: 8/);
+assert.match(source, /ultraInferenceSteps: 2/);
 
 console.log('SONARA_FAST_80_RESCUE_V1=PASS');
 console.log('FAST_SPEED=1_STEP_PRESERVED');

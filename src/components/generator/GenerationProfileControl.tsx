@@ -194,7 +194,7 @@ export default function GenerationProfileControl() {
                 <Sparkles className="h-3.5 w-3.5" />SONARA AI QUALITY
               </div>
               <div className="mt-1 text-xs font-bold text-white">{active.subtitle}</div>
-              <div className="mt-1 text-[10px] text-slate-400">FAST e QUALITY usano un solo batch RTX; ULTRA mantiene ranking e rifinitura avanzata.</div>
+              <div className="mt-1 text-[10px] text-slate-400">FAST, QUALITY e ULTRA usano il percorso RTX a bassa latenza; ULTRA mantiene il profilo Real Music avanzato senza ranking o riparazioni extra.</div>
             </div>
             <div className="rounded-lg border border-white/10 bg-slate-950/45 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-wider text-violet-200">
               {profile === 'ultra' ? '92+ RELEASE TARGET' : profile === 'quality' ? '88+ RELEASE TARGET' : 'FAST PREVIEW'}

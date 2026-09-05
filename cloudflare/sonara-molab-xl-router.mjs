@@ -5,7 +5,7 @@ export { SonaraJobState } from './sonara-instant-speed-router.mjs';
 
 // Keep this public contract stable: configure-molab-xl.yml verifies it.
 const VERSION = 'sonara-molab-xl-only-v1';
-const FIDELITY_PROFILE = 'sonara-fidelity-v14-single-batch-fast1-quality2';
+const FIDELITY_PROFILE = 'sonara-fidelity-v15-ultra-speed-max-fast1-quality2-ultra2';
 const REAL_MUSIC_PROFILE = 'sonara-real-music-v1';
 const REALISM_API_MARKER = 'sonara-realism-api-v1';
 const RICH_ARRANGEMENT_PROFILE = 'sonara-rich-arrangement-v13';
@@ -95,14 +95,14 @@ function profileOf(body = {}) {
 }
 
 function inferenceStepsOf(_body = {}, profile = profileOf(_body)) {
-  if (profile === 'ultra') return 8;
+  if (profile === 'ultra') return 2;
   if (profile === 'quality') return 2;
   return 1;
 }
 
 function samplerOf(body = {}, realMusic = false) {
   const requested = String(body?.sonaraSpeedSampler || body?.sampler_mode || '').trim().toLowerCase();
-  if (profileOf(body) === 'ultra' && realMusic) return 'heun';
+  if (profileOf(body) === 'ultra' && realMusic) return 'euler';
   if (profileOf(body) === 'quality') return 'euler';
   if (requested === 'euler' || requested === 'heun') return requested;
   return 'euler';
@@ -284,8 +284,8 @@ export function buildMolabPayload(body, count, capabilities = {}) {
     use_cot_metas: false,
     use_cot_caption: false,
     use_cot_language: false,
-    use_constrained_decoding: profile === 'ultra' && realMusic && hasVocals,
-    constrained_decoding: profile === 'ultra' && realMusic && hasVocals,
+    use_constrained_decoding: false,
+    constrained_decoding: false,
     constrained_decoding_debug: false,
     allow_lm_batch: profile === 'ultra' && realMusic && count > 1,
     lm_batch_chunk_size: profile === 'ultra' && realMusic && count > 1 ? 8 : 1,
@@ -308,7 +308,7 @@ export function buildMolabPayload(body, count, capabilities = {}) {
     sonara_quality_independent_seed_v8: profile === 'quality',
     sonara_quality_variant_b_v8: qualityVariantB,
     sonara_real_music_v1: realMusic,
-    sonara_generation_profile: profile === 'ultra' ? 'ultra' : 'auto',
+    sonara_generation_profile: 'auto',
     sonara_speed_inference_steps: inferenceSteps,
     sonara_speed_sampler: samplerMode
   };
@@ -865,7 +865,7 @@ async function readiness(request, env) {
     inferenceSteps: INFERENCE_STEPS,
     fastInferenceSteps: 1,
     qualityInferenceSteps: 2,
-    ultraInferenceSteps: 8,
+    ultraInferenceSteps: 2,
     samplerMode: 'euler',
     dcwEnabled: true,
     dcwMode: 'low',

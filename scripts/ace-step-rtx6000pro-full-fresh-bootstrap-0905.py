@@ -176,7 +176,7 @@ def apply_current_runtime_contract(v2) -> None:
     subprocess.run([str(PYTHON), '-m', 'py_compile', str(setup)], cwd=str(ROOT), check=True)
     print('FAST_INFERENCE_STEPS=1_ROUTER_CONTROLLED', flush=True)
     print('QUALITY_INFERENCE_STEPS=2_ROUTER_CONTROLLED', flush=True)
-    print('ULTRA_INFERENCE_STEPS=8_ROUTER_CONTROLLED', flush=True)
+    print('ULTRA_INFERENCE_STEPS=2_ROUTER_CONTROLLED', flush=True)
     print('NATURAL_TONE_DCW=REQUEST_CONTROLLED', flush=True)
 
 
@@ -322,7 +322,7 @@ def main() -> None:
     print(f'LM_MODEL={LM4B}', flush=True)
     print('FAST=1_STEP', flush=True)
     print('QUALITY=2_STEPS', flush=True)
-    print('ULTRA=8_STEPS', flush=True)
+    print('ULTRA=2_STEPS', flush=True)
     print('MAX_BATCH_SIZE=2', flush=True)
     print('QUALITY_AB=INDEPENDENT_COMPOSITIONS_V8_EDGE', flush=True)
     print('NATURAL_TONE=V14', flush=True)
@@ -346,7 +346,7 @@ def main() -> None:
             print(
                 f'[{time.strftime("%H:%M:%S")}] SONARA RTX6000PRO | '
                 f'API={"UP" if local_ok else "DOWN"} | PUBLIC={"UP" if public_ok else "DOWN"} | '
-                f'FAST=1 | QUALITY=2 | ULTRA=8 | BATCH=2 | {public_url}',
+                f'FAST=1 | QUALITY=2 | ULTRA=2 | BATCH=2 | {public_url}',
                 flush=True,
             )
             if not local_ok or not public_ok:

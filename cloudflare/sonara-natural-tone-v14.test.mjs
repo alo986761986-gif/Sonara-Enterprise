@@ -21,7 +21,7 @@ assert.match(router, /piercing highs, brittle cymbals, shrill leads/);
 assert.match(router, /naturalToneProfile: NATURAL_TONE_PROFILE/);
 assert.match(router, /qualityInferenceSteps: 2/);
 assert.match(router, /fastInferenceSteps: 1/);
-assert.match(router, /ultraInferenceSteps: 8/);
+assert.match(router, /ultraInferenceSteps: 2/);
 assert.match(router, /maxBatchSize: 2/);
 
 console.log('SONARA_NATURAL_TONE_V14=PASS');

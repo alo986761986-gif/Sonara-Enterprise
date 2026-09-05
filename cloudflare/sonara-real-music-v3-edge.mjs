@@ -128,7 +128,7 @@ function enrich(body = {}) {
   if (profile === 'fast') return { ...body, sonaraRealMusicV3: false, sonaraRealMusicV3Version: VERSION };
 
   const genome = trackGenome(body);
-  const qualityFastBatch = profile === 'quality';
+  const qualityFastBatch = profile === 'quality' || profile === 'ultra';
   return {
     ...body,
     sonaraRealMusic: true,
@@ -140,8 +140,8 @@ function enrich(body = {}) {
     sonaraHumanizerEnabled: true,
     sonaraVocalRefinementEnabled: true,
     sonaraStemPostProductionReady: true,
-    sonaraAutoRepair: profile === 'ultra',
-    sonaraAutomaticCandidateRanking: profile === 'ultra',
+    sonaraAutoRepair: false,
+    sonaraAutomaticCandidateRanking: false,
     sonaraDirectorBypass: qualityFastBatch,
     sonaraQualityFastBatchV8: qualityFastBatch,
     sonaraQualitySequentialSingleTakes: false,
