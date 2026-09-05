@@ -5,6 +5,7 @@ export { SonaraJobState, SonaraAuthStore };
 const VERSION = 'sonara-real-music-v2-edge-1';
 const REAL_MUSIC_PROFILE = 'sonara-real-music-v2';
 const REALISM_API_MARKER = 'sonara-realism-api-v2';
+const NATURAL_TONE_PROFILE = 'sonara-natural-tone-v14';
 const MODEL = 'acestep-v15-xl-turbo';
 const HEALTH_TIMEOUT = 10_000;
 
@@ -88,9 +89,13 @@ function upgradeMetadata(metadata = {}, health = {}) {
     qualitySamplerMode: 'euler',
     ultraSamplerMode: 'heun',
     dcwEnabled: true,
-    dcwMode: 'double',
+    dcwMode: 'low',
     dcwLowScaler: 0.02,
-    dcwHighScaler: 0.06,
+    dcwHighScaler: 0.0,
+    naturalToneProfile: NATURAL_TONE_PROFILE,
+    harshnessGuard: true,
+    smoothTopEnd: true,
+    fxRestraint: true,
     lmModel: 'acestep-5Hz-lm-4B',
     lmBackend: health.lmBackend || 'pt',
     lmBatchEnabled: Number(metadata?.candidateCount || metadata?.batchSize || 1) > 1,
@@ -150,9 +155,13 @@ function upgradeReadiness(payload = {}, health = {}) {
     qualitySamplerMode: 'euler',
     ultraSamplerMode: 'heun',
     dcwEnabled: true,
-    dcwMode: 'double',
+    dcwMode: 'low',
     dcwLowScaler: 0.02,
-    dcwHighScaler: 0.06,
+    dcwHighScaler: 0.0,
+    naturalToneProfile: NATURAL_TONE_PROFILE,
+    harshnessGuard: true,
+    smoothTopEnd: true,
+    fxRestraint: true,
     cpuOffload: false,
     flashAttention: false,
     optimizationProfile: 'sonara-xl-turbo-real-music-v2-speed-quality'
@@ -165,6 +174,7 @@ function jsonHeaders(response, health = {}) {
   if (health?.ready === true) {
     headers.set('x-sonara-real-music', REAL_MUSIC_PROFILE);
     headers.set('x-sonara-realism-api', REALISM_API_MARKER);
+    headers.set('x-sonara-natural-tone', NATURAL_TONE_PROFILE);
     headers.set('x-sonara-lm-backend', health.lmBackend || 'pt');
     headers.set('x-sonara-torch-compile', health.torchCompile === true ? 'on' : 'off');
   }

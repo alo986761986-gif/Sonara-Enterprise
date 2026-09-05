@@ -5,6 +5,7 @@ const TEMPO_LOCK_ID = 'v15-authoritative-bpm-v5-ui';
 const PROMPT_INTELLIGENCE_ID = 'sonara-prompt-intelligence-v2';
 const COHERENCE_CRITIC_ID = 'sonara-musical-coherence-critic-v1';
 const RICH_ARRANGEMENT_ID = 'sonara-rich-arrangement-v13';
+const NATURAL_TONE_ID = 'sonara-natural-tone-v14';
 const MAX_PROMPT_CHARS = 3600;
 const MAX_CREATOR_BRIEF_CHARS = 900;
 const BPM_MIN = 40;
@@ -146,7 +147,7 @@ function musicalDNA(body = {}) {
       const style = normalizedStyle(body);
       const acoustic = /jazz|blues|classical|orchestral|folk|country|acoustic|bluegrass/.test(style);
       const peak = acoustic ? '7-11' : '9-14';
-      const density = `at peak sections use about ${peak} complementary musical/production roles when authentic: core drums, secondary percussion/groove detail, bass, harmony, support harmony, hook/lead, counter-response, atmosphere/room, fills/ornaments and transition/FX. Thin intros, verses and breakdowns intentionally, then rebuild; do not run every layer continuously.`;
+      const density = `at peak use about ${peak} complementary roles when authentic: drums, secondary groove detail, bass, harmony, support, hook/lead, counter-response, atmosphere, fills and restrained transition FX. Keep roles spectrally separated: usually one bright hook/lead plus hat/cymbal detail at a time, with support layers warm or mid-focused. Thin quieter sections and rebuild; never stack constant bright top-end layers or run every layer continuously.`;
     
       if (/deep house|tech house|house|garage|afro house|amapiano|progressive house|melodic house/.test(style)) return {
     instruments: 'layered club drums, secondary percussion, authoritative bass, chord/stab or Rhodes layer, supporting pad/pluck, hook motif, counter-response, atmosphere and section fills chosen for the exact house subgenre',
@@ -280,7 +281,7 @@ function vocalProfile(body = {}) {
 }
 
 function mixProfile() {
-  return 'MIX/MASTER: controlled sub, kick/bass separation, clean low-mids, defined transients, wide atmospheres, centered low end, musical sidechain, dynamic club-ready loudness, no clipping.';
+  return 'MIX/MASTER: natural warm-neutral tonal balance, full intelligible mids, controlled presence, smooth non-hyped top end, soft but clear hats/cymbals, rounded transients, controlled sub, kick/bass separation, clean low-mids, centered low end, musical dynamics and release-ready loudness. No clipping, brittle highs, piercing/whistling resonances, fizzy treble or over-limiting.';
 }
 
 function coherenceCritic(body, dna, bpm, creatorBrief) {
@@ -289,7 +290,7 @@ function coherenceCritic(body, dna, bpm, creatorBrief) {
   const conflictHint = creatorBrief && /\b(bpm|house|techno|trap|jungle|drum|bass|rock|jazz|pop|reggae|afro|trance|hardcore)\b/i.test(creatorBrief)
     ? 'If the brief names a conflicting genre, keep only compatible sonic qualities; never switch taxonomy.'
     : '';
-  return `CRITIC: reject contradictions, genre drift and demo-like sparsity. ${selected}, key, duration and structured controls win. ${bpmRule} ${conflictHint} Harmony, groove, instrumentation, density, effects and arrangement must reinforce each other. Avoid ${dna.avoid}.`;
+  return `CRITIC: reject contradictions, genre drift, demo-like sparsity, harshness, brittle highs, piercing resonances and excessive FX stacking. ${selected}, key, duration and structured controls win. ${bpmRule} ${conflictHint} Harmony, groove, instrumentation, density, effects and arrangement must reinforce each other. Avoid ${dna.avoid}.`;
 }
 
 function authoritativePrompt(body) {
@@ -318,7 +319,7 @@ function authoritativePrompt(body) {
     `INSTRUMENTATION: ${rich.instruments}.`,
     `DENSITY: ${rich.density}.`,
     `ARRANGEMENT: ${dna.arrangement}.`,
-    `FX/SOUND DESIGN: ${rich.effects}. Effects must announce, connect or resolve sections; never become random noise or replace musical content.`,
+    `FX/SOUND DESIGN: ${rich.effects}. Keep FX behind the musical content: sparse, smooth, level-controlled and short where possible. Never stack bright risers, impacts, reverse cymbals or noisy transitions together; avoid piercing or fizzy top-end energy.`,
     `PERFORMANCE: ${rich.performance}.`,
     vocalProfile(body),
     `CREATIVE CONTROLS: style ${styleInfluence}/100, weirdness ${weirdness}/100; ${creativeProfile(weirdness, styleInfluence, subgenre)}.`,
@@ -370,6 +371,7 @@ export async function rewriteGenerationRequest(request) {
     sonaraPromptIntelligence: PROMPT_INTELLIGENCE_ID,
     sonaraCoherenceCritic: COHERENCE_CRITIC_ID,
     sonaraRichArrangement: RICH_ARRANGEMENT_ID,
+    sonaraNaturalTone: NATURAL_TONE_ID,
     sonaraCreatorStylePriority: false,
     sonaraUiTaxonomyAuthoritative: true,
     sonaraAtmosphereAuthoritative: true,
@@ -383,6 +385,9 @@ export async function rewriteGenerationRequest(request) {
     sonaraSectionDensityIntelligence: true,
     sonaraSoundEffectsIntelligence: true,
     sonaraHumanPerformanceIntelligence: true,
+    sonaraHarshnessGuard: true,
+    sonaraSmoothTopEnd: true,
+    sonaraFxRestraint: true,
     sonaraVocalIntelligence: true,
     sonaraMixMasterIntelligence: true,
     sonaraNegativePromptIntelligence: true,
@@ -397,6 +402,7 @@ export async function rewriteGenerationRequest(request) {
   headers.set('x-sonara-prompt-intelligence', PROMPT_INTELLIGENCE_ID);
   headers.set('x-sonara-coherence-critic', COHERENCE_CRITIC_ID);
   headers.set('x-sonara-rich-arrangement', RICH_ARRANGEMENT_ID);
+  headers.set('x-sonara-natural-tone', NATURAL_TONE_ID);
   if (bpm !== null) {
     headers.set('x-sonara-bpm-lock', `exact-${bpm}`);
     headers.set('x-sonara-tempo-class', profile.label);
@@ -425,6 +431,7 @@ async function decorateHealth(request, response) {
       promptIntelligence: PROMPT_INTELLIGENCE_ID,
       coherenceCritic: COHERENCE_CRITIC_ID,
       richArrangement: RICH_ARRANGEMENT_ID,
+      naturalTone: NATURAL_TONE_ID,
       bpmRange: `${BPM_MIN}-${BPM_MAX}`,
       promptGenrePriority: false,
       promptBpmPriority: false,
@@ -443,6 +450,9 @@ async function decorateHealth(request, response) {
       sectionDensityIntelligence: true,
       soundEffectsIntelligence: true,
       humanPerformanceIntelligence: true,
+      harshnessGuard: true,
+      smoothTopEnd: true,
+      fxRestraint: true,
       vocalIntelligence: true,
       mixMasterIntelligence: true,
       negativePromptIntelligence: true,
