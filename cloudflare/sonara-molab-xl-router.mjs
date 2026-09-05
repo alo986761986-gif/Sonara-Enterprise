@@ -12,6 +12,7 @@ const RICH_ARRANGEMENT_PROFILE = 'sonara-rich-arrangement-v13';
 const NATURAL_TONE_PROFILE = 'sonara-natural-tone-v14';
 const QUALITY_47_RESCUE_PROFILE = 'sonara-quality-47-rescue-v1';
 const FAST_80_RESCUE_PROFILE = 'sonara-fast-80-rescue-v1';
+const QUALITY_AB_DIVERSITY_PROFILE = 'sonara-quality-ab-diversity-v8';
 const MODEL = 'acestep-v15-xl-turbo';
 const PUBLIC_API_ORIGIN = 'https://api.sonaraenterprise.com';
 const CACHE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/molab-xl-only-v1/';
@@ -215,22 +216,20 @@ export function buildMolabPayload(body, count, capabilities = {}) {
   const base = buildStudioPayload(body, 'structure', seed + 104729);
   const rawControls = qualityControls(body);
   const profile = profileOf(body);
-  const qualitySafeB = profile === 'quality' && (body?.sonaraQualitySafeB === true || Number(body?.sonaraStabilityVariant) === 1);
+  const qualityVariantB = profile === 'quality' && Number(body?.sonaraStabilityVariant) === 1;
   const controls = {
-    weirdness: qualitySafeB ? 0 : rawControls.weirdness,
-    styleInfluence: qualitySafeB ? 100 : rawControls.styleInfluence
+    weirdness: rawControls.weirdness,
+    styleInfluence: rawControls.styleInfluence
   };
   const realMusic = realMusicEnabled(body, capabilities);
   const hasVocals = Boolean(String(body.lyrics || '').trim()) && String(body.vocalMode || body.vocal_mode || '').toLowerCase() !== 'instrumental';
   const humanLmTemperature = realMusic
     ? (profile === 'ultra'
       ? clamp(0.82 + controls.weirdness * 0.0006, 0.85, 0.82, 0.88)
-      : (qualitySafeB
-        ? 0.68
-        : clamp(0.74 + controls.weirdness * 0.0006, 0.77, 0.74, 0.80)))
+      : clamp(0.74 + controls.weirdness * 0.0006, 0.77, 0.74, 0.80))
     : 0.85;
-  const humanLmCfgScale = realMusic && profile === 'ultra' ? (qualitySafeB ? 2.50 : clamp(2.10 + controls.styleInfluence * 0.004, 2.30, 2.10, 2.50)) : 1.0;
-  const humanTopP = realMusic ? (qualitySafeB ? 0.88 : clamp(0.90 + controls.weirdness * 0.0006, 0.93, 0.90, 0.96)) : 0.90;
+  const humanLmCfgScale = realMusic && profile === 'ultra' ? clamp(2.10 + controls.styleInfluence * 0.004, 2.30, 2.10, 2.50) : 1.0;
+  const humanTopP = realMusic ? clamp(0.90 + controls.weirdness * 0.0006, 0.93, 0.90, 0.96) : 0.90;
   const inferenceSteps = inferenceStepsOf(body, profile);
   const samplerMode = samplerOf(body, realMusic);
   const locks = [
@@ -244,11 +243,11 @@ export function buildMolabPayload(body, count, capabilities = {}) {
   const authoritativePrompt = String(body.prompt || '').trim().slice(0, 7600);
   const finalInstruction = fidelityInstruction(body, controls).slice(0, 4000);
   const stabilityInstruction = String(body.sonaraStabilityInstruction || body.sonaraQualityTakeInstruction || '').trim().slice(0, 6000);
-  const candidateDirection = qualitySafeB
-    ? 'QUALITY B HARD-LOCK V7: use the EXACT SAME song world and seed-base as A. Preserve creator prompt, genre/subgenre, mood, era, groove family, instrument palette, production language, singer identity, lyrics/language, BPM, key and atmosphere literally. Weirdness is forced to zero and style adherence to maximum. B may differ only in conservative phrase timing, voicings, fills and transitions. Never create a remix, hybrid, experimental version, neighboring genre, bizarre harmony, random structure or unrelated instrumentation. If uncertain, stay closer to A and to the creator brief.'
+  const candidateDirection = qualityVariantB
+    ? 'QUALITY B INDEPENDENT COMPOSITION V8: use the EXACT SAME creator brief but create a genuinely different song. Keep genre/subgenre, mood, era, groove identity, requested instruments, production language, singer identity, lyrics/language, BPM, key, duration and atmosphere locked. Use the independent seed supplied for B. Create a new melody and hook contour, different harmonic/voicing route, different bass phrasing, different drum/percussion phrasing, different section development, different transitions and a clearly distinct arrangement path. Never clone A, never reuse A as a conservative take, and never drift to a neighboring genre. SAME BRIEF; DIFFERENT SONG.'
     : (count === 2
       ? (profile === 'quality'
-        ? 'QUALITY TWO-TAKE RULE: render two candidates from the EXACT SAME creator brief. A and B must share the requested concept, genre/subgenre, mood, era, instrumentation palette, groove family, production character, vocal intent, lyrics/language, BPM, key and atmosphere.'
+        ? 'QUALITY A/B DIVERSITY V8: render two genuinely different original compositions from the EXACT SAME creator brief. Preserve concept, genre/subgenre, mood, era, requested instrument palette, groove identity, production character, vocal intent, lyrics/language, BPM, key, duration and atmosphere, but force independent melody/hook, harmony or voicing route, bass phrasing, drum phrasing, section development and transitions.'
         : 'Render two candidates in one GPU batch. Both MUST preserve the same creator style, BPM, key, lyrics and vocal-language locks. Candidate A prioritizes hook and groove. Candidate B changes melody, voicing, transitions and timbral balance without changing genre identity.')
       : (profile === 'quality'
         ? 'QUALITY A SINGLE TAKE V6: render one highly faithful professional master that establishes the exact requested musical identity. Stay literal, coherent and genre-authentic.'
@@ -277,7 +276,7 @@ export function buildMolabPayload(body, count, capabilities = {}) {
     lm_cfg_scale: humanLmCfgScale,
     lm_top_k: 0,
     lm_top_p: humanTopP,
-    lm_repetition_penalty: realMusic ? (profile === 'ultra' ? 1.08 : (qualitySafeB ? 1.02 : 1.04)) : 1.0,
+    lm_repetition_penalty: realMusic ? (profile === 'ultra' ? 1.08 : 1.04) : 1.0,
     lm_negative_prompt: realMusic
       ? 'generic style drift, wrong BPM, wrong key, robotic quantization, static velocity, identical repeated bars, identical drum velocities, copy-paste phrasing, cloned chorus performance, fixed vibrato, pitch-staircase tuning, breathless synthetic vocal, plastic timbre, metallic artifacts, harsh clipping, piercing highs, brittle cymbals, shrill leads, whistling resonances, fizzy treble, abrasive upper mids, overly sharp transients, stacked bright risers, excessive noise FX, overcompression, phasey stereo, hard ambience resets, accidental silence, malformed ending, unwanted vocals'
       : 'NO USER INPUT',
@@ -300,10 +299,14 @@ export function buildMolabPayload(body, count, capabilities = {}) {
     enable_normalization: true,
     normalization_db: -1.0,
     use_random_seed: profile !== 'quality',
-    sonara_quality_safe_b_v6: qualitySafeB,
-    sonara_quality_b_hard_lock_v7: qualitySafeB,
-    sonara_quality_same_seed_base_v7: profile === 'quality',
+    sonara_quality_safe_b_v6: false,
+    sonara_quality_b_hard_lock_v7: false,
+    sonara_quality_same_seed_base_v7: false,
     sonara_quality_seed_locked_v6: profile === 'quality',
+    sonara_quality_ab_diversity_profile: profile === 'quality' ? QUALITY_AB_DIVERSITY_PROFILE : null,
+    sonara_quality_independent_composition_v8: profile === 'quality',
+    sonara_quality_independent_seed_v8: profile === 'quality',
+    sonara_quality_variant_b_v8: qualityVariantB,
     sonara_real_music_v1: realMusic,
     sonara_generation_profile: profile === 'ultra' ? 'ultra' : 'auto',
     sonara_speed_inference_steps: inferenceSteps,
@@ -490,6 +493,8 @@ function qualityMetadata(count, payload = {}) {
     naturalToneProfile: NATURAL_TONE_PROFILE,
     quality47RescueProfile: QUALITY_47_RESCUE_PROFILE,
     fast80RescueProfile: FAST_80_RESCUE_PROFILE,
+    qualityABDiversificationProfile: payload?.sonara_quality_independent_composition_v8 === true ? QUALITY_AB_DIVERSITY_PROFILE : null,
+    qualityABIndependentCompositionV8: payload?.sonara_quality_independent_composition_v8 === true,
     harshnessGuard: true,
     smoothTopEnd: true,
     fxRestraint: true,
@@ -842,6 +847,7 @@ async function readiness(request, env) {
     realMusicProfile: REAL_MUSIC_PROFILE,
     richArrangementProfile: RICH_ARRANGEMENT_PROFILE,
     fast80RescueProfile: FAST_80_RESCUE_PROFILE,
+    qualityABDiversificationProfile: QUALITY_AB_DIVERSITY_PROFILE,
     fullInstrumentation: true,
     sectionDensityIntelligence: true,
     soundEffectsIntelligence: true,

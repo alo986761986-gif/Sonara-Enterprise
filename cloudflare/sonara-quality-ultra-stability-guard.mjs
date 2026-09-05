@@ -9,6 +9,7 @@ import {
 export { SonaraJobState, SonaraAuthStore };
 
 const VERSION = 'sonara-quality-ultra-stability-1';
+const QUALITY_AB_DIVERSITY_PROFILE = 'sonara-quality-ab-diversity-v8';
 const STATE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/quality-ultra-stability-v1/';
 const STATE_TTL = 6 * 60 * 60;
 const JOB_RE = /^\/api\/music\/job\/(stable-qv1-[A-Za-z0-9_-]+)$/;
@@ -182,15 +183,15 @@ function makeVariantBody(body, profile, variantIndex, retryIndex = 0) {
   const suppliedSeed = Number(body.seed) > 0 ? Math.floor(Number(body.seed)) : Number(entropy[0]);
   const qualitySeed = Math.max(1, suppliedSeed % 1999999973);
   const independentSeed = profile === 'quality'
-    ? qualitySeed
+    ? Math.max(1, (qualitySeed + variantIndex * 104729 + retryIndex * 13007) % 1999999973)
     : Math.max(1, (suppliedSeed + Number(entropy[0]) + Number(entropy[1]) + (variantIndex + 1) * 15485863) % 1999999973);
   const promptFidelity = profile === 'quality'
-    ? 'QUALITY SAME-PROMPT CONTRACT — ABSOLUTE: both visible songs must execute the exact same creator brief. Preserve concept, genre/subgenre, mood, era, energy, requested instruments, rhythmic feel, production character, vocal role/identity, language, lyrics/theme, atmosphere, exclusions, BPM, key and duration. Do not invent a neighboring style, new concept, unrelated instrumentation or experimental detour. Candidate B is an alternate TAKE of the same requested song brief, not a reinterpretation.'
+    ? 'QUALITY SAME-BRIEF / DIFFERENT-COMPOSITION CONTRACT V8 — ABSOLUTE: both visible songs must execute the exact same creator brief and preserve concept, genre/subgenre, mood, era, energy, requested instruments, rhythmic feel, production character, vocal role/identity, language, lyrics/theme, atmosphere, exclusions, BPM, key and duration. A and B MUST nevertheless be two genuinely different original compositions. Candidate B must not reuse A as a take, clone, near-copy or remix. Independence applies to melody, hook contour, harmonic/voicing route, bass phrasing, drum phrasing, section development, transitions and arrangement decisions while all creator semantics stay locked.'
     : 'FINAL PROMPT FIDELITY CONTRACT — NON-NEGOTIABLE: the creator prompt is the source of truth for BOTH Song A and Song B. Preserve every explicit semantic requirement from the prompt: musical concept, genre and subgenre, mood, era, energy, instrumentation, production style, rhythmic feel, vocal role and identity, language, lyrics, theme/story, atmosphere, exclusions, exact BPM/key/duration when specified, and all named creative details. Song B must sound like a second original composition commissioned from the EXACT SAME brief, never like a different prompt. Independence applies only to the musical solution, not to the requested identity or meaning.';
   const direction = profile === 'quality'
     ? (variantIndex === 0
       ? 'SONARA QUALITY A PRIMARY SINGLE TAKE — render one complete, literal realization of this exact creator brief. Stay inside the requested genre, mood, instrumentation, groove family, vocal intent and production language. This take establishes the reference identity for QUALITY.'
-      : 'SONARA QUALITY B HARD-LOCK V7 — render a second safe take from the EXACT SAME musical identity as A. Use the same creator brief and same seed-base. B must immediately sound like the same commissioned song world: identical genre/subgenre, mood, era, groove family, instrument palette, production language, singer identity, lyrics/language, BPM, key and atmosphere. Do not reinterpret, remix, hybridize or experiment. Only conservative phrase, voicing, fill and transition differences are allowed. If any choice could change the identity, choose the most literal conventional solution. PROMPT FIDELITY AND A/B COHERENCE OVERRIDE NOVELTY.')
+      : 'SONARA QUALITY B INDEPENDENT COMPOSITION V8 — compose a genuinely different second song from the EXACT SAME creator brief. Keep genre/subgenre, mood, era, groove identity, requested instrument palette, production language, singer identity, lyrics/language, BPM, key, duration and atmosphere locked. MUST use an independent seed and MUST create a new primary melody/hook contour, a different harmonic or voicing route, different bass phrasing, different drum/percussion phrasing, different section development, different transitions and a clearly distinct arrangement path. Do not reuse A as a take, clone or near-copy. Do not drift into another genre, concept or unrelated instrumentation. SAME BRIEF; DIFFERENT SONG.')
     : (variantIndex === 0
       ? 'SONARA SONG A — compose the first complete realization of the creator prompt. Follow the prompt literally and musically: no genre drift, no mood drift, no missing requested instruments or vocal intent.'
       : 'SONARA SONG B — compose a genuinely different song for the EXACT SAME creator prompt. Use a new melody, harmonic route/voicings, bass phrasing, drum details, hook contour, transitions and section development, while preserving ALL prompt semantics and stylistic requirements. Do not change concept, genre/subgenre, mood, era, instrumentation brief, production character, vocal intent, lyrics/theme or requested atmosphere. If novelty conflicts with prompt fidelity, PROMPT FIDELITY ALWAYS WINS.');
@@ -206,23 +207,26 @@ function makeVariantBody(body, profile, variantIndex, retryIndex = 0) {
     candidateCount: profile === 'quality' ? 1 : 2,
     candidate_count: profile === 'quality' ? 1 : 2,
     dualFast: profile !== 'quality',
-    weirdness: profile === 'quality' && variantIndex === 1 ? 0 : body.weirdness,
-    styleInfluence: profile === 'quality' && variantIndex === 1 ? 100 : (body.styleInfluence ?? body.style_influence),
-    style_influence: profile === 'quality' && variantIndex === 1 ? 100 : (body.style_influence ?? body.styleInfluence),
+    weirdness: body.weirdness,
+    styleInfluence: body.styleInfluence ?? body.style_influence,
+    style_influence: body.style_influence ?? body.styleInfluence,
     seed: independentSeed,
     sonaraCompositionIdentity: variantIndex === 0 ? 'A' : 'B',
     sonaraIndependentAB: profile === 'ultra',
     sonaraPromptFidelity: profile === 'quality' ? 'literal-same-brief' : 'strict',
     sonaraCreatorIntentLocked: true,
-    sonaraQualityBSafeV5: profile === 'quality',
-    sonaraQualityBSafeV6: profile === 'quality',
-    sonaraQualityBHardLockV7: profile === 'quality',
-    sonaraQualitySameSeedBaseV7: profile === 'quality',
-    sonaraQualitySafeB: profile === 'quality' && variantIndex === 1,
+    sonaraQualityBSafeV5: false,
+    sonaraQualityBSafeV6: false,
+    sonaraQualityBHardLockV7: false,
+    sonaraQualitySameSeedBaseV7: false,
+    sonaraQualitySafeB: false,
+    sonaraQualityABDiversificationProfile: profile === 'quality' ? QUALITY_AB_DIVERSITY_PROFILE : null,
+    sonaraQualityIndependentCompositionV8: profile === 'quality',
+    sonaraQualityIndependentSeedV8: profile === 'quality',
     sonaraQualityRetry: retryIndex,
     sonaraStabilityInstruction: [fidelity, direction, promptFidelity].filter(Boolean).join('\n\n').slice(0, 6000),
     sonaraQualityTakeInstruction: profile === 'quality' ? [direction, promptFidelity].filter(Boolean).join('\n\n').slice(0, 5000) : '',
-    prompt: [prompt, `SONARA ${profile.toUpperCase()} STABILITY DIRECTOR.`, fidelity, direction, promptFidelity, `${profile === 'quality' ? 'Controlled take' : 'Independent composition'} seed=${independentSeed}.`].filter(Boolean).join('\n\n').slice(0, 12000)
+    prompt: [prompt, `SONARA ${profile.toUpperCase()} STABILITY DIRECTOR.`, fidelity, direction, promptFidelity, `${profile === 'quality' ? 'Independent Quality composition' : 'Independent composition'} seed=${independentSeed}.`].filter(Boolean).join('\n\n').slice(0, 12000)
   };
 }
 
@@ -490,7 +494,7 @@ async function finalize(request, env, jobId, state, childData, extra = {}) {
     releaseEligible: item.report?.professionalReleasePassed === true,
     directorRank: index + 1,
     sonaraCompositionIdentity: index === 0 ? 'A' : 'B',
-    independentComposition: state.profile === 'ultra'
+    independentComposition: state.profile === 'ultra' || state.profile === 'quality'
   }));
   const target = Number(state.targetScore || targetOf(state.profile));
   const bestScore = Number(combined.summary?.bestProfessionalScore || 0);
@@ -521,12 +525,15 @@ async function finalize(request, env, jobId, state, childData, extra = {}) {
       bestProfessionalScore: bestScore,
       releaseReady: bestScore >= target,
       secondaryBatchUsed: Boolean(state.secondaryJobId),
-      independentAB: state.profile === 'ultra',
-      independentABSelection: state.profile === 'ultra' ? 'best-one-per-independent-batch' : (state.profile === 'quality' ? 'one-approved-take-per-sequential-job' : 'global-ranking'),
+      independentAB: state.profile === 'ultra' || state.profile === 'quality',
+      independentABSelection: state.profile === 'ultra' ? 'best-one-per-independent-batch' : (state.profile === 'quality' ? 'one-independent-composition-per-sequential-job' : 'global-ranking'),
       qualitySequentialSingleTakes: state.profile === 'quality',
       qualityBStrictPublishGate: state.profile === 'quality',
-      qualityBHardLockV7: state.profile === 'quality',
-      qualityBSameSeedBaseV7: state.profile === 'quality',
+      qualityBHardLockV7: false,
+      qualityBSameSeedBaseV7: false,
+      qualityABDiversificationProfile: state.profile === 'quality' ? QUALITY_AB_DIVERSITY_PROFILE : null,
+      qualityABIndependentCompositionV8: state.profile === 'quality',
+      qualityABSeedStrategy: state.profile === 'quality' ? 'independent-offset-v8' : null,
       qualityBPairCoherence: state.profile === 'quality' ? (state.qualityBPairCoherence || null) : null,
       humanRealismRequired: state.profile === 'ultra',
       ...extra
@@ -600,6 +607,9 @@ async function startStable(request, env, ctx, body, profile) {
       qualitySamePromptPairPreferred: profile === 'quality',
       qualitySequentialSingleTakes: profile === 'quality',
       qualityBStrictPublishGate: profile === 'quality',
+      qualityABDiversificationProfile: profile === 'quality' ? QUALITY_AB_DIVERSITY_PROFILE : null,
+      qualityABIndependentCompositionV8: profile === 'quality',
+      qualityABSeedStrategy: profile === 'quality' ? 'independent-offset-v8' : null,
       professionalTargetScore: state.targetScore,
       currentStage: `SONARA ${profile.toUpperCase()}: primo batch sicuro avviato`
     }
@@ -632,8 +642,8 @@ async function stableJob(request, env, ctx, jobId) {
           status: 'FAILED',
           progress: 100,
           retryable: true,
-          error: 'QUALITY B V7: timeout prima della validazione completa A/B. SONARA non pubblica una coppia non verificata.',
-          metadata: { profile: state.profile, stabilityGuard: VERSION, qualityBHardLockV7: true, hardTimeoutBeforePairValidation: true }
+          error: 'QUALITY B V8: timeout prima della validazione completa A/B. SONARA non pubblica una coppia non verificata.',
+          metadata: { profile: state.profile, stabilityGuard: VERSION, qualityBHardLockV7: false, hardTimeoutBeforePairValidation: true }
         }, 504);
       }
       return finalize(request, env, jobId, state, data, { hardTimeoutFallback: true });
@@ -773,8 +783,8 @@ async function stableJob(request, env, ctx, jobId) {
         status: 'FAILED',
         progress: 100,
         retryable: true,
-        error: 'QUALITY B V7: il secondo take obbligatorio non e disponibile. A non viene trasformato artificialmente in una coppia A/B.',
-        metadata: { profile: state.profile, stabilityGuard: VERSION, qualityBHardLockV7: true, secondaryRequired: true }
+        error: 'QUALITY B V8: il secondo take obbligatorio non e disponibile. A non viene trasformato artificialmente in una coppia A/B.',
+        metadata: { profile: state.profile, stabilityGuard: VERSION, qualityBHardLockV7: false, secondaryRequired: true }
       }, 502);
     }
     if (primaryStatus === 'completed') return finalize(request, env, jobId, state, [primaryData], { secondaryBatchDegraded: true });
@@ -807,8 +817,8 @@ async function stableJob(request, env, ctx, jobId) {
           status: 'FAILED',
           progress: 100,
           retryable: true,
-          error: 'QUALITY B V7: il lato B ha superato il timeout e viene rifiutato, non sostituito con un output non verificato.',
-          metadata: { profile: state.profile, stabilityGuard: VERSION, qualityBHardLockV7: true, secondaryTransientPolls: state.secondaryTransientPolls }
+          error: 'QUALITY B V8: il lato B ha superato il timeout e viene rifiutato, non sostituito con un output non verificato.',
+          metadata: { profile: state.profile, stabilityGuard: VERSION, qualityBHardLockV7: false, secondaryTransientPolls: state.secondaryTransientPolls }
         }, 504);
       }
       return finalize(request, env, jobId, state, [primaryData], {
