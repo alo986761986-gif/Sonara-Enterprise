@@ -6,6 +6,7 @@ const director = read('cloudflare/sonara-music-director-v3-entry.mjs');
 const yue = read('cloudflare/sonara-yue-router.mjs');
 const molab = read('cloudflare/sonara-molab-xl-router.mjs');
 const speed = read('cloudflare/sonara-speed-v4-edge.mjs');
+const real = read('cloudflare/sonara-real-music-v3-edge.mjs');
 const ui = read('src/components/generator/DualTrackGenerationControl.tsx');
 
 assert.match(director, /profile: 'quality', internalBatches: 1, candidatesPerBatch: 2/);
@@ -18,6 +19,10 @@ assert.equal((molab.match(/ultraInferenceSteps:/g) || []).length, 1);
 assert.match(speed, /const FAST_STEPS = 1;/);
 assert.match(speed, /const QUALITY_STEPS = 2;/);
 assert.match(speed, /sonaraInternalCandidateTarget: 2/);
+assert.match(real, /defaultGenerationProfile: 'quality'/);
+assert.match(real, /defaultInferenceSteps: 2/);
+assert.match(real, /qualitySingleGpuBatch: true/);
+assert.match(real, /speedRevision: 'sonara-v14-quality-single-batch-1'/);
 assert.match(ui, /dualFast: true/);
 assert.match(ui, /JOB_POLL_INTERVAL_MS = 1_000/);
 

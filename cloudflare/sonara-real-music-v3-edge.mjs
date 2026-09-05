@@ -265,7 +265,16 @@ export default {
 
     let response = await runtime.fetch(request, env, ctx);
     if (response.ok && HEALTH_PATHS.has(url.pathname)) {
-      response = await transformJson(response, data => ({ ...data, realMusicV3: capabilities() }));
+      response = await transformJson(response, data => ({
+        ...data,
+        defaultGenerationProfile: 'quality',
+        defaultInferenceSteps: 2,
+        qualitySingleGpuBatch: true,
+        qualityCandidatesPerBatch: 2,
+        qualityAutomaticRepair: false,
+        speedRevision: 'sonara-v14-quality-single-batch-1',
+        realMusicV3: capabilities()
+      }));
     }
     return withVersion(response);
   }
