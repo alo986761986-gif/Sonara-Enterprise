@@ -152,6 +152,7 @@ export default function SonaraSunoLanding() {
   const [prompt, setPrompt] = useState('');
   const [bridgeBusy, setBridgeBusy] = useState(false);
   const [bridgeError, setBridgeError] = useState('');
+  const [genreSelectionKey, setGenreSelectionKey] = useState(preferredJazz ? `${preferredJazz.family}::${preferredJazz.name}` : '');
   const [genre, setGenre] = useState(preferredJazz?.name || 'Jazz');
   const [subgenre, setSubgenre] = useState(preferredJazz?.subgenres?.[0] || preferredJazz?.name || 'Jazz');
   const [mood, setMood] = useState('Relaxed');
@@ -165,7 +166,10 @@ export default function SonaraSunoLanding() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const genreEntry = useMemo(() => flattenedGenres.find(item => item.name === genre) || preferredJazz, [flattenedGenres, genre, preferredJazz]);
+  const genreEntry = useMemo(
+    () => flattenedGenres.find(item => `${item.family}::${item.name}` === genreSelectionKey) || preferredJazz,
+    [flattenedGenres, genreSelectionKey, preferredJazz]
+  );
   const genreFamily = genreEntry?.family || WORLD_MUSIC_GENRES[0]?.family || 'Electronic / Dance';
   const subgenreOptions = genreEntry?.subgenres?.length ? genreEntry.subgenres : [genre];
   const moodOptions = useMemo(() => {
@@ -519,7 +523,28 @@ export default function SonaraSunoLanding() {
         </div>
 
         <section className="sonara-violet-controls" aria-label="Music controls">
-          <label>GENERE MUSICALE<select value={genre} onChange={event => setGenre(event.target.value)}>{flattenedGenres.map(item => <option key={`${item.family}-${item.name}`} value={item.name}>{item.name}</option>)}</select></label>
+          <label>GENERE MUSICALE
+            <select
+              value={genreSelectionKey}
+              onChange={event => {
+                const nextKey = event.target.value;
+                const nextGenre = flattenedGenres.find(item => `${item.family}::${item.name}` === nextKey);
+                setGenreSelectionKey(nextKey);
+                if (nextGenre) {
+                  setGenre(nextGenre.name);
+                  setSubgenre(nextGenre.subgenres?.[0] || nextGenre.name);
+                }
+              }}
+            >
+              {WORLD_MUSIC_GENRES.map(group => (
+                <optgroup key={group.family} label={group.family}>
+                  {group.genres.map(item => (
+                    <option key={`${group.family}-${item.name}`} value={`${group.family}::${item.name}`}>{item.name}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </label>
           <label>SOTTOGENERE<select value={subgenre} onChange={event => setSubgenre(event.target.value)}>{subgenreOptions.map(item => <option key={item}>{item}</option>)}</select></label>
           <label>MOOD<select value={mood} onChange={event => setMood(event.target.value)}>{moodOptions.map(item => <option key={item}>{item}</option>)}</select></label>
           <label className="sonara-violet-bpm">BPM<div className="sonara-violet-bpm-row"><input type="number" min={40} max={220} value={bpm} onChange={event => setBpm(Math.max(40, Math.min(220, Number(event.target.value) || 120)))} /><span><button type="button" data-active={bpmMode === 'auto'} onClick={() => setBpmMode('auto')}>AUTO</button><button type="button" data-active={bpmMode === 'manual'} onClick={() => setBpmMode('manual')}>MAN</button></span></div></label>
