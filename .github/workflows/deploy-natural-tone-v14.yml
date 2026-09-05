@@ -51,6 +51,14 @@ jobs:
           npm install
           npm run build
 
+      - name: Revalidate patched production source after build
+        run: |
+          node cloudflare/sonara-natural-tone-v14.test.mjs
+          grep -Fq "const NATURAL_TONE_PROFILE = 'sonara-natural-tone-v14';" cloudflare/sonara-molab-xl-router.mjs
+          grep -Fq "dcw_mode: 'low'" cloudflare/sonara-molab-xl-router.mjs
+          grep -Fq "dcw_scaler: 0.02" cloudflare/sonara-molab-xl-router.mjs
+          grep -Fq "dcw_high_scaler: 0.0" cloudflare/sonara-molab-xl-router.mjs
+
       - name: Verify MoLab RTX endpoint
         shell: bash
         run: |
@@ -93,8 +101,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          last_response=''
           for attempt in $(seq 1 15); do
             response="$(curl -sS --max-time 30 -A "${SONARA_BROWSER_UA}" -H 'Accept: application/json' -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/molab/ready?tone=v14-${GITHUB_SHA}-${attempt}" || true)"
+            last_response="${response}"
+            if [[ -n "${response}" ]]; then
+              echo "LIVE_READY_ATTEMPT=${attempt}"
+              printf '%s\n' "${response}" | jq -c '{ready, profile, fidelityProfile, richArrangementProfile, naturalToneProfile, harshnessGuard, smoothTopEnd, fxRestraint, dcwEnabled, dcwMode, dcwScaler, dcwHighScaler, fastInferenceSteps, qualityInferenceSteps, ultraInferenceSteps, maxBatchSize}' 2>/dev/null || printf '%s\n' "${response}" | head -c 1200
+              echo
+            fi
             if [[ -n "${response}" ]] && printf '%s' "${response}" | jq -e '
               .ready == true and
               .richArrangementProfile == "sonara-rich-arrangement-v13" and
@@ -110,11 +125,15 @@ jobs:
               .ultraInferenceSteps == 8 and
               .maxBatchSize == 2
             ' >/dev/null 2>&1; then
-              printf '%s\n' "${response}" | jq '{ready, richArrangementProfile, naturalToneProfile, harshnessGuard, smoothTopEnd, fxRestraint, dcwMode, dcwScaler, dcwHighScaler, fastInferenceSteps, qualityInferenceSteps, ultraInferenceSteps, maxBatchSize}'
+              echo 'SONARA_NATURAL_TONE_V14_LIVE=PASS'
               exit 0
             fi
             sleep 4
           done
+          echo 'SONARA_NATURAL_TONE_V14_LIVE=FAIL'
+          if [[ -n "${last_response}" ]]; then
+            printf '%s\n' "${last_response}" | jq . 2>/dev/null || printf '%s\n' "${last_response}" | head -c 4000
+          fi
           exit 1
 
       - name: Persist production source
