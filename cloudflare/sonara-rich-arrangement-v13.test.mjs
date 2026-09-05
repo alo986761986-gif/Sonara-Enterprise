@@ -32,7 +32,7 @@ const cases = [
   {
     name: 'Rock',
     body: { ...common, genreFamily: 'Rock', genre: 'Alternative Rock', subgenre: 'Indie Rock', bpm: 118 },
-    expect: [/realistic drum kit/i, /rhythm guitar layers/i, /room and amp tails/i, /human/i]
+    expect: [/realistic drum kit/i, /rhythm guitar layers/i, /room and amp tails/i, /believable drummer\/bassist\/guitarist interaction/i]
   },
   {
     name: 'Jazz',
