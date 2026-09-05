@@ -1,4 +1,5 @@
-SONARA_VERCEL_RELEASE=2026-09-03-CREATOR-AUDIO-HUB-CLOUDFLARE-PURGE-V3
-REASON=Redeploy Creator Audio hub after fixing bundle verification broken-pipe failure and purge Cloudflare production cache
-EXPECTED_CREATOR_AUDIO=library-upload-voice-reference
-SOURCE_COMMIT=9495f7aff13a55d0102dc72f74573f19f0d5dbf7
+SONARA_VERCEL_RELEASE=2026-09-05-FREESTYLE-SELECTOR-CLOUDFLARE-PURGE-V1
+REASON=Force production redeploy and purge stale Cloudflare HTML cache so the corrected Hip-Hop Rap Freestyle selector is visible on sonaraenterprise.com
+EXPECTED_GENRE=Hip-Hop / Rap -> Freestyle
+EXPECTED_SUBGENRES=12
+SOURCE_COMMIT=bbd039066f9c31a5c6da11261beb3a5da4fd7677
