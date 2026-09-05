@@ -11,6 +11,7 @@ const REALISM_API_MARKER = 'sonara-realism-api-v1';
 const RICH_ARRANGEMENT_PROFILE = 'sonara-rich-arrangement-v13';
 const NATURAL_TONE_PROFILE = 'sonara-natural-tone-v14';
 const QUALITY_47_RESCUE_PROFILE = 'sonara-quality-47-rescue-v1';
+const FAST_80_RESCUE_PROFILE = 'sonara-fast-80-rescue-v1';
 const MODEL = 'acestep-v15-xl-turbo';
 const PUBLIC_API_ORIGIN = 'https://api.sonaraenterprise.com';
 const CACHE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/molab-xl-only-v1/';
@@ -23,6 +24,10 @@ const INFERENCE_STEPS = 1;
 const STALL_TIMEOUT = 12 * 60 * 1000;
 const HIGH_PROGRESS_RESCUE_THRESHOLD = 93;
 const HIGH_PROGRESS_MAX_POLLS = 6;
+const FAST_ARTIFACT_RESCUE_THRESHOLD = 70;
+const FAST_STALL_THRESHOLD = 75;
+const FAST_STALL_MAX_POLLS = 4;
+const FAST_RECOVERY_MAX_ATTEMPTS = 1;
 
 const cleanUrl = value => String(value || '').trim().replace(/\/$/, '');
 const molabUrl = env => cleanUrl(env.SONARA_MOLAB_XL_URL || env.MOLAB_ACESTEP_URL || '');
@@ -484,6 +489,7 @@ function qualityMetadata(count, payload = {}) {
     richArrangementProfile: RICH_ARRANGEMENT_PROFILE,
     naturalToneProfile: NATURAL_TONE_PROFILE,
     quality47RescueProfile: QUALITY_47_RESCUE_PROFILE,
+    fast80RescueProfile: FAST_80_RESCUE_PROFILE,
     harshnessGuard: true,
     smoothTopEnd: true,
     fxRestraint: true,
@@ -540,7 +546,10 @@ async function startMolab(request, env) {
       },
       payload,
       highProgressPolls: 0,
-      lastObservedProgress: 0
+      lastObservedProgress: 0,
+      fastStallPolls: 0,
+      fastLastObservedProgress: 0,
+      fastRecoveryAttempts: 0
     });
     const meta = qualityMetadata(count, payload);
     return json(request, {
@@ -597,7 +606,21 @@ async function pollMolab(request, env, jobId) {
       state.lastObservedProgress = info.progress;
     }
 
-    const completedByArtifacts = status === 0 && highProgress && refs.length >= expectedCount;
+    const isFast = String(payload?.sonara_generation_profile || 'quality').trim().toLowerCase() === 'fast';
+    const fastBand = isFast && status === 0 && info.progress >= FAST_STALL_THRESHOLD;
+    if (fastBand) {
+      const previousFast = Number(state.fastLastObservedProgress || 0);
+      state.fastStallPolls = info.progress <= previousFast + 0.1
+        ? Number(state.fastStallPolls || 0) + 1
+        : 1;
+      state.fastLastObservedProgress = info.progress;
+    } else {
+      state.fastStallPolls = 0;
+      state.fastLastObservedProgress = info.progress;
+    }
+
+    const completedFastByArtifacts = isFast && status === 0 && info.progress >= FAST_ARTIFACT_RESCUE_THRESHOLD && refs.length >= expectedCount;
+    const completedByArtifacts = (status === 0 && highProgress && refs.length >= expectedCount) || completedFastByArtifacts;
     if (status === 1 || completedByArtifacts) {
       if (refs.length < expectedCount) {
         return json(request, {
@@ -637,6 +660,52 @@ async function pollMolab(request, env, jobId) {
         error: String(task?.error || task?.message || `Generazione MoLab XL-Turbo fallita (status=${String(task?.status)}).`),
         metadata: { ...meta, currentStage: 'Generazione MoLab fallita' }
       }, 502);
+    }
+
+    if (fastBand && Number(state.fastStallPolls || 0) >= FAST_STALL_MAX_POLLS) {
+      const recoveryAttempts = Number(state.fastRecoveryAttempts || 0);
+      if (recoveryAttempts < FAST_RECOVERY_MAX_ATTEMPTS) {
+        const retryTaskId = await submit(state.baseUrl, env, payload);
+        state.taskId = retryTaskId;
+        state.fastRecoveryAttempts = recoveryAttempts + 1;
+        state.fastStallPolls = 0;
+        state.fastLastObservedProgress = 0;
+        state.updatedAt = Date.now();
+        await saveState(env, jobId, state);
+        return json(request, {
+          jobId,
+          status: 'PROCESSING',
+          progress: 86,
+          retryable: true,
+          audioUrl: null,
+          audioUrls: [],
+          candidates: [],
+          metadata: {
+            ...meta,
+            fast80RescueProfile: FAST_80_RESCUE_PROFILE,
+            fastRecoveryAttempts: state.fastRecoveryAttempts,
+            observedProgress: info.progress,
+            currentStage: 'Fast anti-stallo: render riavviato automaticamente'
+          }
+        }, 202);
+      }
+
+      await saveState(env, jobId, state);
+      return json(request, {
+        jobId,
+        status: 'FAILED',
+        progress: 100,
+        retryable: true,
+        error: 'Fast e rimasto fermo nella fase finale anche dopo il recupero automatico. Il job e stato chiuso invece di restare bloccato all 80%.',
+        metadata: {
+          ...meta,
+          fast80RescueProfile: FAST_80_RESCUE_PROFILE,
+          fastStallPolls: state.fastStallPolls,
+          fastRecoveryAttempts: state.fastRecoveryAttempts,
+          observedProgress: info.progress,
+          currentStage: 'Fast anti-stallo: retry esaurito'
+        }
+      }, 504);
     }
 
     if (status === 0 && highProgress && Number(state.highProgressPolls || 0) >= HIGH_PROGRESS_MAX_POLLS) {
@@ -681,7 +750,10 @@ async function pollMolab(request, env, jobId) {
       metadata: {
         ...meta,
         quality47RescueProfile: QUALITY_47_RESCUE_PROFILE,
+        fast80RescueProfile: FAST_80_RESCUE_PROFILE,
         highProgressPolls: Number(state.highProgressPolls || 0),
+        fastStallPolls: Number(state.fastStallPolls || 0),
+        fastRecoveryAttempts: Number(state.fastRecoveryAttempts || 0),
         currentStage: info.stage || (meta.thinking ? `Real Music: LM 4B + ${meta.samplerMode}, ${meta.inferenceSteps} step sulla RTX PRO 6000` : `MoLab XL-Turbo ${meta.inferenceSteps} step sulla RTX PRO 6000`)
       }
     });
@@ -769,6 +841,7 @@ async function readiness(request, env) {
     fidelityProfile: FIDELITY_PROFILE,
     realMusicProfile: REAL_MUSIC_PROFILE,
     richArrangementProfile: RICH_ARRANGEMENT_PROFILE,
+    fast80RescueProfile: FAST_80_RESCUE_PROFILE,
     fullInstrumentation: true,
     sectionDensityIntelligence: true,
     soundEffectsIntelligence: true,
@@ -805,6 +878,7 @@ function withHeaders(response) {
   headers.set('x-sonara-real-music', REAL_MUSIC_PROFILE);
   headers.set('x-sonara-rich-arrangement', RICH_ARRANGEMENT_PROFILE);
   headers.set('x-sonara-natural-tone', NATURAL_TONE_PROFILE);
+  headers.set('x-sonara-fast-80-rescue', FAST_80_RESCUE_PROFILE);
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
