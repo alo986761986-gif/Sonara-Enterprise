@@ -54,8 +54,7 @@ def main() -> None:
     }
 
     const completedByArtifacts = status === 0 && highProgress && refs.length >= expectedCount;
-    if (status === 1 || completedByArtifacts) {
-      if (refs.length < expectedCount) {"""
+    if (status === 1 || completedByArtifacts) {"""
     text = replace_once(text, anchor, replacement, 'ARTIFACT_COMPLETION_RESCUE')
 
     text = replace_once(
@@ -70,13 +69,6 @@ def main() -> None:
         "    if (Date.now() - Number(state.createdAt || Date.now()) > STALL_TIMEOUT && info.progress <= 0) {",
         "    if (status === 0 && highProgress && Number(state.highProgressPolls || 0) >= HIGH_PROGRESS_MAX_POLLS) {\n      await saveState(env, jobId, state);\n      return json(request, {\n        jobId,\n        status: 'FAILED',\n        progress: 100,\n        retryable: true,\n        error: 'MoLab e rimasto fermo nella fase finale senza pubblicare i file audio. Il job e stato chiuso automaticamente invece di restare al 47.4%.',\n        metadata: {\n          ...meta,\n          quality47RescueProfile: QUALITY_47_RESCUE_PROFILE,\n          highProgressPolls: state.highProgressPolls,\n          observedProgress: info.progress,\n          currentStage: 'Anti-stallo finale Quality attivato'\n        }\n      }, 504);\n    }\n\n    if (Date.now() - Number(state.createdAt || Date.now()) > STALL_TIMEOUT && info.progress <= 0) {",
         'HIGH_PROGRESS_FAIL_FAST'
-    )
-
-    text = replace_once(
-        text,
-        "    state.updatedAt = Date.now();\n    await saveState(env, jobId, state);",
-        "    state.updatedAt = Date.now();\n    await saveState(env, jobId, state);",
-        'STATE_SAVE_PRESERVED'
     )
 
     text = replace_once(
