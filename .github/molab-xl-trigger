@@ -2,4 +2,4 @@ SONARA_MOLAB_XL_URL=https://freight-peoples-confident-interaction.trycloudflare.
 MODEL=acestep-v15-xl-turbo
 MODE=MOLAB_XL_ONLY
 ACTION=bind-real-music-v3-speed-supervisor-v9
-VERIFY=20260905-QUALITY-V11-LOW-LATENCY-FULL-INSTRUMENTATION-V12
+VERIFY=20260905-V13-INSTANT-RTX6000-FAST1-QUALITY2-ULTRA8
