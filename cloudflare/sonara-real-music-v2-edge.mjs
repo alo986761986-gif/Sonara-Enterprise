@@ -5,7 +5,7 @@ export { SonaraJobState, SonaraAuthStore };
 const VERSION = 'sonara-real-music-v2-edge-1';
 const REAL_MUSIC_PROFILE = 'sonara-real-music-v2';
 const REALISM_API_MARKER = 'sonara-realism-api-v2';
-const NATURAL_TONE_PROFILE = 'sonara-natural-tone-v14';
+const NATURAL_TONE_PROFILE = 'sonara-natural-tone-v15-silk';
 const MODEL = 'acestep-v15-xl-turbo';
 const HEALTH_TIMEOUT = 10_000;
 

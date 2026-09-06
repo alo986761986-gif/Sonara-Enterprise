@@ -9,7 +9,7 @@ const FIDELITY_PROFILE = 'sonara-fidelity-v15-ultra-speed-max-fast1-quality2-ult
 const REAL_MUSIC_PROFILE = 'sonara-real-music-v1';
 const REALISM_API_MARKER = 'sonara-realism-api-v1';
 const RICH_ARRANGEMENT_PROFILE = 'sonara-rich-arrangement-v13';
-const NATURAL_TONE_PROFILE = 'sonara-natural-tone-v14';
+const NATURAL_TONE_PROFILE = 'sonara-natural-tone-v15-silk';
 const QUALITY_47_RESCUE_PROFILE = 'sonara-quality-47-rescue-v1';
 const FAST_80_RESCUE_PROFILE = 'sonara-fast-80-rescue-v1';
 const QUALITY_AB_DIVERSITY_PROFILE = 'sonara-quality-ab-diversity-v8';
@@ -151,7 +151,7 @@ function fidelityInstruction(body = {}, controls = qualityControls(body)) {
     'Preserve creator-selected instruments as authoritative anchors; supporting instruments may expand the arrangement but must never remove, replace or contradict explicitly requested instruments.',
     'For vocals, preserve supplied lyrics, requested language and singer intent. For instrumental requests, do not invent lead vocals.',
     'Create a memorable hook or motif, meaningful section development, professional transitions, a deliberate climax and a composed ending. Avoid copy-paste looping.',
-    'Prioritize rounded natural transients, controlled low end, full intelligible mids, smooth non-hyped highs, stereo depth, dynamics and a release-ready master. Reject piercing resonances, brittle hats/cymbals, shrill leads, fizzy treble, abrasive distortion and over-bright mastering.'
+    'Prioritize rounded natural transients, controlled low end, full intelligible mids, silky non-hyped highs, stereo depth, dynamics and a release-ready master. Keep presence energy around 2.5-6 kHz controlled; dynamically soften aggressive 3-5 kHz edges. De-ess and smooth 6-10 kHz hats, cymbals, vocals and bright synth texture while preserving natural air above 10 kHz. Reject piercing resonances, metallic upper mids, brittle hats/cymbals, shrill leads or vocals, fizzy treble, abrasive distortion and over-bright mastering.'
   ].filter(Boolean).join('\n');
 }
 
@@ -278,7 +278,7 @@ export function buildMolabPayload(body, count, capabilities = {}) {
     lm_top_p: humanTopP,
     lm_repetition_penalty: realMusic ? (profile === 'ultra' ? 1.08 : 1.04) : 1.0,
     lm_negative_prompt: realMusic
-      ? 'generic style drift, wrong BPM, wrong key, robotic quantization, static velocity, identical repeated bars, identical drum velocities, copy-paste phrasing, cloned chorus performance, fixed vibrato, pitch-staircase tuning, breathless synthetic vocal, plastic timbre, metallic artifacts, harsh clipping, piercing highs, brittle cymbals, shrill leads, whistling resonances, fizzy treble, abrasive upper mids, overly sharp transients, stacked bright risers, excessive noise FX, overcompression, phasey stereo, hard ambience resets, accidental silence, malformed ending, unwanted vocals'
+      ? 'generic style drift, wrong BPM, wrong key, robotic quantization, static velocity, identical repeated bars, identical drum velocities, copy-paste phrasing, cloned chorus performance, fixed vibrato, pitch-staircase tuning, breathless synthetic vocal, plastic timbre, metallic artifacts, harsh clipping, piercing highs, brittle cymbals, shrill leads, shrill vocals, whistling resonances, fizzy treble, metallic upper mids, glassy 3-6 kHz presence, excessive 6-10 kHz sibilance, abrasive upper mids, overly sharp transients, stacked bright risers, excessive noise FX, overcompression, phasey stereo, hard ambience resets, accidental silence, malformed ending, unwanted vocals'
       : 'NO USER INPUT',
     use_format: false,
     use_cot_metas: false,

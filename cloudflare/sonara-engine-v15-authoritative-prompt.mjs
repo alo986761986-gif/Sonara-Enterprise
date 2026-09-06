@@ -5,7 +5,7 @@ const TEMPO_LOCK_ID = 'v15-authoritative-bpm-v5-ui';
 const PROMPT_INTELLIGENCE_ID = 'sonara-prompt-intelligence-v2';
 const COHERENCE_CRITIC_ID = 'sonara-musical-coherence-critic-v1';
 const RICH_ARRANGEMENT_ID = 'sonara-rich-arrangement-v13';
-const NATURAL_TONE_ID = 'sonara-natural-tone-v14';
+const NATURAL_TONE_ID = 'sonara-natural-tone-v15-silk';
 const MAX_PROMPT_CHARS = 3600;
 const MAX_CREATOR_BRIEF_CHARS = 900;
 const BPM_MIN = 40;
@@ -281,7 +281,7 @@ function vocalProfile(body = {}) {
 }
 
 function mixProfile() {
-  return 'MIX/MASTER: natural warm-neutral tonal balance, full intelligible mids, controlled presence, smooth non-hyped top end, soft but clear hats/cymbals, rounded transients, controlled sub, kick/bass separation, clean low-mids, centered low end, musical dynamics and release-ready loudness. No clipping, brittle highs, piercing/whistling resonances, fizzy treble or over-limiting.';
+  return 'MIX/MASTER: warm-neutral, silky and fatigue-free while preserving clarity, punch and air. Keep 2.5-6 kHz presence controlled and musical; dynamically tame aggressive 3-5 kHz edges instead of dulling the whole mix. Keep 6-10 kHz hats, cymbals, sibilance and bright synth texture smooth and de-essed, with no glassy or metallic spikes. Above 10 kHz retain soft natural air without hiss or hyped sheen. Use rounded transients, full intelligible mids, controlled sub, kick/bass separation, clean low-mids, centered low end, musical dynamics and release-ready loudness. No clipping, brittle highs, piercing/whistling resonances, shrill vocals/leads, fizzy treble, abrasive saturation or over-limiting.';
 }
 
 function coherenceCritic(body, dna, bpm, creatorBrief) {
@@ -290,7 +290,7 @@ function coherenceCritic(body, dna, bpm, creatorBrief) {
   const conflictHint = creatorBrief && /\b(bpm|house|techno|trap|jungle|drum|bass|rock|jazz|pop|reggae|afro|trance|hardcore)\b/i.test(creatorBrief)
     ? 'If the brief names a conflicting genre, keep only compatible sonic qualities; never switch taxonomy.'
     : '';
-  return `CRITIC: reject contradictions, genre drift, demo-like sparsity, harshness, brittle highs, piercing resonances and excessive FX stacking. ${selected}, key, duration and structured controls win. ${bpmRule} ${conflictHint} Harmony, groove, instrumentation, density, effects and arrangement must reinforce each other. Avoid ${dna.avoid}.`;
+  return `CRITIC: reject contradictions, genre drift, demo-like sparsity, harshness, brittle highs, piercing resonances, metallic upper mids, excessive sibilance, glassy cymbals and excessive FX stacking. Preserve warmth and detail; solve harshness dynamically rather than making the mix dark. ${selected}, key, duration and structured controls win. ${bpmRule} ${conflictHint} Harmony, groove, instrumentation, density, effects and arrangement must reinforce each other. Avoid ${dna.avoid}.`;
 }
 
 function authoritativePrompt(body) {
