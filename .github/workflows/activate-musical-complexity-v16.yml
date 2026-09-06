@@ -1,0 +1,59 @@
+name: Activate Musical Complexity V16
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/musical-complexity-v16-trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  activate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify Natural Tone V15 Silk baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq "sonara-natural-tone-v15-silk" cloudflare/sonara-engine-v15-authoritative-prompt.mjs
+          grep -Fq "sonara-natural-tone-v15-silk" cloudflare/sonara-molab-xl-router.mjs
+
+      - name: Apply Musical Complexity V16
+        run: python scripts/patch-musical-complexity-v16.py
+
+      - name: Verify complexity and speed contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq "sonara-musical-complexity-v16" cloudflare/sonara-engine-v15-authoritative-prompt.mjs
+          grep -Fq "sonara-musical-complexity-v16" cloudflare/sonara-molab-xl-router.mjs
+          grep -Fq "SONARA MUSICAL COMPLEXITY V16" cloudflare/sonara-molab-xl-router.mjs
+          grep -Fq "sonara-natural-tone-v15-silk" cloudflare/sonara-engine-v15-authoritative-prompt.mjs
+          grep -Fq "sonara-natural-tone-v15-silk" cloudflare/sonara-molab-xl-router.mjs
+          grep -Fq "sonara-rich-arrangement-v13" cloudflare/sonara-molab-xl-router.mjs
+          grep -Fq "sonara-quality-ab-diversity-v8" cloudflare/sonara-molab-xl-router.mjs
+          grep -Fq "if (profile === 'ultra') return 2;" cloudflare/sonara-molab-xl-router.mjs
+          grep -Fq "if (profile === 'quality') return 2;" cloudflare/sonara-molab-xl-router.mjs
+          grep -Fq "return 1;" cloudflare/sonara-molab-xl-router.mjs
+
+      - name: Commit activation
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "Musical Complexity V16 already active."
+            exit 0
+          fi
+          git config user.name "sonara-enterprise-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add cloudflare/sonara-engine-v15-authoritative-prompt.mjs cloudflare/sonara-molab-xl-router.mjs
+          git commit -m "feat(audio): activate Musical Complexity V16 live"
+          git push origin HEAD:main
