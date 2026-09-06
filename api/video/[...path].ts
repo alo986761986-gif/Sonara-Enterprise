@@ -454,7 +454,7 @@ async function pollJob(user: AuthenticatedVideoUser, jobId: string, req: any, re
 async function proxyNativeMolabFile(operationName: string, req: any, res: any) {
   const jobId = String(operationName || '').trim();
   if (!/^[A-Za-z0-9_-]{8,160}$/.test(jobId)) return fail(res, 400, 'VIDEO_FILE_REQUIRED', 'File video non valido.');
-  const base = String(process.env.SONARA_MOLAB_VIDEO_URL || '').trim().replace(/\/+$/, '');
+  const base = 'https://video-ai.sonaraenterprise.com';
   const token = String(process.env.SONARA_MOLAB_VIDEO_TOKEN || '').trim();
   if (!base || !token) return fail(res, 503, 'VIDEO_PROVIDER_NOT_CONFIGURED', 'Il motore Video AI non è configurato.');
   const upstreamHeaders: Record<string, string> = { 'x-sonara-token': token };

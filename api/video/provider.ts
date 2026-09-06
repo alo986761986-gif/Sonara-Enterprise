@@ -30,8 +30,10 @@ function geminiApiKey() {
   return String(process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY || '').trim();
 }
 
+const SONARA_STABLE_MOLAB_VIDEO_URL = 'https://video-ai.sonaraenterprise.com';
+
 function molabBaseUrl() {
-  return String(process.env.SONARA_MOLAB_VIDEO_URL || '').trim().replace(/\/+$/, '');
+  return SONARA_STABLE_MOLAB_VIDEO_URL;
 }
 
 function molabToken() {
