@@ -1,0 +1,28 @@
+name: Deploy Natural Tone V15 Silk
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/patch-natural-tone-v15-silk.py'
+      - '.github/workflows/deploy-natural-tone-v15-silk.yml'
+  workflow_dispatch:
+
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply V15 Silk patch
+        run: python3 scripts/patch-natural-tone-v15-silk.py
+      - name: Verify V15 Silk contract
+        run: |
+          grep -Fq "sonara-natural-tone-v15-silk" cloudflare/sonara-engine-v15-authoritative-prompt.mjs
+          grep -Fq "sonara-natural-tone-v15-silk" cloudflare/sonara-molab-xl-router.mjs
+          grep -Fq "sonara-natural-tone-v15-silk" cloudflare/sonara-real-music-v2-edge.mjs
+          grep -Fq "3-5 kHz" cloudflare/sonara-engine-v15-authoritative-prompt.mjs
+          grep -Fq "6-10 kHz" cloudflare/sonara-molab-xl-router.mjs
+      - name: Build
+        run: |
+          npm ci
+          npm run build
