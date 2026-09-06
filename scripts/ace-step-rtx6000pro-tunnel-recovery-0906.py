@@ -12,6 +12,7 @@ from pathlib import Path
 
 ROOT = Path('/marimo/SONARA-ACE-Step-CLEAN')
 PORT = 8001
+CHECK_EVERY = 5
 V2_URL = (
     'https://raw.githubusercontent.com/'
     'alo986761986-gif/Sonara-Enterprise/'
@@ -22,7 +23,7 @@ V2_URL = (
 
 def load_v2():
     target = Path(tempfile.gettempdir()) / 'sonara_v2_recovery_0906.py'
-    req = urllib.request.Request(V2_URL, headers={'User-Agent': 'SONARA-TUNNEL-RECOVERY/1.0'})
+    req = urllib.request.Request(V2_URL, headers={'User-Agent': 'SONARA-TUNNEL-RECOVERY/2.0'})
     with urllib.request.urlopen(req, timeout=120) as r:
         target.write_bytes(r.read())
     spec = importlib.util.spec_from_file_location('sonara_v2_recovery', target)
@@ -49,10 +50,9 @@ def kill_cloudflared():
             continue
         if pid == me:
             continue
-        cmd = parts[1].lower()
-        if 'cloudflared' in cmd and str(PORT) in cmd:
+        if 'cloudflared' in parts[1].lower():
             try:
-                os.kill(pid, signal.SIGTERM)
+                os.kill(pid, signal.SIGKILL)
                 print(f'STOP_OLD_TUNNEL_PID={pid}', flush=True)
             except Exception:
                 pass
@@ -61,7 +61,14 @@ def kill_cloudflared():
 
 def local_ready(v2) -> bool:
     try:
-        return bool(v2.health_ready(v2.request_json(f'http://127.0.0.1:{PORT}/health', 10)))
+        return bool(v2.health_ready(v2.request_json(f'http://127.0.0.1:{PORT}/health', 8)))
+    except Exception:
+        return False
+
+
+def public_ready(v2, url: str) -> bool:
+    try:
+        return bool(v2.health_ready(v2.request_json(url + '/health', 8)))
     except Exception:
         return False
 
@@ -77,20 +84,33 @@ def start_or_reuse_api(v2):
 
 
 def start_tunnel(v2):
-    kill_cloudflared()
-    proc, public_url = v2.start_new_tunnel()
-    body = v2.request_json(public_url + '/health', 20)
-    if not v2.health_ready(body):
-        raise RuntimeError('Nuovo tunnel attivo ma health SONARA non valido.')
-    print('\n' + '=' * 110, flush=True)
-    print('SONARA MOLAB XL TUNNEL RECOVERY READY', flush=True)
-    print(f'SONARA_MOLAB_XL_URL={public_url}', flush=True)
-    print('MODEL=acestep-v15-xl-turbo', flush=True)
-    print('FAST=1_STEP QUALITY=2_STEPS ULTRA=2_STEPS MAX_BATCH_SIZE=2', flush=True)
-    print('QUALITY_AB=INDEPENDENT_COMPOSITIONS_V8_EDGE NATURAL_TONE=V14 RICH_ARRANGEMENT=V13', flush=True)
-    print('QUESTA E LA CELLA DA LASCIARE ATTIVA.', flush=True)
-    print('=' * 110 + '\n', flush=True)
-    return proc, public_url
+    last_error = None
+    for attempt in range(1, 7):
+        kill_cloudflared()
+        try:
+            print(f'CLOUDFLARE_RECOVERY_ATTEMPT={attempt}/6', flush=True)
+            proc, public_url = v2.start_new_tunnel()
+            deadline = time.time() + 40
+            while time.time() < deadline:
+                if proc.poll() is not None:
+                    break
+                if public_ready(v2, public_url):
+                    print('\n' + '=' * 110, flush=True)
+                    print('SONARA MOLAB XL TUNNEL RECOVERY READY', flush=True)
+                    print(f'SONARA_MOLAB_XL_URL={public_url}', flush=True)
+                    print('MODEL=acestep-v15-xl-turbo', flush=True)
+                    print('FAST=1_STEP QUALITY=2_STEPS ULTRA=2_STEPS MAX_BATCH_SIZE=2', flush=True)
+                    print('QUALITY_AB=INDEPENDENT_COMPOSITIONS_V8_EDGE NATURAL_TONE=V14 RICH_ARRANGEMENT=V13', flush=True)
+                    print('QUESTA E LA CELLA DA LASCIARE ATTIVA.', flush=True)
+                    print('=' * 110 + '\n', flush=True)
+                    return proc, public_url
+                time.sleep(2)
+            last_error = RuntimeError(f'Tunnel non pronto: {public_url}')
+        except Exception as exc:
+            last_error = exc
+            print(f'CLOUDFLARE_ATTEMPT_FAILED={type(exc).__name__}: {exc}', flush=True)
+        time.sleep(min(2 * attempt, 10))
+    raise RuntimeError(f'Impossibile creare un Quick Tunnel sano dopo 6 tentativi: {last_error}')
 
 
 def main():
@@ -100,24 +120,25 @@ def main():
     v2 = load_v2()
     api_proc = start_or_reuse_api(v2)
     tunnel_proc, public_url = start_tunnel(v2)
+    failures = 0
 
     while True:
-        time.sleep(15)
+        time.sleep(CHECK_EVERY)
 
         if not local_ready(v2):
             print('WATCHDOG: API locale non pronta, riavvio ACE-Step...', flush=True)
             api_proc = start_or_reuse_api(v2)
 
-        tunnel_ok = False
-        if tunnel_proc.poll() is None:
-            try:
-                tunnel_ok = bool(v2.health_ready(v2.request_json(public_url + '/health', 12)))
-            except Exception:
-                tunnel_ok = False
+        if public_ready(v2, public_url):
+            failures = 0
+        else:
+            failures += 1
+            print(f'WATCHDOG: public health failure {failures}/2', flush=True)
 
-        if not tunnel_ok:
-            print('WATCHDOG: Quick Tunnel offline, rigenero URL Cloudflare...', flush=True)
+        if tunnel_proc.poll() is not None or failures >= 2:
+            print('WATCHDOG: Quick Tunnel offline/HTTP 530, rigenero URL Cloudflare...', flush=True)
             tunnel_proc, public_url = start_tunnel(v2)
+            failures = 0
 
         print(
             f"[{time.strftime('%H:%M:%S')}] SONARA RTX6000PRO | API=UP | PUBLIC=UP | "
