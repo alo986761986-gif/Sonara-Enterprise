@@ -1,0 +1,50 @@
+name: Activate Video AI Stable Host
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/video-ai-stable-host-trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  activate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply stable Video AI host patch
+        run: python scripts/patch-video-ai-stable-host-v1.py
+
+      - name: Verify stable host
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq "https://video-ai.sonaraenterprise.com" api/video/provider.ts
+          grep -Fq "https://video-ai.sonaraenterprise.com" 'api/video/[...path].ts'
+          grep -Fq "SONARA_MOLAB_VIDEO_TOKEN" api/video/provider.ts
+          grep -Fq "SONARA_MOLAB_VIDEO_TOKEN" 'api/video/[...path].ts'
+
+      - name: Build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Commit activation
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "Stable Video AI host already active."
+            exit 0
+          fi
+          git config user.name "sonara-enterprise-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add api/video/provider.ts 'api/video/[...path].ts'
+          git commit -m "fix(video): activate stable MoLab Video AI hostname"
+          git push origin HEAD:main
