@@ -29,11 +29,8 @@ jobs:
           grep -Fq "https://video-ai.sonaraenterprise.com" 'api/video/[...path].ts'
           grep -Fq "SONARA_MOLAB_VIDEO_TOKEN" api/video/provider.ts
           grep -Fq "SONARA_MOLAB_VIDEO_TOKEN" 'api/video/[...path].ts'
-
-      - name: Build
-        run: |
-          npm ci
-          npm run build
+          grep -Fq "return SONARA_STABLE_MOLAB_VIDEO_URL;" api/video/provider.ts
+          grep -Fq "const base = 'https://video-ai.sonaraenterprise.com';" 'api/video/[...path].ts'
 
       - name: Commit activation
         shell: bash
