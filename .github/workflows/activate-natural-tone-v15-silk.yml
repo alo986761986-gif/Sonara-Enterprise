@@ -1,0 +1,52 @@
+name: Activate Natural Tone V15 Silk
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/natural-tone-v15-trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  activate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply V15 Silk patch
+        run: python scripts/patch-natural-tone-v15-silk.py
+
+      - name: Verify live markers and speed contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq "sonara-natural-tone-v15-silk" cloudflare/sonara-engine-v15-authoritative-prompt.mjs
+          grep -Fq "sonara-natural-tone-v15-silk" cloudflare/sonara-molab-xl-router.mjs
+          grep -Fq "sonara-natural-tone-v15-silk" cloudflare/sonara-real-music-v2-edge.mjs
+          grep -Fq "return 2;" cloudflare/sonara-molab-xl-router.mjs
+          grep -Fq "return 1;" cloudflare/sonara-molab-xl-router.mjs
+          grep -Fq "sonara-rich-arrangement-v13" cloudflare/sonara-molab-xl-router.mjs
+          grep -Fq "sonara-quality-ab-diversity-v8" cloudflare/sonara-molab-xl-router.mjs
+          grep -Fq "2.5-6 kHz" cloudflare/sonara-molab-xl-router.mjs
+          grep -Fq "3-5 kHz" cloudflare/sonara-engine-v15-authoritative-prompt.mjs
+          grep -Fq "6-10 kHz" cloudflare/sonara-engine-v15-authoritative-prompt.mjs
+
+      - name: Commit activation
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "Natural Tone V15 Silk already active."
+            exit 0
+          fi
+          git config user.name "sonara-enterprise-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add cloudflare/sonara-engine-v15-authoritative-prompt.mjs cloudflare/sonara-molab-xl-router.mjs cloudflare/sonara-real-music-v2-edge.mjs
+          git commit -m "feat(audio): activate Natural Tone V15 Silk live"
+          git push origin HEAD:main
