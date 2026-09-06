@@ -9,6 +9,7 @@ const FIDELITY_PROFILE = 'sonara-fidelity-v15-ultra-speed-max-fast1-quality2-ult
 const REAL_MUSIC_PROFILE = 'sonara-real-music-v1';
 const REALISM_API_MARKER = 'sonara-realism-api-v1';
 const RICH_ARRANGEMENT_PROFILE = 'sonara-rich-arrangement-v13';
+const MUSICAL_COMPLEXITY_PROFILE = 'sonara-musical-complexity-v16';
 const NATURAL_TONE_PROFILE = 'sonara-natural-tone-v15-silk';
 const QUALITY_47_RESCUE_PROFILE = 'sonara-quality-47-rescue-v1';
 const FAST_80_RESCUE_PROFILE = 'sonara-fast-80-rescue-v1';
@@ -145,6 +146,7 @@ function fidelityInstruction(body = {}, controls = qualityControls(body)) {
     'Do not collapse the result into generic EDM, generic pop, generic house, or any neighboring genre unless the creator explicitly asked for it.',
     'Use genre-authentic drums, bass language, instrumentation, harmonic vocabulary, melodic phrasing, transitions, mix balance and mastering character.',
     'SONARA FULL INSTRUMENTATION V12: make the arrangement feel full, rich, layered and professionally produced rather than sparse or demo-like.',
+    'SONARA MUSICAL COMPLEXITY V16: make the composition feel intentionally developed across time. Introduce motif transformations, counter-lines, secondary rhythmic cells, chord-voicing changes, bass variations, call-and-response, 2-4 bar micro-variations, phrase-end fills, evolving automation, dynamic role swaps and section-specific orchestration. Each chorus/drop/return should evolve from the previous one rather than repeat identically. Complexity must remain genre-authentic, coherent and memorable; never add random layers merely to increase density.',
     'When the requested genre supports it, build roughly 8-12 distinct complementary musical/production roles: primary drums, secondary percussion, bass, chord/harmonic instrument, supporting harmony layer, lead or hook instrument, counter-melody/response layer, atmosphere/texture, fills/ornaments, transitions and genre-authentic ear-candy.',
     'Add instruments ONLY when they naturally belong to the requested genre/subgenre, era and production language. Never inflate the arrangement with unrelated instruments.',
     'Distribute layers by register, frequency and musical function. Keep upper-mid and high-frequency roles deliberately sparse: usually one bright focal element plus natural hat/cymbal detail, never several sharp leads, noisy risers and bright percussion fighting at once. Use section-specific entrances/exits, call-and-response, evolving automation and contrast so the track feels rich without becoming harsh or overcrowded.',
@@ -490,6 +492,7 @@ function qualityMetadata(count, payload = {}) {
     fidelityProfile: FIDELITY_PROFILE,
     realMusicProfile: realMusic ? REAL_MUSIC_PROFILE : null,
     richArrangementProfile: RICH_ARRANGEMENT_PROFILE,
+    musicalComplexityProfile: MUSICAL_COMPLEXITY_PROFILE,
     naturalToneProfile: NATURAL_TONE_PROFILE,
     quality47RescueProfile: QUALITY_47_RESCUE_PROFILE,
     fast80RescueProfile: FAST_80_RESCUE_PROFILE,
