@@ -104,6 +104,7 @@ def download_gateway():
 def api_key_for_local_origin():
     return (
         os.environ.get("SONARA_MOLAB_UPSTREAM_API_KEY", "").strip()
+        or os.environ.get("SONARA_ACESTEP_API_KEY", "").strip()
         or os.environ.get("ACESTEP_API_KEY", "").strip()
     )
 
@@ -128,7 +129,7 @@ def _probe_gateway(token):
 
 
 def ensure_gateway(token):
-    if _probe_gateway(token):
+    if _probe_gateway(token) and _denied_without_auth(LOCAL_GATEWAY + "/health"):
         log("Gateway autenticato gia attivo sulla porta locale 8002.")
         return
 
