@@ -75,8 +75,10 @@ function requestedCandidates(body = {}) {
   return Math.round(clamp(body.candidateCount ?? body.candidate_count, 2, 1, 2));
 }
 
-function shouldUseYue(body = {}) {
-  if (body.forceAceStep === true || body.provider === 'molab' || body.engineProvider === 'molab') return false;
+export function shouldUseYue(body = {}, env = {}) {
+  // Dedicated GPU is the only live music provider, even when the caller forces YuE.
+  if (String(env.SONARA_DEDICATED_GPU_ONLY || '').toLowerCase() === 'true') return false;
+  if (body.forceAceStep === true || ['molab','dedicated_gpu'].includes(body.provider) || ['molab','dedicated_gpu'].includes(body.engineProvider)) return false;
   if (body.forceYue === true || body.provider === 'yue' || body.engineProvider === 'yue') return true;
   const lyrics = text(body.lyrics);
   const vocalMode = text(body.vocalMode || body.vocal_mode).toLowerCase();
@@ -298,7 +300,7 @@ async function startYue(request, env) {
   try { body = await request.clone().json(); }
   catch { return json(request, { error: 'Invalid JSON request body.' }, 400); }
 
-  if (!shouldUseYue(body)) return null;
+  if (!shouldUseYue(body, env)) return null;
 
   const payload = buildYuePayload(body);
   const jobId = `yue_${crypto.randomUUID()}`;
