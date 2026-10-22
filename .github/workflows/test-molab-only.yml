@@ -16,6 +16,7 @@ on:
       - "scripts/sonara-molab-secure-gateway.py"
       - "scripts/test-sonara-molab-secure-gateway.py"
       - "api/billing/[...path].ts"
+      - "api/billing/job.ts"
       - "wrangler.jsonc"
   push:
     branches:
@@ -65,4 +66,10 @@ jobs:
           const billing = readFileSync("api/billing/[...path].ts", "utf8");
           if (!billing.includes("provider: 'molab'") || !billing.includes("engineProvider: 'molab'")) process.exit(5);
           if (billing.includes("useEleven")) process.exit(6);
+          const job = readFileSync("api/billing/job.ts", "utf8");
+          if (!job.includes("mxl_")) process.exit(7);
+          const deploy = readFileSync(".github/workflows/configure-molab-xl.yml", "utf8");
+          if (!deploy.includes("SONARA_INTERNAL_PROXY_SECRET: process.env.SONARA_INTERNAL_PROXY_SECRET")) process.exit(8);
+          if (!deploy.includes("vercel_proxy_secret_configured:")) process.exit(9);
+          if (!deploy.includes(".realMusicReady == true")) process.exit(10);
           '
