@@ -7,13 +7,18 @@
   "keep_vars": true,
   "vars": {
     "SONARA_YUE_WORKER_URL": "https://yue.sonaraenterprise.com",
-    "SONARA_PRODUCTION_CHAIN": "sonara-real-music-v3-edge.mjs -> sonara-ultra-diversity-v1-edge.mjs -> sonara-speed-v4-edge.mjs -> sonara-real-music-v2-edge.mjs -> sonara-studio-pitch-key-upload-bridge.mjs -> sonara-studio-native-pitch-bridge.mjs -> sonara-studio-key-pitch-guard.mjs -> sonara-quality-ultra-stability-guard.mjs [REAL_MUSIC_V3][TRACK_GENOME][HUMANIZER][VOICE_REALISM][AUTO_REFINE][INDEPENDENT_AB_V3][PROMPT_FIDELITY_V4]"
+    "SONARA_PRODUCTION_CHAIN": "sonara-real-music-v3-edge.mjs -> sonara-ultra-diversity-v1-edge.mjs -> sonara-speed-v4-edge.mjs -> sonara-real-music-v2-edge.mjs -> sonara-studio-pitch-key-upload-bridge.mjs -> sonara-studio-native-pitch-bridge.mjs -> sonara-studio-key-pitch-guard.mjs -> sonara-quality-ultra-stability-guard.mjs [REAL_MUSIC_V3][TRACK_GENOME][HUMANIZER][VOICE_REALISM][AUTO_REFINE][INDEPENDENT_AB_V3][PROMPT_FIDELITY_V4]",
+    "SONARA_MOLAB_ONLY": "true"
   },
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/__sonara_internal/*", "/sonara-video-ui-edge.js"]
+    "run_worker_first": [
+      "/api/*",
+      "/__sonara_internal/*",
+      "/sonara-video-ui-edge.js"
+    ]
   },
   "durable_objects": {
     "bindings": [
@@ -30,11 +35,15 @@
   "migrations": [
     {
       "tag": "v19-durable-job-state-1",
-      "new_sqlite_classes": ["SonaraJobState"]
+      "new_sqlite_classes": [
+        "SonaraJobState"
+      ]
     },
     {
       "tag": "v20-sonara-native-auth-1",
-      "new_sqlite_classes": ["SonaraAuthStore"]
+      "new_sqlite_classes": [
+        "SonaraAuthStore"
+      ]
     }
   ],
   "routes": [
