@@ -63,7 +63,8 @@ jobs:
         run: |
           node --check cloudflare/sonara-molab-xl-router.mjs
           node --check cloudflare/sonara-yue-router.mjs
-          node --test cloudflare/sonara-dedicated-gpu.test.mjs
+          npx --yes esbuild@0.28.1 cloudflare/sonara-dedicated-gpu.test.mjs --bundle --platform=node --format=esm --outfile=/tmp/sonara-dedicated-gpu.test.mjs
+          node --test /tmp/sonara-dedicated-gpu.test.mjs
 
       - name: Check dedicated GPU HTTPS models and authentication
         shell: bash
