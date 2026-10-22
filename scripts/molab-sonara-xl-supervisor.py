@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path('/marimo/SONARA-ACE-Step-CLEAN')
 PY = ROOT / '.venv/bin/python'
 MODEL = 'acestep-v15-xl-turbo'
+LM_MODEL = 'acestep-5Hz-lm-4B'
 PORT = 8001
 WORK = Path('/tmp/sonara-molab-supervisor')
 WORK.mkdir(parents=True, exist_ok=True)
@@ -40,7 +41,11 @@ def request_headers():
 
 
 def request_json(url, timeout=12):
-    req = urllib.request.Request(url, headers=request_headers())
+    headers = request_headers()
+    key = os.environ.get('SONARA_ACESTEP_API_KEY', '').strip()
+    if key:
+        headers['Authorization'] = 'Bearer ' + key
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as r:
         raw = r.read().decode('utf-8', errors='replace')
         return json.loads(raw) if raw else {}
@@ -54,6 +59,8 @@ def health_ready(body):
         str(data.get('status') or '').lower() == 'ok'
         and data.get('models_initialized') is True
         and MODEL in str(data.get('loaded_model') or '')
+        and data.get('llm_initialized') is True
+        and LM_MODEL in str(data.get('loaded_lm_model') or '')
     )
 
 
@@ -66,7 +73,11 @@ def local_ready():
 
 def public_probe(url=STABLE_URL):
     target = url.rstrip('/') + '/health'
-    req = urllib.request.Request(target, headers=request_headers())
+    headers = request_headers()
+    key = os.environ.get('SONARA_ACESTEP_API_KEY', '').strip()
+    if key:
+        headers['Authorization'] = 'Bearer ' + key
+    req = urllib.request.Request(target, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=10) as response:
             raw = response.read().decode('utf-8', errors='replace')
@@ -130,7 +141,9 @@ def api_env():
     env.update({
         'ACESTEP_CONFIG_PATH': MODEL,
         'ACESTEP_DEVICE': 'cuda',
-        'ACESTEP_INIT_LLM': 'false',
+        'ACESTEP_INIT_LLM': 'true',
+        'ACESTEP_LM_MODEL_PATH': LM_MODEL,
+        'ACESTEP_API_KEY': os.environ['SONARA_ACESTEP_API_KEY'],
         'ACESTEP_USE_FLASH_ATTENTION': 'false',
         'ACESTEP_OFFLOAD_TO_CPU': 'false',
         'ACESTEP_OFFLOAD_DIT_TO_CPU': 'false',
@@ -151,6 +164,8 @@ def api_env():
 
 
 def start_api():
+    if not os.environ.get('SONARA_ACESTEP_API_KEY', '').strip():
+        raise RuntimeError('SONARA_ACESTEP_API_KEY obbligatoria: impossibile esporre API senza autenticazione.')
     if not ROOT.exists() or not PY.exists():
         raise RuntimeError('Ambiente CLEAN non trovato. Esegui prima il clean bootstrap.')
     if local_ready():
@@ -261,7 +276,9 @@ def banner(url):
 
 
 def main():
-    log('SONARA MoLab supervisor ON-DEMAND avviato.')
+    if not os.environ.get('SONARA_ACESTEP_API_KEY', '').strip():
+        raise RuntimeError('Imposta SONARA_ACESTEP_API_KEY come variabile privata su MoLab prima di avviare il supervisor.')
+    log('SONARA MoLab supervisor ON-DEMAND avviato (XL Turbo + LM 4B, auth obbligatoria).')
     api_proc = None
     tunnel_proc = None
     public_url = STABLE_URL
