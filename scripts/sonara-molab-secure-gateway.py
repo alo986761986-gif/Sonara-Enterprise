@@ -45,7 +45,7 @@ class GatewayHandler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
         # Never log headers, bearer tokens, prompt text, or query strings.
-        print("SONARA_GATEWAY " + fmt % args, flush=True)
+        return
 
     def _reply(self, code, body):
         payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
@@ -94,8 +94,9 @@ class GatewayHandler(BaseHTTPRequestHandler):
         if parsed.path not in ALLOWED_EXACT and not any(
                 parsed.path.startswith(prefix) for prefix in ALLOWED_PREFIX):
             return self._reply(404, {"error": "ACE-Step route not exposed"})
-        if self.headers.get("Transfer-Encoding"):
-            return self._reply(411, {"error": "Content-Length required"})
+        transfer_encoding = (self.headers.get("Transfer-Encoding") or "").lower()
+        if transfer_encoding:
+            return self._reply(411, {"error": "Content-Length required (chunked requests are not enabled)"})
         try:
             size = int(self.headers.get("Content-Length") or "0")
             if size < 0 or size > MAX_REQUEST_BYTES:
@@ -104,6 +105,7 @@ class GatewayHandler(BaseHTTPRequestHandler):
             return self._reply(400, {"error": "Invalid Content-Length"})
 
         conn = None
+        headers_sent = False
         try:
             conn = http.client.HTTPConnection(
                 UPSTREAM_HOST, UPSTREAM_PORT, timeout=180
@@ -142,6 +144,7 @@ class GatewayHandler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "private, no-store")
             self.send_header("Connection", "close")
             self.end_headers()
+            headers_sent = True
             if self.command != "HEAD":
                 while True:
                     chunk = response.read(65536)
@@ -152,7 +155,7 @@ class GatewayHandler(BaseHTTPRequestHandler):
         except (OSError, http.client.HTTPException) as exc:
             # If streaming already began, close the response rather than send a
             # second HTTP status; otherwise report the origin failure.
-            if not self._headers_buffer:
+            if headers_sent:
                 self.close_connection = True
             else:
                 self._reply(502, {"error": "MoLab ACE-Step origin unavailable", "type": type(exc).__name__})
