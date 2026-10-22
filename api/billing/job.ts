@@ -107,7 +107,8 @@ export default async function handler(req: any, res: any) {
     });
   }
 
-  const engineBaseUrl = String(process.env.SONARA_ENGINE_API_URL || DEFAULT_ENGINE_URL).replace(/\/$/, '');
+  // The MoLab-only deployment must not poll a legacy engine configured in Vercel.
+  const engineBaseUrl = DEFAULT_ENGINE_URL;
   const headers: Record<string, string> = {
     Accept: 'application/json',
     'X-Sonara-Job-Bridge': 'vercel'
