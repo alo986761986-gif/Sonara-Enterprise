@@ -462,7 +462,7 @@ async function loadState(env, jobId) {
 const AUDIO_LINK_TTL_SECONDS = 24 * 60 * 60;
 
 function audioHmacInput(path, expires) {
-  return new TextEncoder().encode(`sonara-molab-audio-v1\\n${expires}\\n${path}`);
+  return new TextEncoder().encode(`sonara-molab-audio-v1|${expires}|${path}`);
 }
 
 async function audioHmacKey(env) {
@@ -478,7 +478,7 @@ async function audioHmacKey(env) {
 }
 
 export async function publicAudioUrl(path, env, now = Date.now()) {
-  if (!path || path.length > 2048 || path.includes('\\0')) throw new Error('Invalid audio path');
+  if (!path || path.length > 2048 || path.includes(String.fromCharCode(0))) throw new Error('Invalid audio path');
   const expires = Math.floor(now / 1000) + AUDIO_LINK_TTL_SECONDS;
   const key = await audioHmacKey(env);
   const signature = new Uint8Array(await crypto.subtle.sign('HMAC', key, audioHmacInput(path, expires)));
@@ -494,8 +494,8 @@ export async function verifySignedAudioUrl(url, env, now = Date.now()) {
   const path = String(url.searchParams.get('path') || '');
   const exp = String(url.searchParams.get('exp') || '');
   const sig = String(url.searchParams.get('sig') || '');
-  if (!path || path.length > 2048 || path.includes('\\0')) return false;
-  if (!/^\\d{10}$/.test(exp) || !/^[0-9a-f]{64}$/.test(sig)) return false;
+  if (!path || path.length > 2048 || path.includes(String.fromCharCode(0))) return false;
+  if (!/^[0-9]{10}$/.test(exp) || !/^[0-9a-f]{64}$/.test(sig)) return false;
   const expiry = Number(exp);
   const current = Math.floor(now / 1000);
   if (expiry < current || expiry > current + AUDIO_LINK_TTL_SECONDS) return false;
