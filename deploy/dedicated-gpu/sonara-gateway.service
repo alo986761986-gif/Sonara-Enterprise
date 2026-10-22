@@ -1,0 +1,24 @@
+[Unit]
+Description=SONARA dedicated GPU authenticated ACE-Step gateway
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=sonara
+Group=sonara
+WorkingDirectory=/opt/sonara/backend
+EnvironmentFile=/etc/sonara/gateway.env
+ExecStart=/usr/bin/python3 -u /opt/sonara/backend/sonara-dedicated-secure-gateway.py
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+CapabilityBoundingSet=
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
