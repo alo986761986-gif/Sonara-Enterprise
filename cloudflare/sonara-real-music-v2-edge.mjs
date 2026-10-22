@@ -10,7 +10,11 @@ const MODEL = 'acestep-v15-xl-turbo';
 const HEALTH_TIMEOUT = 10_000;
 
 const cleanUrl = value => String(value || '').trim().replace(/\/$/, '');
-const molabUrl = env => cleanUrl(env.SONARA_DEDICATED_GPU_URL || env.SONARA_MOLAB_XL_URL || env.MOLAB_ACESTEP_URL || '');
+const molabUrl = env => cleanUrl(
+  String(env.SONARA_DEDICATED_GPU_ONLY || '').toLowerCase() === 'true'
+    ? env.SONARA_DEDICATED_GPU_URL
+    : env.SONARA_DEDICATED_GPU_URL || env.SONARA_MOLAB_XL_URL || env.MOLAB_ACESTEP_URL || ''
+);
 
 function authHeaders(env) {
   const out = {
