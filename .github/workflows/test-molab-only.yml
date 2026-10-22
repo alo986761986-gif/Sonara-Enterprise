@@ -15,6 +15,7 @@ on:
       - "scripts/sonara-molab-connect-production.py"
       - "scripts/sonara-molab-secure-gateway.py"
       - "scripts/test-sonara-molab-secure-gateway.py"
+      - "api/billing/[...path].ts"
       - "wrangler.jsonc"
   push:
     branches:
@@ -61,4 +62,7 @@ jobs:
           const t = readFileSync(".github/molab-xl-trigger", "utf8");
           if (!t.includes("SONARA_MOLAB_XL_URL=https://molab.sonaraenterprise.com")) process.exit(3);
           if (!t.includes("MODE=MOLAB_XL_ONLY")) process.exit(4);
+          const billing = readFileSync("api/billing/[...path].ts", "utf8");
+          if (!billing.includes("provider: 'molab'") || !billing.includes("engineProvider: 'molab'")) process.exit(5);
+          if (billing.includes("useEleven")) process.exit(6);
           '
