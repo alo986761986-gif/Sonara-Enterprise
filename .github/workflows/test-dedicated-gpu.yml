@@ -42,7 +42,8 @@ jobs:
           node --check cloudflare/sonara-molab-xl-router.mjs
           node --check cloudflare/sonara-yue-router.mjs
           node --check cloudflare/sonara-real-music-v3-edge.mjs
-          node --test cloudflare/sonara-dedicated-gpu.test.mjs
+          npx --yes esbuild@0.28.1 cloudflare/sonara-dedicated-gpu.test.mjs --bundle --platform=node --format=esm --outfile=/tmp/sonara-dedicated-gpu.test.mjs
+          node --test /tmp/sonara-dedicated-gpu.test.mjs
 
       - name: Infrastructure and fail-closed routing contract
         shell: bash
