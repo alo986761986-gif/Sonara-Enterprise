@@ -33,8 +33,10 @@ jobs:
           python -m py_compile scripts/molab-sonara-xl-stable-tunnel-setup.py
           node --check cloudflare/sonara-molab-xl-router.mjs
           node --check cloudflare/sonara-yue-router.mjs
-      - name: Validate MoLab-exclusive generation logic
-        run: node --test cloudflare/sonara-molab-only.test.mjs
+      - name: Bundle ESM/TypeScript dependencies and test MoLab routing
+        run: |
+          npx --yes esbuild@0.28.1 cloudflare/sonara-molab-only.test.mjs --bundle --platform=node --format=esm --outfile=/tmp/sonara-molab-only.test.mjs
+          node --test /tmp/sonara-molab-only.test.mjs
       - name: Check Cloudflare config and stable MoLab endpoint
         run: |
           node --input-type=module -e '
