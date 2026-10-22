@@ -73,9 +73,11 @@ function authHeaders(env, extra = {}) {
   return out;
 }
 
-function authorized(request, env) {
+export function authorized(request, env) {
+  // Fail closed: the public Worker must never spend GPU time when
+  // SONARA_INTERNAL_PROXY_SECRET is absent or the caller is untrusted.
   const required = String(env.SONARA_INTERNAL_PROXY_SECRET || '').trim();
-  return !required || String(request.headers.get('X-Sonara-Internal-Secret') || '').trim() === required;
+  return Boolean(required) && String(request.headers.get('X-Sonara-Internal-Secret') || '').trim() === required;
 }
 
 function clamp(value, fallback, min, max) {
@@ -457,17 +459,62 @@ async function loadState(env, jobId) {
   } catch { return null; }
 }
 
-function publicAudioUrl(path) {
-  return `${PUBLIC_API_ORIGIN}/api/molab/audio?path=${encodeURIComponent(path)}`;
+const AUDIO_LINK_TTL_SECONDS = 24 * 60 * 60;
+
+function audioHmacInput(path, expires) {
+  return new TextEncoder().encode(`sonara-molab-audio-v1\\n${expires}\\n${path}`);
 }
 
-function candidatesFrom(refs, payload = {}) {
+async function audioHmacKey(env) {
+  const secret = String(env?.ACE_STEP_API_KEY || env?.ACESTEP_API_KEY || '').trim();
+  if (!secret) throw new Error('SONARA audio secret missing');
+  return crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign', 'verify']
+  );
+}
+
+export async function publicAudioUrl(path, env, now = Date.now()) {
+  if (!path || path.length > 2048 || path.includes('\\0')) throw new Error('Invalid audio path');
+  const expires = Math.floor(now / 1000) + AUDIO_LINK_TTL_SECONDS;
+  const key = await audioHmacKey(env);
+  const signature = new Uint8Array(await crypto.subtle.sign('HMAC', key, audioHmacInput(path, expires)));
+  const sig = Array.from(signature, byte => byte.toString(16).padStart(2, '0')).join('');
+  const url = new URL('/api/molab/audio', PUBLIC_API_ORIGIN);
+  url.searchParams.set('path', path);
+  url.searchParams.set('exp', String(expires));
+  url.searchParams.set('sig', sig);
+  return url.toString();
+}
+
+export async function verifySignedAudioUrl(url, env, now = Date.now()) {
+  const path = String(url.searchParams.get('path') || '');
+  const exp = String(url.searchParams.get('exp') || '');
+  const sig = String(url.searchParams.get('sig') || '');
+  if (!path || path.length > 2048 || path.includes('\\0')) return false;
+  if (!/^\\d{10}$/.test(exp) || !/^[0-9a-f]{64}$/.test(sig)) return false;
+  const expiry = Number(exp);
+  const current = Math.floor(now / 1000);
+  if (expiry < current || expiry > current + AUDIO_LINK_TTL_SECONDS) return false;
+  try {
+    const signature = Uint8Array.from(sig.match(/.{2}/g), value => parseInt(value, 16));
+    const key = await audioHmacKey(env);
+    return crypto.subtle.verify('HMAC', key, signature, audioHmacInput(path, expiry));
+  } catch {
+    return false;
+  }
+}
+
+async function candidatesFrom(refs, payload = {}, env = {}) {
   const realMusic = payload?.sonara_real_music_v1 === true;
   const inferenceSteps = Number(payload?.inference_steps || INFERENCE_STEPS);
   const samplerMode = String(payload?.sampler_mode || (realMusic ? 'heun' : 'euler'));
-  return refs.map((path, index) => ({
+  return Promise.all(refs.map(async (path, index) => ({
     id: index === 0 ? 'A' : 'B',
-    audioUrl: publicAudioUrl(path),
+    audioUrl: await publicAudioUrl(path, env),
     audioFormat: 'wav',
     provider: 'molab',
     model: MODEL,
@@ -477,7 +524,7 @@ function candidatesFrom(refs, payload = {}) {
     thinking: realMusic,
     samplerMode,
     strategy: index === 0 ? 'molab-xl-fidelity-hook' : 'molab-xl-fidelity-variation'
-  }));
+  })));
 }
 
 function qualityMetadata(count, payload = {}) {
@@ -590,6 +637,7 @@ async function startMolab(request, env) {
 }
 
 async function pollMolab(request, env, jobId) {
+  if (!authorized(request, env)) return json(request, { error: 'Unauthorized SONARA job proxy.' }, 401);
   const state = await loadState(env, jobId);
   if (!state?.taskId || !state?.baseUrl) {
     return json(request, { jobId, status: 'FAILED', progress: 0, retryable: false, error: 'Sessione MoLab SONARA non trovata.' }, 404);
@@ -641,7 +689,7 @@ async function pollMolab(request, env, jobId) {
           error: `MoLab XL-Turbo completato ma ha restituito ${refs.length}/${expectedCount} audio.`
         }, 502);
       }
-      const candidates = candidatesFrom(refs, payload);
+      const candidates = await candidatesFrom(refs, payload, env);
       return json(request, {
         jobId,
         status: 'COMPLETED',
@@ -789,6 +837,11 @@ async function proxyAudio(request, env) {
   const url = new URL(request.url);
   const path = String(url.searchParams.get('path') || '').trim();
   if (!path) return json(request, { error: 'Audio path mancante.' }, 400);
+  // Browser players use time-limited, HMAC-signed audio links. An arbitrary
+  // unauthenticated ?path= must never reach ACE-Step's filesystem-backed API.
+  if (!await verifySignedAudioUrl(url, env)) {
+    return json(request, { error: 'Link audio SONARA non autorizzato o scaduto.' }, 403);
+  }
 
   const target = new URL('/v1/audio', `${baseUrl}/`);
   target.searchParams.set('path', path);
