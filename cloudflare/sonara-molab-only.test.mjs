@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildMolabPayload } from './sonara-molab-xl-router.mjs';
+import { buildMolabPayload, authorized, publicAudioUrl, verifySignedAudioUrl } from './sonara-molab-xl-router.mjs';
 import { shouldUseYue } from './sonara-yue-router.mjs';
 
 const brief = {
@@ -43,4 +43,32 @@ test('MoLab only suppresses YuE even if caller forces it', () => {
 test('YuE remains available only when MoLab-only lock is not set', () => {
   const input = { forceYue: true, lyrics: 'Long form vocals', durationSec: 180 };
   assert.equal(shouldUseYue(input, {}), true);
+});
+
+test('SONARA generation proxy denies all requests if the internal secret is absent', () => {
+  const request = new Request('https://api.sonaraenterprise.com/api/engine/generate', {
+    method: 'POST',
+    headers: { 'X-Sonara-Internal-Secret': 'internal-key' }
+  });
+  assert.equal(authorized(request, {}), false);
+  assert.equal(authorized(request, { SONARA_INTERNAL_PROXY_SECRET: 'different-key' }), false);
+  assert.equal(authorized(request, { SONARA_INTERNAL_PROXY_SECRET: 'internal-key' }), true);
+});
+
+test('audio URLs have a valid private HMAC and reject tampering and expiration', async () => {
+  const env = { ACE_STEP_API_KEY: 'unit-test-long-secret-not-a-production-key' };
+  const now = Date.parse('2026-10-22T12:00:00Z');
+  const url = new URL(await publicAudioUrl('/tmp/sonara-test.wav', env, now));
+  assert.equal(await verifySignedAudioUrl(url, env, now), true);
+
+  const tampered = new URL(url);
+  tampered.searchParams.set('path', '/etc/passwd');
+  assert.equal(await verifySignedAudioUrl(tampered, env, now), false);
+
+  const unsigned = new URL(url);
+  unsigned.searchParams.delete('sig');
+  assert.equal(await verifySignedAudioUrl(unsigned, env, now), false);
+
+  assert.equal(await verifySignedAudioUrl(url, env, now + 25 * 60 * 60 * 1000), false);
+  assert.equal(await verifySignedAudioUrl(url, { ACE_STEP_API_KEY: 'another-secret' }, now), false);
 });
