@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-MODEL="acestep-v15-xl-turbo"
+MODEL="${ACESTEP_CONFIG_PATH:-acestep-v15-xl-turbo}"
+LM_MODEL="${ACESTEP_LM_MODEL_PATH:-acestep-5Hz-lm-4B}"
 PORT="${ACESTEP_API_PORT:-8001}"
-ROOT="/app"
+ROOT="${ACESTEP_APP_ROOT:-/app}"
 PERSIST_ROOT="/workspace/sonara-acestep"
 CHECKPOINTS="${PERSIST_ROOT}/checkpoints"
 OUTPUT="${PERSIST_ROOT}/output"
@@ -18,14 +19,15 @@ mkdir -p "${CHECKPOINTS}" "${OUTPUT}"
 # Keep checkpoints on RunPod persistent storage. If the image contains any
 # initial checkpoint files, seed the persistent directory once before linking.
 if [ -e "${ROOT}/checkpoints" ] && [ ! -L "${ROOT}/checkpoints" ]; then
-  cp -an "${ROOT}/checkpoints/." "${CHECKPOINTS}/" 2>/dev/null || true
-  rm -rf "${ROOT}/checkpoints"
+  cp -an "${ROOT}/checkpoints/." "${CHECKPOINTS}/"
+  mv "${ROOT}/checkpoints" "${ROOT}/checkpoints.pre-sonara-$(date +%s)"
 fi
 ln -sfn "${CHECKPOINTS}" "${ROOT}/checkpoints"
 
 export ACESTEP_CONFIG_PATH="${MODEL}"
 export ACESTEP_DEVICE="cuda"
-export ACESTEP_INIT_LLM="false"
+export ACESTEP_INIT_LLM="true"
+export ACESTEP_LM_MODEL_PATH="${LM_MODEL}"
 export ACESTEP_USE_FLASH_ATTENTION="false"
 export ACESTEP_OFFLOAD_TO_CPU="false"
 export ACESTEP_OFFLOAD_DIT_TO_CPU="false"
@@ -43,9 +45,13 @@ export MPLBACKEND="Agg"
 export PYTHONUNBUFFERED="1"
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
 
-if [ -n "${SONARA_ACESTEP_API_KEY:-}" ]; then
-  export ACESTEP_API_KEY="${SONARA_ACESTEP_API_KEY}"
+API_KEY="${SONARA_ACESTEP_API_KEY:-${ACESTEP_API_KEY:-}}"
+if [ -z "${API_KEY}" ]; then
+  log "ERROR: SONARA_ACESTEP_API_KEY or ACESTEP_API_KEY is required."
+  exit 1
 fi
+export ACESTEP_API_KEY="${API_KEY}"
+unset API_KEY
 
 PY="${ROOT}/.venv/bin/python"
 if [ ! -x "${PY}" ]; then
@@ -54,6 +60,8 @@ if [ ! -x "${PY}" ]; then
 fi
 
 log "MODEL=${MODEL}"
+log "LM_MODEL=${LM_MODEL}"
+log "AUTH=enabled"
 log "PORT=${PORT}"
 log "CHECKPOINTS=${CHECKPOINTS}"
 log "OUTPUT=${OUTPUT}"
