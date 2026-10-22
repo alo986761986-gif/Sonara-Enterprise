@@ -1,11 +1,8 @@
 name: Configure SONARA MoLab XL Only
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/molab-xl-trigger"
+  # External production hosting is blocked by default by MoLab's usage rules.
+  # Never automatically deploy from a notebook session.
   workflow_dispatch:
 
 permissions:
@@ -24,9 +21,19 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
       SONARA_ACESTEP_API_KEY: ${{ secrets.SONARA_ACESTEP_API_KEY }}
+      MOLAB_EXTERNAL_ACCESS_AUTHORIZED: ${{ secrets.MOLAB_EXTERNAL_ACCESS_AUTHORIZED }}
       SONARA_BROWSER_UA: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36
 
     steps:
+      - name: Block deployment without written MoLab permission
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${MOLAB_EXTERNAL_ACCESS_AUTHORIZED}" != true ]]; then
+            echo 'Deployment disabled: MoLab prohibits exposing its GPU to external websites and proxies. Written provider authorization required.' >&2
+            exit 1
+          fi
+
       - name: Checkout SONARA
         uses: actions/checkout@v6
 
