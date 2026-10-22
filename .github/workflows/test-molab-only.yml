@@ -1,0 +1,74 @@
+name: Validate SONARA MoLab Only
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/test-molab-only.yml"
+      - ".github/workflows/configure-molab-xl.yml"
+      - "cloudflare/sonara-molab-only.test.mjs"
+      - "cloudflare/sonara-molab-xl-router.mjs"
+      - "cloudflare/sonara-yue-router.mjs"
+      - "scripts/molab-sonara-xl-supervisor.py"
+      - "scripts/molab-sonara-interactive-test-20261022.py"
+      - "scripts/molab-sonara-wav-audit-20261022.py"
+      - "scripts/molab-sonara-vocal-it-test-20261022.py"
+      - "scripts/sonara-molab-connect-production.py"
+      - "scripts/sonara-molab-secure-gateway.py"
+      - "scripts/test-sonara-molab-secure-gateway.py"
+      - "api/billing/**"
+      - "wrangler.jsonc"
+  push:
+    branches:
+      - "feature/sonara-molab-xl-only-20261022"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Static checks and MoLab-only regression tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Validate shell and Python
+        run: |
+          python -m py_compile scripts/molab-sonara-xl-supervisor.py
+          python -m py_compile scripts/molab-sonara-interactive-test-20261022.py
+          python -m py_compile scripts/molab-sonara-wav-audit-20261022.py
+          python -m py_compile scripts/molab-sonara-vocal-it-test-20261022.py
+          python -m py_compile scripts/sonara-molab-connect-production.py
+          python -m py_compile scripts/sonara-molab-secure-gateway.py
+          python -m py_compile scripts/test-sonara-molab-secure-gateway.py
+          python -m py_compile scripts/molab-sonara-xl-stable-tunnel-setup.py
+          node --check cloudflare/sonara-molab-xl-router.mjs
+          node --check cloudflare/sonara-yue-router.mjs
+      - name: Test authenticated MoLab gateway without GPU
+        run: python scripts/test-sonara-molab-secure-gateway.py
+
+      - name: Bundle ESM/TypeScript dependencies and test MoLab routing
+        run: |
+          npx --yes esbuild@0.28.1 cloudflare/sonara-molab-only.test.mjs --bundle --platform=node --format=esm --outfile=/tmp/sonara-molab-only.test.mjs
+          node --test /tmp/sonara-molab-only.test.mjs
+      - name: Check Cloudflare config and stable MoLab endpoint
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from "node:fs";
+          const w = JSON.parse(readFileSync("wrangler.jsonc", "utf8"));
+          if (w.vars.SONARA_MOLAB_ONLY !== "true") process.exit(2);
+          const t = readFileSync(".github/molab-xl-trigger", "utf8");
+          if (!t.includes("SONARA_MOLAB_XL_URL=https://molab.sonaraenterprise.com")) process.exit(3);
+          if (!t.includes("MODE=MOLAB_XL_ONLY")) process.exit(4);
+          const billing = readFileSync("api/billing/[...path].ts", "utf8");
+          if (!billing.includes("provider: 'molab'") || !billing.includes("engineProvider: 'molab'")) process.exit(5);
+          if (billing.includes("useEleven")) process.exit(6);
+          const job = readFileSync("api/billing/job.ts", "utf8");
+          if (!job.includes("mxl_")) process.exit(7);
+          const deploy = readFileSync(".github/workflows/configure-molab-xl.yml", "utf8");
+          if (!deploy.includes("SONARA_INTERNAL_PROXY_SECRET: process.env.SONARA_INTERNAL_PROXY_SECRET")) process.exit(8);
+          if (!deploy.includes("vercel_proxy_secret_configured:")) process.exit(9);
+          if (!deploy.includes(".realMusicReady == true")) process.exit(10);
+          NODE

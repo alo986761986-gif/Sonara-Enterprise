@@ -1,12 +1,20 @@
 name: Configure SONARA MoLab XL Only
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/molab-xl-trigger"
+  # External production hosting is blocked by default by MoLab's usage rules.
+  # Never automatically deploy from a notebook session.
   workflow_dispatch:
+    inputs:
+      authorization_confirmed:
+        description: "I confirm that MoLab has expressly authorized serving SONARA website traffic"
+        type: boolean
+        default: false
+        required: true
+      vercel_proxy_secret_configured:
+        description: "Vercel production has matching SONARA_INTERNAL_PROXY_SECRET"
+        type: boolean
+        default: false
+        required: true
 
 permissions:
   contents: read
@@ -23,9 +31,30 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+      SONARA_ACESTEP_API_KEY: ${{ secrets.SONARA_ACESTEP_API_KEY }}
+      SONARA_INTERNAL_PROXY_SECRET: ${{ secrets.SONARA_INTERNAL_PROXY_SECRET }}
+      VERCEL_PROXY_SECRET_CONFIGURED: ${{ inputs.vercel_proxy_secret_configured }}
+      MOLAB_EXTERNAL_ACCESS_AUTHORIZED: ${{ inputs.authorization_confirmed }}
       SONARA_BROWSER_UA: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36
 
     steps:
+      - name: Block deployment without written MoLab permission
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${MOLAB_EXTERNAL_ACCESS_AUTHORIZED}" != true ]]; then
+            echo 'Provider authorization is required for external MoLab hosting.' >&2
+            exit 1
+          fi
+          if [[ "${VERCEL_PROXY_SECRET_CONFIGURED}" != true ]]; then
+            echo 'Vercel SONARA_INTERNAL_PROXY_SECRET must be configured before cutover.' >&2
+            exit 1
+          fi
+          if [[ -z "${SONARA_INTERNAL_PROXY_SECRET}" || "${#SONARA_INTERNAL_PROXY_SECRET}" -lt 32 ]]; then
+            echo 'GitHub Actions SONARA_INTERNAL_PROXY_SECRET missing or too short (minimum 32 characters).' >&2
+            exit 1
+          fi
+
       - name: Checkout SONARA
         uses: actions/checkout@v6
 
@@ -57,65 +86,53 @@ jobs:
           url="$(sed -n 's/^SONARA_MOLAB_XL_URL=//p' "${trigger}" | tail -n 1 | tr -d '\r')"
           model="$(sed -n 's/^MODEL=//p' "${trigger}" | tail -n 1 | tr -d '\r')"
           mode="$(sed -n 's/^MODE=//p' "${trigger}" | tail -n 1 | tr -d '\r')"
-          if [ "${url%/}" != "https://molab.sonaraenterprise.com" ]; then
-            [[ "${url}" =~ ^https://[A-Za-z0-9.-]+\.(trycloudflare\.com|gradio\.live)/?$ ]]
-          fi
+          test "${url%/}" = "https://molab.sonaraenterprise.com"
           test "${model}" = "acestep-v15-xl-turbo"
           test "${mode}" = "MOLAB_XL_ONLY"
           echo "MOLAB_XL_URL=${url%/}" >> "${GITHUB_ENV}"
 
-      - name: Verify MoLab ACE-Step XL-Turbo
+      - name: Verify MoLab XL Turbo + LM 4B (private HTTPS)
         shell: bash
         run: |
           set -euo pipefail
-          for attempt in $(seq 1 8); do
-            health="$(curl -fsS --connect-timeout 8 --max-time 15 -A "${SONARA_BROWSER_UA}" -H 'Accept: application/json' -H 'Cache-Control: no-cache' "${MOLAB_XL_URL}/health" || true)"
-            health_ok=false
-            model_ok=false
-            if [[ -n "${health}" ]] && printf '%s' "${health}" | jq -e '
-              (.code == 200) or
-              (((.data.status // .status // "") | tostring | ascii_downcase) | IN("ok","ready","healthy")) or
-              (((.data.service // .service // "") | tostring | ascii_downcase) | contains("ace-step"))
-            ' >/dev/null 2>&1; then
-              health_ok=true
-            fi
-            if [[ -n "${health}" ]] && printf '%s' "${health}" | jq -e '
+          test -n "${SONARA_ACESTEP_API_KEY}"
+          for attempt in $(seq 1 12); do
+            health="$(curl -fsS --connect-timeout 8 --max-time 20 \
+              -H "Authorization: Bearer ${SONARA_ACESTEP_API_KEY}" \
+              -H 'Cache-Control: no-cache' "${MOLAB_XL_URL}/health" || true)"
+            if printf '%s' "${health}" | jq -e '
               def d: (.data // .);
-              (((d.loaded_model // d.default_model // d.model // "") | tostring) | contains("acestep-v15-xl-turbo")) and
-              ((d.models_initialized // true) == true)
+              (d.models_initialized == true) and
+              (d.llm_initialized == true) and
+              ((d.loaded_model // "" | tostring) | contains("acestep-v15-xl-turbo")) and
+              ((d.loaded_lm_model // "" | tostring) | contains("acestep-5Hz-lm-4B")) and
+              ((d.status // "" | tostring | ascii_downcase) | IN("ok","ready","healthy"))
             ' >/dev/null 2>&1; then
-              model_ok=true
-            fi
-            inventory=""
-            if [[ "${model_ok}" != true ]]; then
-              inventory="$(curl -fsS --connect-timeout 8 --max-time 12 -A "${SONARA_BROWSER_UA}" -H 'Accept: application/json' -H 'Cache-Control: no-cache' "${MOLAB_XL_URL}/v1/model_inventory" || true)"
-              if [[ -z "${inventory}" ]]; then
-                inventory="$(curl -fsS --connect-timeout 8 --max-time 12 -A "${SONARA_BROWSER_UA}" -H 'Accept: application/json' -H 'Cache-Control: no-cache' "${MOLAB_XL_URL}/v1/models" || true)"
-              fi
-              if [[ -n "${inventory}" ]] && printf '%s' "${inventory}" | jq -e '
-                def d: (.data // .);
-                def direct: [d.loaded_model, d.default_model, d.model] | map(select(. != null) | tostring);
-                def rows: (d.models // []) | map(
-                  select(type == "object") |
-                  {name: ((.name // .model // "") | tostring), loaded: (.is_loaded // false), default: (.is_default // false)}
-                );
-                (direct | any(contains("acestep-v15-xl-turbo"))) or
-                (rows | any((.name | contains("acestep-v15-xl-turbo")) and (.loaded or .default)))
-              ' >/dev/null 2>&1; then
-                model_ok=true
-              fi
-            fi
-            if [[ "${health_ok}" == true && "${model_ok}" == true ]]; then
-              echo "MoLab XL-Turbo healthy: ${MOLAB_XL_URL}"
-              printf '%s\n' "${health}" | jq '.' || true
-              if [[ -n "${inventory}" ]]; then printf '%s\n' "${inventory}" | jq '.' || true; fi
+              echo "MoLab XL Turbo + LM 4B ready."
               exit 0
             fi
-            echo "MoLab XL health attempt ${attempt}/8 failed (health=${health_ok}, model=${model_ok})"
-            sleep 4
+            sleep 5
           done
-          echo "MoLab endpoint is not reporting ACE-Step XL-Turbo ready: ${MOLAB_XL_URL}" >&2
+          echo "MoLab is not ready; production unchanged." >&2
           exit 1
+
+      - name: Reject missing or invalid MoLab credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          for mode in missing invalid; do
+            headers=()
+            if [[ "${mode}" == invalid ]]; then
+              headers=(-H 'Authorization: Bearer intentionally-invalid-sonara-probe')
+            fi
+            status="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 10 --max-time 20 \
+              -X POST -H 'Content-Type: application/json' "${headers[@]}" \
+              --data '{"task_id_list":["sonara-auth-probe"]}' "${MOLAB_XL_URL}/query_result")"
+            if [[ "${status}" != 401 && "${status}" != 403 ]]; then
+              echo "MoLab API unsafe: ${mode} credentials returned HTTP ${status}." >&2
+              exit 1
+            fi
+          done
 
       - name: Resolve Cloudflare account
         shell: bash
@@ -131,14 +148,35 @@ jobs:
           echo "::add-mask::${account_id}"
           echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
 
-      - name: Bind MoLab XL URL
+      - name: Build private one-shot deployment secrets file
         shell: bash
         run: |
           set -euo pipefail
-          printf '%s' "${MOLAB_XL_URL}" | npx --yes wrangler@latest secret put SONARA_MOLAB_XL_URL --config wrangler.jsonc
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const { join } = require('node:path');
+          const file = join(process.env.RUNNER_TEMP, 'sonara-molab-deployment-secrets.json');
+          if (!process.env.MOLAB_XL_URL || !process.env.SONARA_ACESTEP_API_KEY || !process.env.SONARA_INTERNAL_PROXY_SECRET) {
+            throw new Error('MoLab URL / private API key / private billing proxy secret required');
+          }
+          fs.writeFileSync(file, JSON.stringify({
+            SONARA_MOLAB_XL_URL: process.env.MOLAB_XL_URL,
+            ACE_STEP_API_KEY: process.env.SONARA_ACESTEP_API_KEY,
+            SONARA_INTERNAL_PROXY_SECRET: process.env.SONARA_INTERNAL_PROXY_SECRET
+          }), { mode: 0o600 });
+          NODE
 
-      - name: Deploy MoLab-only music router
-        run: npx --yes wrangler@latest deploy --config wrangler.jsonc
+      - name: Deploy MoLab-only Worker and BOTH secrets in one operation
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@latest deploy --config wrangler.jsonc --secrets-file "${RUNNER_TEMP}/sonara-molab-deployment-secrets.json"
+
+      - name: Destroy ephemeral deployment secrets file
+        if: always()
+        shell: bash
+        run: |
+          rm -f "${RUNNER_TEMP}/sonara-molab-deployment-secrets.json"
 
       - name: Verify production MoLab-only routing
         shell: bash
@@ -147,31 +185,21 @@ jobs:
           for attempt in $(seq 1 12); do
             response="$(curl -sS --max-time 30 -A "${SONARA_BROWSER_UA}" -H 'Accept: application/json' -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/molab/ready?verify=${GITHUB_SHA}-${attempt}" || true)"
             if [[ -n "${response}" ]] && printf '%s' "${response}" | jq -e '
-              .profile == "sonara-molab-xl-only-v1" and
+              .ready == true and
               .provider == "molab" and
               .model == "acestep-v15-xl-turbo" and
-              .kaggleEnabled == false and
-              .ready == true and
-              .fidelityProfile == "sonara-fidelity-v15-ultra-speed-max-fast1-quality2-ultra2" and
-              .defaultGenerationProfile == "quality" and
-              .defaultInferenceSteps == 2 and
-              .qualitySingleGpuBatch == true and
-              .qualityCandidatesPerBatch == 2 and
-              .qualityAutomaticRepair == false and
-              .speedRevision == "sonara-v14-quality-single-batch-1" and
-              .qualityInferenceSteps == 2 and
-              .fastInferenceSteps == 1 and
-              .ultraInferenceSteps == 2 and
-              .maxBatchSize == 2
+              .loadedModel == "acestep-v15-xl-turbo" and
+              .llmInitialized == true and
+              .realMusicReady == true and
+              .kaggleEnabled == false
             ' >/dev/null 2>&1; then
-              printf '%s\n' "${response}" | jq '{ready, profile, fidelityProfile, engine, provider, model, defaultGenerationProfile, defaultInferenceSteps, qualitySingleGpuBatch, qualityCandidatesPerBatch, qualityAutomaticRepair, speedRevision, fastInferenceSteps, qualityInferenceSteps, ultraInferenceSteps, maxBatchSize, kaggleEnabled}'
-              echo "SONARA V15 RTX 6000 verified: FAST=1, QUALITY=2, ULTRA=2, one batch with 2 tracks."
+              printf '%s\n' "${response}" | jq '{ready, provider, model, loadedModel, llmInitialized, realMusicReady, profile, maxBatchSize, kaggleEnabled}'
+              echo "SONARA production ready: MoLab XL Turbo + LM 4B."
               exit 0
             fi
-            echo "Production V15 verification attempt ${attempt}/12 failed"
-            printf '%s\n' "${response}" | jq -c '{ready, profile, fidelityProfile, provider, model, defaultGenerationProfile, defaultInferenceSteps, qualitySingleGpuBatch, qualityCandidatesPerBatch, qualityAutomaticRepair, speedRevision, fastInferenceSteps, qualityInferenceSteps, ultraInferenceSteps, maxBatchSize, healthError, reason}' 2>/dev/null || printf '%s\n' "${response}" | head -c 1200
+            echo "Production MoLab XL verification attempt ${attempt}/12 failed"
+            printf '%s\n' "${response}" | jq -c '{ready, profile, provider, model, loadedModel, llmInitialized, realMusicReady, healthError, reason}' 2>/dev/null || true
             sleep 5
           done
-          echo "Production V15 router did not verify. Last response:" >&2
-          printf '%s\n' "${response}" | jq '.' 2>/dev/null || printf '%s\n' "${response}" | head -c 4000
+          echo "SONARA Cloudflare Worker is deployed but MoLab readiness is unverified. Inspect Cloudflare and rollback Worker if necessary." >&2
           exit 1

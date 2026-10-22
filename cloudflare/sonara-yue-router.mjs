@@ -75,7 +75,9 @@ function requestedCandidates(body = {}) {
   return Math.round(clamp(body.candidateCount ?? body.candidate_count, 2, 1, 2));
 }
 
-function shouldUseYue(body = {}) {
+export function shouldUseYue(body = {}, env = {}) {
+  // MoLab-only overrides every user/model routing hint, including forceYue.
+  if (String(env.SONARA_MOLAB_ONLY || '').toLowerCase() === 'true') return false;
   if (body.forceAceStep === true || body.provider === 'molab' || body.engineProvider === 'molab') return false;
   if (body.forceYue === true || body.provider === 'yue' || body.engineProvider === 'yue') return true;
   const lyrics = text(body.lyrics);
@@ -298,7 +300,7 @@ async function startYue(request, env) {
   try { body = await request.clone().json(); }
   catch { return json(request, { error: 'Invalid JSON request body.' }, 400); }
 
-  if (!shouldUseYue(body)) return null;
+  if (!shouldUseYue(body, env)) return null;
 
   const payload = buildYuePayload(body);
   const jobId = `yue_${crypto.randomUUID()}`;

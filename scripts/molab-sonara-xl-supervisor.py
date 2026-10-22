@@ -8,9 +8,20 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-ROOT = Path('/marimo/SONARA-ACE-Step-CLEAN')
+ROOT_OPTIONS = (
+    Path('/marimo/SONARA-ACE-Step-CLEAN'),
+    Path('/marimo/SONARA-ACE-Step-1.5'),
+)
+ROOT = next(
+    (path for path in ROOT_OPTIONS if
+     (path / '.venv/bin/python').is_file() and
+     (path / 'checkpoints/acestep-v15-xl-turbo').exists() and
+     (path / 'checkpoints/acestep-5Hz-lm-4B').exists()),
+    ROOT_OPTIONS[0],
+)
 PY = ROOT / '.venv/bin/python'
 MODEL = 'acestep-v15-xl-turbo'
+LM_MODEL = 'acestep-5Hz-lm-4B'
 PORT = 8001
 WORK = Path('/tmp/sonara-molab-supervisor')
 WORK.mkdir(parents=True, exist_ok=True)
@@ -40,10 +51,34 @@ def request_headers():
 
 
 def request_json(url, timeout=12):
-    req = urllib.request.Request(url, headers=request_headers())
+    headers = request_headers()
+    key = os.environ.get('SONARA_ACESTEP_API_KEY', '').strip()
+    if key:
+        headers['Authorization'] = 'Bearer ' + key
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=timeout) as r:
         raw = r.read().decode('utf-8', errors='replace')
         return json.loads(raw) if raw else {}
+
+
+def unauthenticated_denied(base_url):
+    """A live ACE-Step origin must reject BOTH missing and invalid API keys."""
+    target = base_url.rstrip('/') + '/query_result'
+    data = json.dumps({'task_id_list': ['sonara-auth-check-no-job']}).encode('utf-8')
+    for token in ('', 'sonara-deliberately-invalid-token'):
+        headers = {'Content-Type': 'application/json'}
+        if token:
+            headers['Authorization'] = 'Bearer ' + token
+        req = urllib.request.Request(target, data=data, headers=headers, method='POST')
+        try:
+            with urllib.request.urlopen(req, timeout=10):
+                return False
+        except urllib.error.HTTPError as exc:
+            if exc.code not in (401, 403):
+                return False
+        except Exception:
+            return False
+    return True
 
 
 def health_ready(body):
@@ -54,6 +89,8 @@ def health_ready(body):
         str(data.get('status') or '').lower() == 'ok'
         and data.get('models_initialized') is True
         and MODEL in str(data.get('loaded_model') or '')
+        and data.get('llm_initialized') is True
+        and LM_MODEL in str(data.get('loaded_lm_model') or '')
     )
 
 
@@ -66,7 +103,11 @@ def local_ready():
 
 def public_probe(url=STABLE_URL):
     target = url.rstrip('/') + '/health'
-    req = urllib.request.Request(target, headers=request_headers())
+    headers = request_headers()
+    key = os.environ.get('SONARA_ACESTEP_API_KEY', '').strip()
+    if key:
+        headers['Authorization'] = 'Bearer ' + key
+    req = urllib.request.Request(target, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=10) as response:
             raw = response.read().decode('utf-8', errors='replace')
@@ -130,13 +171,15 @@ def api_env():
     env.update({
         'ACESTEP_CONFIG_PATH': MODEL,
         'ACESTEP_DEVICE': 'cuda',
-        'ACESTEP_INIT_LLM': 'false',
+        'ACESTEP_INIT_LLM': 'true',
+        'ACESTEP_LM_MODEL_PATH': LM_MODEL,
+        'ACESTEP_API_KEY': os.environ['SONARA_ACESTEP_API_KEY'],
         'ACESTEP_USE_FLASH_ATTENTION': 'false',
         'ACESTEP_OFFLOAD_TO_CPU': 'false',
         'ACESTEP_OFFLOAD_DIT_TO_CPU': 'false',
         'ACESTEP_LM_OFFLOAD_TO_CPU': 'false',
         'ACESTEP_NO_INIT': 'false',
-        'ACESTEP_API_HOST': '0.0.0.0',
+        'ACESTEP_API_HOST': '127.0.0.1',
         'ACESTEP_API_PORT': str(PORT),
         'ACESTEP_API_WORKERS': '1',
         'ACESTEP_QUEUE_WORKERS': '1',
@@ -151,24 +194,30 @@ def api_env():
 
 
 def start_api():
+    if not os.environ.get('SONARA_ACESTEP_API_KEY', '').strip():
+        raise RuntimeError('SONARA_ACESTEP_API_KEY obbligatoria: impossibile esporre API senza autenticazione.')
     if not ROOT.exists() or not PY.exists():
         raise RuntimeError('Ambiente CLEAN non trovato. Esegui prima il clean bootstrap.')
-    if local_ready():
-        log('ACE-Step API gia pronta su 8001.')
+    if local_ready() and unauthenticated_denied(f'http://127.0.0.1:{PORT}'):
+        log('ACE-Step API gia pronta su 8001 con autenticazione verificata.')
         return None
+    if local_ready():
+        log('API esistente non protetta: riavvio con chiave privata obbligatoria.')
 
     kill_matching(lambda c: ('acestep.api_server' in c or 'acestep-api' in c) and '8001' in c)
     time.sleep(2)
     log_path = WORK / 'api.log'
     log_handle = open(log_path, 'w', buffering=1)
-    cmd = [str(PY), '-m', 'acestep.api_server', '--host', '0.0.0.0', '--port', str(PORT), '--download-source', 'huggingface']
+    cmd = [str(PY), '-m', 'acestep.api_server', '--host', '127.0.0.1', '--port', str(PORT), '--download-source', 'huggingface']
     proc = subprocess.Popen(cmd, cwd=str(ROOT), env=api_env(), stdout=log_handle, stderr=subprocess.STDOUT, start_new_session=True)
     log(f'Avvio ACE-Step API PID={proc.pid}')
 
     deadline = time.time() + 1800
     while time.time() < deadline:
         if local_ready():
-            log('ACE-Step XL-Turbo locale PRONTO.')
+            if not unauthenticated_denied(f'http://127.0.0.1:{PORT}'):
+                raise RuntimeError('API ACE-Step non protegge /query_result: tunnel pubblico bloccato.')
+            log('ACE-Step XL-Turbo + LM 4B locali PRONTI, autenticazione verificata.')
             return proc
         if proc.poll() is not None:
             tail = log_path.read_text(errors='ignore')[-16000:] if log_path.exists() else ''
@@ -208,7 +257,9 @@ def start_tunnel():
     if not stable_tunnel_configured():
         raise RuntimeError('Named Tunnel SONARA non configurato.')
 
-    if public_ready(STABLE_URL):
+    if not local_ready() or not unauthenticated_denied(f'http://127.0.0.1:{PORT}'):
+        raise RuntimeError('Il tunnel non verra esposto prima della verifica autenticazione locale.')
+    if public_ready(STABLE_URL) and unauthenticated_denied(STABLE_URL):
         URL_FILE.write_text(STABLE_URL + '\n', encoding='utf-8')
         log('Named Tunnel SONARA gia raggiungibile: ' + STABLE_URL)
         return None, STABLE_URL
@@ -231,7 +282,7 @@ def start_tunnel():
     last_probe = ''
     while time.time() < deadline:
         ok, last_probe = public_probe(STABLE_URL)
-        if ok:
+        if ok and unauthenticated_denied(STABLE_URL):
             URL_FILE.write_text(STABLE_URL + '\n', encoding='utf-8')
             log('Named Tunnel pubblico PRONTO: ' + STABLE_URL)
             return proc, STABLE_URL
@@ -261,7 +312,10 @@ def banner(url):
 
 
 def main():
-    log('SONARA MoLab supervisor ON-DEMAND avviato.')
+    if not os.environ.get('SONARA_ACESTEP_API_KEY', '').strip():
+        raise RuntimeError('Imposta SONARA_ACESTEP_API_KEY come variabile privata su MoLab prima di avviare il supervisor.')
+    log('SONARA MoLab supervisor ON-DEMAND avviato (XL Turbo + LM 4B, auth obbligatoria).')
+    log('ACE-Step root: ' + str(ROOT))
     api_proc = None
     tunnel_proc = None
     public_url = STABLE_URL
@@ -279,7 +333,7 @@ def main():
                     log('API non sana: riavvio automatico.')
                     api_proc = start_api()
                     local_failures = 0
-                if not local_ready():
+                if not local_ready() or not unauthenticated_denied(f'http://127.0.0.1:{PORT}'):
                     api_proc = start_api()
 
                 public_failures = 0 if public_ready(public_url) else public_failures + 1

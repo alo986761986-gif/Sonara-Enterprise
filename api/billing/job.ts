@@ -77,7 +77,7 @@ function sendJson(res: any, status: number, body: Record<string, unknown>) {
 }
 
 function validJobId(jobId: string): boolean {
-  return /^(?:d6_|d9pair_|d16pair_)[A-Za-z0-9-]{16,}$/.test(jobId);
+  return /^(?:mxl_|d6_|d9pair_|d16pair_)[A-Za-z0-9-]{16,}$/.test(jobId);
 }
 
 export default async function handler(req: any, res: any) {
@@ -107,7 +107,8 @@ export default async function handler(req: any, res: any) {
     });
   }
 
-  const engineBaseUrl = String(process.env.SONARA_ENGINE_API_URL || DEFAULT_ENGINE_URL).replace(/\/$/, '');
+  // The MoLab-only deployment must not poll a legacy engine configured in Vercel.
+  const engineBaseUrl = DEFAULT_ENGINE_URL;
   const headers: Record<string, string> = {
     Accept: 'application/json',
     'X-Sonara-Job-Bridge': 'vercel'

@@ -621,11 +621,8 @@ async function proxyGeneration(user: AuthenticatedUser, body: Record<string, any
     return errorResponse(res, 503, 'BILLING_STORE_NOT_CONFIGURED', 'Il controllo delle quote non è disponibile.');
   }
 
-  const provider = String(process.env.SONARA_MUSIC_PROVIDER || 'eleven_music').trim().toLowerCase();
-  const useEleven = provider === 'eleven' || provider === 'eleven_music' || provider === 'elevenlabs';
-  const targetUrl = useEleven
-    ? String(process.env.SONARA_ELEVEN_MUSIC_URL || DEFAULT_ELEVEN_MUSIC_URL).trim()
-    : `${String(process.env.SONARA_ENGINE_API_URL || DEFAULT_ENGINE_URL).replace(/\/$/, '')}/api/engine/generate`;
+  // This deployment explicitly selects MoLab XL Turbo: no Eleven Music or YuE fallback.
+  const targetUrl = `${DEFAULT_ENGINE_URL}/api/engine/generate`;
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const internalSecret = String(process.env.SONARA_INTERNAL_PROXY_SECRET || '').trim();
@@ -642,10 +639,10 @@ async function proxyGeneration(user: AuthenticatedUser, body: Record<string, any
         duration: requestedSeconds,
         weirdness,
         styleInfluence,
-        provider: useEleven ? 'eleven_music' : body.provider,
-        engineProvider: useEleven ? 'eleven_music' : body.engineProvider,
-        candidateCount: useEleven ? 2 : body.candidateCount,
-        candidate_count: useEleven ? 2 : body.candidate_count
+        provider: 'molab',
+        engineProvider: 'molab',
+        candidateCount: body.candidateCount,
+        candidate_count: body.candidate_count
       })
     });
     const raw = await engineResponse.text();
@@ -654,13 +651,11 @@ async function proxyGeneration(user: AuthenticatedUser, body: Record<string, any
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Content-Type', engineResponse.headers.get('content-type') || 'application/json; charset=utf-8');
     res.setHeader('X-Sonara-Billing', reservation ? 'metered' : 'observe');
-    res.setHeader('X-Sonara-Music-Provider', useEleven ? 'eleven-music-v2' : 'legacy-engine');
+    res.setHeader('X-Sonara-Music-Provider', 'ace-step-xl-turbo-molab');
     return res.status(engineResponse.status).send(raw);
   } catch (error) {
     if (reservation) await finishReservation(user.uid, reservation.reservationId, 'released').catch(() => undefined);
-    return errorResponse(res, 502, 'ENGINE_PROXY_FAILED', useEleven
-      ? 'SONARA non riesce a raggiungere Eleven Music v2.'
-      : 'SONARA non riesce a raggiungere il motore di generazione.');
+    return errorResponse(res, 502, 'ENGINE_PROXY_FAILED', 'SONARA non riesce a raggiungere il motore ACE-Step su MoLab.');
   }
 }
 
@@ -671,7 +666,7 @@ export default async function handler(req: any, res: any) {
       return json(res, 200, {
         service: 'sonara-billing',
         ready: webhookReady(),
-        musicProvider: String(process.env.SONARA_MUSIC_PROVIDER || 'eleven_music').trim().toLowerCase(),
+        musicProvider: 'ace_step_xl',
         checks: {
           firebaseAdmin: billingStoreReady(),
           stripeSecret: Boolean(String(process.env.STRIPE_SECRET_KEY || '').trim()),
