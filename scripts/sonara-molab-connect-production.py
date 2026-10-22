@@ -285,9 +285,9 @@ def main():
     print("PROTECTED_GATEWAY=127.0.0.1:8002")
     print("TUNNEL_NAME=" + TUNNEL_NAME)
     print("GITHUB_ACTIONS_SECRET_NAME=SONARA_ACESTEP_API_KEY")
-    print("GITHUB_ACTIONS_SECRET_VALUE=" + token)
-    print("IMPORTANTE: inserisci questa chiave SOLO nei GitHub Actions Secrets, NON nella chat.")
-    print("Al termine elimina l'output della cella contenente la chiave.")
+    print("SECRET_FILE=" + str(KEY_FILE))
+    print("Chiave NON mostrata nei log. Usa il file privato solo per configurare i GitHub Actions Secrets.")
+    print("Non condividere il contenuto del file o le credenziali Cloudflare.")
     print("=" * 72, flush=True)
     return PUBLIC_URL
 
