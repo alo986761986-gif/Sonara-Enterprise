@@ -12,6 +12,9 @@ on:
       - "scripts/molab-sonara-interactive-test-20261022.py"
       - "scripts/molab-sonara-wav-audit-20261022.py"
       - "scripts/molab-sonara-vocal-it-test-20261022.py"
+      - "scripts/sonara-molab-connect-production.py"
+      - "scripts/sonara-molab-secure-gateway.py"
+      - "scripts/test-sonara-molab-secure-gateway.py"
       - "wrangler.jsonc"
   push:
     branches:
@@ -36,9 +39,15 @@ jobs:
           python -m py_compile scripts/molab-sonara-interactive-test-20261022.py
           python -m py_compile scripts/molab-sonara-wav-audit-20261022.py
           python -m py_compile scripts/molab-sonara-vocal-it-test-20261022.py
+          python -m py_compile scripts/sonara-molab-connect-production.py
+          python -m py_compile scripts/sonara-molab-secure-gateway.py
+          python -m py_compile scripts/test-sonara-molab-secure-gateway.py
           python -m py_compile scripts/molab-sonara-xl-stable-tunnel-setup.py
           node --check cloudflare/sonara-molab-xl-router.mjs
           node --check cloudflare/sonara-yue-router.mjs
+      - name: Test authenticated MoLab gateway without GPU
+        run: python scripts/test-sonara-molab-secure-gateway.py
+
       - name: Bundle ESM/TypeScript dependencies and test MoLab routing
         run: |
           npx --yes esbuild@0.28.1 cloudflare/sonara-molab-only.test.mjs --bundle --platform=node --format=esm --outfile=/tmp/sonara-molab-only.test.mjs
