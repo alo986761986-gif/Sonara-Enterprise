@@ -34,7 +34,8 @@ if ! id sonara >/dev/null 2>&1; then
   useradd --system --home /var/lib/sonara --shell /usr/sbin/nologin sonara
 fi
 
-install -d -m 0700 "$PRIVATE_DIR"
+install -d -m 0750 "$PRIVATE_DIR"
+chown root:sonara "$PRIVATE_DIR"
 install -d -m 0755 "$BACKEND_DIR" "$ACE_DIR" /opt/sonara/checkpoints /opt/sonara/output /opt/sonara/hf-cache
 
 if [ ! -s "$KEY_FILE" ]; then
