@@ -15,8 +15,7 @@ on:
       - "scripts/sonara-molab-connect-production.py"
       - "scripts/sonara-molab-secure-gateway.py"
       - "scripts/test-sonara-molab-secure-gateway.py"
-      - "api/billing/[...path].ts"
-      - "api/billing/job.ts"
+      - "api/billing/**"
       - "wrangler.jsonc"
   push:
     branches:
@@ -56,7 +55,7 @@ jobs:
           node --test /tmp/sonara-molab-only.test.mjs
       - name: Check Cloudflare config and stable MoLab endpoint
         run: |
-          node --input-type=module -e '
+          node --input-type=module <<'NODE'
           import { readFileSync } from "node:fs";
           const w = JSON.parse(readFileSync("wrangler.jsonc", "utf8"));
           if (w.vars.SONARA_MOLAB_ONLY !== "true") process.exit(2);
@@ -72,4 +71,4 @@ jobs:
           if (!deploy.includes("SONARA_INTERNAL_PROXY_SECRET: process.env.SONARA_INTERNAL_PROXY_SECRET")) process.exit(8);
           if (!deploy.includes("vercel_proxy_secret_configured:")) process.exit(9);
           if (!deploy.includes(".realMusicReady == true")) process.exit(10);
-          '
+          NODE
