@@ -29,6 +29,11 @@ jobs:
       - name: Checkout SONARA
         uses: actions/checkout@v6
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
       - name: Validate GPU API authentication and script syntax
         shell: bash
         run: |
@@ -78,6 +83,38 @@ jobs:
           done
           echo "RunPod endpoint is not reporting ACE-Step XL-Turbo ready: ${RUNPOD_XL_URL}" >&2
           exit 1
+
+      - name: Verify public GPU API rejects anonymous requests
+        shell: bash
+        run: |
+          set -euo pipefail
+          # /query_result does not create jobs, so an auth probe is safe.
+          for credential in missing invalid; do
+            headers=()
+            if [[ "${credential}" == invalid ]]; then
+              headers=(-H 'Authorization: Bearer sonara-intentionally-invalid-auth-probe')
+            fi
+            status="$(curl -sS --connect-timeout 10 --max-time 20 -o /dev/null -w '%{http_code}' \
+              -X POST -H 'Content-Type: application/json' "${headers[@]}" \
+              --data '{"task_id_list":["sonara-auth-probe-nonexistent-job"]}' \
+              "${RUNPOD_XL_URL}/query_result")"
+            if [[ "${status}" != 401 && "${status}" != 403 ]]; then
+              echo "SECURITY ERROR: unauthenticated/invalid-key request returned HTTP ${status} (expected 401 or 403)." >&2
+              exit 1
+            fi
+            echo "GPU API auth probe ${credential}: HTTP ${status}"
+          done
+
+      - name: Install frontend dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build production assets for Wrangler
+        run: npm run build
+
+      - name: Assert required static assets exist before changing live secrets
+        run: |
+          test -f dist/index.html
+          test -f wrangler.jsonc
 
       - name: Resolve Cloudflare account
         shell: bash
