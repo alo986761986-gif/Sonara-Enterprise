@@ -1,5 +1,5 @@
-SONARA_MOLAB_XL_URL=https://longest-hrs-know-designs.trycloudflare.com
+SONARA_MOLAB_XL_URL=https://molab.sonaraenterprise.com
 MODEL=acestep-v15-xl-turbo
 MODE=MOLAB_XL_ONLY
-ACTION=bind-ultra-speed-max-v15
-VERIFY=20260912-RTX6000PRO-FAST1-QUALITY2-ULTRA2-CURRENT-R1
+ACTION=bind-molab-only-xl-turbo-lm4b
+VERIFY=WAITING-FOR-LIVE-MOLAB-AND-PRIVATE-AUTH
