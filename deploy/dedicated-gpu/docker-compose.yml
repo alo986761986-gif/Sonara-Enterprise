@@ -1,0 +1,38 @@
+name: sonara-dedicated-gpu
+services:
+  acestep:
+    build:
+      context: /opt/sonara/ace-step
+      dockerfile: Dockerfile
+    image: sonara/acestep-xl-turbo:1.5
+    container_name: sonara-acestep-xl-turbo
+    env_file:
+      - /etc/sonara/ace-step.env
+    environment:
+      ACESTEP_MODE: api
+      ACESTEP_API_HOST: "0.0.0.0"
+      ACESTEP_API_PORT: "8001"
+      ACESTEP_DEVICE: cuda
+      ACESTEP_CONFIG_PATH: acestep-v15-xl-turbo
+      ACESTEP_LM_MODEL_PATH: acestep-5Hz-lm-4B
+      ACESTEP_INIT_SERVICE: "true"
+      ACESTEP_INIT_LLM: "true"
+      ACESTEP_LLM_BACKEND: pt
+      NVIDIA_VISIBLE_DEVICES: all
+      TOKENIZERS_PARALLELISM: "false"
+    ports:
+      - "127.0.0.1:8001:8001"
+    volumes:
+      - /opt/sonara/checkpoints:/app/checkpoints
+      - /opt/sonara/hf-cache:/root/.cache/huggingface
+      - /opt/sonara/output:/app/output
+    shm_size: "8gb"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities:
+                - gpu
+    restart: unless-stopped
