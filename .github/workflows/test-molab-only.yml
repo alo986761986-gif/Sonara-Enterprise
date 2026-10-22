@@ -9,6 +9,7 @@ on:
       - "cloudflare/sonara-molab-xl-router.mjs"
       - "cloudflare/sonara-yue-router.mjs"
       - "scripts/molab-sonara-xl-supervisor.py"
+      - "scripts/molab-sonara-interactive-test-20261022.py"
       - "wrangler.jsonc"
   push:
     branches:
@@ -30,6 +31,7 @@ jobs:
       - name: Validate shell and Python
         run: |
           python -m py_compile scripts/molab-sonara-xl-supervisor.py
+          python -m py_compile scripts/molab-sonara-interactive-test-20261022.py
           python -m py_compile scripts/molab-sonara-xl-stable-tunnel-setup.py
           node --check cloudflare/sonara-molab-xl-router.mjs
           node --check cloudflare/sonara-yue-router.mjs
