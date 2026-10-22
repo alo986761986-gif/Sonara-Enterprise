@@ -4,7 +4,7 @@ import { rewriteGenerationRequest } from './sonara-engine-v15-authoritative-prom
 export { SonaraJobState } from './sonara-instant-speed-router.mjs';
 
 // Keep this public contract stable: configure-molab-xl.yml verifies it.
-const VERSION = 'sonara-molab-xl-only-v1';
+const VERSION = 'sonara-dedicated-xl-turbo-v1';
 const FIDELITY_PROFILE = 'sonara-fidelity-v15-ultra-speed-max-fast1-quality2-ultra2';
 const REAL_MUSIC_PROFILE = 'sonara-real-music-v1';
 const REALISM_API_MARKER = 'sonara-realism-api-v1';
@@ -16,7 +16,7 @@ const FAST_80_RESCUE_PROFILE = 'sonara-fast-80-rescue-v1';
 const QUALITY_AB_DIVERSITY_PROFILE = 'sonara-quality-ab-diversity-v8';
 const MODEL = 'acestep-v15-xl-turbo';
 const PUBLIC_API_ORIGIN = 'https://api.sonaraenterprise.com';
-const CACHE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/molab-xl-only-v1/';
+const CACHE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/dedicated-xl-turbo-v1/';
 const CACHE_TTL = 3 * 60 * 60;
 const QUERY_TIMEOUT = 12_000;
 const SUBMIT_TIMEOUT = 120_000;
@@ -32,7 +32,9 @@ const FAST_STALL_MAX_POLLS = 4;
 const FAST_RECOVERY_MAX_ATTEMPTS = 1;
 
 const cleanUrl = value => String(value || '').trim().replace(/\/$/, '');
-const molabUrl = env => cleanUrl(env.SONARA_MOLAB_XL_URL || env.MOLAB_ACESTEP_URL || '');
+// The dedicated GPU endpoint is an authenticated, TLS-protected VM origin.
+// Never use the obsolete MoLab tunnel or a client-supplied provider URL.
+const molabUrl = env => cleanUrl(env.SONARA_DEDICATED_GPU_URL || '');
 
 function cors(request) {
   const origin = request.headers.get('Origin') || '';
@@ -41,7 +43,7 @@ function cors(request) {
     'Access-Control-Allow-Origin': allowed.has(origin) ? origin : 'https://sonaraenterprise.com',
     'Access-Control-Allow-Methods': 'GET,HEAD,POST,OPTIONS',
     'Access-Control-Allow-Headers': 'Authorization,Content-Type,Range,Cache-Control,Pragma,X-Sonara-Internal-Secret,X-Sonara-Job-Bridge,X-Sonara-Real-Prompt,X-Sonara-Requested-Bpm',
-    'Access-Control-Expose-Headers': 'Content-Length,Content-Range,Accept-Ranges,X-Sonara-MoLab-Profile,X-Sonara-Fidelity-Profile,X-Sonara-Real-Music,X-Sonara-Rich-Arrangement,X-Sonara-Natural-Tone,X-Sonara-ACE-Worker',
+    'Access-Control-Expose-Headers': 'Content-Length,Content-Range,Accept-Ranges,X-Sonara-Dedicated-Profile,X-Sonara-Fidelity-Profile,X-Sonara-Real-Music,X-Sonara-Rich-Arrangement,X-Sonara-Natural-Tone,X-Sonara-ACE-Worker',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin'
   };
@@ -53,7 +55,7 @@ function json(request, data, status = 200) {
     headers: {
       'content-type': 'application/json; charset=UTF-8',
       'cache-control': 'private, no-store',
-      'x-sonara-molab-profile': VERSION,
+      'x-sonara-dedicated-profile': VERSION,
       'x-sonara-fidelity-profile': FIDELITY_PROFILE,
       'x-sonara-real-music': REAL_MUSIC_PROFILE,
       'x-sonara-rich-arrangement': RICH_ARRANGEMENT_PROFILE,
@@ -73,9 +75,11 @@ function authHeaders(env, extra = {}) {
   return out;
 }
 
-function authorized(request, env) {
+export function authorized(request, env) {
+  // Fail closed: the public Worker must never spend GPU time when
+  // SONARA_INTERNAL_PROXY_SECRET is absent or the caller is untrusted.
   const required = String(env.SONARA_INTERNAL_PROXY_SECRET || '').trim();
-  return !required || String(request.headers.get('X-Sonara-Internal-Secret') || '').trim() === required;
+  return Boolean(required) && String(request.headers.get('X-Sonara-Internal-Secret') || '').trim() === required;
 }
 
 function clamp(value, fallback, min, max) {
@@ -190,6 +194,7 @@ async function workerHealth(baseUrl, env) {
       status: String(health?.status || '').toLowerCase(),
       modelsInitialized: health?.models_initialized === true,
       llmInitialized: health?.llm_initialized === true,
+      loadedLmModel: String(health?.loaded_lm_model || ''),
       realismApiV1: health?.sonara_realism_api_v1 === true || String(health?.sonara_realism_api || '') === REALISM_API_MARKER,
       loadedModel: String(health?.loaded_model || health?.model || ''),
       raw: health
@@ -201,6 +206,7 @@ async function workerHealth(baseUrl, env) {
       status: '',
       modelsInitialized: false,
       llmInitialized: false,
+      loadedLmModel: '',
       realismApiV1: false,
       loadedModel: '',
       error: error instanceof Error ? error.message : String(error)
@@ -210,7 +216,7 @@ async function workerHealth(baseUrl, env) {
 
 function realMusicEnabled(body = {}, capabilities = {}) {
   if (body?.sonaraRealMusic === false || body?.sonara_real_music === false) return false;
-  return profileOf(body) !== 'fast' && capabilities?.llmInitialized === true && capabilities?.realismApiV1 === true;
+  return profileOf(body) !== 'fast' && capabilities?.llmInitialized === true;
 }
 
 export function buildMolabPayload(body, count, capabilities = {}) {
@@ -327,7 +333,7 @@ async function submit(baseUrl, env, payload) {
   });
   const raw = await response.text();
   if (response.status === 530) {
-    throw new Error('MoLab XL tunnel offline (HTTP 530). Il Quick Tunnel Cloudflare non e piu raggiungibile: riavvia il supervisor MoLab e collega il nuovo SONARA_MOLAB_XL_URL.');
+    throw new Error('MoLab XL tunnel offline (HTTP 530). Il Quick Tunnel Cloudflare non e piu raggiungibile: riavvia il supervisor MoLab e collega il nuovo SONARA_DEDICATED_GPU_URL.');
   }
   let data = {};
   try { data = raw ? JSON.parse(raw) : {}; }
@@ -455,27 +461,72 @@ async function loadState(env, jobId) {
   } catch { return null; }
 }
 
-function publicAudioUrl(path) {
-  return `${PUBLIC_API_ORIGIN}/api/molab/audio?path=${encodeURIComponent(path)}`;
+const AUDIO_LINK_TTL_SECONDS = 24 * 60 * 60;
+
+function audioHmacInput(path, expires) {
+  return new TextEncoder().encode(`sonara-molab-audio-v1|${expires}|${path}`);
 }
 
-function candidatesFrom(refs, payload = {}) {
+async function audioHmacKey(env) {
+  const secret = String(env?.ACE_STEP_API_KEY || env?.ACESTEP_API_KEY || '').trim();
+  if (!secret) throw new Error('SONARA audio secret missing');
+  return crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign', 'verify']
+  );
+}
+
+export async function publicAudioUrl(path, env, now = Date.now()) {
+  if (!path || path.length > 2048 || path.includes(String.fromCharCode(0))) throw new Error('Invalid audio path');
+  const expires = Math.floor(now / 1000) + AUDIO_LINK_TTL_SECONDS;
+  const key = await audioHmacKey(env);
+  const signature = new Uint8Array(await crypto.subtle.sign('HMAC', key, audioHmacInput(path, expires)));
+  const sig = Array.from(signature, byte => byte.toString(16).padStart(2, '0')).join('');
+  const url = new URL('/api/gpu/audio', PUBLIC_API_ORIGIN);
+  url.searchParams.set('path', path);
+  url.searchParams.set('exp', String(expires));
+  url.searchParams.set('sig', sig);
+  return url.toString();
+}
+
+export async function verifySignedAudioUrl(url, env, now = Date.now()) {
+  const path = String(url.searchParams.get('path') || '');
+  const exp = String(url.searchParams.get('exp') || '');
+  const sig = String(url.searchParams.get('sig') || '');
+  if (!path || path.length > 2048 || path.includes(String.fromCharCode(0))) return false;
+  if (!/^[0-9]{10}$/.test(exp) || !/^[0-9a-f]{64}$/.test(sig)) return false;
+  const expiry = Number(exp);
+  const current = Math.floor(now / 1000);
+  if (expiry < current || expiry > current + AUDIO_LINK_TTL_SECONDS) return false;
+  try {
+    const signature = Uint8Array.from(sig.match(/.{2}/g), value => parseInt(value, 16));
+    const key = await audioHmacKey(env);
+    return crypto.subtle.verify('HMAC', key, signature, audioHmacInput(path, expiry));
+  } catch {
+    return false;
+  }
+}
+
+async function candidatesFrom(refs, payload = {}, env = {}) {
   const realMusic = payload?.sonara_real_music_v1 === true;
   const inferenceSteps = Number(payload?.inference_steps || INFERENCE_STEPS);
   const samplerMode = String(payload?.sampler_mode || (realMusic ? 'heun' : 'euler'));
-  return refs.map((path, index) => ({
+  return Promise.all(refs.map(async (path, index) => ({
     id: index === 0 ? 'A' : 'B',
-    audioUrl: publicAudioUrl(path),
+    audioUrl: await publicAudioUrl(path, env),
     audioFormat: 'wav',
-    provider: 'molab',
+    provider: 'dedicated_gpu',
     model: MODEL,
     inferenceSteps,
     fidelityProfile: FIDELITY_PROFILE,
     realMusicProfile: realMusic ? REAL_MUSIC_PROFILE : null,
     thinking: realMusic,
     samplerMode,
-    strategy: index === 0 ? 'molab-xl-fidelity-hook' : 'molab-xl-fidelity-variation'
-  }));
+    strategy: index === 0 ? 'dedicated-xl-fidelity-hook' : 'dedicated-xl-fidelity-variation'
+  })));
 }
 
 function qualityMetadata(count, payload = {}) {
@@ -483,8 +534,8 @@ function qualityMetadata(count, payload = {}) {
   const inferenceSteps = Number(payload?.inference_steps || INFERENCE_STEPS);
   const samplerMode = String(payload?.sampler_mode || (realMusic ? 'heun' : 'euler'));
   return {
-    engine: realMusic ? 'SONARA MoLab RTX PRO 6000 XL-Turbo Real Music' : 'SONARA MoLab RTX PRO 6000 XL-Turbo Fidelity',
-    provider: 'molab',
+    engine: realMusic ? 'SONARA GPU dedicata RTX PRO 6000 XL-Turbo Real Music' : 'SONARA GPU dedicata RTX PRO 6000 XL-Turbo Fidelity',
+    provider: 'dedicated_gpu',
     model: MODEL,
     thinking: realMusic,
     formatEnhancement: false,
@@ -525,7 +576,7 @@ async function startMolab(request, env) {
       status: 'FAILED',
       progress: 0,
       retryable: true,
-      error: 'MoLab XL-Turbo non configurato. Kaggle è disabilitato per Music AI.'
+      error: 'GPU dedicata XL-Turbo non configurato. Kaggle è disabilitato per Music AI.'
     }, 503);
   }
 
@@ -537,7 +588,7 @@ async function startMolab(request, env) {
   const count = candidateCount(body);
   const capabilities = await workerHealth(baseUrl, env);
   const payload = buildMolabPayload(body, count, capabilities);
-  const jobId = `mxl_${crypto.randomUUID()}`;
+  const jobId = `gpu_${crypto.randomUUID()}`;
   try {
     const taskId = await submit(baseUrl, env, payload);
     const now = Date.now();
@@ -572,7 +623,7 @@ async function startMolab(request, env) {
         ...meta,
         currentStage: meta.thinking
           ? (count === 2 ? `Real Music: LM 4B + ${meta.samplerMode}, ${meta.inferenceSteps} step, batch RTX avviato` : `Real Music: LM 4B + ${meta.samplerMode}, ${meta.inferenceSteps} step, inferenza RTX avviata`)
-          : (count === 2 ? `MoLab Fidelity: ${meta.inferenceSteps} step, batch RTX avviato` : `MoLab Fidelity: ${meta.inferenceSteps} step, inferenza RTX avviata`)
+          : (count === 2 ? `GPU Fidelity: ${meta.inferenceSteps} step, batch RTX avviato` : `GPU Fidelity: ${meta.inferenceSteps} step, inferenza RTX avviata`)
       }
     }, 202);
   } catch (error) {
@@ -588,6 +639,7 @@ async function startMolab(request, env) {
 }
 
 async function pollMolab(request, env, jobId) {
+  if (!authorized(request, env)) return json(request, { error: 'Unauthorized SONARA job proxy.' }, 401);
   const state = await loadState(env, jobId);
   if (!state?.taskId || !state?.baseUrl) {
     return json(request, { jobId, status: 'FAILED', progress: 0, retryable: false, error: 'Sessione MoLab SONARA non trovata.' }, 404);
@@ -636,10 +688,10 @@ async function pollMolab(request, env, jobId) {
           status: 'FAILED',
           progress: 0,
           retryable: true,
-          error: `MoLab XL-Turbo completato ma ha restituito ${refs.length}/${expectedCount} audio.`
+          error: `GPU dedicata XL-Turbo completato ma ha restituito ${refs.length}/${expectedCount} audio.`
         }, 502);
       }
-      const candidates = candidatesFrom(refs, payload);
+      const candidates = await candidatesFrom(refs, payload, env);
       return json(request, {
         jobId,
         status: 'COMPLETED',
@@ -654,7 +706,7 @@ async function pollMolab(request, env, jobId) {
           candidateCount: candidates.length,
           currentStage: meta.thinking
             ? (candidates.length === 2 ? '2 master Real Music pronti' : 'Master Real Music pronto')
-            : (candidates.length === 2 ? '2 master MoLab Fidelity pronti' : 'Master MoLab Fidelity pronto')
+            : (candidates.length === 2 ? '2 master GPU Fidelity pronti' : 'Master GPU Fidelity pronto')
         }
       });
     }
@@ -665,7 +717,7 @@ async function pollMolab(request, env, jobId) {
         status: 'FAILED',
         progress: 0,
         retryable: true,
-        error: String(task?.error || task?.message || `Generazione MoLab XL-Turbo fallita (status=${String(task?.status)}).`),
+        error: String(task?.error || task?.message || `Generazione GPU dedicata XL-Turbo fallita (status=${String(task?.status)}).`),
         metadata: { ...meta, currentStage: 'Generazione MoLab fallita' }
       }, 502);
     }
@@ -740,8 +792,8 @@ async function pollMolab(request, env, jobId) {
         status: 'FAILED',
         progress: 0,
         retryable: true,
-        error: 'MoLab non ha iniziato inferenza entro il tempo previsto. Riprova: il job bloccato è stato scartato.',
-        metadata: { ...meta, currentStage: 'Job MoLab bloccato rilevato' }
+        error: 'GPU dedicata non ha iniziato inferenza entro il tempo previsto. Riprova: il job bloccato è stato scartato.',
+        metadata: { ...meta, currentStage: 'Job GPU bloccato rilevato' }
       }, 504);
     }
 
@@ -762,7 +814,7 @@ async function pollMolab(request, env, jobId) {
         highProgressPolls: Number(state.highProgressPolls || 0),
         fastStallPolls: Number(state.fastStallPolls || 0),
         fastRecoveryAttempts: Number(state.fastRecoveryAttempts || 0),
-        currentStage: info.stage || (meta.thinking ? `Real Music: LM 4B + ${meta.samplerMode}, ${meta.inferenceSteps} step sulla RTX PRO 6000` : `MoLab XL-Turbo ${meta.inferenceSteps} step sulla RTX PRO 6000`)
+        currentStage: info.stage || (meta.thinking ? `Real Music: LM 4B + ${meta.samplerMode}, ${meta.inferenceSteps} step sulla RTX PRO 6000` : `GPU dedicata XL-Turbo ${meta.inferenceSteps} step sulla RTX PRO 6000`)
       }
     });
   } catch (error) {
@@ -775,7 +827,7 @@ async function pollMolab(request, env, jobId) {
       error: error instanceof Error ? error.message : String(error),
       metadata: {
         ...qualityMetadata(expectedCount, payload),
-        currentStage: 'Riconnessione a MoLab XL-Turbo'
+        currentStage: 'Riconnessione a GPU dedicata XL-Turbo'
       }
     });
   }
@@ -783,10 +835,15 @@ async function pollMolab(request, env, jobId) {
 
 async function proxyAudio(request, env) {
   const baseUrl = molabUrl(env);
-  if (!baseUrl) return json(request, { error: 'MoLab XL-Turbo non configurato.' }, 503);
+  if (!baseUrl) return json(request, { error: 'GPU dedicata XL-Turbo non configurato.' }, 503);
   const url = new URL(request.url);
   const path = String(url.searchParams.get('path') || '').trim();
   if (!path) return json(request, { error: 'Audio path mancante.' }, 400);
+  // Browser players use time-limited, HMAC-signed audio links. An arbitrary
+  // unauthenticated ?path= must never reach ACE-Step's filesystem-backed API.
+  if (!await verifySignedAudioUrl(url, env)) {
+    return json(request, { error: 'Link audio SONARA non autorizzato o scaduto.' }, 403);
+  }
 
   const target = new URL('/v1/audio', `${baseUrl}/`);
   target.searchParams.set('path', path);
@@ -802,18 +859,18 @@ async function proxyAudio(request, env) {
       signal: AbortSignal.timeout(AUDIO_TIMEOUT)
     });
   } catch {
-    return json(request, { error: 'Audio MoLab non raggiungibile.', retryable: true }, 502);
+    return json(request, { error: 'Audio GPU dedicata non raggiungibile.', retryable: true }, 502);
   }
 
   const out = new Headers(upstream.headers);
   Object.entries(cors(request)).forEach(([key, value]) => out.set(key, value));
   out.set('cache-control', 'private, no-store');
-  out.set('x-sonara-molab-profile', VERSION);
+  out.set('x-sonara-dedicated-profile', VERSION);
   out.set('x-sonara-fidelity-profile', FIDELITY_PROFILE);
   out.set('x-sonara-real-music', REAL_MUSIC_PROFILE);
   out.set('x-sonara-rich-arrangement', RICH_ARRANGEMENT_PROFILE);
   out.set('x-sonara-natural-tone', NATURAL_TONE_PROFILE);
-  out.set('x-sonara-ace-worker', 'molab-xl');
+  out.set('x-sonara-ace-worker', 'dedicated-xl');
   return new Response(request.method === 'HEAD' ? null : upstream.body, {
     status: upstream.status,
     statusText: upstream.statusText,
@@ -829,11 +886,11 @@ async function readiness(request, env) {
       profile: VERSION,
       fidelityProfile: FIDELITY_PROFILE,
       realMusicProfile: REAL_MUSIC_PROFILE,
-      engine: 'SONARA MoLab RTX PRO 6000 XL-Turbo Fidelity',
-      provider: 'molab',
+      engine: 'SONARA GPU dedicata RTX PRO 6000 XL-Turbo Fidelity',
+      provider: 'dedicated_gpu',
       model: MODEL,
       kaggleEnabled: false,
-      reason: 'SONARA_MOLAB_XL_URL non configurato.'
+      reason: 'SONARA_DEDICATED_GPU_URL non configurato.'
     }, 503);
   }
 
@@ -841,7 +898,7 @@ async function readiness(request, env) {
   const statusOk = ['ok', 'ready', 'healthy', 'online', 'success'].includes(health.status);
   const modelOk = !health.loadedModel || health.loadedModel.includes(MODEL);
   const ready = health.responseOk && health.modelsInitialized && modelOk && (health.code === 200 || statusOk);
-  const realMusicReady = ready && health.llmInitialized && health.realismApiV1;
+  const realMusicReady = ready && health.llmInitialized && health.loadedLmModel.includes('acestep-5Hz-lm-4B');
 
   return json(request, {
     ready,
@@ -857,8 +914,8 @@ async function readiness(request, env) {
     humanPerformanceIntelligence: true,
     realMusicReady,
     realismApiMarker: health.realismApiV1 ? REALISM_API_MARKER : null,
-    engine: realMusicReady ? 'SONARA MoLab RTX PRO 6000 XL-Turbo Real Music' : 'SONARA MoLab RTX PRO 6000 XL-Turbo Fidelity',
-    provider: 'molab',
+    engine: realMusicReady ? 'SONARA GPU dedicata RTX PRO 6000 XL-Turbo Real Music' : 'SONARA GPU dedicata RTX PRO 6000 XL-Turbo Fidelity',
+    provider: 'dedicated_gpu',
     model: MODEL,
     loadedModel: health.loadedModel,
     llmInitialized: health.llmInitialized,
@@ -882,7 +939,7 @@ async function readiness(request, env) {
 
 function withHeaders(response) {
   const headers = new Headers(response.headers);
-  headers.set('x-sonara-molab-profile', VERSION);
+  headers.set('x-sonara-dedicated-profile', VERSION);
   headers.set('x-sonara-fidelity-profile', FIDELITY_PROFILE);
   headers.set('x-sonara-real-music', REAL_MUSIC_PROFILE);
   headers.set('x-sonara-rich-arrangement', RICH_ARRANGEMENT_PROFILE);
@@ -896,15 +953,15 @@ export default {
     const url = new URL(request.url);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors(request) });
 
-    if ((url.pathname === '/api/molab/ready' || url.pathname === '/api/engine/ready') && request.method === 'GET') {
+    if ((url.pathname === '/api/gpu/ready' || url.pathname === '/api/molab/ready' || url.pathname === '/api/engine/ready') && request.method === 'GET') {
       return readiness(request, env);
     }
 
-    if (url.pathname === '/api/molab/audio' && (request.method === 'GET' || request.method === 'HEAD')) {
+    if ((url.pathname === '/api/gpu/audio' || url.pathname === '/api/molab/audio') && (request.method === 'GET' || request.method === 'HEAD')) {
       return proxyAudio(request, env);
     }
 
-    const jobMatch = url.pathname.match(/^\/api\/music\/job\/(mxl_[^/]+)$/);
+    const jobMatch = url.pathname.match(/^\/api\/music\/job\/(gpu_[^/]+)$/);
     if (request.method === 'GET' && jobMatch) {
       return pollMolab(request, env, decodeURIComponent(jobMatch[1]));
     }
@@ -914,7 +971,7 @@ export default {
         status: 'FAILED',
         progress: 0,
         retryable: false,
-        error: 'Job del vecchio motore disabilitato. Music AI ora usa esclusivamente MoLab XL-Turbo.'
+        error: 'Job del vecchio motore disabilitato. Music AI ora usa esclusivamente GPU dedicata XL-Turbo.'
       }, 410);
     }
 

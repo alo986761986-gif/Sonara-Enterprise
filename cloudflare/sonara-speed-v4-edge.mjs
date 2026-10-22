@@ -15,7 +15,11 @@ const ULTRA_STEPS = 2;
 
 const clean = value => String(value ?? '').trim();
 const cleanUrl = value => clean(value).replace(/\/$/, '');
-const molabUrl = env => cleanUrl(env.SONARA_MOLAB_XL_URL || env.MOLAB_ACESTEP_URL || '');
+const molabUrl = env => cleanUrl(
+  String(env.SONARA_DEDICATED_GPU_ONLY || '').toLowerCase() === 'true'
+    ? env.SONARA_DEDICATED_GPU_URL
+    : env.SONARA_DEDICATED_GPU_URL || env.SONARA_MOLAB_XL_URL || env.MOLAB_ACESTEP_URL || ''
+);
 
 function requestedProfile(body = {}) {
   const raw = clean(body.generationProfileV3 || body.renderProfile || body.generationProfile || body.qualityProfile || 'quality').toLowerCase();
@@ -111,7 +115,7 @@ function candidateArray(payload = {}) {
 function proxiedPath(audioUrl) {
   try {
     const url = new URL(clean(audioUrl));
-    if (url.pathname === '/api/molab/audio' || url.pathname === '/v1/audio') return clean(url.searchParams.get('path'));
+    if (url.pathname === '/api/molab/audio' || url.pathname === '/api/gpu/audio' || url.pathname === '/v1/audio') return clean(url.searchParams.get('path'));
   } catch {}
   return '';
 }

@@ -5,7 +5,7 @@ export { SonaraJobState, SonaraAuthStore };
 const VERSION = 'sonara-real-music-v3-auto-refine-2-quality-fast-batch';
 const GENRE_FINGERPRINT_REVISION = 'electronic-v12-future-garage-canonical-1';
 const GENERATE_PATHS = new Set(['/api/engine/generate', '/api/billing/generate']);
-const HEALTH_PATHS = new Set(['/api/health', '/api/engine/ready', '/api/molab/ready', '/api/studio/capabilities']);
+const HEALTH_PATHS = new Set(['/api/health', '/api/engine/ready', '/api/molab/ready', '/api/gpu/ready', '/api/studio/capabilities']);
 
 const clean = value => String(value ?? '').trim();
 const numeric = value => Number.isFinite(Number(value)) ? Number(value) : null;

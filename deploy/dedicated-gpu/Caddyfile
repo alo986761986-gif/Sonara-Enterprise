@@ -1,0 +1,11 @@
+# DNS A record must point gpu.sonaraenterprise.com to the dedicated GPU VM.
+# Public internet only reaches Caddy :443 -> authenticated local gateway :8002.
+# The ACE-Step API on :8001 must NEVER be published.
+gpu.sonaraenterprise.com {
+  encode zstd gzip
+  reverse_proxy 127.0.0.1:8002
+  header {
+    X-Content-Type-Options "nosniff"
+    Referrer-Policy "no-referrer"
+  }
+}

@@ -1,0 +1,176 @@
+name: Deploy SONARA Dedicated GPU
+
+on:
+  workflow_dispatch:
+    inputs:
+      dedicated_gpu_verified:
+        description: "Dedicated Nebius RTX PRO 6000 HTTPS origin passes authenticated model checks"
+        type: boolean
+        default: false
+        required: true
+      vercel_proxy_secret_configured:
+        description: "Vercel Production has identical SONARA_INTERNAL_PROXY_SECRET and has been redeployed"
+        type: boolean
+        default: false
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonara-dedicated-gpu-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy verified dedicated GPU origin to Cloudflare
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      GPU_URL: https://gpu.sonaraenterprise.com
+      GPU_ORIGIN_KEY: ${{ secrets.SONARA_DEDICATED_GPU_ORIGIN_KEY }}
+      SONARA_INTERNAL_PROXY_SECRET: ${{ secrets.SONARA_INTERNAL_PROXY_SECRET }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+      GPU_VERIFIED: ${{ inputs.dedicated_gpu_verified }}
+      VERCEL_SECRET_READY: ${{ inputs.vercel_proxy_secret_configured }}
+    steps:
+      - name: Require authorized production settings
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GPU_VERIFIED" = true
+          test "$VERCEL_SECRET_READY" = true
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$GPU_ORIGIN_KEY"
+          test -n "$SONARA_INTERNAL_PROXY_SECRET"
+          if [ "${#GPU_ORIGIN_KEY}" -lt 48 ] || [ "${#SONARA_INTERNAL_PROXY_SECRET}" -lt 32 ]; then
+            echo "Origin key or Vercel proxy secret is too short." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+
+      - name: Validate dedicated GPU locally authored code
+        run: |
+          node --check cloudflare/sonara-molab-xl-router.mjs
+          node --check cloudflare/sonara-yue-router.mjs
+          npx --yes esbuild@0.28.1 cloudflare/sonara-dedicated-gpu.test.mjs --bundle --platform=node --format=esm --outfile=/tmp/sonara-dedicated-gpu.test.mjs
+          node --test /tmp/sonara-dedicated-gpu.test.mjs
+
+      - name: Check dedicated GPU HTTPS models and authentication
+        shell: bash
+        run: |
+          set -euo pipefail
+          unauth="$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 8 --max-time 18 "$GPU_URL/health")"
+          if [ "$unauth" != 401 ] && [ "$unauth" != 403 ]; then
+            echo "Dedicated GPU public origin is not protected: HTTP $unauth" >&2
+            exit 1
+          fi
+          for attempt in $(seq 1 15); do
+            health="$(curl -fsS --connect-timeout 8 --max-time 30 -H "Authorization: Bearer $GPU_ORIGIN_KEY" "$GPU_URL/health" || true)"
+            if printf '%s' "$health" | jq -e '
+              (.data // .) |
+              .models_initialized == true and
+              .llm_initialized == true and
+              (.loaded_model | tostring | contains("acestep-v15-xl-turbo")) and
+              (.loaded_lm_model | tostring | contains("acestep-5Hz-lm-4B"))
+            ' >/dev/null 2>&1; then
+              echo "Dedicated GPU XL Turbo + LM 4B ready, unauthorized blocked."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Dedicated GPU not ready. Production unchanged." >&2
+          exit 1
+
+      - name: Verify invalid bearer cannot reach GPU generation
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 -X POST \
+            -H 'Authorization: Bearer deliberately-invalid-probe' \
+            -H 'Content-Type: application/json' \
+            --data '{"task_id_list":["sonara-auth-probe"]}' \
+            "$GPU_URL/query_result")"
+          if [ "$status" != 401 ] && [ "$status" != 403 ]; then
+            echo "Invalid-key isolation failed: HTTP $status" >&2
+            exit 1
+          fi
+
+      - name: Install dependencies and build SONARA
+        run: |
+          npm install
+          npm run build
+
+      - name: Resolve Cloudflare account from authorized token
+        shell: bash
+        run: |
+          set -euo pipefail
+          id="$CLOUDFLARE_ACCOUNT_ID"
+          if [ -z "$id" ]; then
+            response="$(curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"               'https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50')"
+            id="$(printf '%s' "$response" | jq -r '.result[] | select(.name == "sonaraenterprise.com") | .account.id' | head -n 1)"
+          fi
+          test -n "$id"
+          echo "::add-mask::$id"
+          echo "CLOUDFLARE_ACCOUNT_ID=$id" >> "$GITHUB_ENV"
+
+      - name: Prepare secret-bearing Wrangler deployment file
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const file = path.join(process.env.RUNNER_TEMP, 'sonara-gpu-private.json');
+          if (!process.env.GPU_URL || !process.env.GPU_ORIGIN_KEY || !process.env.SONARA_INTERNAL_PROXY_SECRET) process.exit(1);
+          fs.writeFileSync(file, JSON.stringify({
+            SONARA_DEDICATED_GPU_URL: process.env.GPU_URL,
+            ACE_STEP_API_KEY: process.env.GPU_ORIGIN_KEY,
+            SONARA_INTERNAL_PROXY_SECRET: process.env.SONARA_INTERNAL_PROXY_SECRET,
+          }), {mode: 0o600});
+          NODE
+
+      - name: Deploy SONARA Worker with both private keys atomically
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.51.0 deploy --config wrangler.jsonc \
+            --secrets-file "$RUNNER_TEMP/sonara-gpu-private.json"
+
+      - name: Delete temporary deployment keys
+        if: always()
+        shell: bash
+        run: |
+          rm -f "$RUNNER_TEMP/sonara-gpu-private.json"
+
+      - name: Confirm live Cloudflare GPU-only readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 12); do
+            ready="$(curl -sS --max-time 25 -H 'Accept: application/json'               -H 'Cache-Control: no-cache'               "https://api.sonaraenterprise.com/api/gpu/ready?check=${GITHUB_SHA}-${attempt}" || true)"
+            if printf '%s' "$ready" | jq -e '
+              .ready == true and
+              .provider == "dedicated_gpu" and
+              .model == "acestep-v15-xl-turbo" and
+              .realMusicReady == true and
+              .llmInitialized == true and
+              .kaggleEnabled == false
+            ' >/dev/null 2>&1; then
+              echo "SONARA dedicated GPU production readiness verified."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Cloudflare deploy completed, but dedicated GPU readiness failed. Inspect origin/Worker and rollback if required." >&2
+          exit 1

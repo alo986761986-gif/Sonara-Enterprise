@@ -68,6 +68,24 @@ async function firebaseTokenValid(token: string): Promise<boolean> {
   }
 }
 
+async function nativeSessionValid(req: any): Promise<boolean> {
+  const cookie = headerValue(req.headers?.cookie).trim();
+  if (!/(?:^|;\\s*)sonara_session=/.test(cookie)) return false;
+  try {
+    const response = await fetch('https://sonaraenterprise.com/api/sonara-auth/session', {
+      method: 'GET',
+      headers: { Cookie: cookie, Accept: 'application/json' },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(10_000)
+    });
+    if (!response.ok) return false;
+    const payload = await response.json() as { authenticated?: boolean; user?: { uid?: string } };
+    return payload.authenticated === true && Boolean(String(payload.user?.uid || '').trim());
+  } catch {
+    return false;
+  }
+}
+
 function sendJson(res: any, status: number, body: Record<string, unknown>) {
   res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -77,7 +95,7 @@ function sendJson(res: any, status: number, body: Record<string, unknown>) {
 }
 
 function validJobId(jobId: string): boolean {
-  return /^(?:d6_|d9pair_|d16pair_)[A-Za-z0-9-]{16,}$/.test(jobId);
+  return /^(?:gpu_|mxl_|d6_|d9pair_|d16pair_)[A-Za-z0-9-]{16,}$/.test(jobId);
 }
 
 export default async function handler(req: any, res: any) {
@@ -86,9 +104,10 @@ export default async function handler(req: any, res: any) {
   }
 
   const internalSecret = String(process.env.SONARA_INTERNAL_PROXY_SECRET || '').trim();
+  if (internalSecret.length < 32) return sendJson(res, 503, { error: 'DEDICATED_GPU_PROXY_NOT_CONFIGURED' });
   const suppliedSecret = headerValue(req.headers?.['x-sonara-internal-secret']).trim();
   const internalRequest = Boolean(internalSecret && suppliedSecret === internalSecret);
-  const authenticatedClient = internalRequest ? true : await firebaseTokenValid(bearerToken(req));
+  const authenticatedClient = internalRequest || await firebaseTokenValid(bearerToken(req)) || await nativeSessionValid(req);
   if (!authenticatedClient) {
     return sendJson(res, 401, {
       status: 'FAILED',
@@ -107,7 +126,8 @@ export default async function handler(req: any, res: any) {
     });
   }
 
-  const engineBaseUrl = String(process.env.SONARA_ENGINE_API_URL || DEFAULT_ENGINE_URL).replace(/\/$/, '');
+  // The dedicated GPU deployment must not poll a legacy engine configured in Vercel.
+  const engineBaseUrl = DEFAULT_ENGINE_URL;
   const headers: Record<string, string> = {
     Accept: 'application/json',
     'X-Sonara-Job-Bridge': 'vercel'
