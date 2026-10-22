@@ -190,6 +190,7 @@ async function workerHealth(baseUrl, env) {
       status: String(health?.status || '').toLowerCase(),
       modelsInitialized: health?.models_initialized === true,
       llmInitialized: health?.llm_initialized === true,
+      loadedLmModel: String(health?.loaded_lm_model || ''),
       realismApiV1: health?.sonara_realism_api_v1 === true || String(health?.sonara_realism_api || '') === REALISM_API_MARKER,
       loadedModel: String(health?.loaded_model || health?.model || ''),
       raw: health
@@ -201,6 +202,7 @@ async function workerHealth(baseUrl, env) {
       status: '',
       modelsInitialized: false,
       llmInitialized: false,
+      loadedLmModel: '',
       realismApiV1: false,
       loadedModel: '',
       error: error instanceof Error ? error.message : String(error)
@@ -210,7 +212,7 @@ async function workerHealth(baseUrl, env) {
 
 function realMusicEnabled(body = {}, capabilities = {}) {
   if (body?.sonaraRealMusic === false || body?.sonara_real_music === false) return false;
-  return profileOf(body) !== 'fast' && capabilities?.llmInitialized === true && capabilities?.realismApiV1 === true;
+  return profileOf(body) !== 'fast' && capabilities?.llmInitialized === true;
 }
 
 export function buildMolabPayload(body, count, capabilities = {}) {
@@ -841,7 +843,7 @@ async function readiness(request, env) {
   const statusOk = ['ok', 'ready', 'healthy', 'online', 'success'].includes(health.status);
   const modelOk = !health.loadedModel || health.loadedModel.includes(MODEL);
   const ready = health.responseOk && health.modelsInitialized && modelOk && (health.code === 200 || statusOk);
-  const realMusicReady = ready && health.llmInitialized && health.realismApiV1;
+  const realMusicReady = ready && health.llmInitialized && health.loadedLmModel.includes('acestep-5Hz-lm-4B');
 
   return json(request, {
     ready,
