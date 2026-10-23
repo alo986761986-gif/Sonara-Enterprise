@@ -464,6 +464,13 @@ export default {
       return pollYue(request, env, ctx, decodeURIComponent(jobMatch[1]));
     }
 
+    // Opt-in rollout: route music to ACE-Step XL on MoLab only when explicitly enabled.
+    // Default remains unchanged until the new GPU endpoint is reachable and configured.
+    const molabPrimary = String(env.SONARA_MOLAB_PRIMARY || '').trim().toLowerCase() === 'true';
+    if (molabPrimary && request.method === 'POST' && url.pathname === '/api/engine/generate') {
+      return withHeaders(await molabRuntime.fetch(request, env, ctx));
+    }
+
     if (request.method === 'POST' && url.pathname === '/api/engine/generate' && yueUrl(env)) {
       try {
         const response = await startYue(request, env);
