@@ -1,4 +1,5 @@
 import runtime, { SonaraJobState, SonaraAuthStore } from './sonara-ultra-diversity-v1-edge.mjs';
+import relayRuntime from './sonara-r2-https-relay.mjs';
 
 export { SonaraJobState, SonaraAuthStore };
 
@@ -218,6 +219,7 @@ function capabilities() {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (url.pathname.startsWith('/api/sonara-relay/')) return relayRuntime.fetch(request, env, ctx);
 
     if (request.method === 'GET' && url.pathname === '/api/real-music/v3/capabilities') {
       return new Response(JSON.stringify(capabilities()), {
