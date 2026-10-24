@@ -13,7 +13,11 @@
     "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/__sonara_internal/*", "/sonara-video-ui-edge.js"]
+    "run_worker_first": [
+      "/api/*",
+      "/__sonara_internal/*",
+      "/sonara-video-ui-edge.js"
+    ]
   },
   "durable_objects": {
     "bindings": [
@@ -30,11 +34,15 @@
   "migrations": [
     {
       "tag": "v19-durable-job-state-1",
-      "new_sqlite_classes": ["SonaraJobState"]
+      "new_sqlite_classes": [
+        "SonaraJobState"
+      ]
     },
     {
       "tag": "v20-sonara-native-auth-1",
-      "new_sqlite_classes": ["SonaraAuthStore"]
+      "new_sqlite_classes": [
+        "SonaraAuthStore"
+      ]
     }
   ],
   "routes": [
@@ -49,6 +57,12 @@
     {
       "pattern": "www.sonaraenterprise.com/*",
       "zone_name": "sonaraenterprise.com"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "SONARA_AUDIO_BUCKET",
+      "bucket_name": "sonara-generated-audio"
     }
   ]
 }
