@@ -22,6 +22,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  no-music-on-push:
+    if: github.event_name == 'push'
+    name: Infrastructure-only guard - no music generation
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Honor owner's no-test-generation instruction
+        run: echo 'Automatic music generation is disabled. No GPU or music API request is made.'
+
   full-song-pair:
     # The owner explicitly prohibited automatic music-generation tests.
     # Code deployments must never trigger real songs or consume GPU jobs.
