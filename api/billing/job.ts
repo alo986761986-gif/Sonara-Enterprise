@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { relayReadiness } from '../../backend/relay-readiness';
 
 const DEFAULT_ENGINE_URL = 'https://api.sonaraenterprise.com';
 const TOKEN_CACHE_MS = 60_000;
@@ -77,13 +78,16 @@ function sendJson(res: any, status: number, body: Record<string, unknown>) {
 }
 
 function validJobId(jobId: string): boolean {
-  return /^(?:d6_|d9pair_|d16pair_)[A-Za-z0-9-]{16,}$/.test(jobId);
+  return /^(?:d6_|d9pair_|d16pair_)[A-Za-z0-9-]{16,}$/.test(jobId) || /^sr2_[0-9a-f-]{36}$/.test(jobId);
 }
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') {
     return sendJson(res, 405, { error: 'Method not allowed.' });
   }
+
+  // Read-only infrastructure status, without adding a 13th serverless function.
+  if (queryValue(req.query?.relayReadiness) === '1') return relayReadiness(req, res);
 
   const internalSecret = String(process.env.SONARA_INTERNAL_PROXY_SECRET || '').trim();
   const suppliedSecret = headerValue(req.headers?.['x-sonara-internal-secret']).trim();

@@ -3,8 +3,11 @@ const fs = require('node:fs');
 
 if (process.env.WORKERS_CI === '1') {
   console.log('[SONARA] Cloudflare Workers build detected (WORKERS_CI=1).');
-  console.log('[SONARA] Skipping the Node/Vite application build; Wrangler will deploy the dedicated Modal proxy Worker.');
-  process.exit(0);
+  console.log('[SONARA] Building real Vite assets for Wrangler ASSETS binding (no placeholder).');
+  const npxBuild = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+  const viteBuild = spawnSync(npxBuild, ['vite', 'build'], { stdio: 'inherit', shell: false, env: process.env });
+  if (viteBuild.error) { console.error(viteBuild.error); process.exit(1); }
+  process.exit(viteBuild.status ?? 1);
 }
 
 const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';

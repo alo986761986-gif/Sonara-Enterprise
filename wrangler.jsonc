@@ -1,11 +1,13 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "sonara-enterprise",
-  "main": "cloudflare/sonara-real-music-v3-edge.mjs",
+  "main": "cloudflare/sonara-relay-gateway-entry.mjs",
   "compatibility_date": "2026-08-23",
   "workers_dev": true,
   "keep_vars": true,
   "vars": {
+    "SONARA_GATEWAY_SHA256": "45e015f3256d950f2a30db43b2f22e1a56655fe03c65bf2cded2d789152efdb1",
+    "SONARA_R2_RELAY_ENABLED": "false",
     "SONARA_YUE_WORKER_URL": "https://yue.sonaraenterprise.com",
     "SONARA_PRODUCTION_CHAIN": "sonara-real-music-v3-edge.mjs -> sonara-ultra-diversity-v1-edge.mjs -> sonara-speed-v4-edge.mjs -> sonara-real-music-v2-edge.mjs -> sonara-studio-pitch-key-upload-bridge.mjs -> sonara-studio-native-pitch-bridge.mjs -> sonara-studio-key-pitch-guard.mjs -> sonara-quality-ultra-stability-guard.mjs [REAL_MUSIC_V3][TRACK_GENOME][HUMANIZER][VOICE_REALISM][AUTO_REFINE][INDEPENDENT_AB_V3][PROMPT_FIDELITY_V4]"
   },
@@ -17,38 +19,20 @@
   },
   "durable_objects": {
     "bindings": [
-      {
-        "name": "SONARA_JOB_STATE",
-        "class_name": "SonaraJobState"
-      },
-      {
-        "name": "SONARA_AUTH",
-        "class_name": "SonaraAuthStore"
-      }
+      { "name": "SONARA_JOB_STATE", "class_name": "SonaraJobState" },
+      { "name": "SONARA_AUTH", "class_name": "SonaraAuthStore" }
     ]
   },
   "migrations": [
-    {
-      "tag": "v19-durable-job-state-1",
-      "new_sqlite_classes": ["SonaraJobState"]
-    },
-    {
-      "tag": "v20-sonara-native-auth-1",
-      "new_sqlite_classes": ["SonaraAuthStore"]
-    }
+    { "tag": "v19-durable-job-state-1", "new_sqlite_classes": ["SonaraJobState"] },
+    { "tag": "v20-sonara-native-auth-1", "new_sqlite_classes": ["SonaraAuthStore"] }
   ],
   "routes": [
-    {
-      "pattern": "api.sonaraenterprise.com",
-      "custom_domain": true
-    },
-    {
-      "pattern": "sonaraenterprise.com/*",
-      "zone_name": "sonaraenterprise.com"
-    },
-    {
-      "pattern": "www.sonaraenterprise.com/*",
-      "zone_name": "sonaraenterprise.com"
-    }
+    { "pattern": "api.sonaraenterprise.com", "custom_domain": true },
+    { "pattern": "sonaraenterprise.com/*", "zone_name": "sonaraenterprise.com" },
+    { "pattern": "www.sonaraenterprise.com/*", "zone_name": "sonaraenterprise.com" }
+  ],
+  "r2_buckets": [
+    { "binding": "SONARA_AUDIO_BUCKET", "bucket_name": "sonara-generated-audio" }
   ]
 }

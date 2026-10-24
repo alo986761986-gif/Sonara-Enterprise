@@ -517,6 +517,23 @@ function qualityMetadata(count, payload = {}) {
   };
 }
 
+// Build the same ACE-Step /release_task payload used by SONARA's original MoLab router.
+// The HTTPS relay transports jobs; it must not forward raw billing/UI JSON as ACE-Step jobs.
+export async function prepareMolabR2RelayPayload(body) {
+  const request = new Request('https://api.sonaraenterprise.com/api/engine/generate', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
+  });
+  const authoritative = await rewriteGenerationRequest(request);
+  const corrected = await authoritative.json();
+  const count = candidateCount(corrected);
+  return buildMolabPayload(corrected, count, {
+    modelsInitialized: true,
+    llmInitialized: true,
+    realismApiV1: false,
+    loadedModel: MODEL
+  });
+}
+
 async function startMolab(request, env) {
   if (!authorized(request, env)) return json(request, { error: 'Unauthorized SONARA generation proxy.' }, 401);
   const baseUrl = molabUrl(env);
