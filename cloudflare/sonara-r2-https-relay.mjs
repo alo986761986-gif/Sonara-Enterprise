@@ -38,6 +38,18 @@ export default {
   const url=new URL(request.url),p=url.pathname,b=env.SONARA_AUDIO_BUCKET;
   if(!isService(p)) return null;
   if(request.method==='OPTIONS') return new Response(null,{status:204,headers:{'access-control-allow-origin':'https://sonaraenterprise.com','access-control-allow-methods':'GET,POST,PUT,OPTIONS','access-control-allow-headers':'Content-Type,X-Sonara-Internal-Secret,X-Sonara-Relay-Token,Authorization'}});
+  // Read-only authentication probe. No queue claims, storage writes or generation.
+  // It works while the public relay switch is off, permitting safe provisioning.
+  if(p==='/api/sonara-relay/auth'&&request.method==='GET') {
+    if(!hasWorkerAuth(request,env))return json({error:'Unauthorized'},401);
+    return json({
+      service:'sonara-r2-relay',
+      authenticated:true,
+      relayEnabled:env.SONARA_R2_RELAY_ENABLED==='true',
+      storageConfigured:Boolean(b),
+      gatewayConfigured:Boolean(env.SONARA_INTERNAL_PROXY_SECRET)
+    });
+  }
   if(env.SONARA_R2_RELAY_ENABLED!=='true'||!b) return json({error:'SONARA relay not configured'},503);
   // Enqueue only from the Vercel billing/auth gateway using shared secret.
   if(p==='/api/sonara-relay/enqueue'&&request.method==='POST') {
