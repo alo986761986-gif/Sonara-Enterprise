@@ -1,5 +1,6 @@
 import runtime, { SonaraJobState, SonaraAuthStore } from './sonara-ultra-diversity-v1-edge.mjs';
 import relayRuntime from './sonara-r2-https-relay.mjs';
+import { prepareMolabR2RelayPayload } from './sonara-molab-xl-router.mjs';
 
 export { SonaraJobState, SonaraAuthStore };
 
@@ -222,8 +223,18 @@ export default {
     if (url.pathname.startsWith('/api/sonara-relay/')) return relayRuntime.fetch(request, env, ctx);
     if (env.SONARA_R2_RELAY_ENABLED === 'true') {
       if (request.method === 'POST' && url.pathname === '/api/engine/generate') {
+        if (!env.SONARA_INTERNAL_PROXY_SECRET || request.headers.get('X-Sonara-Internal-Secret') !== env.SONARA_INTERNAL_PROXY_SECRET) {
+          return new Response(JSON.stringify({ error: 'Unauthorized music gateway' }), { status: 401, headers: { 'content-type': 'application/json' } });
+        }
+        let source;
+        try { source = await request.clone().json(); }
+        catch { return new Response(JSON.stringify({ error: 'Invalid request body' }), { status: 400, headers: { 'content-type': 'application/json' } }); }
+        const payload = await prepareMolabR2RelayPayload(enrich(source));
+        const headers = new Headers(request.headers);
+        headers.delete('content-length');
+        headers.set('content-type', 'application/json');
         const target = new URL('/api/sonara-relay/enqueue', request.url);
-        return relayRuntime.fetch(new Request(target, request), env, ctx);
+        return relayRuntime.fetch(new Request(target, { method:'POST', headers, body: JSON.stringify(payload) }), env, ctx);
       }
       const relayJob = url.pathname.match(/^\/api\/music\/job\/(sr2_[0-9a-f-]{36})$/);
       if (request.method === 'GET' && relayJob) {
