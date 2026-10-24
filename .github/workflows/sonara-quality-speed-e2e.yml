@@ -23,6 +23,9 @@ concurrency:
 
 jobs:
   full-song-pair:
+    # The owner explicitly prohibited automatic music-generation tests.
+    # Code deployments must never trigger real songs or consume GPU jobs.
+    if: github.event_name == 'workflow_dispatch'
     name: Generate two complete Quality songs in one RTX batch
     runs-on: ubuntu-latest
     timeout-minutes: 12
