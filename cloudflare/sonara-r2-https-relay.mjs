@@ -13,7 +13,6 @@ const saveRecord = (b,id,record,options={}) => b.put(key(id), JSON.stringify(rec
 const audioKey=(id,index)=>PREFIX+'audio/'+id+'/'+index+'.wav';
 const isService = path => path.startsWith('/api/sonara-relay/');
 const audioPublic=(id,i)=>'https://api.sonaraenterprise.com/api/sonara-relay/job/'+id+'/audio/'+i;
-const ttl = 60*60*1000;
 const MAX_REQ = 150000;
 export default {
  async fetch(request,env,ctx) {
@@ -58,12 +57,14 @@ export default {
     const parts=p.slice(root.length).split('/'),id=parts[0],action=parts[1]||'';
     if(!valid(id))return json({error:'Invalid job ID'},400);
     if(!action&&request.method==='GET') {
+      if(!hasSubmitAuth(request,env))return json({error:'Unauthorized'},401);
       const j=await getRecord(b,id);
       if(!j)return json({error:'Not found'},404);
       // Only public, non-sensitive progress metadata. Never return user prompt, lease or token.
       return json({jobId:id,status:j.status==='COMPLETE'?'COMPLETED':j.status==='FAILED'?'FAILED':'PROCESSING',progress:j.status==='COMPLETE'?100:j.status==='LEASED'?50:0,error:j.error,provider:'molab',model:'acestep-v15-xl-turbo',audioUrl:j.files[0]?audioPublic(id,0):null,audioUrls:j.files.map((_,i)=>audioPublic(id,i)),candidates:j.files.map((_,i)=>({id:i===0?'A':'B',audioUrl:audioPublic(id,i),provider:'molab',model:'acestep-v15-xl-turbo'}))});
     }
     if(action==='audio'&&request.method==='GET') {
+      if(!hasSubmitAuth(request,env))return json({error:'Unauthorized'},401);
       const j=await getRecord(b,id);
       if(!j||j.status!=='COMPLETE')return json({error:'Audio not ready'},404);
       const i=Number(parts[2]);if(!Number.isInteger(i)||i<0||i>=j.files.length)return json({error:'Not found'},404);
