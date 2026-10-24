@@ -12,6 +12,7 @@ const getRecord = async (b,id) => { const o=await b.get(key(id));return o?o.json
 const saveRecord = (b,id,record,options={}) => b.put(key(id), JSON.stringify(record), {httpMetadata:{contentType:'application/json'},...options});
 const audioKey=(id,index)=>PREFIX+'audio/'+id+'/'+index+'.wav';
 const isService = path => path.startsWith('/api/sonara-relay/');
+const audioPublic=(id,i)=>'https://api.sonaraenterprise.com/api/sonara-relay/job/'+id+'/audio/'+i;
 const ttl = 60*60*1000;
 const MAX_REQ = 150000;
 export default {
@@ -60,7 +61,7 @@ export default {
       const j=await getRecord(b,id);
       if(!j)return json({error:'Not found'},404);
       // Only public, non-sensitive progress metadata. Never return user prompt, lease or token.
-      return json({jobId:id,status:j.status==='COMPLETE'?'COMPLETED':j.status==='FAILED'?'FAILED':'PROCESSING',progress:j.status==='COMPLETE'?100:j.status==='LEASED'?50:0,error:j.error,provider:'molab',model:'acestep-v15-xl-turbo',audioUrl:j.files[0]?'/api/sonara-relay/job/'+id+'/audio/0':null,audioUrls:j.files.map((_,i)=>'/api/sonara-relay/job/'+id+'/audio/'+i),candidates:j.files.map((_,i)=>({id:i===0?'A':'B',audioUrl:'/api/sonara-relay/job/'+id+'/audio/'+i,provider:'molab',model:'acestep-v15-xl-turbo'}))});
+      return json({jobId:id,status:j.status==='COMPLETE'?'COMPLETED':j.status==='FAILED'?'FAILED':'PROCESSING',progress:j.status==='COMPLETE'?100:j.status==='LEASED'?50:0,error:j.error,provider:'molab',model:'acestep-v15-xl-turbo',audioUrl:j.files[0]?audioPublic(id,0):null,audioUrls:j.files.map((_,i)=>audioPublic(id,i)),candidates:j.files.map((_,i)=>({id:i===0?'A':'B',audioUrl:audioPublic(id,i),provider:'molab',model:'acestep-v15-xl-turbo'}))});
     }
     if(action==='audio'&&request.method==='GET') {
       const j=await getRecord(b,id);
