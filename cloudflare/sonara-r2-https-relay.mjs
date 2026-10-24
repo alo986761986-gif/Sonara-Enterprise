@@ -12,7 +12,26 @@ const getRecord = async (b,id) => { const o=await b.get(key(id));return o?o.json
 const saveRecord = (b,id,record,options={}) => b.put(key(id), JSON.stringify(record), {httpMetadata:{contentType:'application/json'},...options});
 const audioKey=(id,index)=>PREFIX+'audio/'+id+'/'+index+'.wav';
 const isService = path => path.startsWith('/api/sonara-relay/');
-const audioPublic=(id,i)=>'https://api.sonaraenterprise.com/api/sonara-relay/job/'+id+'/audio/'+i;
+const signAudio = async (id,i,env) => {
+  const exp=Date.now()+30*60*1000;
+  const data=id+':'+i+':'+exp;
+  const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(env.SONARA_INTERNAL_PROXY_SECRET),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+  const digest=new Uint8Array(await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(data)));
+  const sig=Array.from(digest).map(x=>x.toString(16).padStart(2,'0')).join('');
+  return 'https://api.sonaraenterprise.com/api/sonara-relay/job/'+id+'/audio/'+i+'?exp='+exp+'&sig='+sig;
+};
+const verifyAudio = async (id,i,url,env) => {
+  if(!env.SONARA_INTERNAL_PROXY_SECRET)return false;
+  const exp=Number(url.searchParams.get('exp'));
+  if(!Number.isSafeInteger(exp)||exp<Date.now()||exp>Date.now()+60*60*1000)return false;
+  const expected=await signAudioAt(id,i,exp,env);
+  return expected===url.searchParams.get('sig');
+};
+const signAudioAt=async(id,i,exp,env)=>{
+  const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(env.SONARA_INTERNAL_PROXY_SECRET),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+  const bytes=new Uint8Array(await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(id+':'+i+':'+exp)));
+  return Array.from(bytes).map(x=>x.toString(16).padStart(2,'0')).join('');
+};
 const MAX_REQ = 150000;
 export default {
  async fetch(request,env,ctx) {
@@ -61,10 +80,12 @@ export default {
       const j=await getRecord(b,id);
       if(!j)return json({error:'Not found'},404);
       // Only public, non-sensitive progress metadata. Never return user prompt, lease or token.
-      return json({jobId:id,status:j.status==='COMPLETE'?'COMPLETED':j.status==='FAILED'?'FAILED':'PROCESSING',progress:j.status==='COMPLETE'?100:j.status==='LEASED'?50:0,error:j.error,provider:'molab',model:'acestep-v15-xl-turbo',audioUrl:j.files[0]?audioPublic(id,0):null,audioUrls:j.files.map((_,i)=>audioPublic(id,i)),candidates:j.files.map((_,i)=>({id:i===0?'A':'B',audioUrl:audioPublic(id,i),provider:'molab',model:'acestep-v15-xl-turbo'}))});
+      const urls=await Promise.all(j.files.map((_,i)=>signAudio(id,i,env)));
+      return json({jobId:id,status:j.status==='COMPLETE'?'COMPLETED':j.status==='FAILED'?'FAILED':'PROCESSING',progress:j.status==='COMPLETE'?100:j.status==='LEASED'?50:0,error:j.error,provider:'molab',model:'acestep-v15-xl-turbo',audioUrl:urls[0]||null,audioUrls:urls,candidates:urls.map((u,i)=>({id:i===0?'A':'B',audioUrl:u,provider:'molab',model:'acestep-v15-xl-turbo'}))});
     }
     if(action==='audio'&&request.method==='GET') {
-      if(!hasSubmitAuth(request,env))return json({error:'Unauthorized'},401);
+      const idx=Number(parts[2]);
+      if(!hasSubmitAuth(request,env)&&!(Number.isInteger(idx)&&await verifyAudio(id,idx,url,env)))return json({error:'Unauthorized'},401);
       const j=await getRecord(b,id);
       if(!j||j.status!=='COMPLETE')return json({error:'Audio not ready'},404);
       const i=Number(parts[2]);if(!Number.isInteger(i)||i<0||i>=j.files.length)return json({error:'Not found'},404);
