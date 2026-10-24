@@ -220,6 +220,17 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname.startsWith('/api/sonara-relay/')) return relayRuntime.fetch(request, env, ctx);
+    if (env.SONARA_R2_RELAY_ENABLED === 'true') {
+      if (request.method === 'POST' && url.pathname === '/api/engine/generate') {
+        const target = new URL('/api/sonara-relay/enqueue', request.url);
+        return relayRuntime.fetch(new Request(target, request), env, ctx);
+      }
+      const relayJob = url.pathname.match(/^\/api\/music\/job\/(sr2_[0-9a-f-]{36})$/);
+      if (request.method === 'GET' && relayJob) {
+        const target = new URL('/api/sonara-relay/job/' + relayJob[1], request.url);
+        return relayRuntime.fetch(new Request(target, request), env, ctx);
+      }
+    }
 
     if (request.method === 'GET' && url.pathname === '/api/real-music/v3/capabilities') {
       return new Response(JSON.stringify(capabilities()), {
