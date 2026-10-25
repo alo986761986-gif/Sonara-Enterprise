@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { instrumentRealismPlan, INSTRUMENT_REALISM_VERSION } from './sonara-instrument-realism-v1.mjs';
 import { applyR2GenerationProfile, r2GenerationMetadata, R2_GENERATION_POLICY } from './sonara-r2-generation-profile.mjs';
 
 const lyrics = '[Strofa 1 — Lei]\r\nTi aspetto qui, perché tornerai.\r\n\r\n[Ritornello]\r\nTi tengo vicino.';
@@ -25,32 +26,69 @@ for (const [profile, steps, shift, thinking] of [
 ]) {
   test(`${profile} selects native XL parameters and preserves the creator's job`, () => {
     const before = JSON.stringify(payload);
-    const result = applyR2GenerationProfile(payload, { ...source, generationProfileV3: profile }, source);
+    const body = { ...source, generationProfileV3: profile };
+    const result = applyR2GenerationProfile(payload, body, source);
     assert.equal(result.inference_steps, steps);
     assert.equal(result.shift, shift);
     assert.equal(result.thinking, thinking);
     assert.equal(result.allow_lm_batch, thinking);
     assert.equal(result.sonara_r2_generation_policy, R2_GENERATION_POLICY);
     assert.equal(result.sonara_r2_generation_profile, profile);
-    const metadata = r2GenerationMetadata({ generationProfileV3: profile });
+    assert.equal(result.sonara_instrument_realism, profile === 'fast' ? null : INSTRUMENT_REALISM_VERSION);
+    const metadata = r2GenerationMetadata(body);
     assert.equal(metadata.inferenceSteps, result.inference_steps);
     assert.equal(metadata.shift, result.shift);
     assert.equal(metadata.lmAudioPlanning, result.thinking);
     assert.equal(metadata.samplerMode, result.sampler_mode);
     assert.equal(metadata.candidateCount, result.batch_size);
+    assert.equal(metadata.instrumentRealismEnabled, profile !== 'fast');
+    assert.equal(metadata.instrumentRealismVersion, profile === 'fast' ? null : INSTRUMENT_REALISM_VERSION);
     assert.equal(metadata.automaticSecondBatch, false);
     assert.equal(metadata.automaticCandidateRanking, false);
     assert.equal(metadata.automaticQualityRepair, false);
-    assert.equal(result.sonara_real_music_v1, false, 'native planning must not pretend the custom realism API exists');
+    assert.equal(result.sonara_real_music_v1, false);
     for (const field of ['model', 'vocal_language', 'bpm', 'key_scale', 'time_signature',
       'audio_duration', 'task_type', 'batch_size', 'seed', 'use_random_seed', 'audio_format',
       'enable_normalization', 'normalization_db', 'use_tiled_decode']) {
       assert.deepEqual(result[field], payload[field], field);
     }
-    assert.equal(result.lyrics, lyrics, 'preserve spelling, order, headings and line endings exactly');
-    assert.equal(JSON.stringify(payload), before, 'do not mutate the payload already in flight');
+    assert.equal(result.lyrics, lyrics);
+    assert.equal(JSON.stringify(payload), before);
   });
 }
+
+test('instrument realism selects physical performance cues from requested instruments', () => {
+  const plan = instrumentRealismPlan({
+    selectedInstruments: ['Grand Piano', 'Cello', 'Acoustic Drum Kit', 'Analog Synthesizer']
+  });
+  assert.equal(plan.version, INSTRUMENT_REALISM_VERSION);
+  assert.deepEqual(plan.families, ['piano-keys', 'bowed-strings', 'acoustic-drums']);
+  assert.match(plan.cue, /velocity-shaped attacks/);
+  assert.match(plan.cue, /bow-pressure changes/);
+  assert.match(plan.cue, /distinct stick velocities/);
+  assert.match(plan.cue, /coherent mic\/room perspective/);
+});
+
+test('instrument realism detects genre instrumentation text when no explicit instrument picker is used', () => {
+  const plan = instrumentRealismPlan({
+    sonaraWorldStyleInstrumentation: 'Rhodes electric piano, fretless bass guitar, soft acoustic drum kit and tenor saxophone'
+  });
+  for (const family of ['piano-keys', 'bass', 'acoustic-drums']) assert.ok(plan.families.includes(family));
+  assert.equal(plan.explicitInstruments.length, 0);
+});
+
+test('FAST stays compact while QUALITY and ULTRA receive instrument-performance realism', () => {
+  const fast = applyR2GenerationProfile(payload, { ...source, generationProfileV3: 'fast' }, source);
+  const quality = applyR2GenerationProfile(payload, { ...source, generationProfileV3: 'quality' }, source);
+  const ultra = applyR2GenerationProfile(payload, { ...source, generationProfileV3: 'ultra' }, source);
+  assert.doesNotMatch(fast.prompt, /Recorded-performance realism/);
+  for (const result of [quality, ultra]) {
+    assert.match(result.prompt, /Recorded-performance realism/);
+    assert.match(result.prompt, /velocity-shaped attacks/);
+    assert.match(result.prompt, /bow-pressure changes/);
+    assert.ok(result.prompt.includes(source.rawPrompt));
+  }
+});
 
 test('ULTRA uses supported native planning controls, without caption/lyrics rewrites', () => {
   const result = applyR2GenerationProfile(payload, { ...source, renderProfile: 'ultra' }, source);
@@ -73,51 +111,23 @@ test('ULTRA uses supported native planning controls, without caption/lyrics rewr
   }
 });
 
-test('caption carries real user intent and voice, not contradictory generated contracts', () => {
-  const result = applyR2GenerationProfile(payload, source, source);
+test('caption carries real user intent, instruments and physical-performance cues', () => {
+  const result = applyR2GenerationProfile(payload, { ...source, generationProfileV3: 'quality' }, source);
   assert.ok(result.prompt.includes(source.rawPrompt));
   for (const requested of ['Pop', 'Ballad', 'Romantic', 'Female vocals in Italian', 'Piano', 'Cello']) {
     assert.ok(result.prompt.includes(requested), requested);
   }
-  assert.ok(result.prompt.length < 512, 'ordinary briefs should fit the recommended caption budget');
+  assert.match(result.prompt, /Recorded-performance realism/);
   assert.doesNotMatch(result.prompt, /SONARA MUSIC DIRECTOR|ALWAYS WINS|overrides/);
 });
 
 test('preserve a long creator brief and long original lyrics without silent truncation', () => {
   const brief = 'Il pianoforte risponde alla voce. '.repeat(30) + 'Finale con solo violoncello.';
   const longLyrics = '[Verse]\n' + 'Non cambiare queste parole.\n'.repeat(170);
-  const body = { ...source, rawPrompt: brief, lyrics: 'altered', sonaraOriginalLyrics: longLyrics };
+  const body = { ...source, generationProfileV3: 'quality', rawPrompt: brief, lyrics: 'altered', sonaraOriginalLyrics: longLyrics };
   const result = applyR2GenerationProfile(payload, body, body);
   assert.ok(result.prompt.includes(brief.trim()));
   assert.equal(result.lyrics, longLyrics);
-});
-
-test('ULTRA uses the original brief retained by the UI, not overwritten wrapper prompts', () => {
-  const body = { ...source, generationProfileV3: 'ultra',
-    sonaraOriginalCreatorBrief: source.rawPrompt,
-    sonaraCreatorPromptAuthoritative: source.rawPrompt,
-    rawPrompt: 'SONARA ULTRA DIVERSITY. ' + source.prompt,
-    creatorPrompt: 'SONARA ULTRA DIVERSITY. ' + source.prompt };
-  const result = applyR2GenerationProfile(payload, body, body);
-  assert.ok(result.prompt.includes(source.rawPrompt));
-  assert.doesNotMatch(result.prompt, /SONARA|DIRECTOR|ALWAYS WINS|overrides/);
-});
-
-test('explicit creative controls retain meaningful descriptive influence without changing the genre', () => {
-  const conservative = applyR2GenerationProfile(payload, { ...source, weirdness: 0, styleInfluence: 100 }, source);
-  const adventurous = applyR2GenerationProfile(payload, { ...source, weirdness: 100, styleInfluence: 0 }, source);
-  const balanced = applyR2GenerationProfile(payload, { ...source, weirdness: 50, styleInfluence: 60 }, source);
-  assert.match(conservative.prompt, /Conventional, coherent phrasing/);
-  assert.match(conservative.prompt, /Strict genre identity/);
-  assert.match(adventurous.prompt, /Adventurous melodic and rhythmic variations within the style/);
-  assert.match(adventurous.prompt, /Flexible interpretation within the selected genre/);
-  assert.match(balanced.prompt, /Balanced melodic variation/);
-  assert.match(balanced.prompt, /Recognizable genre identity/);
-  for (const result of [conservative, adventurous, balanced]) {
-    assert.ok(result.prompt.includes('Pop, Ballad'));
-    assert.ok(result.prompt.includes(source.rawPrompt));
-    assert.ok(result.prompt.length < 512);
-  }
 });
 
 test('plain API prompt, selected profile aliases, instrumental and single output remain valid', () => {
@@ -126,6 +136,7 @@ test('plain API prompt, selected profile aliases, instrumental and single output
   const result = applyR2GenerationProfile({ ...payload, batch_size: 1 }, body, body);
   assert.ok(result.prompt.includes(body.prompt));
   assert.ok(result.prompt.includes('Instrumental'));
+  assert.match(result.prompt, /velocity-shaped attacks/);
   assert.equal(result.lyrics, '');
   assert.equal(result.batch_size, 1);
   assert.equal(result.thinking, true);

@@ -1,3 +1,5 @@
+import { instrumentRealismPlan, INSTRUMENT_REALISM_VERSION } from './sonara-instrument-realism-v1.mjs';
+
 // Stock ACE-Step 1.5 XL Turbo request policy for the HTTPS/R2 path only.
 // Official API/INFERENCE/Tutorial at ca1e85fe recommend 8 steps and shift 3
 // for Turbo. Native `thinking` generates LM audio codes; it does not require
@@ -23,6 +25,7 @@ export function r2GenerationSettings(body = {}) {
 
 export function r2GenerationMetadata(body = {}, count = 2) {
   const { profile, steps, shift, thinking } = r2GenerationSettings(body);
+  const realism = profile === 'fast' ? null : instrumentRealismPlan(body);
   return {
     generationPolicy: R2_GENERATION_POLICY,
     generationProfile: profile,
@@ -30,6 +33,9 @@ export function r2GenerationMetadata(body = {}, count = 2) {
     executionProfile: thinking ? 'xl-turbo-lm-planned-batch' : `${profile}-single-gpu-batch`,
     inferenceSteps: steps, shift, samplerMode: 'euler', lmThinking: thinking,
     lmAudioPlanning: thinking, lmModel: 'acestep-5Hz-lm-4B',
+    instrumentRealismEnabled: Boolean(realism),
+    instrumentRealismVersion: realism ? INSTRUMENT_REALISM_VERSION : null,
+    instrumentRealismFamilies: realism?.families || [],
     batchSize: count, candidateCount: count, singleGpuBatch: true,
     visibleCandidateTarget: count, internalCandidateTarget: count,
     automaticSecondBatch: false, automaticCandidateRanking: false,
@@ -62,7 +68,7 @@ function caption(payload, body, source, lyrics) {
     mode === 'male' ? 'Male vocals' : mode === 'female' ? 'Female vocals' : mode === 'duet' ? 'Duet vocals' : 'Vocals',
     languageName && languageName !== 'unknown' && languageName !== 'auto' ? `in ${languageName}` : ''
   ].filter(Boolean).join(' ');
-  const instrumentsValue = body.selectedInstruments || body.instruments;
+  const instrumentsValue = source.selectedInstruments || source.instruments || body.selectedInstruments || body.instruments;
   const instruments = Array.isArray(instrumentsValue)
     ? unique(instrumentsValue.map(item => typeof item === 'string' ? item : item?.name || item?.label)).join(', ')
     : text(instrumentsValue);
@@ -78,12 +84,12 @@ function caption(payload, body, source, lyrics) {
       : influence >= 55 ? 'Recognizable genre identity with compatible variation'
         : 'Flexible interpretation within the selected genre'
     : '';
+  const realism = profileOf(body) === 'fast' ? '' : instrumentRealismPlan({ ...body, ...source }).cue;
 
-  // A descriptive caption replaces thousands of generated, contradictory
-  // director instructions. BPM/key/duration remain native structured fields.
-  // Keep the creator's actual brief and lyrics, even when they exceed the
-  // guide's recommended caption/lyrics lengths; never silently cut user text.
-  return unique([style, mood, vocal, instruments, creativity, adherence, brief]).join('. ');
+  // Keep the creator's real brief and add one compact performance-reality cue.
+  // The cue describes how instruments behave physically; it does not add new
+  // instruments and therefore cannot override the creator's instrumentation.
+  return unique([style, mood, vocal, instruments, realism, creativity, adherence, brief]).join('. ');
 }
 
 export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody = resolvedBody) {
@@ -99,8 +105,6 @@ export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody 
     infer_method: 'ode',
     sampler_mode: 'euler',
     thinking,
-    // Keep supplied lyrics, caption, language and numeric controls authoritative.
-    // Stock API metadata completion can still run independently of `thinking`.
     sample_mode: false,
     use_format: false,
     use_cot_caption: false,
@@ -114,14 +118,13 @@ export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody 
     lm_repetition_penalty: 1.0,
     lm_negative_prompt: 'NO USER INPUT',
     allow_lm_batch: thinking && Number(payload.batch_size) > 1,
-    // Avoid custom MoLab compatibility patches overriding native parameters.
     sonara_generation_profile: 'auto',
     sonara_speed_inference_steps: steps,
     sonara_speed_sampler: 'euler',
     sonara_r2_generation_profile: profile,
-    sonara_r2_generation_policy: R2_GENERATION_POLICY
+    sonara_r2_generation_policy: R2_GENERATION_POLICY,
+    sonara_instrument_realism: profile === 'fast' ? null : INSTRUMENT_REALISM_VERSION
   };
-  // These legacy keys are not parsed by the stock REST request schema.
   delete next.lm_batch_chunk_size;
   delete next.use_cot_metas;
   delete next.use_constrained_decoding;
