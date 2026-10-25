@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { instrumentRealismPlan, INSTRUMENT_REALISM_VERSION } from './sonara-instrument-realism-v2.mjs';
 import { applyR2GenerationProfile, r2GenerationMetadata, R2_GENERATION_POLICY } from './sonara-r2-generation-profile.mjs';
+import { mixMasterPlan, safePeakTarget, MIX_MASTER_VERSION } from './sonara-mix-master-v1.mjs';
 
 const lyrics = '[Strofa 1 — Lei]\r\nTi aspetto qui, perché tornerai.\r\n\r\n[Ritornello]\r\nTi tengo vicino.';
 const source = {
@@ -44,6 +45,8 @@ for (const [profile, steps, shift, thinking] of [
     assert.equal(metadata.instrumentRealismEnabled, profile !== 'fast');
     assert.equal(metadata.instrumentRealismVersion, profile === 'fast' ? null : INSTRUMENT_REALISM_VERSION);
     assert.equal(metadata.instrumentRealismDepth, profile === 'fast' ? null : profile);
+    assert.equal(metadata.mixMasterEnabled, profile !== 'fast');
+    assert.equal(metadata.mixMasterVersion, profile === 'fast' ? null : MIX_MASTER_VERSION);
     assert.equal(metadata.automaticSecondBatch, false);
     assert.equal(metadata.automaticCandidateRanking, false);
     assert.equal(metadata.automaticQualityRepair, false);
@@ -193,4 +196,41 @@ test('Italian instrument names activate the same physical families', () => {
   }, { depth: 'ultra' });
   for (const family of ['piano-keys','bowed-strings','acoustic-drums','bass','brass','woodwinds'])
     assert.ok(plan.families.includes(family), family);
+});
+
+
+test('mix/master plans use native peak headroom without pretending peak normalization is LUFS mastering', () => {
+  const pop = mixMasterPlan({ genre: 'Pop', selectedInstruments: ['Acoustic Drum Kit', 'Electric Bass', 'Piano'] }, { depth: 'quality' });
+  const classical = mixMasterPlan({ genre: 'Classical', selectedInstruments: ['Piano', 'Cello', 'Violin'] }, { depth: 'ultra' });
+  const acoustic = mixMasterPlan({ genre: 'Acoustic', selectedInstruments: ['Acoustic Guitar', 'Piano'] }, { depth: 'quality' });
+  assert.equal(pop.targetPeakDb, -1.0);
+  assert.equal(classical.targetPeakDb, -2.0);
+  assert.equal(acoustic.targetPeakDb, -1.5);
+  assert.match(pop.cue, /kick and bass stay distinguishable/);
+  assert.match(classical.cue, /preserve macro-dynamics/);
+  assert.doesNotMatch(pop.cue, /LUFS/i);
+});
+
+test('QUALITY and ULTRA apply conservative native peak normalization while FAST stays untouched', () => {
+  const fast = applyR2GenerationProfile({ ...payload, normalization_db: -0.1 }, { ...source, generationProfileV3: 'fast' }, source);
+  const quality = applyR2GenerationProfile({ ...payload, normalization_db: -0.1 }, { ...source, generationProfileV3: 'quality' }, source);
+  const ultra = applyR2GenerationProfile({ ...payload, normalization_db: -0.1 }, { ...source, generationProfileV3: 'ultra' }, source);
+  assert.equal(fast.normalization_db, -0.1);
+  assert.equal(quality.normalization_db, -1.0);
+  assert.equal(ultra.normalization_db, -1.0);
+  assert.equal(quality.sonara_mix_master_version, MIX_MASTER_VERSION);
+  assert.match(ultra.prompt, /master motion/);
+});
+
+test('a user-requested more conservative peak is preserved', () => {
+  const result = applyR2GenerationProfile({ ...payload, normalization_db: -3.0 }, { ...source, genre: 'Pop', generationProfileV3: 'quality' }, source);
+  assert.equal(result.normalization_db, -3.0);
+  assert.equal(safePeakTarget(-3.0, -1.0), -3.0);
+  assert.equal(safePeakTarget(-0.1, -1.0), -1.0);
+});
+
+test('normalization opt-out remains respected', () => {
+  const result = applyR2GenerationProfile({ ...payload, enable_normalization: false, normalization_db: -0.1 }, { ...source, generationProfileV3: 'ultra' }, source);
+  assert.equal(result.enable_normalization, false);
+  assert.equal(result.normalization_db, -0.1);
 });

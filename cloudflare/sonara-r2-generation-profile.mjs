@@ -1,4 +1,5 @@
 import { instrumentRealismPlan, INSTRUMENT_REALISM_VERSION } from './sonara-instrument-realism-v2.mjs';
+import { mixMasterPlan, safePeakTarget, MIX_MASTER_VERSION } from './sonara-mix-master-v1.mjs';
 
 // Stock ACE-Step 1.5 XL Turbo request policy for the HTTPS/R2 path only.
 // Official API/INFERENCE/Tutorial at ca1e85fe recommend 8 steps and shift 3
@@ -26,6 +27,7 @@ export function r2GenerationSettings(body = {}) {
 export function r2GenerationMetadata(body = {}, count = 2) {
   const { profile, steps, shift, thinking } = r2GenerationSettings(body);
   const realism = profile === 'fast' ? null : instrumentRealismPlan(body, { depth: profile });
+  const mixMaster = profile === 'fast' ? null : mixMasterPlan(body, { depth: profile });
   return {
     generationPolicy: R2_GENERATION_POLICY,
     generationProfile: profile,
@@ -39,6 +41,10 @@ export function r2GenerationMetadata(body = {}, count = 2) {
     instrumentRealismDepth: realism?.depth || null,
     ensembleInteractionCount: realism?.ensembleInteractions?.length || 0,
     sectionAwareArrangement: realism?.structureAware || false,
+    mixMasterEnabled: Boolean(mixMaster),
+    mixMasterVersion: mixMaster ? MIX_MASTER_VERSION : null,
+    mixMasterProfile: mixMaster?.id || null,
+    targetPeakDb: mixMaster?.targetPeakDb ?? null,
     batchSize: count, candidateCount: count, singleGpuBatch: true,
     visibleCandidateTarget: count, internalCandidateTarget: count,
     automaticSecondBatch: false, automaticCandidateRanking: false,
@@ -89,16 +95,22 @@ function caption(payload, body, source, lyrics) {
     : '';
   const selectedProfile = profileOf(body);
   const realism = selectedProfile === 'fast' ? '' : instrumentRealismPlan({ ...body, ...source, lyrics }, { depth: selectedProfile }).cue;
+  const mixMaster = selectedProfile === 'fast' ? '' : mixMasterPlan({ ...body, ...source, lyrics }, { depth: selectedProfile }).cue;
 
   // Keep the creator's real brief and add one compact performance-reality cue.
   // The cue describes how instruments behave physically; it does not add new
   // instruments and therefore cannot override the creator's instrumentation.
-  return unique([style, mood, vocal, instruments, realism, creativity, adherence, brief]).join('. ');
+  return unique([style, mood, vocal, instruments, realism, mixMaster, creativity, adherence, brief]).join('. ');
 }
 
 export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody = resolvedBody) {
   const { profile, steps, shift, thinking } = r2GenerationSettings(resolvedBody);
   const lyrics = originalLyrics(payload, sourceBody);
+  const mixMaster = profile === 'fast' ? null : mixMasterPlan({ ...resolvedBody, ...sourceBody, lyrics }, { depth: profile });
+  const normalizationEnabled = payload.enable_normalization !== false;
+  const normalizationDb = mixMaster && normalizationEnabled
+    ? safePeakTarget(payload.normalization_db, mixMaster.targetPeakDb)
+    : payload.normalization_db;
   const next = {
     ...payload,
     prompt: caption(payload, resolvedBody, sourceBody, lyrics),
@@ -128,7 +140,12 @@ export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody 
     sonara_r2_generation_profile: profile,
     sonara_r2_generation_policy: R2_GENERATION_POLICY,
     sonara_instrument_realism: profile === 'fast' ? null : INSTRUMENT_REALISM_VERSION,
-    sonara_instrument_realism_depth: profile === 'fast' ? null : profile
+    sonara_instrument_realism_depth: profile === 'fast' ? null : profile,
+    enable_normalization: profile === 'fast' ? payload.enable_normalization : normalizationEnabled,
+    normalization_db: profile === 'fast' ? payload.normalization_db : normalizationDb,
+    sonara_mix_master_profile: mixMaster?.id || null,
+    sonara_mix_master_version: mixMaster ? MIX_MASTER_VERSION : null,
+    sonara_target_peak_db: mixMaster ? normalizationDb : null
   };
   delete next.lm_batch_chunk_size;
   delete next.use_cot_metas;
