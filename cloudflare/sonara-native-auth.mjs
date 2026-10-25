@@ -245,6 +245,10 @@ export class SonaraAuthStore {
     return `rate:login:${await sha256(normalizeEmail(email))}`;
   }
 
+  async pendingGiftKey(email) {
+    return `pending-gift:${await sha256(normalizeEmail(email))}`;
+  }
+
   async sessionKey(token) {
     return `session:${await sha256(token)}`;
   }
@@ -337,6 +341,7 @@ export class SonaraAuthStore {
     crypto.getRandomValues(salt);
     const digest = await passwordDigest(password, salt, PASSWORD_ITERATIONS);
     const period = monthPeriod();
+    const now = Date.now();
     const user = {
       uid: crypto.randomUUID(),
       email,
@@ -344,14 +349,31 @@ export class SonaraAuthStore {
       passwordHash: bytesToBase64(digest),
       passwordSalt: bytesToBase64(salt),
       passwordIterations: PASSWORD_ITERATIONS,
-      createdAt: Date.now(),
+      createdAt: now,
       status: 'active',
       usagePeriodStart: period.start,
       usagePeriodEnd: period.end,
       usageSeconds: 0,
       videoCreditsUsed: 0
     };
+    const pendingGiftKey = await this.pendingGiftKey(email);
+    const pendingGift = await this.ctx.storage.get(pendingGiftKey);
+    if (pendingGift?.planId === 'studio' && pendingGift?.status === 'pending') {
+      const months = Math.max(1, Math.min(12, Math.round(Number(pendingGift.months) || 1)));
+      user.entitlement = {
+        planId: 'studio',
+        cadence: 'monthly',
+        status: 'active',
+        grantedAt: now,
+        expiresAt: addMonths(now, months),
+        source: 'owner-gift',
+        autoRenew: false
+      };
+    }
     await this.ctx.storage.put(key, user);
+    if (pendingGift?.planId === 'studio' && pendingGift?.status === 'pending') {
+      await this.ctx.storage.delete(pendingGiftKey);
+    }
     const token = await this.createSession(user);
     return json({ ok: true, user: publicUser(user) }, 201, { 'set-cookie': sessionCookie(token) });
   }
@@ -436,7 +458,25 @@ export class SonaraAuthStore {
     const userKey = await this.userKey(email);
     const user = await this.ctx.storage.get(userKey);
     if (!user || user.status !== 'active') {
-      return json({ ok: false, code: 'ACCOUNT_NOT_FOUND', message: 'Account SONARA non trovato per questa email.' }, 404);
+      const now = Date.now();
+      await this.ctx.storage.put(await this.pendingGiftKey(email), {
+        planId: 'studio',
+        cadence: 'monthly',
+        months,
+        status: 'pending',
+        createdAt: now,
+        source: 'owner-gift',
+        autoRenew: false
+      });
+      return json({
+        ok: true,
+        pending: true,
+        planId: 'studio',
+        cadence: 'monthly',
+        months,
+        autoRenew: false,
+        source: 'owner-gift'
+      }, 202);
     }
 
     const now = Date.now();

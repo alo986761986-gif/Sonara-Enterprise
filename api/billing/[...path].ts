@@ -325,6 +325,69 @@ async function getBillingRecord(uid: string): Promise<BillingRecord | undefined>
   return snapshot.exists ? snapshot.data() as BillingRecord : undefined;
 }
 
+function pendingGiftId(email: string): string {
+  return createHash('sha256').update(String(email || '').trim().toLowerCase()).digest('hex');
+}
+
+async function storePendingStudioGift(email: string, months = 1): Promise<void> {
+  if (!billingStoreReady()) return;
+  const normalized = String(email || '').trim().toLowerCase();
+  if (!normalized) return;
+  await getFirestore(getAdminApp()).collection('sonaraBillingPendingGifts').doc(pendingGiftId(normalized)).set({
+    planId: 'studio',
+    cadence: 'monthly',
+    months: Math.max(1, Math.min(12, Math.round(Number(months) || 1))),
+    status: 'pending',
+    createdAt: FieldValue.serverTimestamp(),
+    autoRenew: false
+  }, { merge: true });
+}
+
+async function claimPendingStudioGift(user: AuthenticatedUser): Promise<void> {
+  if (!billingStoreReady() || !user.email || !user.uid) return;
+  const firestore = getFirestore(getAdminApp());
+  const pendingReference = firestore.collection('sonaraBillingPendingGifts').doc(pendingGiftId(user.email));
+  const billingReference = firestore.collection('sonaraBilling').doc(user.uid);
+  await firestore.runTransaction(async transaction => {
+    const [pendingSnapshot, billingSnapshot] = await Promise.all([
+      transaction.get(pendingReference),
+      transaction.get(billingReference)
+    ]);
+    if (!pendingSnapshot.exists || pendingSnapshot.data()?.status !== 'pending') return;
+    const previous = billingSnapshot.exists ? billingSnapshot.data() as BillingRecord : {};
+    if (previous.stripeSubscriptionId && previous.accessSource !== 'gift' && hasPaidAccess(previous)) {
+      transaction.set(pendingReference, { status: 'skipped-paid', uid: user.uid, claimedAt: FieldValue.serverTimestamp() }, { merge: true });
+      return;
+    }
+    const months = Math.max(1, Math.min(12, Math.round(Number(pendingSnapshot.data()?.months) || 1)));
+    const now = new Date();
+    const expiry = new Date(now);
+    expiry.setUTCMonth(expiry.getUTCMonth() + months);
+    const period = monthPeriod(now);
+    transaction.set(billingReference, {
+      ...previous,
+      planId: 'studio',
+      cadence: 'monthly',
+      subscriptionStatus: 'active',
+      usageSeconds: 0,
+      usagePeriodStart: Timestamp.fromDate(period.start),
+      usagePeriodEnd: Timestamp.fromDate(period.end),
+      cancelAtPeriodEnd: true,
+      accessSource: 'gift',
+      giftExpiresAt: Timestamp.fromDate(expiry),
+      giftGrantedAt: Timestamp.fromDate(now),
+      giftAutoRenew: false,
+      updatedAt: FieldValue.serverTimestamp()
+    }, { merge: true });
+    transaction.set(pendingReference, {
+      status: 'claimed',
+      uid: user.uid,
+      claimedAt: FieldValue.serverTimestamp(),
+      expiresAt: Timestamp.fromDate(expiry)
+    }, { merge: true });
+  });
+}
+
 function planFromPrice(priceId: string): { planId: SonaraPlanId; cadence: BillingCadence } | null {
   for (const planId of ['creator', 'studio'] as const) {
     for (const cadence of ['monthly', 'yearly'] as const) {
@@ -775,10 +838,26 @@ export default async function handler(req: any, res: any) {
         body: JSON.stringify({ email: ONE_TIME_GIFT_EMAIL, months: 1 })
       });
       const nativePayload = await nativeResponse.json().catch(() => ({})) as any;
-      if (!nativeResponse.ok || !nativePayload?.uid) {
+      if (!nativeResponse.ok) {
         return errorResponse(res, nativeResponse.status || 502, nativePayload?.code || 'NATIVE_GRANT_FAILED',
           nativePayload?.message || 'Grant nativo non riuscito.');
       }
+      if (nativePayload?.pending === true) {
+        await storePendingStudioGift(ONE_TIME_GIFT_EMAIL, 1);
+        return json(res, 200, {
+          ok: true,
+          email: ONE_TIME_GIFT_EMAIL,
+          planId: 'studio',
+          cadence: 'monthly',
+          months: 1,
+          pending: true,
+          activatesOnRegistration: true,
+          autoRenew: false,
+          native: true,
+          billing: true
+        });
+      }
+      if (!nativePayload?.uid) return errorResponse(res, 502, 'NATIVE_UID_MISSING', 'UID account non disponibile.');
 
       const uid = String(nativePayload.uid);
       const expiry = Date.parse(String(nativePayload.expiresAt || ''));
@@ -849,6 +928,7 @@ export default async function handler(req: any, res: any) {
 
     const user = await authenticatedUser(req);
     if (!user) return errorResponse(res, 401, 'AUTH_TOKEN_INVALID', 'Accedi con un account SONARA valido.');
+    await claimPendingStudioGift(user);
 
     if (req.method === 'GET' && action === 'status') {
       const record = await getBillingRecord(user.uid);
