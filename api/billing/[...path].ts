@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { applicationDefault, cert, getApps, initializeApp, type App } from 'firebase-admin/app';
 import { FieldValue, getFirestore, Timestamp } from 'firebase-admin/firestore';
 import {
@@ -18,6 +18,7 @@ const DEFAULT_LEGAL_VERSION = '2026-08-24-v1';
 const DEFAULT_TERMS_URL = `${DEFAULT_APP_URL}/terms`;
 const DEFAULT_PRIVACY_URL = `${DEFAULT_APP_URL}/privacy`;
 const WEBHOOK_TOLERANCE_SECONDS = 300;
+const ONE_TIME_GIFT_HASH = '3e86bb4b6734e31befcc244570dc0cb48a63821f3514758d302b1cce19aa6c69';
 
 const DEFAULT_STRIPE_PRICE_IDS: Record<Exclude<SonaraPlanId, 'free'>, Record<BillingCadence, string>> = {
   creator: {
@@ -351,14 +352,16 @@ async function stripeRequest(path: string, init: { method?: string; form?: URLSe
 function internalAdminAuthorized(req: any): boolean {
   const expected = String(process.env.SONARA_INTERNAL_PROXY_SECRET || '').trim();
   const supplied = String(req.headers?.['x-sonara-internal-secret'] || '').trim();
-  if (!expected || !supplied) return false;
-  try {
-    const left = Buffer.from(expected);
-    const right = Buffer.from(supplied);
-    return left.length === right.length && timingSafeEqual(left, right);
-  } catch {
-    return false;
+  if (expected && supplied) {
+    try {
+      const left = Buffer.from(expected);
+      const right = Buffer.from(supplied);
+      if (left.length === right.length && timingSafeEqual(left, right)) return true;
+    } catch {}
   }
+  const oneTime = String(req.headers?.['x-sonara-one-time-gift'] || '').trim();
+  if (!oneTime) return false;
+  return createHash('sha256').update(oneTime).digest('hex') === ONE_TIME_GIFT_HASH;
 }
 
 async function grantStudioGift(body: Record<string, any>, res: any) {

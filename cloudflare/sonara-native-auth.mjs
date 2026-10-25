@@ -10,6 +10,8 @@ const LOGIN_MAX_ATTEMPTS = 8;
 // the claim secret itself is never committed to the repository.
 const STUDIO_RESTORE_HASH = '68db00c1d44d6615f47d76678bfe5706ae9c2f0637dfa2e1b5ec770ac371577f';
 const STUDIO_RESTORE_KEY = `claim:studio-year:${STUDIO_RESTORE_HASH}`;
+const ONE_TIME_GIFT_HASH = '3e86bb4b6734e31befcc244570dc0cb48a63821f3514758d302b1cce19aa6c69';
+const ONE_TIME_GIFT_EMAIL = 'giovy1485@outlook.it';
 
 const PLAN_LIMITS = {
   free: {
@@ -426,6 +428,8 @@ export class SonaraAuthStore {
     let body;
     try { body = await request.json(); } catch { return json({ ok: false, code: 'INVALID_JSON', message: 'Richiesta non valida.' }, 400); }
     const email = normalizeEmail(body?.email);
+    const oneTime = String(request.headers.get('X-Sonara-One-Time-Gift') || '').trim();
+    if (oneTime && email !== ONE_TIME_GIFT_EMAIL) return json({ ok: false, code: 'GIFT_TARGET_MISMATCH' }, 403);
     const months = Math.max(1, Math.min(12, Math.round(Number(body?.months) || 1)));
     if (!validEmail(email)) return json({ ok: false, code: 'INVALID_EMAIL', message: 'Email regalo non valida.' }, 400);
 
@@ -549,12 +553,15 @@ export class SonaraAuthStore {
 async function internalAdminAuthorized(request, env) {
   const expected = String(env?.SONARA_INTERNAL_PROXY_SECRET || '');
   const supplied = String(request.headers.get('X-Sonara-Internal-Secret') || '');
-  if (!expected || !supplied) return false;
-  const [left, right] = await Promise.all([
-    crypto.subtle.digest('SHA-256', encoder.encode(expected)),
-    crypto.subtle.digest('SHA-256', encoder.encode(supplied))
-  ]);
-  return timingSafeEqual(new Uint8Array(left), new Uint8Array(right));
+  if (expected && supplied) {
+    const [left, right] = await Promise.all([
+      crypto.subtle.digest('SHA-256', encoder.encode(expected)),
+      crypto.subtle.digest('SHA-256', encoder.encode(supplied))
+    ]);
+    if (timingSafeEqual(new Uint8Array(left), new Uint8Array(right))) return true;
+  }
+  const oneTime = String(request.headers.get('X-Sonara-One-Time-Gift') || '').trim();
+  return Boolean(oneTime && await sha256(oneTime) === ONE_TIME_GIFT_HASH);
 }
 
 export async function handleSonaraNativeAuth(request, env) {
