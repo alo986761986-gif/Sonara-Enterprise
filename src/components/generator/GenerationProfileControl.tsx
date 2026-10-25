@@ -18,21 +18,21 @@ const PROFILES: Array<{
     id: 'fast',
     label: 'FAST',
     subtitle: 'Anteprima veloce',
-    detail: '2 candidati · target qualità 82',
+    detail: '2 brani · priorità alla velocità',
     icon: Zap
   },
   {
     id: 'quality',
     label: 'QUALITY',
-    subtitle: 'Produzione consigliata',
-    detail: '2 brani · 1 batch RTX · target 88',
+    subtitle: 'Rendering completo',
+    detail: '2 brani · più elaborazione del suono',
     icon: Sparkles
   },
   {
     id: 'ultra',
     label: 'ULTRA',
-    subtitle: 'Massima qualità',
-    detail: '4 candidati · target 92+ · rescue adattivo',
+    subtitle: 'Composizione approfondita',
+    detail: '2 brani · pianificazione musicale aggiuntiva',
     icon: ShieldCheck
   }
 ];
@@ -194,10 +194,10 @@ export default function GenerationProfileControl() {
                 <Sparkles className="h-3.5 w-3.5" />SONARA AI QUALITY
               </div>
               <div className="mt-1 text-xs font-bold text-white">{active.subtitle}</div>
-              <div className="mt-1 text-[10px] text-slate-400">FAST, QUALITY e ULTRA usano il percorso RTX a bassa latenza; ULTRA mantiene il profilo Real Music avanzato senza ranking o riparazioni extra.</div>
+              <div className="mt-1 text-[10px] text-slate-400">FAST per le anteprime, QUALITY per il rendering completo, ULTRA per una pianificazione musicale più approfondita. QUALITY e ULTRA richiedono più tempo.</div>
             </div>
             <div className="rounded-lg border border-white/10 bg-slate-950/45 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-wider text-violet-200">
-              {profile === 'ultra' ? '92+ RELEASE TARGET' : profile === 'quality' ? '88+ RELEASE TARGET' : 'FAST PREVIEW'}
+              {profile === 'ultra' ? 'PIANIFICAZIONE MUSICALE' : profile === 'quality' ? 'RENDERING COMPLETO' : 'ANTEPRIMA VELOCE'}
             </div>
           </div>
 
@@ -236,3 +236,4 @@ export default function GenerationProfileControl() {
     </>
   );
 }
+

@@ -265,23 +265,29 @@ export default {
           body: JSON.stringify(next),
           cache: 'no-store'
         }), env, ctx);
-        return transformJson(response, data => ({
-          ...data,
-          metadata: {
-            ...(data?.metadata || {}),
-            sonaraRealMusicV3: VERSION,
-            genreFingerprintRevision: GENRE_FINGERPRINT_REVISION,
-            realMusicV3Enabled: profileOf(body) !== 'fast',
-            trackGenomeEnabled: profileOf(body) !== 'fast',
-            humanizerEnabled: profileOf(body) !== 'fast',
-            vocalRefinementEnabled: profileOf(body) !== 'fast',
-            automaticQualityRepair: profileOf(body) === 'ultra',
-            qualityFastBatch: profileOf(body) === 'quality',
-            qualitySequentialSingleTakes: false,
-            qualityBlockingWavAnalysis: false,
-            candidateCount: profileOf(body) === 'quality' ? 2 : data?.metadata?.candidateCount
-          }
-        }));
+        return transformJson(response, data => {
+          const jobId = String(data?.jobId || data?.job?.jobId || data?.data?.jobId || '');
+          // The R2 response already describes the actual native generation
+          // policy. Do not relabel it as custom repair/humanizer execution.
+          if (/^sr2_[0-9a-f-]{36}$/.test(jobId)) return data;
+          return {
+            ...data,
+            metadata: {
+              ...(data?.metadata || {}),
+              sonaraRealMusicV3: VERSION,
+              genreFingerprintRevision: GENRE_FINGERPRINT_REVISION,
+              realMusicV3Enabled: profileOf(body) !== 'fast',
+              trackGenomeEnabled: profileOf(body) !== 'fast',
+              humanizerEnabled: profileOf(body) !== 'fast',
+              vocalRefinementEnabled: profileOf(body) !== 'fast',
+              automaticQualityRepair: profileOf(body) === 'ultra',
+              qualityFastBatch: profileOf(body) === 'quality',
+              qualitySequentialSingleTakes: false,
+              qualityBlockingWavAnalysis: false,
+              candidateCount: profileOf(body) === 'quality' ? 2 : data?.metadata?.candidateCount
+            }
+          };
+        });
       } catch {
         return withVersion(await runtime.fetch(request, env, ctx));
       }
@@ -303,3 +309,4 @@ export default {
     return withVersion(response);
   }
 };
+

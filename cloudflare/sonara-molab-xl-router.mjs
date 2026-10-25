@@ -1,6 +1,7 @@
 import siteRuntime from './sonara-instant-speed-router.mjs';
 import { buildStudioPayload } from './sonara-engine-v16-studio-quality.mjs';
 import { rewriteGenerationRequest } from './sonara-engine-v15-authoritative-prompt.mjs';
+import { applyR2GenerationProfile } from './sonara-r2-generation-profile.mjs';
 export { SonaraJobState } from './sonara-instant-speed-router.mjs';
 
 // Keep this public contract stable: configure-molab-xl.yml verifies it.
@@ -517,8 +518,8 @@ function qualityMetadata(count, payload = {}) {
   };
 }
 
-// Build the same ACE-Step /release_task payload used by SONARA's original MoLab router.
-// The HTTPS relay transports jobs; it must not forward raw billing/UI JSON as ACE-Step jobs.
+// Resolve the existing creator controls, then apply native XL Turbo quality
+// settings for R2. The optional custom realism API is not a prerequisite.
 export async function prepareMolabR2RelayPayload(body) {
   const request = new Request('https://api.sonaraenterprise.com/api/engine/generate', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
@@ -526,12 +527,13 @@ export async function prepareMolabR2RelayPayload(body) {
   const authoritative = await rewriteGenerationRequest(request);
   const corrected = await authoritative.json();
   const count = candidateCount(corrected);
-  return buildMolabPayload(corrected, count, {
+  const payload = buildMolabPayload(corrected, count, {
     modelsInitialized: true,
     llmInitialized: true,
     realismApiV1: false,
     loadedModel: MODEL
   });
+  return applyR2GenerationProfile(payload, corrected, body);
 }
 
 async function startMolab(request, env) {
@@ -942,3 +944,4 @@ export default {
     return withHeaders(await siteRuntime.fetch(request, env, ctx));
   }
 };
+

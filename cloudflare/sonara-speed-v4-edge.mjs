@@ -1,5 +1,6 @@
 import runtime, { SonaraJobState, SonaraAuthStore } from './sonara-real-music-v2-edge.mjs';
 import { buildVocalLyricsV3Body, prepareVocalLyricsV3, VOCAL_LYRICS_DIRECTOR_V3 } from './sonara-vocal-lyrics-director-v3.mjs';
+import { r2GenerationMetadata } from './sonara-r2-generation-profile.mjs';
 
 export { SonaraJobState, SonaraAuthStore };
 
@@ -327,6 +328,14 @@ async function prepareGeneration(request, env, ctx) {
   catch { return response; }
 
   const jobId = firstJobId(payload);
+  if (/^sr2_[0-9a-f-]{36}$/.test(jobId)) {
+    // Native R2 jobs use the stock API policy, not the legacy director/ASR
+    // pipeline below. Their polling is handled directly by the R2 gateway.
+    return jsonResponse(response, {
+      ...payload,
+      metadata: { ...(payload.metadata || {}), ...r2GenerationMetadata(body, 2) }
+    });
+  }
   const verifyAfter = prepared?.enabled === true && (body?.verifyLyrics === true || body?.sonaraLyricsVerification === true || profile !== 'fast');
   const executionProfile = executionProfileOf(profile);
   const inferenceSteps = inferenceStepsOf(profile);
@@ -431,3 +440,4 @@ export default {
     return runtime.fetch(request, env, ctx);
   }
 };
+
