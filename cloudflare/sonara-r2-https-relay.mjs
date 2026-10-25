@@ -33,6 +33,20 @@ const getRecord = async (b,id) => { const o=await b.get(key(id));return o?o.json
 const saveRecord = (b,id,record,options={}) => b.put(key(id), JSON.stringify(record), {httpMetadata:{contentType:'application/json'},...options});
 const audioKey=(id,index)=>PREFIX+'audio/'+id+'/'+index+'.wav';
 const isService = path => path.startsWith('/api/sonara-relay/');
+// Browsers seek within WAV files using a single byte range. Ignore unsupported
+// range syntax; return false only when a valid single range cannot be satisfied.
+const audioRange = (value,size) => {
+  const match=/^bytes=(\d*)-(\d*)$/i.exec((value||'').trim());
+  if(!match||(!match[1]&&!match[2]))return null;
+  if(size===0)return false;
+  if(!match[1]) {
+    const length=Math.min(Number(match[2]),size);
+    return length>0?{offset:size-length,length}:false;
+  }
+  const offset=Number(match[1]);
+  const end=match[2]?Math.min(Number(match[2]),size-1):size-1;
+  return offset<size&&end>=offset?{offset,length:end-offset+1}:false;
+};
 const signAudio = async (id,i,env) => {
   const exp=Date.now()+30*60*1000;
   const data=id+':'+i+':'+exp;
@@ -58,7 +72,7 @@ export default {
  async fetch(request,env,ctx) {
   const url=new URL(request.url),p=url.pathname,b=env.SONARA_AUDIO_BUCKET;
   if(!isService(p)) return null;
-  if(request.method==='OPTIONS') return new Response(null,{status:204,headers:{'access-control-allow-origin':'https://sonaraenterprise.com','access-control-allow-methods':'GET,POST,PUT,OPTIONS','access-control-allow-headers':'Content-Type,X-Sonara-Internal-Secret,X-Sonara-Relay-Token,Authorization'}});
+  if(request.method==='OPTIONS') return new Response(null,{status:204,headers:{'access-control-allow-origin':'https://sonaraenterprise.com','access-control-allow-methods':'GET,HEAD,POST,PUT,OPTIONS','access-control-allow-headers':'Content-Type,Range,If-Range,X-Sonara-Internal-Secret,X-Sonara-Relay-Token,Authorization'}});
   // Read-only authentication probe. No queue claims, storage writes or generation.
   // It works while the public relay switch is off, permitting safe provisioning.
   if(p==='/api/sonara-relay/auth'&&request.method==='GET') {
@@ -148,7 +162,7 @@ export default {
       const urls=await Promise.all(j.files.map((_,i)=>signAudio(id,i,env)));
       return json({jobId:id,status:j.status==='COMPLETE'?'COMPLETED':j.status==='FAILED'?'FAILED':'PROCESSING',progress:j.status==='COMPLETE'?100:j.status==='LEASED'?50:0,error:j.error,provider:'molab',model:'acestep-v15-xl-turbo',metadata:{audioFormat:'wav'},audioUrl:urls[0]||null,audioUrls:urls,candidates:urls.map((u,i)=>({id:i===0?'A':'B',audioUrl:u,audioFormat:'wav',provider:'molab',model:'acestep-v15-xl-turbo'}))});
     }
-    if(action==='audio'&&request.method==='GET') {
+    if(action==='audio'&&(request.method==='GET'||request.method==='HEAD')) {
       const idx=Number(parts[2]);
       const signed=Number.isInteger(idx)&&await verifyAudio(id,idx,url,env);
       if(!hasSubmitAuth(request,env)&&!signed)return json({error:'Unauthorized'},401);
@@ -156,9 +170,37 @@ export default {
       if(!signed&&(!j||!ownsJob(request,j)))return json({error:'Not found'},404);
       if(!j||j.status!=='COMPLETE')return json({error:'Audio not ready'},404);
       const i=Number(parts[2]);if(!Number.isInteger(i)||i<0||i>=j.files.length)return json({error:'Not found'},404);
-      const obj=await b.get(audioKey(id,i));
+      const objectKey=audioKey(id,i);
+      const rangeHeader=request.method==='GET'?request.headers.get('range'):null;
+      let obj=await (request.method==='HEAD'||rangeHeader?b.head(objectKey):b.get(objectKey));
       if(!obj)return json({error:'Not found'},404);
-      return new Response(obj.body,{headers:{'content-type':'audio/wav','cache-control':'private, max-age=300','accept-ranges':'none','access-control-allow-origin':'https://sonaraenterprise.com'}});
+      const headers=new Headers({
+        'content-type':'audio/wav','cache-control':'private, max-age=300',
+        'accept-ranges':'bytes','content-length':String(obj.size),
+        'etag':obj.httpEtag,'last-modified':obj.uploaded.toUTCString(),
+        'access-control-allow-origin':'https://sonaraenterprise.com',
+        'access-control-expose-headers':'Accept-Ranges,Content-Length,Content-Range,ETag,Last-Modified'
+      });
+      if(request.method==='HEAD')return new Response(null,{headers});
+      const ifRange=request.headers.get('if-range');
+      const range=(!ifRange||ifRange===obj.httpEtag||ifRange===headers.get('last-modified'))
+        ?audioRange(rangeHeader,obj.size):null;
+      if(range===false) {
+        headers.set('content-range','bytes */'+obj.size);
+        headers.set('content-length','0');
+        return new Response(null,{status:416,headers});
+      }
+      if(range) {
+        headers.set('content-range',`bytes ${range.offset}-${range.offset+range.length-1}/${obj.size}`);
+        headers.set('content-length',String(range.length));
+      }
+      // Completed audio is immutable. Fetch only the requested bytes, keeping
+      // ordinary full-file downloads on their existing single R2 read path.
+      if(rangeHeader) {
+        obj=await b.get(objectKey,range?{range}:undefined);
+        if(!obj)return json({error:'Not found'},404);
+      }
+      return new Response(obj.body,{status:range?206:200,headers});
     }
     if(!(await hasWorkerAuth(request,env)))return json({error:'Unauthorized'},401);
     const j=await getRecord(b,id);if(!j)return json({error:'Not found'},404);
