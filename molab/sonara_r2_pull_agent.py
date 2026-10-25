@@ -18,7 +18,8 @@ LOCAL = 'http://127.0.0.1:8001'
 TOKEN_FILE = ROOT / 'relay.token'
 ACE_KEY_FILE = pathlib.Path('/home/marimo/ACE-STEP/.sonara-api-key')
 STATUS_FILE = ROOT / 'relay-agent-status.json'
-REVISION = 'sonara-https-agent-guard-v2'
+LOCAL_API_AUTH_MODE = os.environ.get('SONARA_LOCAL_API_AUTH_MODE', 'required').strip().lower()
+REVISION = 'sonara-https-agent-guard-v3'
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -33,7 +34,7 @@ def request(method: str, url: str, payload=None, headers=None, timeout=45):
     }:
         raise ValueError('Unapproved relay destination')
     raw = json.dumps(payload).encode() if isinstance(payload, (dict, list)) else payload
-    h = {'User-Agent': 'SONARA-MoLab-R2Relay/1', 'Accept': 'application/json'}
+    h = {'User-Agent': 'SONARA-MoLab-Relay/1.0', 'Accept': 'application/json'}
     if raw is not None and isinstance(payload, (dict, list)):
         h['Content-Type'] = 'application/json'
     h.update(headers or {})
@@ -55,6 +56,14 @@ def claim_headers():
     return {'X-Sonara-Relay-Token': value}
 
 def ace_headers():
+    if LOCAL_API_AUTH_MODE == 'none':
+        # Explicit opt-in only for the already running private loopback API.
+        # This changes this client's headers, never the engine's bind or auth.
+        if LOCAL != 'http://127.0.0.1:8001':
+            raise ValueError('Unauthenticated ACE-Step access requires fixed loopback')
+        return {}
+    if LOCAL_API_AUTH_MODE != 'required':
+        raise ValueError('Invalid local API authentication mode')
     value = ACE_KEY_FILE.read_text(encoding='utf-8').strip()
     if not value:
         raise ValueError('Missing local ACE-Step credential')
@@ -65,7 +74,7 @@ def local(method, path, payload=None, timeout=60):
 
 def publish_status(state: str, **safe_fields):
     # Only callers' explicit non-secret booleans and job IDs reach this file.
-    data = {'revision': REVISION, 'pid': os.getpid(), 'updatedAt': time.time(), 'state': state, **safe_fields}
+    data = {'revision': REVISION, 'localApiAuthMode': LOCAL_API_AUTH_MODE, 'pid': os.getpid(), 'updatedAt': time.time(), 'state': state, **safe_fields}
     temporary = STATUS_FILE.with_suffix('.tmp')
     fd = os.open(str(temporary), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, 'w', encoding='utf-8') as out:
@@ -188,7 +197,10 @@ def cycle():
 def main():
     ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
     ROOT.chmod(0o700)
-    for private in (TOKEN_FILE, ACE_KEY_FILE):
+    if LOCAL_API_AUTH_MODE not in ('required', 'none'):
+        raise SystemExit('Invalid local API authentication mode')
+    required_files = (TOKEN_FILE, ACE_KEY_FILE) if LOCAL_API_AUTH_MODE == 'required' else (TOKEN_FILE,)
+    for private in required_files:
         if not private.is_file() or private.stat().st_size == 0:
             raise SystemExit('Missing required private credential file')
         private.chmod(0o600)

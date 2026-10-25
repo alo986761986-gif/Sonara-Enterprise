@@ -4,7 +4,21 @@
 const PREFIX = 'relay-v1/';
 const json = (body, status=200) => new Response(JSON.stringify(body), {status,headers:{'content-type':'application/json','cache-control':'no-store','access-control-allow-origin':'https://sonaraenterprise.com'}});
 const bearer = (r) => r.headers.get('X-Sonara-Relay-Token') || (r.headers.get('Authorization')||'').replace(/^Bearer /i,'');
-const hasWorkerAuth = (r,e) => Boolean(e.SONARA_RELAY_TOKEN) && bearer(r)===e.SONARA_RELAY_TOKEN;
+// Authorize the notebook's high-entropy machine token by its public fingerprint.
+// The original Worker-only relay secret remains valid and is left untouched:
+// the gateway wrapper also uses it as its private audio-signing root.
+const hasWorkerAuth = async (r,e) => {
+  const supplied=bearer(r);
+  if(supplied.length<32||supplied.length>512||/[^\x21-\x7e]/.test(supplied))return false;
+  if(Boolean(e.SONARA_RELAY_TOKEN)&&supplied===e.SONARA_RELAY_TOKEN)return true;
+  const expected=String(e.SONARA_RELAY_TOKEN_SHA256||'').trim().toLowerCase();
+  if(!/^[0-9a-f]{64}$/.test(expected))return false;
+  const bytes=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(supplied)));
+  const actual=Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
+  let mismatch=0;
+  for(let i=0;i<64;i++)mismatch|=actual.charCodeAt(i)^expected.charCodeAt(i);
+  return mismatch===0;
+};
 const hasSubmitAuth = (r,e) => Boolean(e.SONARA_INTERNAL_PROXY_SECRET) && r.headers.get('X-Sonara-Internal-Secret')===e.SONARA_INTERNAL_PROXY_SECRET;
 // This metadata is accepted only with the server-side gateway credential.
 const ownerUid = r => {
@@ -47,7 +61,7 @@ export default {
   // Read-only authentication probe. No queue claims, storage writes or generation.
   // It works while the public relay switch is off, permitting safe provisioning.
   if(p==='/api/sonara-relay/auth'&&request.method==='GET') {
-    if(!hasWorkerAuth(request,env))return json({error:'Unauthorized'},401);
+    if(!(await hasWorkerAuth(request,env)))return json({error:'Unauthorized'},401);
     return json({
       service:'sonara-r2-relay',
       authenticated:true,
@@ -73,7 +87,7 @@ export default {
   }
   // MoLab polls through HTTPS/443, authenticates with a Worker secret.
   if(p==='/api/sonara-relay/claim'&&request.method==='POST') {
-    if(!hasWorkerAuth(request,env))return json({error:'Unauthorized'},401);
+    if(!(await hasWorkerAuth(request,env)))return json({error:'Unauthorized'},401);
     const list=await b.list({prefix:PREFIX+'jobs/',limit:100});
     const now=Date.now();
     for(const item of list.objects) {
@@ -115,7 +129,7 @@ export default {
       if(!obj)return json({error:'Not found'},404);
       return new Response(obj.body,{headers:{'content-type':'audio/wav','cache-control':'private, max-age=300','accept-ranges':'none','access-control-allow-origin':'https://sonaraenterprise.com'}});
     }
-    if(!hasWorkerAuth(request,env))return json({error:'Unauthorized'},401);
+    if(!(await hasWorkerAuth(request,env)))return json({error:'Unauthorized'},401);
     const j=await getRecord(b,id);if(!j)return json({error:'Not found'},404);
     const lease=request.headers.get('X-Sonara-Lease');
     if(j.status!=='LEASED'||!lease||lease!==j.leaseId)return json({error:'Lease mismatch'},409);
