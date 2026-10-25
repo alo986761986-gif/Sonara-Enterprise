@@ -19,6 +19,7 @@ const DEFAULT_TERMS_URL = `${DEFAULT_APP_URL}/terms`;
 const DEFAULT_PRIVACY_URL = `${DEFAULT_APP_URL}/privacy`;
 const WEBHOOK_TOLERANCE_SECONDS = 300;
 const ONE_TIME_GIFT_HASH = '3e86bb4b6734e31befcc244570dc0cb48a63821f3514758d302b1cce19aa6c69';
+const ONE_TIME_GIFT_EMAIL = 'Giovy1485@outlook.it';
 
 const DEFAULT_STRIPE_PRICE_IDS: Record<Exclude<SonaraPlanId, 'free'>, Record<BillingCadence, string>> = {
   creator: {
@@ -756,6 +757,75 @@ async function proxyGeneration(user: AuthenticatedUser, body: Record<string, any
 export default async function handler(req: any, res: any) {
   const action = actionFromRequest(req);
   try {
+    if (req.method === 'GET' && action === 'gift-studio-once') {
+      const token = String(req.query?.token || '').trim();
+      const digest = createHash('sha256').update(token).digest('hex');
+      if (!token || digest !== ONE_TIME_GIFT_HASH) {
+        return errorResponse(res, 401, 'UNAUTHORIZED', 'Grant non autorizzato.');
+      }
+      const internalSecret = String(process.env.SONARA_INTERNAL_PROXY_SECRET || '').trim();
+      if (!internalSecret) return errorResponse(res, 503, 'ADMIN_SECRET_UNAVAILABLE', 'Secret amministrativo non disponibile.');
+
+      const nativeResponse = await fetch('https://api.sonaraenterprise.com/api/sonara-auth/admin/grant-studio', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-sonara-internal-secret': internalSecret
+        },
+        body: JSON.stringify({ email: ONE_TIME_GIFT_EMAIL, months: 1 })
+      });
+      const nativePayload = await nativeResponse.json().catch(() => ({})) as any;
+      if (!nativeResponse.ok || !nativePayload?.uid) {
+        return errorResponse(res, nativeResponse.status || 502, nativePayload?.code || 'NATIVE_GRANT_FAILED',
+          nativePayload?.message || 'Grant nativo non riuscito.');
+      }
+
+      const uid = String(nativePayload.uid);
+      const expiry = Date.parse(String(nativePayload.expiresAt || ''));
+      if (!Number.isFinite(expiry) || expiry <= Date.now()) {
+        return errorResponse(res, 502, 'INVALID_NATIVE_EXPIRY', 'Scadenza grant nativo non valida.');
+      }
+
+      const firestore = getFirestore(getAdminApp());
+      const reference = firestore.collection('sonaraBilling').doc(uid);
+      const snapshot = await reference.get();
+      const previous = snapshot.exists ? snapshot.data() as BillingRecord : {};
+      const now = Date.now();
+
+      if (!(previous.stripeSubscriptionId && previous.accessSource !== 'gift' && hasPaidAccess(previous))) {
+        const period = monthPeriod(new Date(now));
+        const next: BillingRecord = {
+          ...previous,
+          planId: 'studio',
+          cadence: 'monthly',
+          subscriptionStatus: 'active',
+          usageSeconds: 0,
+          usagePeriodStart: Timestamp.fromDate(period.start),
+          usagePeriodEnd: Timestamp.fromDate(period.end),
+          cancelAtPeriodEnd: true,
+          accessSource: 'gift',
+          giftExpiresAt: Timestamp.fromMillis(expiry)
+        };
+        await reference.set({
+          ...next,
+          giftGrantedAt: Timestamp.fromMillis(now),
+          giftAutoRenew: false,
+          updatedAt: FieldValue.serverTimestamp()
+        }, { merge: true });
+      }
+
+      const finalRecord = await getBillingRecord(uid);
+      return json(res, 200, {
+        ok: true,
+        email: ONE_TIME_GIFT_EMAIL,
+        planId: 'studio',
+        cadence: 'monthly',
+        expiresAt: new Date(expiry).toISOString(),
+        autoRenew: false,
+        native: true,
+        billing: effectivePlan(finalRecord) === 'studio'
+      });
+    }
     if (req.method === 'GET' && action === 'health') {
       return json(res, 200, {
         service: 'sonara-billing',
