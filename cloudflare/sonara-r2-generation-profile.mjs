@@ -1,4 +1,4 @@
-import { instrumentRealismPlan, INSTRUMENT_REALISM_VERSION } from './sonara-instrument-realism-v1.mjs';
+import { instrumentRealismPlan, INSTRUMENT_REALISM_VERSION } from './sonara-instrument-realism-v2.mjs';
 
 // Stock ACE-Step 1.5 XL Turbo request policy for the HTTPS/R2 path only.
 // Official API/INFERENCE/Tutorial at ca1e85fe recommend 8 steps and shift 3
@@ -25,7 +25,7 @@ export function r2GenerationSettings(body = {}) {
 
 export function r2GenerationMetadata(body = {}, count = 2) {
   const { profile, steps, shift, thinking } = r2GenerationSettings(body);
-  const realism = profile === 'fast' ? null : instrumentRealismPlan(body);
+  const realism = profile === 'fast' ? null : instrumentRealismPlan(body, { depth: profile });
   return {
     generationPolicy: R2_GENERATION_POLICY,
     generationProfile: profile,
@@ -36,6 +36,9 @@ export function r2GenerationMetadata(body = {}, count = 2) {
     instrumentRealismEnabled: Boolean(realism),
     instrumentRealismVersion: realism ? INSTRUMENT_REALISM_VERSION : null,
     instrumentRealismFamilies: realism?.families || [],
+    instrumentRealismDepth: realism?.depth || null,
+    ensembleInteractionCount: realism?.ensembleInteractions?.length || 0,
+    sectionAwareArrangement: realism?.structureAware || false,
     batchSize: count, candidateCount: count, singleGpuBatch: true,
     visibleCandidateTarget: count, internalCandidateTarget: count,
     automaticSecondBatch: false, automaticCandidateRanking: false,
@@ -84,7 +87,8 @@ function caption(payload, body, source, lyrics) {
       : influence >= 55 ? 'Recognizable genre identity with compatible variation'
         : 'Flexible interpretation within the selected genre'
     : '';
-  const realism = profileOf(body) === 'fast' ? '' : instrumentRealismPlan({ ...body, ...source }).cue;
+  const selectedProfile = profileOf(body);
+  const realism = selectedProfile === 'fast' ? '' : instrumentRealismPlan({ ...body, ...source, lyrics }, { depth: selectedProfile }).cue;
 
   // Keep the creator's real brief and add one compact performance-reality cue.
   // The cue describes how instruments behave physically; it does not add new
@@ -123,7 +127,8 @@ export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody 
     sonara_speed_sampler: 'euler',
     sonara_r2_generation_profile: profile,
     sonara_r2_generation_policy: R2_GENERATION_POLICY,
-    sonara_instrument_realism: profile === 'fast' ? null : INSTRUMENT_REALISM_VERSION
+    sonara_instrument_realism: profile === 'fast' ? null : INSTRUMENT_REALISM_VERSION,
+    sonara_instrument_realism_depth: profile === 'fast' ? null : profile
   };
   delete next.lm_batch_chunk_size;
   delete next.use_cot_metas;

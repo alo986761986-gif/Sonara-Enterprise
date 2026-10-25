@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { instrumentRealismPlan, INSTRUMENT_REALISM_VERSION } from './sonara-instrument-realism-v1.mjs';
+import { instrumentRealismPlan, INSTRUMENT_REALISM_VERSION } from './sonara-instrument-realism-v2.mjs';
 import { applyR2GenerationProfile, r2GenerationMetadata, R2_GENERATION_POLICY } from './sonara-r2-generation-profile.mjs';
 
 const lyrics = '[Strofa 1 — Lei]\r\nTi aspetto qui, perché tornerai.\r\n\r\n[Ritornello]\r\nTi tengo vicino.';
@@ -43,6 +43,7 @@ for (const [profile, steps, shift, thinking] of [
     assert.equal(metadata.candidateCount, result.batch_size);
     assert.equal(metadata.instrumentRealismEnabled, profile !== 'fast');
     assert.equal(metadata.instrumentRealismVersion, profile === 'fast' ? null : INSTRUMENT_REALISM_VERSION);
+    assert.equal(metadata.instrumentRealismDepth, profile === 'fast' ? null : profile);
     assert.equal(metadata.automaticSecondBatch, false);
     assert.equal(metadata.automaticCandidateRanking, false);
     assert.equal(metadata.automaticQualityRepair, false);
@@ -60,13 +61,13 @@ for (const [profile, steps, shift, thinking] of [
 test('instrument realism selects physical performance cues from requested instruments', () => {
   const plan = instrumentRealismPlan({
     selectedInstruments: ['Grand Piano', 'Cello', 'Acoustic Drum Kit', 'Analog Synthesizer']
-  });
+  }, { depth: 'quality' });
   assert.equal(plan.version, INSTRUMENT_REALISM_VERSION);
   assert.deepEqual(plan.families, ['piano-keys', 'bowed-strings', 'acoustic-drums']);
   assert.match(plan.cue, /velocity-shaped attacks/);
   assert.match(plan.cue, /bow-pressure changes/);
   assert.match(plan.cue, /distinct stick velocities/);
-  assert.match(plan.cue, /coherent mic\/room perspective/);
+  assert.match(plan.cue, /one coherent depth perspective/);
 });
 
 test('instrument realism detects genre instrumentation text when no explicit instrument picker is used', () => {
@@ -141,4 +142,55 @@ test('plain API prompt, selected profile aliases, instrumental and single output
   assert.equal(result.batch_size, 1);
   assert.equal(result.thinking, true);
   assert.equal(result.allow_lm_batch, false);
+});
+
+
+test('ULTRA coordinates a live rhythm section instead of humanizing every part blindly', () => {
+  const plan = instrumentRealismPlan({
+    genre: 'Soul',
+    selectedInstruments: ['Acoustic Drum Kit', 'Electric Bass', 'Rhodes', 'Electric Guitar']
+  }, { depth: 'ultra' });
+  assert.equal(plan.depth, 'ultra');
+  assert.ok(plan.families.includes('acoustic-drums'));
+  assert.ok(plan.families.includes('bass'));
+  assert.ok(plan.ensembleInteractions.some(value => /kick and bass share the pocket/.test(value)));
+  assert.match(plan.cue, /push-and-pull/);
+  assert.match(plan.cue, /do not quantize every performed part/);
+});
+
+test('section tags drive arrangement motion without rewriting lyrics', () => {
+  const structuredLyrics = '[Verse 1]\nPiano e voce.\n[Chorus]\nApri il suono.\n[Bridge]\nCambia il colore.\n[Outro]\nResta il piano.';
+  const body = {
+    ...source,
+    generationProfileV3: 'ultra',
+    selectedInstruments: ['Piano', 'Cello', 'Acoustic Drum Kit', 'Electric Bass'],
+    sonaraOriginalLyrics: structuredLyrics
+  };
+  const result = applyR2GenerationProfile(payload, body, body);
+  const metadata = r2GenerationMetadata(body);
+  assert.equal(result.lyrics, structuredLyrics);
+  assert.equal(metadata.sectionAwareArrangement, true);
+  assert.ok(metadata.ensembleInteractionCount >= 1);
+  assert.match(result.prompt, /verses leave space/);
+  assert.match(result.prompt, /choruses widen and intensify/);
+  assert.match(result.prompt, /bridge changes texture or register/);
+  assert.match(result.prompt, /outro releases energy/);
+});
+
+test('electronic music keeps designed timing instead of fake acoustic looseness', () => {
+  const plan = instrumentRealismPlan({
+    genre: 'House',
+    selectedInstruments: ['Drum Machine', 'Bass Synth', 'Wavetable Synthesizer']
+  }, { depth: 'ultra' });
+  assert.ok(plan.families.includes('electronic'));
+  assert.match(plan.cue, /keep the clock stable/);
+  assert.match(plan.cue, /do not fake acoustic looseness/);
+});
+
+test('Italian instrument names activate the same physical families', () => {
+  const plan = instrumentRealismPlan({
+    selectedInstruments: ['Pianoforte', 'Violoncello', 'Batteria acustica', 'Basso elettrico', 'Tromba', 'Flauto']
+  }, { depth: 'ultra' });
+  for (const family of ['piano-keys','bowed-strings','acoustic-drums','bass','brass','woodwinds'])
+    assert.ok(plan.families.includes(family), family);
 });
