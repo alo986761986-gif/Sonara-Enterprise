@@ -85,10 +85,10 @@ const empty = (id: CandidateId): CandidateState => ({
 });
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-const GENERATION_PROFILE_KEY = 'sonara.generation.profile.v4';
+const GENERATION_PROFILE_KEY = 'sonara.generation.profile.v5';
 const readGenerationProfile = (): 'fast' | 'quality' | 'ultra' => {
   const value = window.localStorage.getItem(GENERATION_PROFILE_KEY);
-  return value === 'quality' || value === 'ultra' || value === 'fast' ? value : 'fast';
+  return value === 'quality' || value === 'ultra' || value === 'fast' ? value : 'quality';
 };
 
 function normalize(value: JobResponse): JobResponse {
@@ -556,7 +556,7 @@ export default function ElevenMusicGenerationControl() {
         generationPairId: generationId,
         variationId: candidate.id,
         completedJob: response,
-        performanceProfile: expectedCount === 1 ? 'sonara-instant-single-master' : 'sonara-dual-master',
+        performanceProfile: expectedCount === 1 ? 'sonara-realistic-single-master' : 'sonara-ultra-dual-master',
         creativeControls: { weirdness: context.weirdness, styleInfluence: context.styleInfluence }
       }
     })));
@@ -579,8 +579,8 @@ export default function ElevenMusicGenerationControl() {
     setError('');
     const generationProfile = readGenerationProfile();
     const instant = generationProfile === 'fast';
-    const expectedCount = instant ? 1 : 2;
-    setCandidates(instant ? [empty('A')] : [empty('A'), empty('B')]);
+    const expectedCount = generationProfile === 'ultra' ? 2 : 1;
+    setCandidates(expectedCount === 1 ? [empty('A')] : [empty('A'), empty('B')]);
     try {
       const textarea = document.getElementById('sonara-prompt') as HTMLTextAreaElement | null;
       if (!textarea) throw new Error('Apri il Music Creator prima di generare.');
@@ -608,11 +608,11 @@ export default function ElevenMusicGenerationControl() {
       const token = await getFirebaseIdToken(true);
       const generationId = crypto.randomUUID ? crypto.randomUUID() : `generation-${Date.now()}`;
       localStorage.setItem('sonara.lastGenerationPairId', generationId);
-      processing('', 8, instant ? 'SONARA INSTANT: generazione prioritaria' : autoCover ? 'SONARA: audio + copertine A/B in parallelo' : 'SONARA: generazione dei 2 master');
+      processing('', 8, instant ? 'SONARA INSTANT: generazione prioritaria' : generationProfile === 'quality' ? 'SONARA REALISTIC: 8 step + LM planning' : autoCover ? 'SONARA ULTRA: audio + copertine A/B' : 'SONARA ULTRA: generazione dei 2 master');
 
       if (autoCover) {
         void generateCover('A', context, generationId, token, 0);
-        if (!instant) void generateCover('B', context, generationId, token, 0);
+        if (expectedCount > 1) void generateCover('B', context, generationId, token, 0);
       }
 
       const response = await fetch('/api/billing/generate', {
@@ -646,7 +646,7 @@ export default function ElevenMusicGenerationControl() {
           engineId: 'sonara_eleven_music_v2',
           candidateCount: expectedCount,
           candidate_count: expectedCount,
-          dualFast: !instant,
+          dualFast: expectedCount > 1,
           generationProfileV3: generationProfile,
           renderProfile: generationProfile,
           generationPairId: generationId
@@ -666,7 +666,7 @@ export default function ElevenMusicGenerationControl() {
       const deadline = Date.now() + Math.max(10 * 60_000, context.durationSec * 5000);
       const relayJob = jobId.startsWith('sr2_');
       while (Date.now() < deadline) {
-        await sleep(instant ? 350 : 1000);
+        await sleep(instant ? 350 : generationProfile === 'quality' ? 650 : 1000);
         const poll = await fetch(relayJob
           ? `/api/billing/job?jobId=${encodeURIComponent(jobId)}`
           : `/api/music/job/${encodeURIComponent(jobId)}`, {
@@ -751,7 +751,7 @@ export default function ElevenMusicGenerationControl() {
         <span className="ml-auto text-[8px] text-zinc-600">audio + artwork simultanei</span>
       </div>
       <button type="button" onClick={() => void generate()} disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-fuchsia-600 via-purple-600 to-indigo-600 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-purple-950/25 transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50">
-        {busy ? <><RefreshCw className="h-5 w-5 animate-spin" />SONARA STA GENERANDO AUDIO + COVER...</> : <><Sparkles className="h-5 w-5" />GENERA A + B · AUDIO + COVER</>}
+        {busy ? <><RefreshCw className="h-5 w-5 animate-spin" />SONARA STA GENERANDO AUDIO + COVER...</> : <><Sparkles className="h-5 w-5" />GENERA · AUDIO + COVER</>}
       </button>
       {error && <div className="rounded-xl border border-rose-500/25 bg-rose-500/10 p-4 text-xs text-rose-300">{error}</div>}
       {candidates.some(candidate => candidate.status !== 'IDLE') && (

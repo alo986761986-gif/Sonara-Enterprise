@@ -4,22 +4,22 @@ import { r2GenerationMetadata } from './sonara-r2-generation-profile.mjs';
 
 export { SonaraJobState, SonaraAuthStore };
 
-const VERSION = 'sonara-speed-v4.4-instant-single-track';
+const VERSION = 'sonara-speed-v4.5-realistic-default';
 const STATE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/speed-v4/';
 const STATE_TTL = 6 * 60 * 60;
 const JOB_RE = /^\/api\/music\/job\/([^/]+)$/;
 const GENERATE_PATHS = new Set(['/api/engine/generate', '/api/billing/generate']);
 const ASR_TIMEOUT = 180_000;
 const FAST_STEPS = 1;
-const QUALITY_STEPS = 2;
-const ULTRA_STEPS = 2;
+const QUALITY_STEPS = 8;
+const ULTRA_STEPS = 8;
 
 const clean = value => String(value ?? '').trim();
 const cleanUrl = value => clean(value).replace(/\/$/, '');
 const molabUrl = env => cleanUrl(env.SONARA_MOLAB_XL_URL || env.MOLAB_ACESTEP_URL || '');
 
 function requestedProfile(body = {}) {
-  const raw = clean(body.generationProfileV3 || body.renderProfile || body.generationProfile || body.qualityProfile || 'fast').toLowerCase();
+  const raw = clean(body.generationProfileV3 || body.renderProfile || body.generationProfile || body.qualityProfile || 'quality').toLowerCase();
   if (['ultra', 'maximum', 'max', 'studio', 'master'].includes(raw)) return 'ultra';
   if (['fast', 'speed', 'preview'].includes(raw)) return 'fast';
   return 'quality';
@@ -218,9 +218,9 @@ function speedBody(body, profile) {
       renderProfile: 'quality',
       generationProfile: 'quality',
       qualityProfile: 'quality',
-      candidateCount: 2,
-      candidate_count: 2,
-      dualFast: true,
+      candidateCount: 1,
+      candidate_count: 1,
+      dualFast: false,
       sonaraDirectorBypass: false,
       sonaraRealMusic: true,
       sonara_real_music: true,
@@ -229,11 +229,11 @@ function speedBody(body, profile) {
       sonaraFastUltra: false,
       sonaraSpeedInferenceSteps: QUALITY_STEPS,
       sonaraSpeedSampler: 'euler',
-      sonaraSpeedExecutionProfile: 'quality-single-gpu-batch',
+      sonaraSpeedExecutionProfile: 'realistic-lm-single-track',
       sonaraRequestedGenerationProfile: profile,
-      sonaraAutomaticCandidateRanking: true,
-      sonaraVisibleCandidateTarget: 2,
-      sonaraInternalCandidateTarget: 2,
+      sonaraAutomaticCandidateRanking: false,
+      sonaraVisibleCandidateTarget: 1,
+      sonaraInternalCandidateTarget: 1,
       sonaraRealMusicV3: true,
       sonaraTrackGenomeEnabled: true,
       sonaraHumanizerEnabled: true,
@@ -269,7 +269,7 @@ function speedBody(body, profile) {
 
 function executionProfileOf(profile) {
   if (profile === 'ultra') return 'ultra-director-auto-refine';
-  if (profile === 'quality') return 'quality-single-gpu-batch';
+  if (profile === 'quality') return 'realistic-lm-single-track';
   return 'instant-single-track';
 }
 
@@ -333,7 +333,7 @@ async function prepareGeneration(request, env, ctx) {
     // pipeline below. Their polling is handled directly by the R2 gateway.
     return jsonResponse(response, {
       ...payload,
-      metadata: { ...(payload.metadata || {}), ...r2GenerationMetadata(nextBody, profile === 'fast' ? 1 : 2) }
+      metadata: { ...(payload.metadata || {}), ...r2GenerationMetadata(nextBody, profile === 'ultra' ? 2 : 1) }
     });
   }
   const verifyAfter = prepared?.enabled === true && (body?.verifyLyrics === true || body?.sonaraLyricsVerification === true || profile !== 'fast');

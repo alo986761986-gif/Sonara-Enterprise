@@ -86,20 +86,20 @@ function clamp(value, fallback, min, max) {
 
 function candidateCount(body = {}) {
   if (body?.dualFast === true) return 2;
-  const fallback = profileOf(body) === 'fast' ? 1 : 2;
+  const fallback = profileOf(body) === 'ultra' ? 2 : 1;
   return Math.round(clamp(body?.candidateCount, fallback, 1, 2));
 }
 
 function profileOf(body = {}) {
-  const raw = String(body.generationProfileV3 || body.renderProfile || body.generationProfile || body.qualityProfile || 'fast').trim().toLowerCase();
+  const raw = String(body.generationProfileV3 || body.renderProfile || body.generationProfile || body.qualityProfile || 'quality').trim().toLowerCase();
   if (['fast', 'speed', 'preview'].includes(raw)) return 'fast';
   if (['ultra', 'maximum', 'max'].includes(raw)) return 'ultra';
   return 'quality';
 }
 
 function inferenceStepsOf(_body = {}, profile = profileOf(_body)) {
-  if (profile === 'ultra') return 2;
-  if (profile === 'quality') return 2;
+  if (profile === 'ultra') return 8;
+  if (profile === 'quality') return 8;
   return 1;
 }
 
@@ -275,7 +275,7 @@ export function buildMolabPayload(body, count, capabilities = {}) {
     inference_steps: inferenceSteps,
     guidance_scale: 1.0,
     batch_size: count,
-    thinking: profile === 'ultra' && realMusic,
+    thinking: profile !== 'fast' && realMusic,
     lm_temperature: humanLmTemperature,
     lm_cfg_scale: humanLmCfgScale,
     lm_top_k: 0,

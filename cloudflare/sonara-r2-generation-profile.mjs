@@ -1,11 +1,11 @@
-import { instrumentRealismPlan, INSTRUMENT_REALISM_VERSION } from './sonara-instrument-realism-v2.mjs';
+import { instrumentRealismPlan, INSTRUMENT_REALISM_VERSION } from './sonara-instrument-realism-v3.mjs';
 import { mixMasterPlan, safePeakTarget, MIX_MASTER_VERSION } from './sonara-mix-master-v1.mjs';
 
 // Stock ACE-Step 1.5 XL Turbo request policy for the HTTPS/R2 path only.
 // Official API/INFERENCE/Tutorial at ca1e85fe recommend 8 steps and shift 3
 // for Turbo. Native `thinking` generates LM audio codes; it does not require
-// SONARA's optional, custom realism API. It is intentionally opt-in via ULTRA.
-export const R2_GENERATION_POLICY = 'sonara-stock-xl-turbo-quality-v1';
+// SONARA's optional, custom realism API. REALISTIC and ULTRA use native LM planning; INSTANT remains the speed preview.
+export const R2_GENERATION_POLICY = 'sonara-xl-turbo-realistic-v2';
 
 const text = value => typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
 const firstText = (...values) => values.map(text).find(Boolean) || '';
@@ -13,27 +13,31 @@ const unique = values => [...new Set(values.map(text).filter(Boolean))];
 
 function profileOf(body) {
   const raw = firstText(body.generationProfileV3, body.renderProfile, body.generationProfile, body.qualityProfile).toLowerCase();
-  if (!raw || ['fast', 'speed', 'preview', 'instant'].includes(raw)) return 'fast';
+  if (['fast', 'speed', 'preview', 'instant'].includes(raw)) return 'fast';
   if (['ultra', 'maximum', 'max', 'studio', 'master'].includes(raw)) return 'ultra';
   return 'quality';
 }
 
 export function r2GenerationSettings(body = {}) {
   const profile = profileOf(body);
-  return { profile, steps: profile === 'fast' ? 1 : 8,
-    shift: profile === 'fast' ? 1.0 : 3.0, thinking: profile === 'ultra' };
+  return {
+    profile,
+    steps: profile === 'fast' ? 1 : 8,
+    shift: profile === 'fast' ? 1.0 : 3.0,
+    thinking: profile !== 'fast'
+  };
 }
 
 export function r2GenerationMetadata(body = {}, count = null) {
   const { profile, steps, shift, thinking } = r2GenerationSettings(body);
-  const effectiveCount = Number.isFinite(Number(count)) ? Math.max(1, Math.min(2, Math.round(Number(count)))) : profile === 'fast' ? 1 : 2;
+  const effectiveCount = Number.isFinite(Number(count)) ? Math.max(1, Math.min(2, Math.round(Number(count)))) : profile === 'ultra' ? 2 : 1;
   const realism = profile === 'fast' ? null : instrumentRealismPlan(body, { depth: profile });
   const mixMaster = profile === 'fast' ? null : mixMasterPlan(body, { depth: profile });
   return {
     generationPolicy: R2_GENERATION_POLICY,
     generationProfile: profile,
     requestedGenerationProfile: profile,
-    executionProfile: profile === 'fast' ? 'xl-turbo-instant-single-track' : thinking ? 'xl-turbo-lm-planned-batch' : `${profile}-single-gpu-batch`,
+    executionProfile: profile === 'fast' ? 'xl-turbo-instant-single-track' : profile === 'quality' ? 'xl-turbo-realistic-lm-single-track' : 'xl-turbo-ultra-lm-batch',
     inferenceSteps: steps, shift, samplerMode: 'euler', lmThinking: thinking,
     lmAudioPlanning: thinking, lmModel: 'acestep-5Hz-lm-4B',
     instrumentRealismEnabled: Boolean(realism),
@@ -112,7 +116,10 @@ export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody 
   const normalizationDb = mixMaster && normalizationEnabled
     ? safePeakTarget(payload.normalization_db, mixMaster.targetPeakDb)
     : payload.normalization_db;
-  const effectiveBatchSize = profile === 'fast' ? 1 : Math.max(1, Math.min(2, Math.round(Number(payload.batch_size) || 2)));
+  const requestedBatchSize = Math.max(1, Math.min(2, Math.round(Number(payload.batch_size) || (profile === 'ultra' ? 2 : 1))));
+  const effectiveBatchSize = profile === 'ultra' ? requestedBatchSize : 1;
+  const durationSeconds = Number(payload.audio_duration);
+  const directVaeDecode = profile !== 'fast' && (!Number.isFinite(durationSeconds) || durationSeconds <= 240);
   const next = {
     ...payload,
     prompt: caption(payload, resolvedBody, sourceBody, lyrics),
@@ -135,8 +142,16 @@ export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody 
     lm_top_k: 0,
     lm_top_p: 0.9,
     lm_repetition_penalty: 1.0,
-    lm_negative_prompt: 'NO USER INPUT',
+    lm_negative_prompt: profile === 'fast'
+      ? 'NO USER INPUT'
+      : 'robotic quantization, static velocity, identical repeated bars, MIDI-like note triggering, plastic acoustic timbre, phase-locked acoustic doubles, metallic artifacts, brittle cymbals, fake room resets, overcompression, clipped transients',
     allow_lm_batch: thinking && effectiveBatchSize > 1,
+    dcw_enabled: profile === 'fast' ? payload.dcw_enabled : true,
+    dcw_mode: profile === 'fast' ? payload.dcw_mode : 'double',
+    dcw_scaler: profile === 'fast' ? payload.dcw_scaler : (thinking ? 0.02 : 0.05),
+    dcw_high_scaler: profile === 'fast' ? payload.dcw_high_scaler : (thinking ? 0.06 : 0.02),
+    dcw_wavelet: profile === 'fast' ? payload.dcw_wavelet : 'haar',
+    use_tiled_decode: profile === 'fast' ? payload.use_tiled_decode : !directVaeDecode,
     sonara_generation_profile: 'auto',
     sonara_speed_inference_steps: steps,
     sonara_speed_sampler: 'euler',

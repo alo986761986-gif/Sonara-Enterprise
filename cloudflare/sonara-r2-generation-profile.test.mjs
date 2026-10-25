@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { instrumentRealismPlan, INSTRUMENT_REALISM_VERSION } from './sonara-instrument-realism-v2.mjs';
+import { instrumentRealismPlan, INSTRUMENT_REALISM_VERSION } from './sonara-instrument-realism-v3.mjs';
 import { applyR2GenerationProfile, r2GenerationMetadata, R2_GENERATION_POLICY } from './sonara-r2-generation-profile.mjs';
 import { mixMasterPlan, safePeakTarget, MIX_MASTER_VERSION } from './sonara-mix-master-v1.mjs';
 
@@ -23,7 +23,7 @@ const payload = {
 };
 
 for (const [profile, steps, shift, thinking] of [
-  ['fast', 1, 1, false], ['quality', 8, 3, false], ['ultra', 8, 3, true]
+  ['fast', 1, 1, false], ['quality', 8, 3, true], ['ultra', 8, 3, true]
 ]) {
   test(`${profile} selects native XL parameters and preserves the creator's job`, () => {
     const before = JSON.stringify(payload);
@@ -32,8 +32,8 @@ for (const [profile, steps, shift, thinking] of [
     assert.equal(result.inference_steps, steps);
     assert.equal(result.shift, shift);
     assert.equal(result.thinking, thinking);
-    assert.equal(result.allow_lm_batch, thinking);
-    assert.equal(result.batch_size, profile === 'fast' ? 1 : 2);
+    assert.equal(result.allow_lm_batch, thinking && profile === 'ultra');
+    assert.equal(result.batch_size, profile === 'ultra' ? 2 : 1);
     assert.equal(result.sonara_r2_generation_policy, R2_GENERATION_POLICY);
     assert.equal(result.sonara_r2_generation_profile, profile);
     assert.equal(result.sonara_instrument_realism, profile === 'fast' ? null : INSTRUMENT_REALISM_VERSION);
@@ -54,7 +54,7 @@ for (const [profile, steps, shift, thinking] of [
     assert.equal(result.sonara_real_music_v1, false);
     for (const field of ['model', 'vocal_language', 'bpm', 'key_scale', 'time_signature',
       'audio_duration', 'task_type', 'seed', 'use_random_seed', 'audio_format',
-      'enable_normalization', 'normalization_db', 'use_tiled_decode']) {
+      'enable_normalization', 'normalization_db']) {
       assert.deepEqual(result[field], payload[field], field);
     }
     assert.equal(result.lyrics, lyrics);
@@ -237,16 +237,41 @@ test('normalization opt-out remains respected', () => {
 });
 
 
-test('missing profile defaults to INSTANT single-track execution', () => {
+test('missing profile defaults to REALISTIC single-track execution', () => {
   const body = { ...source };
   delete body.generationProfileV3;
   const result = applyR2GenerationProfile(payload, body, body);
   const metadata = r2GenerationMetadata(body);
-  assert.equal(result.sonara_r2_generation_profile, 'fast');
-  assert.equal(result.inference_steps, 1);
-  assert.equal(result.thinking, false);
+  assert.equal(result.sonara_r2_generation_profile, 'quality');
+  assert.equal(result.inference_steps, 8);
+  assert.equal(result.shift, 3);
+  assert.equal(result.thinking, true);
   assert.equal(result.batch_size, 1);
-  assert.equal(result.sonara_instant_mode, true);
+  assert.equal(result.sonara_instant_mode, false);
+  assert.equal(result.dcw_enabled, true);
+  assert.equal(result.dcw_mode, 'double');
+  assert.equal(result.dcw_scaler, 0.02);
+  assert.equal(result.dcw_high_scaler, 0.06);
+  assert.equal(result.use_tiled_decode, false);
   assert.equal(metadata.candidateCount, 1);
-  assert.equal(metadata.executionProfile, 'xl-turbo-instant-single-track');
+  assert.equal(metadata.executionProfile, 'xl-turbo-realistic-lm-single-track');
+});
+
+
+test('REALISTIC strengthens anti-synthetic performance conditioning', () => {
+  const body = { ...source, generationProfileV3: 'quality',
+    selectedInstruments: ['Piano', 'Cello', 'Acoustic Drum Kit', 'Electric Bass'] };
+  const result = applyR2GenerationProfile(payload, body, body);
+  assert.match(result.prompt, /repeated notes and repeated bars must not share identical attack/);
+  assert.match(result.prompt, /MIDI-like notes/);
+  assert.match(result.prompt, /arrangement breathes/);
+  assert.match(result.prompt, /plastic sample-library sameness/);
+  assert.match(result.lm_negative_prompt, /robotic quantization/);
+});
+
+test('REALISTIC direct-decodes normal tracks and keeps tiled decode for long tracks', () => {
+  const shortResult = applyR2GenerationProfile({ ...payload, audio_duration: 180, use_tiled_decode: true }, { ...source, generationProfileV3: 'quality' }, source);
+  const longResult = applyR2GenerationProfile({ ...payload, audio_duration: 360, use_tiled_decode: true }, { ...source, generationProfileV3: 'quality' }, source);
+  assert.equal(shortResult.use_tiled_decode, false);
+  assert.equal(longResult.use_tiled_decode, true);
 });
