@@ -55,7 +55,7 @@ type LocalAudioCandidate = {
 
 const ACTIVE_AUDIO_KEY = 'sonara.creator.activeAudioReference.v1';
 const STUDIO_JOB_KEY = 'sonara.creator.referenceStudioJobs.v1';
-const MAX_REFERENCE_BYTES = 160 * 1024 * 1024;
+const MAX_REFERENCE_BYTES = 80 * 1024 * 1024;
 const AUDIO_EXTENSION_RE = /\.(wav|wave|mp3|flac|ogg|oga|m4a|aac|opus|aiff|aif|alac|webm|weba)$/i;
 const GENERATE_PATHS = new Set(['/api/billing/generate', '/api/engine/generate']);
 
@@ -342,26 +342,100 @@ export default function SonaraCreatorAudioHub() {
         }
 
         if (body && typeof body === 'object') {
+          const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
+
+          if (reference.mode === 'reference') {
+            let referenceBlob: Blob | null = reference.file || reference.blob || null;
+            if (!referenceBlob && reference.url) {
+              try {
+                const audioResponse = await upstream(reference.url, { method: 'GET', credentials: 'include', cache: 'no-store' });
+                if (audioResponse.ok) referenceBlob = await audioResponse.blob();
+              } catch {
+                referenceBlob = null;
+              }
+            }
+
+            if (!referenceBlob?.size) {
+              return new Response(JSON.stringify({ error: { code: 'REFERENCE_AUDIO_UNAVAILABLE', message: 'Audio di riferimento non disponibile.' } }), {
+                status: 400,
+                headers: { 'content-type': 'application/json; charset=UTF-8' }
+              });
+            }
+            if (referenceBlob.size > MAX_REFERENCE_BYTES) {
+              return new Response(JSON.stringify({ error: { code: 'REFERENCE_AUDIO_TOO_LARGE', message: 'La reference strumentale supera 80 MB.' } }), {
+                status: 413,
+                headers: { 'content-type': 'application/json; charset=UTF-8' }
+              });
+            }
+
+            const uploadHeaders = new Headers(headers);
+            uploadHeaders.delete('content-length');
+            uploadHeaders.set('content-type', referenceBlob.type || reference.mimeType || 'application/octet-stream');
+            uploadHeaders.set('x-sonara-reference-name', encodeURIComponent(reference.name || 'sonara-instrument-reference.wav'));
+            const uploadResponse = await upstream(new URL('/api/sonara-relay/reference', window.location.origin).toString(), {
+              method: 'POST',
+              headers: uploadHeaders,
+              body: referenceBlob,
+              credentials: 'include',
+              cache: 'no-store'
+            });
+            let uploadPayload: any = {};
+            try { uploadPayload = await uploadResponse.clone().json(); } catch {}
+            const referenceId = String(uploadPayload?.referenceId || '');
+            if (!uploadResponse.ok || !referenceId) {
+              return new Response(JSON.stringify({
+                error: {
+                  code: 'REFERENCE_UPLOAD_FAILED',
+                  message: String(uploadPayload?.error || 'Caricamento reference strumentale non riuscito.')
+                }
+              }), {
+                status: uploadResponse.status || 502,
+                headers: { 'content-type': 'application/json; charset=UTF-8' }
+              });
+            }
+
+            body.sonaraInstrumentReferenceId = referenceId;
+            body.referenceInfluence = 0.2;
+            body.audio_cover_strength = 0.2;
+            body.sonaraReferenceName = reference.name;
+            body.sonaraReferenceKind = reference.kind;
+            const generationHeaders = new Headers(headers);
+            generationHeaders.set('content-type', 'application/json');
+            generationHeaders.delete('content-length');
+            const response = await upstream(input instanceof Request ? input.url : String(input), {
+              ...init,
+              method: 'POST',
+              headers: generationHeaders,
+              body: JSON.stringify(body),
+              credentials: 'include',
+              cache: 'no-store'
+            });
+            try {
+              const payload = await response.clone().json();
+              if (response.ok && String(payload?.jobId || '')) {
+                setBridgeStatus('Reference strumentale reale attiva · R2 → MoLab.');
+              }
+            } catch {}
+            return response;
+          }
+
           const form = new FormData();
           for (const [key, value] of Object.entries(body)) appendFormValue(form, key, value);
-          form.set('influence', reference.mode === 'voice' ? '0.82' : '0.55');
-          form.set('referenceInfluence', reference.mode === 'voice' ? '0.82' : '0.55');
+          form.set('influence', '0.82');
+          form.set('referenceInfluence', '0.82');
           form.set('sonaraReferenceName', reference.name);
           form.set('sonaraReferenceKind', reference.kind);
 
           const localAudio = reference.file || reference.blob;
           if (localAudio) {
-            const fallbackName = reference.mode === 'voice' ? 'sonara-voice-reference.webm' : 'sonara-audio-reference.wav';
-            form.set('reference_audio', localAudio, reference.file?.name || fallbackName);
+            form.set('reference_audio', localAudio, reference.file?.name || 'sonara-voice-reference.webm');
           } else if (reference.url) {
             form.set('referenceAudioUrl', reference.url);
           }
 
-          const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
           headers.delete('content-type');
           headers.delete('content-length');
-          const targetPath = reference.mode === 'voice' ? '/api/studio/voice' : '/api/studio/reference';
-          const response = await upstream(new URL(targetPath, window.location.origin).toString(), {
+          const response = await upstream(new URL('/api/studio/voice', window.location.origin).toString(), {
             method: 'POST',
             headers,
             body: form,
@@ -374,13 +448,9 @@ export default function SonaraCreatorAudioHub() {
             if (response.ok && jobId) {
               studioJobsRef.current.add(jobId);
               persistStudioJobs(studioJobsRef.current);
-              setBridgeStatus(reference.mode === 'voice'
-                ? 'Generazione con la tua voce avviata.'
-                : 'Generazione con audio di riferimento avviata.');
+              setBridgeStatus('Generazione con la tua voce avviata.');
             }
-          } catch {
-            // The original response is returned so the normal SONARA error handling remains authoritative.
-          }
+          } catch {}
           return response;
         }
       }
@@ -493,7 +563,7 @@ export default function SonaraCreatorAudioHub() {
         continue;
       }
       if (file.size > MAX_REFERENCE_BYTES) {
-        setError(`${file.name}: massimo 160 MB per un audio di riferimento.`);
+        setError(`${file.name}: massimo 80 MB per un audio di riferimento.`);
         continue;
       }
       const previewUrl = URL.createObjectURL(file);
@@ -685,7 +755,7 @@ export default function SonaraCreatorAudioHub() {
             <div className="sonara-audio-upload-pane">
               <input ref={fileInputRef} type="file" multiple accept="audio/*,.wav,.wave,.mp3,.flac,.ogg,.m4a,.aac,.opus,.aiff,.aif,.alac,.webm" className="sonara-audio-file-input" onChange={event => { importFiles(event.currentTarget.files); event.currentTarget.value = ''; }} />
               <button type="button" className="sonara-audio-drop" onClick={() => fileInputRef.current?.click()}>
-                <span><Upload /></span><strong>Carica uno o più file audio</strong><p>WAV, MP3, FLAC, M4A, OGG, OPUS, AIFF, WEBM · massimo 160 MB per file</p><em>Scegli file</em>
+                <span><Upload /></span><strong>Carica uno o più file audio</strong><p>WAV, MP3, FLAC, M4A, OGG, OPUS, AIFF, WEBM · massimo 80 MB per file</p><em>Scegli file</em>
               </button>
               {uploads.length > 0 && (
                 <div className="sonara-audio-local-list">

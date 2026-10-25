@@ -19,8 +19,9 @@ LOCAL = 'http://127.0.0.1:8001'
 TOKEN_FILE = ROOT / 'relay.token'
 ACE_KEY_FILE = pathlib.Path('/home/marimo/ACE-STEP/.sonara-api-key')
 STATUS_FILE = ROOT / 'relay-agent-status.json'
+REFERENCE_DIR = ROOT / 'references'
 LOCAL_API_AUTH_MODE = os.environ.get('SONARA_LOCAL_API_AUTH_MODE', 'required').strip().lower()
-REVISION = 'sonara-https-agent-guard-v4'
+REVISION = 'sonara-https-agent-guard-v5'
 IDLE_POLL_SECONDS = 1
 RESULT_POLL_SECONDS = 1
 GENERATION_TIMEOUT_SECONDS = 1600
@@ -81,6 +82,36 @@ def ace_headers():
 
 def local(method, path, payload=None, timeout=60):
     return request(method, LOCAL + path, payload, ace_headers(), timeout)
+
+def reference_suffix(reference):
+    name = pathlib.Path(str(reference.get('filename') or '')).suffix.lower()
+    if name in ('.wav', '.mp3', '.flac', '.ogg', '.opus', '.webm', '.m4a', '.aac'):
+        return name
+    content_type = str(reference.get('contentType') or '').lower()
+    return {
+        'audio/mpeg': '.mp3', 'audio/flac': '.flac', 'audio/ogg': '.ogg',
+        'audio/opus': '.opus', 'audio/webm': '.webm', 'audio/mp4': '.m4a',
+        'audio/aac': '.aac'
+    }.get(content_type, '.wav')
+
+def store_reference(job_id, data, reference):
+    if not isinstance(data, bytes) or not data:
+        raise RuntimeError('Invalid reference response')
+    if len(data) > 80 * 1024 * 1024:
+        raise RuntimeError('Reference exceeds configured limit')
+    REFERENCE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    REFERENCE_DIR.chmod(0o700)
+    path = REFERENCE_DIR / (job_id + reference_suffix(reference))
+    if path.is_symlink():
+        raise RuntimeError('Unsafe reference path')
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    if hasattr(os, 'O_NOFOLLOW'):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(str(path), flags, 0o600)
+    with os.fdopen(fd, 'wb') as out:
+        os.fchmod(out.fileno(), 0o600)
+        out.write(data)
+    return path.resolve()
 
 def publish_status(state: str, **safe_fields):
     # Only callers' explicit non-secret booleans and job IDs reach this file.
@@ -148,14 +179,32 @@ def process(job):
     base = ENDPOINT + '/job/' + urllib.parse.quote(job_id, safe='')
     started = time.monotonic()
     timings = {}
+    reference_path = None
 
     def progress(stage, **fields):
         publish_status('processing', jobId=job_id, stage=stage,
                        elapsedSeconds=round(time.monotonic() - started, 2), **fields)
 
     try:
+        payload = dict(job['payload'])
+        reference = job.get('reference') if isinstance(job.get('reference'), dict) else None
+        if reference and reference.get('available') is True:
+            progress('downloading_reference')
+            reference_data = request('GET', base + '/reference', headers=head, timeout=90)
+            reference_path = store_reference(job_id, reference_data, reference)
+            requested = reference.get('influence', payload.get('referenceInfluence', 0.2))
+            try:
+                influence = max(0.1, min(0.35, float(requested)))
+            except (TypeError, ValueError):
+                influence = 0.2
+            payload['reference_audio_path'] = str(reference_path)
+            payload['audio_cover_strength'] = influence
+            payload['task_type'] = 'text2music'
+            for field in ('sonaraInstrumentReferenceId', 'sonaraReferenceName', 'referenceInfluence'):
+                payload.pop(field, None)
+            timings['referenceDownloadSeconds'] = round(time.monotonic() - started, 2)
         progress('submitting')
-        answer = local('POST', '/release_task', job['payload'], timeout=120)
+        answer = local('POST', '/release_task', payload, timeout=120)
         timings['submitSeconds'] = round(time.monotonic() - started, 2)
         nested = answer.get('data', answer)
         task_id = nested.get('task_id') if isinstance(nested, dict) else None
@@ -219,6 +268,12 @@ def process(job):
             request('POST', base + '/fail', {}, head, 20)
         except Exception:
             pass
+    finally:
+        if reference_path is not None:
+            try:
+                reference_path.unlink(missing_ok=True)
+            except Exception:
+                pass
 
 def cycle():
     ready = inspect_readiness()
