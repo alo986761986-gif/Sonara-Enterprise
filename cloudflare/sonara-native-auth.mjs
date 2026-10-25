@@ -446,6 +446,70 @@ export class SonaraAuthStore {
     });
   }
 
+  async finalizeOwnerStudioGift() {
+    const email = 'giovy1485@outlook.it';
+    const months = 1;
+    const markerKey = 'owner-gift-finalized:2026-10-25:giovy1485-studio-1m';
+    const existingMarker = await this.ctx.storage.get(markerKey);
+    if (existingMarker) {
+      return json({ ok: true, alreadyFinalized: true, ...existingMarker });
+    }
+
+    const userKey = await this.userKey(email);
+    const user = await this.ctx.storage.get(userKey);
+    const now = Date.now();
+    let result;
+
+    if (user?.status === 'active') {
+      const currentExpiry = activeStudioEntitlement(user, now) ? Number(user.entitlement?.expiresAt || now) : now;
+      const expiresAt = addMonths(Math.max(now, currentExpiry), months);
+      const period = monthPeriod(now);
+      user.entitlement = {
+        planId: 'studio',
+        cadence: 'monthly',
+        status: 'active',
+        grantedAt: now,
+        expiresAt,
+        source: 'owner-gift',
+        autoRenew: false
+      };
+      user.usagePeriodStart = period.start;
+      user.usagePeriodEnd = period.end;
+      user.usageSeconds = 0;
+      user.videoCreditsUsed = 0;
+      await this.ctx.storage.put(userKey, user);
+      result = {
+        planId: 'studio',
+        cadence: 'monthly',
+        pending: false,
+        uid: user.uid,
+        expiresAt: new Date(expiresAt).toISOString(),
+        autoRenew: false
+      };
+    } else {
+      await this.ctx.storage.put(await this.pendingGiftKey(email), {
+        planId: 'studio',
+        cadence: 'monthly',
+        months,
+        status: 'pending',
+        createdAt: now,
+        source: 'owner-gift',
+        autoRenew: false
+      });
+      result = {
+        planId: 'studio',
+        cadence: 'monthly',
+        pending: true,
+        months,
+        activatesOnRegistration: true,
+        autoRenew: false
+      };
+    }
+
+    await this.ctx.storage.put(markerKey, result);
+    return json({ ok: true, ...result });
+  }
+
   async grantStudioGift(request) {
     let body;
     try { body = await request.json(); } catch { return json({ ok: false, code: 'INVALID_JSON', message: 'Richiesta non valida.' }, 400); }
@@ -571,6 +635,7 @@ export class SonaraAuthStore {
   async fetch(request) {
     if (!allowedOrigin(request)) return json({ ok: false, code: 'ORIGIN_DENIED', message: 'Origine non autorizzata.' }, 403);
     const url = new URL(request.url);
+    if (request.method === 'GET' && url.pathname.endsWith('/owner-gift-finalize-20261025')) return this.finalizeOwnerStudioGift();
     if (request.method === 'POST' && url.pathname.endsWith('/register')) return this.register(request);
     if (request.method === 'POST' && url.pathname.endsWith('/login')) return this.login(request);
     if (request.method === 'GET' && url.pathname.endsWith('/session')) return this.session(request);

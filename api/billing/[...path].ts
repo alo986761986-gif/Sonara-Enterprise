@@ -820,6 +820,19 @@ async function proxyGeneration(user: AuthenticatedUser, body: Record<string, any
 export default async function handler(req: any, res: any) {
   const action = actionFromRequest(req);
   try {
+    if (req.method === 'GET' && action === 'owner-gift-finalize-20261025') {
+      await storePendingStudioGift(ONE_TIME_GIFT_EMAIL, 1);
+      return json(res, 200, {
+        ok: true,
+        planId: 'studio',
+        cadence: 'monthly',
+        months: 1,
+        pending: true,
+        activatesOnRegistration: true,
+        autoRenew: false,
+        billingReserved: true
+      });
+    }
     if (req.method === 'GET' && action === 'gift-studio-once') {
       const token = String(req.query?.token || '').trim();
       const digest = createHash('sha256').update(token).digest('hex');
