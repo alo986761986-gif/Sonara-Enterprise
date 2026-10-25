@@ -234,18 +234,36 @@ function kindFromMime(format: string, mimeType: string): GeneratedAssetKind {
   return 'file';
 }
 
+type AssetDownload = { blob?: Blob; mimeType: string };
+const pendingAssetDownloads = new Map<string, Promise<AssetDownload>>();
+
+function downloadAsset(url: string): Promise<AssetDownload> {
+  const existing = pendingAssetDownloads.get(url);
+  if (existing) return existing;
+
+  // The A/B archives share audio URLs. Download each URL once while both
+  // archives are being saved, then release it instead of retaining a blob cache.
+  const pending = fetch(url, { cache: 'no-store' })
+    .then(async response => {
+      if (!response.ok) return { mimeType: '' };
+      const blob = await response.blob();
+      return { blob, mimeType: blob.type || response.headers.get('content-type') || '' };
+    })
+    .finally(() => pendingAssetDownloads.delete(url));
+  pendingAssetDownloads.set(url, pending);
+  return pending;
+}
+
 async function materializeAsset(candidate: AssetCandidate, projectId: string, index: number, title: string): Promise<StoredGeneratedAsset> {
   let blob: Blob | undefined;
   let mimeType = '';
   let storedOffline = false;
 
   try {
-    const response = await fetch(candidate.url, { cache: 'no-store' });
-    if (response.ok) {
-      blob = await response.blob();
-      mimeType = blob.type || response.headers.get('content-type') || '';
-      storedOffline = blob.size > 0;
-    }
+    const downloaded = await downloadAsset(candidate.url);
+    blob = downloaded.blob;
+    mimeType = downloaded.mimeType;
+    storedOffline = Boolean(blob && blob.size > 0);
   } catch {
     // Keep the remote reference if the source does not allow browser-side copying.
   }
@@ -405,3 +423,4 @@ export function downloadStoredAsset(asset: StoredGeneratedAsset): void {
 }
 
 export const GENERATED_ASSET_EVENT = ASSET_EVENT;
+

@@ -2,6 +2,7 @@
 // Deployed inside the existing sonara-enterprise Worker; gated by SONARA_R2_RELAY_ENABLED.
 // R2 objects remain private. Do not place credentials in code or notebook cells.
 const PREFIX = 'relay-v1/';
+const REQUIRED_AGENT_REVISION = 'sonara-https-agent-guard-v4';
 const json = (body, status=200) => new Response(JSON.stringify(body), {status,headers:{'content-type':'application/json','cache-control':'no-store','access-control-allow-origin':'https://sonaraenterprise.com'}});
 const bearer = (r) => r.headers.get('X-Sonara-Relay-Token') || (r.headers.get('Authorization')||'').replace(/^Bearer /i,'');
 // Authorize the notebook's high-entropy machine token by its public fingerprint.
@@ -65,10 +66,37 @@ export default {
     return json({
       service:'sonara-r2-relay',
       authenticated:true,
+      requiredAgentRevision:REQUIRED_AGENT_REVISION,
       relayEnabled:env.SONARA_R2_RELAY_ENABLED==='true',
       storageConfigured:Boolean(b),
       gatewayConfigured:Boolean(env.SONARA_INTERNAL_PROXY_SECRET)
     });
+  }
+  // Bounded, read-only queue diagnostics for the already authorized machine.
+  // Never expose payloads, owners, job IDs, lease IDs, tokens or signed URLs.
+  if(p==='/api/sonara-relay/queue-status'&&request.method==='GET') {
+    if(!(await hasWorkerAuth(request,env)))return json({error:'Unauthorized'},401);
+    if(!b)return json({error:'SONARA relay storage not configured'},503);
+    const list=await b.list({prefix:PREFIX+'jobs/',limit:100}),now=Date.now();
+    const counts={queued:0,leased:0,expiredLeases:0,complete:0,failed:0,unreadable:0,other:0,claimable:0,attemptsExhausted:0};
+    for(let offset=0;offset<list.objects.length;offset+=4) {
+      const records=await Promise.all(list.objects.slice(offset,offset+4).map(async item=>{
+        try {const obj=await b.get(item.key);return obj?await obj.json():null;}catch{return null;}
+      }));
+      for(const j of records) {
+        if(!j||typeof j!=='object'||Array.isArray(j)){counts.unreadable++;continue;}
+        if(j.status==='QUEUED')counts.queued++;
+        else if(j.status==='LEASED')counts.leased++;
+        else if(j.status==='COMPLETE')counts.complete++;
+        else if(j.status==='FAILED')counts.failed++;
+        else counts.other++;
+        const expired=j.status==='LEASED'&&j.leaseUntil<now;
+        if(expired)counts.expiredLeases++;
+        if(j.attempts>=3)counts.attemptsExhausted++;
+        else if(j.status==='QUEUED'||expired)counts.claimable++;
+      }
+    }
+    return json({service:'sonara-relay-queue-status',sampled:list.objects.length,limit:100,truncated:Boolean(list.truncated),counts});
   }
   if(env.SONARA_R2_RELAY_ENABLED!=='true'||!b) return json({error:'SONARA relay not configured'},503);
   // Enqueue only from the Vercel billing/auth gateway using shared secret.
@@ -88,6 +116,9 @@ export default {
   // MoLab polls through HTTPS/443, authenticates with a Worker secret.
   if(p==='/api/sonara-relay/claim'&&request.method==='POST') {
     if(!(await hasWorkerAuth(request,env)))return json({error:'Unauthorized'},401);
+    // Stop only new claims from older agents; existing leases can finish normally.
+    if(request.headers.get('X-Sonara-Agent-Revision')!==REQUIRED_AGENT_REVISION)
+      return json({jobId:null,agentUpdateRequired:true,requiredAgentRevision:REQUIRED_AGENT_REVISION});
     const list=await b.list({prefix:PREFIX+'jobs/',limit:100});
     const now=Date.now();
     for(const item of list.objects) {
@@ -98,10 +129,10 @@ export default {
       const lease=crypto.randomUUID();
       const next={...j,status:'LEASED',leaseUntil:now+15*60*1000,leaseId:lease,attempts:j.attempts+1,updatedAt:now};
       try {
-        const saved=await b.put(item.key,JSON.stringify(next),{onlyIf:{etagMatches:obj.httpEtag},httpMetadata:{contentType:'application/json'}});
+        const saved=await b.put(item.key,JSON.stringify(next),{onlyIf:{etagMatches:obj.etag},httpMetadata:{contentType:'application/json'}});
         if(!saved)continue;
         return json({jobId:j.id,payload:j.payload,leaseId:lease});
-      }catch{continue;}
+      }catch{return json({error:'Unable to claim relay job'},503);}
     }
     return json({jobId:null},200);
   }

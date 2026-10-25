@@ -6,6 +6,7 @@ import fcntl
 import json
 import os
 import pathlib
+import signal
 import time
 import urllib.error
 import urllib.parse
@@ -19,7 +20,11 @@ TOKEN_FILE = ROOT / 'relay.token'
 ACE_KEY_FILE = pathlib.Path('/home/marimo/ACE-STEP/.sonara-api-key')
 STATUS_FILE = ROOT / 'relay-agent-status.json'
 LOCAL_API_AUTH_MODE = os.environ.get('SONARA_LOCAL_API_AUTH_MODE', 'required').strip().lower()
-REVISION = 'sonara-https-agent-guard-v3'
+REVISION = 'sonara-https-agent-guard-v4'
+IDLE_POLL_SECONDS = 1
+RESULT_POLL_SECONDS = 1
+GENERATION_TIMEOUT_SECONDS = 1600
+STOP_REQUESTED = False
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -53,7 +58,12 @@ def claim_headers():
     value = TOKEN_FILE.read_text(encoding='utf-8').strip()
     if len(value) < 32 or not value.isascii() or any(c.isspace() for c in value):
         raise ValueError('Invalid private relay credential')
-    return {'X-Sonara-Relay-Token': value}
+    return {'X-Sonara-Relay-Token': value, 'X-Sonara-Agent-Revision': REVISION}
+
+def request_shutdown(_signum, _frame):
+    # Finish any claimed job before releasing the single-agent lock.
+    global STOP_REQUESTED
+    STOP_REQUESTED = True
 
 def ace_headers():
     if LOCAL_API_AUTH_MODE == 'none':
@@ -136,20 +146,35 @@ def process(job):
     job_id = job['jobId']
     head = {**claim_headers(), 'X-Sonara-Lease': job['leaseId']}
     base = ENDPOINT + '/job/' + urllib.parse.quote(job_id, safe='')
+    started = time.monotonic()
+    timings = {}
+
+    def progress(stage, **fields):
+        publish_status('processing', jobId=job_id, stage=stage,
+                       elapsedSeconds=round(time.monotonic() - started, 2), **fields)
+
     try:
-        publish_status('processing', jobId=job_id)
+        progress('submitting')
         answer = local('POST', '/release_task', job['payload'], timeout=120)
+        timings['submitSeconds'] = round(time.monotonic() - started, 2)
         nested = answer.get('data', answer)
         task_id = nested.get('task_id') if isinstance(nested, dict) else None
         if not task_id:
             raise RuntimeError('No ACE-Step task ID')
-        last = time.monotonic()
-        for _ in range(200):
-            time.sleep(8)
+        submitted = last = time.monotonic()
+        deadline = submitted + GENERATION_TIMEOUT_SECONDS
+        while time.monotonic() < deadline:
+            time.sleep(min(RESULT_POLL_SECONDS, max(0, deadline - time.monotonic())))
+            if time.monotonic() >= deadline:
+                break
             if time.monotonic() - last > 120:
                 request('POST', base + '/renew', {}, head, 20)
                 last = time.monotonic()
-            answer = local('POST', '/query_result', {'task_id_list': [task_id]}, timeout=50)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            answer = local('POST', '/query_result', {'task_id_list': [task_id]}, timeout=min(50, remaining))
+            progress('generating')
             data = answer.get('data', [])
             task = data[0] if isinstance(data, list) and data else data if isinstance(data, dict) else {}
             if not task:
@@ -158,20 +183,33 @@ def process(job):
             if status < 0:
                 raise RuntimeError('ACE-Step task failed')
             if status == 1:
+                timings['engineWaitSeconds'] = round(time.monotonic() - submitted, 2)
                 paths = extract_paths(task)
                 expected = max(1, min(2, int(job['payload'].get('batch_size', 1))))
                 if len(paths) < expected:
                     raise RuntimeError('Incomplete ACE-Step audio output')
                 for index, path in enumerate(paths[:expected]):
+                    progress('uploading', track=index + 1, trackCount=expected)
                     request('POST', base + '/renew', {}, head, 20)
+                    fetched = time.monotonic()
                     data = local('GET', '/v1/audio?' + urllib.parse.urlencode({'path': path}), timeout=90)
+                    timings['fetch' + str(index + 1) + 'Seconds'] = round(time.monotonic() - fetched, 2)
                     if not isinstance(data, bytes) or len(data) < 44 or data[:4] != b'RIFF' or data[8:12] != b'WAVE':
                         raise RuntimeError('Invalid WAV response')
                     if len(data) > 80 * 1024 * 1024:
                         raise RuntimeError('WAV exceeds configured upload limit')
+                    uploaded = time.monotonic()
+                    # Keep uploads serial: the relay updates one shared files record.
                     request('PUT', base + '/audio/' + str(index), data, {**head, 'Content-Type': 'audio/wav'}, timeout=120)
+                    timings['upload' + str(index + 1) + 'Seconds'] = round(time.monotonic() - uploaded, 2)
+                    del data
+                completed = time.monotonic()
                 request('POST', base + '/complete', {}, head, 30)
+                timings['completeSeconds'] = round(time.monotonic() - completed, 2)
+                timings['totalSeconds'] = round(time.monotonic() - started, 2)
+                publish_status('completed', jobId=job_id, trackCount=expected, timings=timings)
                 print('SONARA: completed authorized job', job_id, flush=True)
+                print('SONARA job timings:', json.dumps({'jobId': job_id, **timings}), flush=True)
                 return
         raise RuntimeError('Generation polling deadline reached')
     except Exception as error:
@@ -184,6 +222,8 @@ def process(job):
 
 def cycle():
     ready = inspect_readiness()
+    if STOP_REQUESTED:
+        return 0
     if not all(ready.values()):
         publish_status('standby', **ready)
         return 20
@@ -192,7 +232,7 @@ def cycle():
     if data.get('jobId'):
         process(data)
         return 1
-    return 5
+    return IDLE_POLL_SECONDS
 
 def main():
     ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -210,8 +250,10 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         raise SystemExit('A guarded relay agent is already running')
+    signal.signal(signal.SIGINT, request_shutdown)
+    signal.signal(signal.SIGTERM, request_shutdown)
     print('SONARA HTTPS agent ready; read-only standby until activation.', flush=True)
-    while True:
+    while not STOP_REQUESTED:
         try:
             delay = cycle()
         except KeyboardInterrupt:
@@ -220,7 +262,10 @@ def main():
             publish_status('connection_unavailable', errorClass=type(error).__name__)
             print('SONARA relay unavailable:', type(error).__name__, flush=True)
             delay = 25
-        time.sleep(delay)
+        if not STOP_REQUESTED:
+            time.sleep(delay)
+    publish_status('stopped_for_update')
+    print('SONARA: relay stopped after finishing its authorized job.', flush=True)
 
 if __name__ == '__main__':
     main()
