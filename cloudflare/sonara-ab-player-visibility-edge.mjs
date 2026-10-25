@@ -251,9 +251,10 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const publicHost = url.hostname === 'sonaraenterprise.com' || url.hostname === 'www.sonaraenterprise.com';
+    const nativeAuthHost = publicHost || url.hostname === 'api.sonaraenterprise.com';
 
     if (
-      publicHost && (
+      nativeAuthHost && (
         url.pathname.startsWith('/api/sonara-auth/') ||
         url.pathname === '/api/billing/status' ||
         url.pathname === '/api/video/status'
