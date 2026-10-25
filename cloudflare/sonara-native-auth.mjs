@@ -157,11 +157,21 @@ function addOneYear(now = Date.now()) {
   return date.getTime();
 }
 
+function addMonths(now = Date.now(), months = 1) {
+  const date = new Date(now);
+  const day = date.getUTCDate();
+  date.setUTCDate(1);
+  date.setUTCMonth(date.getUTCMonth() + Math.max(1, Math.min(12, Math.round(Number(months) || 1))));
+  const lastDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
+  date.setUTCDate(Math.min(day, lastDay));
+  return date.getTime();
+}
+
 function activeStudioEntitlement(user, now = Date.now()) {
   const entitlement = user?.entitlement;
   return Boolean(
     entitlement?.planId === 'studio' &&
-    entitlement?.cadence === 'yearly' &&
+    (entitlement?.cadence === 'monthly' || entitlement?.cadence === 'yearly') &&
     entitlement?.status === 'active' &&
     Number(entitlement?.expiresAt || 0) > now
   );
@@ -191,9 +201,9 @@ function billingSnapshot(user, now = Date.now()) {
   return {
     planId: plan.planId,
     planName: plan.planName,
-    cadence: isStudio ? 'yearly' : null,
+    cadence: isStudio ? String(user?.entitlement?.cadence || 'monthly') : null,
     subscriptionStatus: isStudio ? 'active' : 'free',
-    cancelAtPeriodEnd: false,
+    cancelAtPeriodEnd: isStudio ? user?.entitlement?.autoRenew === false : false,
     usedSeconds,
     includedSeconds: plan.includedSeconds,
     remainingSeconds: Math.max(0, plan.includedSeconds - usedSeconds),
@@ -412,6 +422,50 @@ export class SonaraAuthStore {
     });
   }
 
+  async grantStudioGift(request) {
+    let body;
+    try { body = await request.json(); } catch { return json({ ok: false, code: 'INVALID_JSON', message: 'Richiesta non valida.' }, 400); }
+    const email = normalizeEmail(body?.email);
+    const months = Math.max(1, Math.min(12, Math.round(Number(body?.months) || 1)));
+    if (!validEmail(email)) return json({ ok: false, code: 'INVALID_EMAIL', message: 'Email regalo non valida.' }, 400);
+
+    const userKey = await this.userKey(email);
+    const user = await this.ctx.storage.get(userKey);
+    if (!user || user.status !== 'active') {
+      return json({ ok: false, code: 'ACCOUNT_NOT_FOUND', message: 'Account SONARA non trovato per questa email.' }, 404);
+    }
+
+    const now = Date.now();
+    const currentExpiry = activeStudioEntitlement(user, now) ? Number(user.entitlement?.expiresAt || now) : now;
+    const expiresAt = addMonths(Math.max(now, currentExpiry), months);
+    const period = monthPeriod(now);
+
+    user.entitlement = {
+      planId: 'studio',
+      cadence: 'monthly',
+      status: 'active',
+      grantedAt: now,
+      expiresAt,
+      source: 'owner-gift',
+      autoRenew: false
+    };
+    user.usagePeriodStart = period.start;
+    user.usagePeriodEnd = period.end;
+    user.usageSeconds = 0;
+    user.videoCreditsUsed = 0;
+    await this.ctx.storage.put(userKey, user);
+
+    return json({
+      ok: true,
+      uid: user.uid,
+      planId: 'studio',
+      cadence: 'monthly',
+      expiresAt: new Date(expiresAt).toISOString(),
+      autoRenew: false,
+      source: 'owner-gift'
+    });
+  }
+
   async restoreStudio(request) {
     const record = await this.authenticatedSession(request);
     if (!record) {
@@ -477,6 +531,7 @@ export class SonaraAuthStore {
     if (request.method === 'POST' && url.pathname.endsWith('/login')) return this.login(request);
     if (request.method === 'GET' && url.pathname.endsWith('/session')) return this.session(request);
     if (request.method === 'GET' && url.pathname.endsWith('/entitlement')) return this.billingStatus(request, false);
+    if (request.method === 'POST' && url.pathname.endsWith('/admin/grant-studio')) return this.grantStudioGift(request);
     if (request.method === 'POST' && url.pathname.endsWith('/restore-studio')) return this.restoreStudio(request);
     if (request.method === 'GET' && url.pathname === '/api/billing/status') return this.billingStatus(request, true);
     if (request.method === 'GET' && url.pathname === '/api/video/status') return this.videoStatus(request);
@@ -491,6 +546,17 @@ export class SonaraAuthStore {
   }
 }
 
+async function internalAdminAuthorized(request, env) {
+  const expected = String(env?.SONARA_INTERNAL_PROXY_SECRET || '');
+  const supplied = String(request.headers.get('X-Sonara-Internal-Secret') || '');
+  if (!expected || !supplied) return false;
+  const [left, right] = await Promise.all([
+    crypto.subtle.digest('SHA-256', encoder.encode(expected)),
+    crypto.subtle.digest('SHA-256', encoder.encode(supplied))
+  ]);
+  return timingSafeEqual(new Uint8Array(left), new Uint8Array(right));
+}
+
 export async function handleSonaraNativeAuth(request, env) {
   const url = new URL(request.url);
   const nativePath = url.pathname.startsWith('/api/sonara-auth/');
@@ -498,6 +564,10 @@ export async function handleSonaraNativeAuth(request, env) {
   const videoStatusPath = url.pathname === '/api/video/status';
   if (!nativePath && !billingStatusPath && !videoStatusPath) return null;
   if (!env?.SONARA_AUTH) return json({ ok: false, code: 'AUTH_STORE_UNAVAILABLE', message: 'Servizio account SONARA non disponibile.' }, 503);
+  if (url.pathname === '/api/sonara-auth/admin/grant-studio') {
+    if (request.method !== 'POST') return json({ ok: false, code: 'METHOD_NOT_ALLOWED' }, 405);
+    if (!(await internalAdminAuthorized(request, env))) return json({ ok: false, code: 'ADMIN_UNAUTHORIZED' }, 401);
+  }
   if (request.method === 'OPTIONS') {
     return new Response(null, {
       status: 204,

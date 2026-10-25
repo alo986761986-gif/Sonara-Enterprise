@@ -15,7 +15,7 @@ function json(data, status = 200, headers = {}) {
 function activeStudioEntitlement(user, now = Date.now()) {
   const entitlement = user?.entitlement;
   return Boolean(
-    entitlement?.planId === 'studio' && entitlement?.cadence === 'yearly' &&
+    entitlement?.planId === 'studio' && (entitlement?.cadence === 'monthly' || entitlement?.cadence === 'yearly') &&
     entitlement?.status === 'active' && Number(entitlement?.expiresAt || 0) > now
   );
 }

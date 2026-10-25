@@ -46,6 +46,8 @@ interface BillingRecord {
   usagePeriodStart?: Timestamp;
   usagePeriodEnd?: Timestamp;
   cancelAtPeriodEnd?: boolean;
+  accessSource?: 'stripe' | 'gift' | string;
+  giftExpiresAt?: Timestamp;
 }
 
 let adminApp: App | null = null;
@@ -268,6 +270,9 @@ function timestampToMillis(value: unknown): number {
 
 function hasPaidAccess(record: BillingRecord, now = Date.now()): boolean {
   if (record.planId !== 'creator' && record.planId !== 'studio') return false;
+  if (record.accessSource === 'gift') {
+    return record.subscriptionStatus === 'active' && timestampToMillis(record.giftExpiresAt) > now;
+  }
   if (record.subscriptionStatus === 'active' || record.subscriptionStatus === 'trialing') return true;
   if (record.subscriptionStatus === 'past_due') return timestampToMillis(record.usagePeriodEnd) > now;
   return false;
@@ -301,7 +306,10 @@ function publicBillingStatus(record: BillingRecord | undefined) {
     periodEnd: new Date(periodEnd).toISOString(),
     checkoutReady: webhookReady(),
     billingConfigured: webhookReady(),
-    portalAvailable: Boolean(record?.stripeCustomerId && portalSessionReady()),
+    portalAvailable: Boolean(record?.stripeCustomerId && record?.accessSource !== 'gift' && portalSessionReady()),
+    entitlementEndsAt: record?.accessSource === 'gift' && timestampToMillis(record?.giftExpiresAt)
+      ? new Date(timestampToMillis(record?.giftExpiresAt)).toISOString()
+      : null,
     enforcementMode: enforcementMode(),
     limitsEnforced: billingStoreReady() && enforcementMode() !== 'observe',
     termsUrl: termsUrl(),
@@ -338,6 +346,79 @@ async function stripeRequest(path: string, init: { method?: string; form?: URLSe
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(String(payload?.error?.message || `Stripe HTTP ${response.status}`));
   return payload;
+}
+
+function internalAdminAuthorized(req: any): boolean {
+  const expected = String(process.env.SONARA_INTERNAL_PROXY_SECRET || '').trim();
+  const supplied = String(req.headers?.['x-sonara-internal-secret'] || '').trim();
+  if (!expected || !supplied) return false;
+  try {
+    const left = Buffer.from(expected);
+    const right = Buffer.from(supplied);
+    return left.length === right.length && timingSafeEqual(left, right);
+  } catch {
+    return false;
+  }
+}
+
+async function grantStudioGift(body: Record<string, any>, res: any) {
+  if (!billingStoreReady()) return errorResponse(res, 503, 'BILLING_STORE_NOT_CONFIGURED', 'Archivio billing non disponibile.');
+  const uid = String(body?.uid || '').trim();
+  const months = Math.max(1, Math.min(12, Math.round(Number(body?.months) || 1)));
+  const requestedExpiry = Number(body?.expiresAt || 0);
+  if (!uid || uid.length > 160) return errorResponse(res, 400, 'INVALID_UID', 'UID SONARA non valido.');
+
+  const firestore = getFirestore(getAdminApp());
+  const reference = firestore.collection('sonaraBilling').doc(uid);
+  const snapshot = await reference.get();
+  const previous = snapshot.exists ? snapshot.data() as BillingRecord : {};
+
+  if (previous.stripeSubscriptionId && previous.accessSource !== 'gift' && hasPaidAccess(previous)) {
+    return json(res, 200, {
+      ok: true,
+      alreadyPaid: true,
+      billing: publicBillingStatus(previous)
+    });
+  }
+
+  const now = Date.now();
+  const existingGiftExpiry = previous.accessSource === 'gift' && timestampToMillis(previous.giftExpiresAt) > now
+    ? timestampToMillis(previous.giftExpiresAt)
+    : now;
+  const fallbackExpiry = new Date(existingGiftExpiry);
+  fallbackExpiry.setUTCMonth(fallbackExpiry.getUTCMonth() + months);
+  const expiresAt = requestedExpiry > now ? requestedExpiry : fallbackExpiry.getTime();
+  const period = monthPeriod(new Date(now));
+
+  const next: BillingRecord = {
+    ...previous,
+    planId: 'studio',
+    cadence: 'monthly',
+    subscriptionStatus: 'active',
+    usageSeconds: 0,
+    usagePeriodStart: Timestamp.fromDate(period.start),
+    usagePeriodEnd: Timestamp.fromDate(period.end),
+    cancelAtPeriodEnd: true,
+    accessSource: 'gift',
+    giftExpiresAt: Timestamp.fromMillis(expiresAt)
+  };
+
+  await reference.set({
+    ...next,
+    giftGrantedAt: Timestamp.fromMillis(now),
+    giftAutoRenew: false,
+    updatedAt: FieldValue.serverTimestamp()
+  }, { merge: true });
+
+  return json(res, 200, {
+    ok: true,
+    uid,
+    planId: 'studio',
+    cadence: 'monthly',
+    expiresAt: new Date(expiresAt).toISOString(),
+    autoRenew: false,
+    billing: publicBillingStatus(next)
+  });
 }
 
 async function createCheckout(user: AuthenticatedUser, body: Record<string, any>, res: any) {
@@ -449,6 +530,8 @@ async function syncSubscription(subscription: any, fallbackUid = ''): Promise<vo
       usagePeriodStart: nextPeriodStart || Timestamp.fromDate(monthPeriod().start),
       usagePeriodEnd: nextPeriodEnd || Timestamp.fromDate(monthPeriod().end),
       cancelAtPeriodEnd: Boolean(subscription?.cancel_at_period_end),
+      accessSource: 'stripe',
+      giftExpiresAt: FieldValue.delete(),
       updatedAt: FieldValue.serverTimestamp()
     }, { merge: true });
     if (customerId) {
@@ -686,6 +769,10 @@ export default async function handler(req: any, res: any) {
       });
     }
     if (req.method === 'POST' && action === 'webhook') return await handleWebhook(req, res);
+    if (req.method === 'POST' && action === 'admin-grant-studio') {
+      if (!internalAdminAuthorized(req)) return errorResponse(res, 401, 'ADMIN_UNAUTHORIZED', 'Operazione amministrativa non autorizzata.');
+      return await grantStudioGift(await readJsonBody(req), res);
+    }
 
     const user = await authenticatedUser(req);
     if (!user) return errorResponse(res, 401, 'AUTH_TOKEN_INVALID', 'Accedi con un account SONARA valido.');
