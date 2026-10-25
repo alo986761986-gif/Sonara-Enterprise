@@ -305,6 +305,9 @@ async function prepareGeneration(request, env, ctx) {
   }
 
   const nextBody = speedBody(vocalBody, profile);
+  // R2 jobs are owned and polled through the authenticated relay gateway.
+  // Legacy director wrappers would hide the sr2 ID and poll below that gateway.
+  if (env.SONARA_R2_RELAY_ENABLED === 'true') nextBody.sonaraDirectorBypass = true;
   const headers = new Headers(request.headers);
   headers.delete('content-length');
   headers.set('content-type', 'application/json');
