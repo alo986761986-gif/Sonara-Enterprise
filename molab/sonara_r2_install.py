@@ -26,11 +26,10 @@ ROOT = pathlib.Path.home() / '.sonara'
 TOKEN_FILE = ROOT / 'relay.token'
 ACE_KEY_FILE = pathlib.Path('/home/marimo/ACE-STEP/.sonara-api-key')
 TARGET = ROOT / 'sonara_r2_pull_agent.py'
-EXPECTED_AGENT_SHA256 = 'b0059dd56fe56cda88cb49ef931534b472ecef49cbc20198fe49f6e16ab3807c'
+EXPECTED_AGENT_SHA256 = '31911d223b1314230af0fc313954e85d575f4533ce2aa4f61bc7dfcf9087f4b6'
 USER_AGENT = 'SONARA-MoLab-Relay/1.0'
-AGENT_REVISION = 'sonara-https-agent-guard-v4'
-LEGACY_REVISION = 'sonara-https-agent-guard-v3'
-LEGACY_CLAIM_TIMEOUT_SECONDS = 45
+AGENT_REVISION = 'sonara-https-agent-guard-v5'
+PREVIOUS_REVISION = 'sonara-https-agent-guard-v4'
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -111,8 +110,8 @@ def verify_claim_gate():
         auth = json.load(response)
     if not (isinstance(auth, dict) and auth.get('service') == 'sonara-r2-relay'
             and auth.get('authenticated') is True
-            and auth.get('requiredAgentRevision') == AGENT_REVISION):
-        raise SystemExit('SONARA: required claim gate is not live; active agent left running')
+            and auth.get('referenceAgentRevision') == AGENT_REVISION):
+        raise SystemExit('SONARA: reference claim gate is not live; active agent left running')
 
 
 def active_process_handle(status):
@@ -147,8 +146,8 @@ def acquire_for_update(lock):
     if try_lock():
         return
     status = active_status()
-    revision, pid = status.get('revision'), status.get('pid')
-    if revision not in (LEGACY_REVISION, AGENT_REVISION):
+    revision = status.get('revision')
+    if revision not in (PREVIOUS_REVISION, AGENT_REVISION):
         raise SystemExit('SONARA: unrecognized active revision; active agent left running')
     verify_claim_gate()
     try:
@@ -158,36 +157,13 @@ def acquire_for_update(lock):
             return
         raise SystemExit('SONARA: active process changed; no shutdown signal sent') from None
     try:
-        if revision == LEGACY_REVISION:
-            print('SONARA: claim gate verified; waiting for any earlier claim and active job to finish.', flush=True)
-            # v3 cannot drain cooperatively. Its pre-gate claim has a 45s timeout.
-            # After that window, require a new idle status from this same process.
-            safe_after = time.monotonic() + LEGACY_CLAIM_TIMEOUT_SECONDS + 1
-            while time.monotonic() <= safe_after:
-                if try_lock():
-                    return
-                time.sleep(1)
-            idle_after = time.time()
-            while True:
-                if try_lock():
-                    return
-                current = active_status()
-                if current.get('pid') != pid or current.get('revision') != revision:
-                    raise SystemExit('SONARA: active process changed; no shutdown signal sent')
-                updated = current.get('updatedAt', 0)
-                if (current.get('state') == 'waiting_for_authorized_job'
-                        and isinstance(updated, (int, float))
-                        and updated >= idle_after and 0 <= time.time() - updated <= 10):
-                    verify_claim_gate()
-                    break
-                time.sleep(1)
-        # v4 handles SIGINT as a drain request; v3 is now idle behind the claim gate.
+        # Both v4 and v5 treat SIGINT as a drain request: a claimed job finishes
+        # before the single-agent lock is released. Never escalate to SIGKILL.
         print('SONARA: requesting graceful relay handoff; waiting for its lock.', flush=True)
         try:
             signal.pidfd_send_signal(handle, signal.SIGINT, None, 0)
         except ProcessLookupError:
             pass
-        # Never escalate or time out by killing a process that may own a job.
         fcntl.flock(lock, fcntl.LOCK_EX)
     finally:
         os.close(handle)
