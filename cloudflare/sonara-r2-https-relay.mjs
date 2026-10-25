@@ -33,6 +33,8 @@ const valid = id => /^sr2_[0-9a-f-]{36}$/.test(id||'');
 const getRecord = async (b,id) => { const o=await b.get(key(id));return o?o.json():null; };
 const saveRecord = (b,id,record,options={}) => b.put(key(id), JSON.stringify(record), {httpMetadata:{contentType:'application/json'},...options});
 const audioKey=(id,index)=>PREFIX+'audio/'+id+'/'+index+'.wav';
+export const relayQueueKey=(createdAt,id)=>PREFIX+'queue/'+String(Math.max(0,Number(createdAt)||0)).padStart(13,'0')+'/'+id;
+export const relayQueueJobId=queueObjectKey=>String(queueObjectKey||'').split('/').pop()||'';
 const referenceMetaKey=id=>PREFIX+'references/'+id+'.json';
 const referenceAudioKey=id=>PREFIX+'references/'+id+'/source';
 const validReference=id=>/^sref_[0-9a-f-]{36}$/.test(id||'');
@@ -182,6 +184,7 @@ export default {
     const id='sr2_'+crypto.randomUUID(),now=Date.now();
     const record={id,ownerUid:owner,status:'QUEUED',createdAt:now,updatedAt:now,leaseUntil:0,attempts:0,payload,reference,files:[],error:null};
     await saveRecord(b,id,record);
+    await b.put(relayQueueKey(now,id),id,{httpMetadata:{contentType:'text/plain'}});
     return json({jobId:id,status:'PROCESSING',progress:0,provider:'molab',model:'acestep-v15-xl-turbo'},202);
   }
   // MoLab polls through HTTPS/443, authenticates with a Worker secret.
@@ -190,22 +193,48 @@ export default {
     const agentRevision=request.headers.get('X-Sonara-Agent-Revision')||'';
     if(agentRevision!==REQUIRED_AGENT_REVISION&&agentRevision!==REFERENCE_AGENT_REVISION)
       return json({jobId:null,agentUpdateRequired:true,requiredAgentRevision:REQUIRED_AGENT_REVISION,referenceAgentRevision:REFERENCE_AGENT_REVISION});
-    const list=await b.list({prefix:PREFIX+'jobs/',limit:100});
     const now=Date.now();
     let referenceUpdateRequired=false;
-    for(const item of list.objects) {
-      const obj=await b.get(item.key);if(!obj)continue;
-      let j;try{j=await obj.json();}catch{continue;}
-      if(j.status!=='QUEUED'&&!(j.status==='LEASED'&&j.leaseUntil<now))continue;
-      if(j.attempts>=3)continue;
-      if(j.reference&&agentRevision!==REFERENCE_AGENT_REVISION){referenceUpdateRequired=true;continue;}
+    const discard=markerKey=>{const task=b.delete(markerKey);if(ctx?.waitUntil)ctx.waitUntil(task);};
+    const tryLease=async(obj,j)=>{
+      if(!j||typeof j!=='object'||Array.isArray(j))return {state:'discard'};
+      const expired=j.status==='LEASED'&&j.leaseUntil<now;
+      if(j.status!=='QUEUED'&&!expired)return {state:'discard'};
+      if(j.attempts>=3)return {state:'discard'};
+      if(j.reference&&agentRevision!==REFERENCE_AGENT_REVISION)return {state:'reference'};
       const lease=crypto.randomUUID();
       const next={...j,status:'LEASED',leaseUntil:now+15*60*1000,leaseId:lease,attempts:j.attempts+1,updatedAt:now};
-      try {
-        const saved=await b.put(item.key,JSON.stringify(next),{onlyIf:{etagMatches:obj.etag},httpMetadata:{contentType:'application/json'}});
-        if(!saved)continue;
-        return json({jobId:j.id,payload:j.payload,leaseId:lease,reference:j.reference?{available:true,contentType:j.reference.contentType,filename:j.reference.filename,influence:j.reference.influence}:null});
-      }catch{return json({error:'Unable to claim relay job'},503);}
+      const saved=await b.put(key(j.id),JSON.stringify(next),{onlyIf:{etagMatches:obj.etag},httpMetadata:{contentType:'application/json'}});
+      if(!saved)return {state:'race'};
+      return {state:'claimed',response:{jobId:j.id,payload:j.payload,leaseId:lease,reference:j.reference?{available:true,contentType:j.reference.contentType,filename:j.reference.filename,influence:j.reference.influence}:null}};
+    };
+
+    // New jobs use a tiny timestamp-ordered queue index, so claim time does not
+    // grow with the completed R2 job history.
+    const indexed=await b.list({prefix:PREFIX+'queue/',limit:32});
+    for(const marker of indexed.objects) {
+      const id=relayQueueJobId(marker.key);
+      if(!valid(id)){discard(marker.key);continue;}
+      const obj=await b.get(key(id));
+      if(!obj){discard(marker.key);continue;}
+      let j;try{j=await obj.json();}catch{discard(marker.key);continue;}
+      let result;
+      try{result=await tryLease(obj,j);}catch{return json({error:'Unable to claim relay job'},503);}
+      if(result.state==='reference'){referenceUpdateRequired=true;continue;}
+      if(result.state==='claimed'){discard(marker.key);return json(result.response);}
+      if(result.state==='discard')discard(marker.key);
+    }
+
+    // Compatibility/recovery path for jobs created before the queue index and
+    // for expired leases whose marker was already consumed.
+    const legacy=await b.list({prefix:PREFIX+'jobs/',limit:100});
+    for(const item of legacy.objects) {
+      const obj=await b.get(item.key);if(!obj)continue;
+      let j;try{j=await obj.json();}catch{continue;}
+      let result;
+      try{result=await tryLease(obj,j);}catch{return json({error:'Unable to claim relay job'},503);}
+      if(result.state==='reference'){referenceUpdateRequired=true;continue;}
+      if(result.state==='claimed')return json(result.response);
     }
     return json({jobId:null,agentUpdateRequired:referenceUpdateRequired,requiredAgentRevision:referenceUpdateRequired?REFERENCE_AGENT_REVISION:REQUIRED_AGENT_REVISION},200);
   }

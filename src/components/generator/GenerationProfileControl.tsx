@@ -4,7 +4,7 @@ import { ShieldCheck, Sparkles, Zap } from 'lucide-react';
 
 export type GenerationProfileV3 = 'fast' | 'quality' | 'ultra';
 
-const PROFILE_KEY = 'sonara.generation.profile.v3';
+const PROFILE_KEY = 'sonara.generation.profile.v4';
 const HOST_ID = 'sonara-generation-profile-native-host';
 const CONTROL_ID = 'sonara-generation-profile-v3';
 const PROFILES: Array<{
@@ -16,9 +16,9 @@ const PROFILES: Array<{
 }> = [
   {
     id: 'fast',
-    label: 'FAST',
-    subtitle: 'Anteprima veloce',
-    detail: '2 brani · priorità alla velocità',
+    label: 'INSTANT',
+    subtitle: 'Generazione più rapida',
+    detail: '1 brano · 1 step · massima velocità',
     icon: Zap
   },
   {
@@ -38,9 +38,9 @@ const PROFILES: Array<{
 ];
 
 function readProfile(): GenerationProfileV3 {
-  if (typeof window === 'undefined') return 'quality';
+  if (typeof window === 'undefined') return 'fast';
   const value = window.localStorage.getItem(PROFILE_KEY);
-  return value === 'fast' || value === 'ultra' || value === 'quality' ? value : 'quality';
+  return value === 'fast' || value === 'ultra' || value === 'quality' ? value : 'fast';
 }
 
 function ensureHost(): HTMLElement | null {
@@ -158,7 +158,7 @@ function installNativeFetchBridge() {
 export default function GenerationProfileControl() {
   const [profile, setProfile] = useState<GenerationProfileV3>(readProfile);
   const [host, setHost] = useState<HTMLElement | null>(null);
-  const active = useMemo(() => PROFILES.find(item => item.id === profile) || PROFILES[1], [profile]);
+  const active = useMemo(() => PROFILES.find(item => item.id === profile) || PROFILES[0], [profile]);
 
   useEffect(() => {
     installNativeFetchBridge();
@@ -194,10 +194,10 @@ export default function GenerationProfileControl() {
                 <Sparkles className="h-3.5 w-3.5" />SONARA AI QUALITY
               </div>
               <div className="mt-1 text-xs font-bold text-white">{active.subtitle}</div>
-              <div className="mt-1 text-[10px] text-slate-400">FAST per le anteprime, QUALITY per il rendering completo, ULTRA per una pianificazione musicale più approfondita. QUALITY e ULTRA richiedono più tempo.</div>
+              <div className="mt-1 text-[10px] text-slate-400">INSTANT genera un solo brano con il percorso più corto. QUALITY e ULTRA mantengono più elaborazione e richiedono più tempo.</div>
             </div>
             <div className="rounded-lg border border-white/10 bg-slate-950/45 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-wider text-violet-200">
-              {profile === 'ultra' ? 'PIANIFICAZIONE MUSICALE' : profile === 'quality' ? 'RENDERING COMPLETO' : 'ANTEPRIMA VELOCE'}
+              {profile === 'ultra' ? 'PIANIFICAZIONE MUSICALE' : profile === 'quality' ? 'RENDERING COMPLETO' : 'GENERAZIONE INSTANT'}
             </div>
           </div>
 

@@ -85,6 +85,11 @@ const empty = (id: CandidateId): CandidateState => ({
 });
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const GENERATION_PROFILE_KEY = 'sonara.generation.profile.v4';
+const readGenerationProfile = (): 'fast' | 'quality' | 'ultra' => {
+  const value = window.localStorage.getItem(GENERATION_PROFILE_KEY);
+  return value === 'quality' || value === 'ultra' || value === 'fast' ? value : 'fast';
+};
 
 function normalize(value: JobResponse): JobResponse {
   return value?.job || value?.data || value;
@@ -511,12 +516,12 @@ export default function ElevenMusicGenerationControl() {
     link.remove();
   };
 
-  const applyCompleted = async (jobId: string, response: JobResponse, context: Context, generationId: string, token: string) => {
+  const applyCompleted = async (jobId: string, response: JobResponse, context: Context, generationId: string, token: string, expectedCount: number) => {
     const outputs = candidatesFrom(response);
-    if (outputs.length < 2 || !outputs[0]?.audioUrl || !outputs[1]?.audioUrl) {
-      throw new Error('SONARA ha completato la generazione ma non ha restituito entrambi i brani.');
+    if (outputs.length < expectedCount || !outputs[0]?.audioUrl) {
+      throw new Error(expectedCount === 1 ? 'SONARA ha completato la generazione ma non ha restituito il brano.' : 'SONARA ha completato la generazione ma non ha restituito entrambi i brani.');
     }
-    const completed = outputs.slice(0, 2).map((output, index) => ({
+    const completed = outputs.slice(0, expectedCount).map((output, index) => ({
       id: (index === 0 ? 'A' : 'B') as CandidateId,
       status: 'COMPLETED' as const,
       progress: 100,
@@ -551,7 +556,7 @@ export default function ElevenMusicGenerationControl() {
         generationPairId: generationId,
         variationId: candidate.id,
         completedJob: response,
-        performanceProfile: 'sonara-dual-master',
+        performanceProfile: expectedCount === 1 ? 'sonara-instant-single-master' : 'sonara-dual-master',
         creativeControls: { weirdness: context.weirdness, styleInfluence: context.styleInfluence }
       }
     })));
@@ -572,7 +577,10 @@ export default function ElevenMusicGenerationControl() {
     setBusy(true);
     setSelected(null);
     setError('');
-    setCandidates([empty('A'), empty('B')]);
+    const generationProfile = readGenerationProfile();
+    const instant = generationProfile === 'fast';
+    const expectedCount = instant ? 1 : 2;
+    setCandidates(instant ? [empty('A')] : [empty('A'), empty('B')]);
     try {
       const textarea = document.getElementById('sonara-prompt') as HTMLTextAreaElement | null;
       if (!textarea) throw new Error('Apri il Music Creator prima di generare.');
@@ -600,11 +608,11 @@ export default function ElevenMusicGenerationControl() {
       const token = await getFirebaseIdToken(true);
       const generationId = crypto.randomUUID ? crypto.randomUUID() : `generation-${Date.now()}`;
       localStorage.setItem('sonara.lastGenerationPairId', generationId);
-      processing('', 8, autoCover ? 'SONARA: audio + copertine A/B in parallelo' : 'SONARA: generazione dei 2 master');
+      processing('', 8, instant ? 'SONARA INSTANT: generazione prioritaria' : autoCover ? 'SONARA: audio + copertine A/B in parallelo' : 'SONARA: generazione dei 2 master');
 
       if (autoCover) {
         void generateCover('A', context, generationId, token, 0);
-        void generateCover('B', context, generationId, token, 0);
+        if (!instant) void generateCover('B', context, generationId, token, 0);
       }
 
       const response = await fetch('/api/billing/generate', {
@@ -636,8 +644,11 @@ export default function ElevenMusicGenerationControl() {
           provider: 'eleven_music',
           engineProvider: 'eleven_music',
           engineId: 'sonara_eleven_music_v2',
-          candidateCount: 2,
-          candidate_count: 2,
+          candidateCount: expectedCount,
+          candidate_count: expectedCount,
+          dualFast: !instant,
+          generationProfileV3: generationProfile,
+          renderProfile: generationProfile,
           generationPairId: generationId
         })
       });
@@ -647,7 +658,7 @@ export default function ElevenMusicGenerationControl() {
       if (!jobId) throw new Error('SONARA non ha restituito il job ID.');
 
       if (String(payload.status || '').toUpperCase() === 'COMPLETED') {
-        await applyCompleted(jobId, payload, context, generationId, token);
+        await applyCompleted(jobId, payload, context, generationId, token, expectedCount);
         return;
       }
 
@@ -655,7 +666,7 @@ export default function ElevenMusicGenerationControl() {
       const deadline = Date.now() + Math.max(10 * 60_000, context.durationSec * 5000);
       const relayJob = jobId.startsWith('sr2_');
       while (Date.now() < deadline) {
-        await sleep(2000);
+        await sleep(instant ? 350 : 1000);
         const poll = await fetch(relayJob
           ? `/api/billing/job?jobId=${encodeURIComponent(jobId)}`
           : `/api/music/job/${encodeURIComponent(jobId)}`, {
@@ -673,7 +684,7 @@ export default function ElevenMusicGenerationControl() {
         const status = String(current.status || 'PROCESSING').toUpperCase();
         if (status === 'FAILED') throw new Error(errorText(current, 'Generazione SONARA fallita.'));
         if (status === 'COMPLETED') {
-          await applyCompleted(jobId, current, context, generationId, token);
+          await applyCompleted(jobId, current, context, generationId, token, expectedCount);
           return;
         }
         processing(jobId, Math.max(10, Number(current.progress || 10)), String(current.metadata?.currentStage || 'SONARA: rendering'));

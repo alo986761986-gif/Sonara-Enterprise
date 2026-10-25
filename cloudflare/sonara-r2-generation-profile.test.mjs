@@ -33,6 +33,7 @@ for (const [profile, steps, shift, thinking] of [
     assert.equal(result.shift, shift);
     assert.equal(result.thinking, thinking);
     assert.equal(result.allow_lm_batch, thinking);
+    assert.equal(result.batch_size, profile === 'fast' ? 1 : 2);
     assert.equal(result.sonara_r2_generation_policy, R2_GENERATION_POLICY);
     assert.equal(result.sonara_r2_generation_profile, profile);
     assert.equal(result.sonara_instrument_realism, profile === 'fast' ? null : INSTRUMENT_REALISM_VERSION);
@@ -52,7 +53,7 @@ for (const [profile, steps, shift, thinking] of [
     assert.equal(metadata.automaticQualityRepair, false);
     assert.equal(result.sonara_real_music_v1, false);
     for (const field of ['model', 'vocal_language', 'bpm', 'key_scale', 'time_signature',
-      'audio_duration', 'task_type', 'batch_size', 'seed', 'use_random_seed', 'audio_format',
+      'audio_duration', 'task_type', 'seed', 'use_random_seed', 'audio_format',
       'enable_normalization', 'normalization_db', 'use_tiled_decode']) {
       assert.deepEqual(result[field], payload[field], field);
     }
@@ -233,4 +234,19 @@ test('normalization opt-out remains respected', () => {
   const result = applyR2GenerationProfile({ ...payload, enable_normalization: false, normalization_db: -0.1 }, { ...source, generationProfileV3: 'ultra' }, source);
   assert.equal(result.enable_normalization, false);
   assert.equal(result.normalization_db, -0.1);
+});
+
+
+test('missing profile defaults to INSTANT single-track execution', () => {
+  const body = { ...source };
+  delete body.generationProfileV3;
+  const result = applyR2GenerationProfile(payload, body, body);
+  const metadata = r2GenerationMetadata(body);
+  assert.equal(result.sonara_r2_generation_profile, 'fast');
+  assert.equal(result.inference_steps, 1);
+  assert.equal(result.thinking, false);
+  assert.equal(result.batch_size, 1);
+  assert.equal(result.sonara_instant_mode, true);
+  assert.equal(metadata.candidateCount, 1);
+  assert.equal(metadata.executionProfile, 'xl-turbo-instant-single-track');
 });

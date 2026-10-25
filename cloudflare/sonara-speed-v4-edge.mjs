@@ -4,7 +4,7 @@ import { r2GenerationMetadata } from './sonara-r2-generation-profile.mjs';
 
 export { SonaraJobState, SonaraAuthStore };
 
-const VERSION = 'sonara-speed-v4.3-single-batch-quality';
+const VERSION = 'sonara-speed-v4.4-instant-single-track';
 const STATE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/speed-v4/';
 const STATE_TTL = 6 * 60 * 60;
 const JOB_RE = /^\/api\/music\/job\/([^/]+)$/;
@@ -19,7 +19,7 @@ const cleanUrl = value => clean(value).replace(/\/$/, '');
 const molabUrl = env => cleanUrl(env.SONARA_MOLAB_XL_URL || env.MOLAB_ACESTEP_URL || '');
 
 function requestedProfile(body = {}) {
-  const raw = clean(body.generationProfileV3 || body.renderProfile || body.generationProfile || body.qualityProfile || 'quality').toLowerCase();
+  const raw = clean(body.generationProfileV3 || body.renderProfile || body.generationProfile || body.qualityProfile || 'fast').toLowerCase();
   if (['ultra', 'maximum', 'max', 'studio', 'master'].includes(raw)) return 'ultra';
   if (['fast', 'speed', 'preview'].includes(raw)) return 'fast';
   return 'quality';
@@ -248,9 +248,9 @@ function speedBody(body, profile) {
     renderProfile: 'fast',
     generationProfile: 'fast',
     qualityProfile: 'fast',
-    candidateCount: 2,
-    candidate_count: 2,
-    dualFast: true,
+    candidateCount: 1,
+    candidate_count: 1,
+    dualFast: false,
     sonaraDirectorBypass: true,
     sonaraRealMusic: false,
     sonara_real_music: false,
@@ -258,11 +258,11 @@ function speedBody(body, profile) {
     sonaraSpeedV4: VERSION,
     sonaraSpeedInferenceSteps: FAST_STEPS,
     sonaraSpeedSampler: 'euler',
-    sonaraSpeedExecutionProfile: 'fast-single-gpu-batch',
+    sonaraSpeedExecutionProfile: 'instant-single-track',
     sonaraRequestedGenerationProfile: profile,
-    sonaraAutomaticCandidateRanking: true,
-    sonaraVisibleCandidateTarget: 2,
-    sonaraInternalCandidateTarget: 2,
+    sonaraAutomaticCandidateRanking: false,
+    sonaraVisibleCandidateTarget: 1,
+    sonaraInternalCandidateTarget: 1,
     sonaraRealMusicV3: false
   };
 }
@@ -270,7 +270,7 @@ function speedBody(body, profile) {
 function executionProfileOf(profile) {
   if (profile === 'ultra') return 'ultra-director-auto-refine';
   if (profile === 'quality') return 'quality-single-gpu-batch';
-  return 'fast-single-gpu-batch';
+  return 'instant-single-track';
 }
 
 function inferenceStepsOf(profile) {
@@ -333,7 +333,7 @@ async function prepareGeneration(request, env, ctx) {
     // pipeline below. Their polling is handled directly by the R2 gateway.
     return jsonResponse(response, {
       ...payload,
-      metadata: { ...(payload.metadata || {}), ...r2GenerationMetadata(body, 2) }
+      metadata: { ...(payload.metadata || {}), ...r2GenerationMetadata(nextBody, profile === 'fast' ? 1 : 2) }
     });
   }
   const verifyAfter = prepared?.enabled === true && (body?.verifyLyrics === true || body?.sonaraLyricsVerification === true || profile !== 'fast');

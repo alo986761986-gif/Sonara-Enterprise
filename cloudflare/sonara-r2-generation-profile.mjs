@@ -13,7 +13,7 @@ const unique = values => [...new Set(values.map(text).filter(Boolean))];
 
 function profileOf(body) {
   const raw = firstText(body.generationProfileV3, body.renderProfile, body.generationProfile, body.qualityProfile).toLowerCase();
-  if (['fast', 'speed', 'preview'].includes(raw)) return 'fast';
+  if (!raw || ['fast', 'speed', 'preview', 'instant'].includes(raw)) return 'fast';
   if (['ultra', 'maximum', 'max', 'studio', 'master'].includes(raw)) return 'ultra';
   return 'quality';
 }
@@ -24,15 +24,16 @@ export function r2GenerationSettings(body = {}) {
     shift: profile === 'fast' ? 1.0 : 3.0, thinking: profile === 'ultra' };
 }
 
-export function r2GenerationMetadata(body = {}, count = 2) {
+export function r2GenerationMetadata(body = {}, count = null) {
   const { profile, steps, shift, thinking } = r2GenerationSettings(body);
+  const effectiveCount = Number.isFinite(Number(count)) ? Math.max(1, Math.min(2, Math.round(Number(count)))) : profile === 'fast' ? 1 : 2;
   const realism = profile === 'fast' ? null : instrumentRealismPlan(body, { depth: profile });
   const mixMaster = profile === 'fast' ? null : mixMasterPlan(body, { depth: profile });
   return {
     generationPolicy: R2_GENERATION_POLICY,
     generationProfile: profile,
     requestedGenerationProfile: profile,
-    executionProfile: thinking ? 'xl-turbo-lm-planned-batch' : `${profile}-single-gpu-batch`,
+    executionProfile: profile === 'fast' ? 'xl-turbo-instant-single-track' : thinking ? 'xl-turbo-lm-planned-batch' : `${profile}-single-gpu-batch`,
     inferenceSteps: steps, shift, samplerMode: 'euler', lmThinking: thinking,
     lmAudioPlanning: thinking, lmModel: 'acestep-5Hz-lm-4B',
     instrumentRealismEnabled: Boolean(realism),
@@ -45,8 +46,8 @@ export function r2GenerationMetadata(body = {}, count = 2) {
     mixMasterVersion: mixMaster ? MIX_MASTER_VERSION : null,
     mixMasterProfile: mixMaster?.id || null,
     targetPeakDb: mixMaster?.targetPeakDb ?? null,
-    batchSize: count, candidateCount: count, singleGpuBatch: true,
-    visibleCandidateTarget: count, internalCandidateTarget: count,
+    batchSize: effectiveCount, candidateCount: effectiveCount, singleGpuBatch: true,
+    visibleCandidateTarget: effectiveCount, internalCandidateTarget: effectiveCount,
     automaticSecondBatch: false, automaticCandidateRanking: false,
     automaticQualityRepair: false, realMusicV3: false, trackGenome: false,
     humanizer: false, vocalRefinement: false, stemPostProductionReady: false,
@@ -111,10 +112,12 @@ export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody 
   const normalizationDb = mixMaster && normalizationEnabled
     ? safePeakTarget(payload.normalization_db, mixMaster.targetPeakDb)
     : payload.normalization_db;
+  const effectiveBatchSize = profile === 'fast' ? 1 : Math.max(1, Math.min(2, Math.round(Number(payload.batch_size) || 2)));
   const next = {
     ...payload,
     prompt: caption(payload, resolvedBody, sourceBody, lyrics),
     lyrics,
+    batch_size: effectiveBatchSize,
     inference_steps: steps,
     shift,
     guidance_scale: 1.0,
@@ -133,7 +136,7 @@ export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody 
     lm_top_p: 0.9,
     lm_repetition_penalty: 1.0,
     lm_negative_prompt: 'NO USER INPUT',
-    allow_lm_batch: thinking && Number(payload.batch_size) > 1,
+    allow_lm_batch: thinking && effectiveBatchSize > 1,
     sonara_generation_profile: 'auto',
     sonara_speed_inference_steps: steps,
     sonara_speed_sampler: 'euler',
@@ -145,7 +148,8 @@ export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody 
     normalization_db: profile === 'fast' ? payload.normalization_db : normalizationDb,
     sonara_mix_master_profile: mixMaster?.id || null,
     sonara_mix_master_version: mixMaster ? MIX_MASTER_VERSION : null,
-    sonara_target_peak_db: mixMaster ? normalizationDb : null
+    sonara_target_peak_db: mixMaster ? normalizationDb : null,
+    sonara_instant_mode: profile === 'fast'
   };
   delete next.lm_batch_chunk_size;
   delete next.use_cot_metas;

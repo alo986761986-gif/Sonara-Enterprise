@@ -86,11 +86,12 @@ function clamp(value, fallback, min, max) {
 
 function candidateCount(body = {}) {
   if (body?.dualFast === true) return 2;
-  return Math.round(clamp(body?.candidateCount, 2, 1, 2));
+  const fallback = profileOf(body) === 'fast' ? 1 : 2;
+  return Math.round(clamp(body?.candidateCount, fallback, 1, 2));
 }
 
 function profileOf(body = {}) {
-  const raw = String(body.generationProfileV3 || body.renderProfile || body.generationProfile || body.qualityProfile || 'quality').trim().toLowerCase();
+  const raw = String(body.generationProfileV3 || body.renderProfile || body.generationProfile || body.qualityProfile || 'fast').trim().toLowerCase();
   if (['fast', 'speed', 'preview'].includes(raw)) return 'fast';
   if (['ultra', 'maximum', 'max'].includes(raw)) return 'ultra';
   return 'quality';
