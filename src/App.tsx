@@ -598,10 +598,22 @@ export default function App() {
       setProgress(10);
       setStage(t('generating'));
 
+      const relayJob = id.startsWith('sr2_');
       for (let attempt = 0; attempt < 1200; attempt += 1) {
         await sleep(500);
-        const poll = await fetch(`/api/music/job/${encodeURIComponent(id)}`, { cache: 'no-store' });
-        if (!poll.ok) continue;
+        const poll = await fetch(relayJob
+          ? `/api/billing/job?jobId=${encodeURIComponent(id)}`
+          : `/api/music/job/${encodeURIComponent(id)}`, {
+          cache: 'no-store',
+          credentials: 'same-origin',
+          headers: relayJob ? { Authorization: `Bearer ${firebaseToken}` } : undefined
+        });
+        if (!poll.ok) {
+          if (relayJob && [400, 401, 403, 404].includes(poll.status)) {
+            throw new Error(jobErrorMessage(await readJson<JobResponse>(poll), 'Accedi con lo stesso account che ha avviato questa generazione.'));
+          }
+          continue;
+        }
         const current = normalizeJob(await readJson<JobResponse>(poll));
         const currentStatus = String(current.status || 'PROCESSING').toUpperCase();
         const metadata = current.metadata || {};

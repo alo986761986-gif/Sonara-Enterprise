@@ -286,9 +286,19 @@ export default function DualTrackGenerationControl() {
       setAllProcessing(jobId, Math.max(10, Number(initial.progress || 10)), String(initial.metadata?.currentStage || 'SONARA RTX 6000: generazione brano A'));
 
       const pollDeadline = Date.now() + generationTimeoutMs(context.durationSec);
+      const relayJob = jobId.startsWith('sr2_');
       while (Date.now() < pollDeadline) {
         await sleep(JOB_POLL_INTERVAL_MS);
-        const poll = await fetch(`/api/music/job/${encodeURIComponent(jobId)}`, { cache: 'no-store' });
+        const poll = await fetch(relayJob
+          ? `/api/billing/job?jobId=${encodeURIComponent(jobId)}`
+          : `/api/music/job/${encodeURIComponent(jobId)}`, {
+          cache: 'no-store',
+          credentials: 'same-origin',
+          headers: relayJob ? { Authorization: `Bearer ${token}` } : undefined
+        });
+        if (relayJob && [400, 401, 403, 404].includes(poll.status)) {
+          throw new Error(readError(await readJson<JobResponse>(poll), 'Accedi con lo stesso account che ha avviato questa generazione.'));
+        }
         if (!poll.ok && poll.status !== 410) continue;
         const current = normalizeJob(await readJson<JobResponse>(poll));
         const status = String(current.status || 'PROCESSING').toUpperCase();

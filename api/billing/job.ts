@@ -4,7 +4,7 @@ import { relayReadiness } from '../../backend/relay-readiness';
 const DEFAULT_ENGINE_URL = 'https://api.sonaraenterprise.com';
 const TOKEN_CACHE_MS = 60_000;
 const MAX_TOKEN_CACHE_ENTRIES = 256;
-const verifiedTokenCache = new Map<string, number>();
+const verifiedTokenCache = new Map<string, { uid: string; expiresAt: number }>();
 
 export const config = { maxDuration: 180 };
 
@@ -24,11 +24,11 @@ function tokenFingerprint(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
-function rememberVerifiedToken(fingerprint: string): void {
+function rememberVerifiedToken(fingerprint: string, uid: string): void {
   if (verifiedTokenCache.size >= MAX_TOKEN_CACHE_ENTRIES) {
     const now = Date.now();
-    for (const [key, expiresAt] of verifiedTokenCache) {
-      if (expiresAt <= now) verifiedTokenCache.delete(key);
+    for (const [key, entry] of verifiedTokenCache) {
+      if (entry.expiresAt <= now) verifiedTokenCache.delete(key);
     }
     while (verifiedTokenCache.size >= MAX_TOKEN_CACHE_ENTRIES) {
       const oldest = verifiedTokenCache.keys().next().value as string | undefined;
@@ -36,18 +36,18 @@ function rememberVerifiedToken(fingerprint: string): void {
       verifiedTokenCache.delete(oldest);
     }
   }
-  verifiedTokenCache.set(fingerprint, Date.now() + TOKEN_CACHE_MS);
+  verifiedTokenCache.set(fingerprint, { uid, expiresAt: Date.now() + TOKEN_CACHE_MS });
 }
 
-async function firebaseTokenValid(token: string): Promise<boolean> {
-  if (!token) return false;
+async function firebaseTokenUserUid(token: string): Promise<string | null> {
+  if (!token || token === 'sonara-native-session') return null;
   const fingerprint = tokenFingerprint(token);
-  const cachedUntil = verifiedTokenCache.get(fingerprint) || 0;
-  if (cachedUntil > Date.now()) return true;
-  if (cachedUntil) verifiedTokenCache.delete(fingerprint);
+  const cached = verifiedTokenCache.get(fingerprint);
+  if (cached && cached.expiresAt > Date.now()) return cached.uid;
+  if (cached) verifiedTokenCache.delete(fingerprint);
 
   const apiKey = String(process.env.VITE_FIREBASE_API_KEY || process.env.SONARA_FIREBASE_API_KEY || '').trim();
-  if (!apiKey) return false;
+  if (!apiKey) return null;
 
   try {
     const response = await fetch(
@@ -59,13 +59,38 @@ async function firebaseTokenValid(token: string): Promise<boolean> {
         signal: AbortSignal.timeout(10_000)
       }
     );
-    if (!response.ok) return false;
+    if (!response.ok) return null;
     const payload = await response.json() as { users?: Array<{ localId?: string }> };
-    const valid = Boolean(payload.users?.[0]?.localId);
-    if (valid) rememberVerifiedToken(fingerprint);
-    return valid;
+    const uid = String(payload.users?.[0]?.localId || '').trim();
+    if (uid) rememberVerifiedToken(fingerprint, uid);
+    return uid || null;
   } catch {
-    return false;
+    return null;
+  }
+}
+
+async function authenticatedUserUid(req: any): Promise<string | null> {
+  const firebaseUid = await firebaseTokenUserUid(bearerToken(req));
+  if (firebaseUid) return firebaseUid;
+
+  // The native bearer marker is not a credential. Verify the HttpOnly session
+  // server to server, using the same authority as the generation endpoint.
+  const cookie = headerValue(req.headers?.cookie).trim();
+  if (!/(?:^|;\s*)sonara_session=/.test(cookie)) return null;
+  const authBase = String(process.env.SONARA_NATIVE_AUTH_URL || 'https://sonaraenterprise.com').replace(/\/$/, '');
+  try {
+    const response = await fetch(`${authBase}/api/sonara-auth/session`, {
+      method: 'GET',
+      headers: { Accept: 'application/json', Cookie: cookie },
+      redirect: 'manual',
+      cache: 'no-store',
+      signal: AbortSignal.timeout(10_000)
+    });
+    if (!response.ok) return null;
+    const payload = await response.json() as { authenticated?: boolean; user?: { uid?: string } | null };
+    return payload.authenticated === true ? String(payload.user?.uid || '').trim() || null : null;
+  } catch {
+    return null;
   }
 }
 
@@ -92,8 +117,11 @@ export default async function handler(req: any, res: any) {
   const internalSecret = String(process.env.SONARA_INTERNAL_PROXY_SECRET || '').trim();
   const suppliedSecret = headerValue(req.headers?.['x-sonara-internal-secret']).trim();
   const internalRequest = Boolean(internalSecret && suppliedSecret === internalSecret);
-  const authenticatedClient = internalRequest ? true : await firebaseTokenValid(bearerToken(req));
-  if (!authenticatedClient) {
+  const jobId = queryValue(req.query?.jobId).trim();
+  const relayJob = /^sr2_[0-9a-f-]{36}$/.test(jobId);
+  const userUid = internalRequest && !relayJob ? null : await authenticatedUserUid(req);
+  // An internal key alone does not establish which account owns an R2 job.
+  if ((!internalRequest && !userUid) || (relayJob && !userUid)) {
     return sendJson(res, 401, {
       status: 'FAILED',
       progress: 0,
@@ -101,7 +129,6 @@ export default async function handler(req: any, res: any) {
     });
   }
 
-  const jobId = queryValue(req.query?.jobId).trim();
   if (!validJobId(jobId)) {
     return sendJson(res, 400, {
       jobId,
@@ -117,6 +144,7 @@ export default async function handler(req: any, res: any) {
     'X-Sonara-Job-Bridge': 'vercel'
   };
   if (internalSecret) headers['X-Sonara-Internal-Secret'] = internalSecret;
+  if (relayJob && userUid) headers['X-Sonara-User-Uid'] = userUid;
 
   try {
     const engineResponse = await fetch(

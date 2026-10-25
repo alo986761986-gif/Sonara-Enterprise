@@ -6,6 +6,12 @@ const json = (body, status=200) => new Response(JSON.stringify(body), {status,he
 const bearer = (r) => r.headers.get('X-Sonara-Relay-Token') || (r.headers.get('Authorization')||'').replace(/^Bearer /i,'');
 const hasWorkerAuth = (r,e) => Boolean(e.SONARA_RELAY_TOKEN) && bearer(r)===e.SONARA_RELAY_TOKEN;
 const hasSubmitAuth = (r,e) => Boolean(e.SONARA_INTERNAL_PROXY_SECRET) && r.headers.get('X-Sonara-Internal-Secret')===e.SONARA_INTERNAL_PROXY_SECRET;
+// This metadata is accepted only with the server-side gateway credential.
+const ownerUid = r => {
+  const uid=(r.headers.get('X-Sonara-User-Uid')||'').trim();
+  return uid&&uid.length<=128?uid:'';
+};
+const ownsJob = (r,j) => Boolean(j?.ownerUid) && ownerUid(r)===j.ownerUid;
 const key = id => PREFIX+'jobs/'+id+'.json';
 const valid = id => /^sr2_[0-9a-f-]{36}$/.test(id||'');
 const getRecord = async (b,id) => { const o=await b.get(key(id));return o?o.json():null; };
@@ -54,12 +60,14 @@ export default {
   // Enqueue only from the Vercel billing/auth gateway using shared secret.
   if(p==='/api/sonara-relay/enqueue'&&request.method==='POST') {
     if(!hasSubmitAuth(request,env))return json({error:'Unauthorized'},401);
+    const owner=ownerUid(request);
+    if(!owner)return json({error:'Authenticated job owner required'},400);
     const raw=await request.text();
     if(raw.length>MAX_REQ)return json({error:'Request too large'},413);
     let payload;try{payload=JSON.parse(raw);}catch{return json({error:'Invalid JSON'},400);}
     if(!payload||typeof payload!=='object'||Array.isArray(payload))return json({error:'Invalid payload'},400);
     const id='sr2_'+crypto.randomUUID(),now=Date.now();
-    const record={id,status:'QUEUED',createdAt:now,updatedAt:now,leaseUntil:0,attempts:0,payload,files:[],error:null};
+    const record={id,ownerUid:owner,status:'QUEUED',createdAt:now,updatedAt:now,leaseUntil:0,attempts:0,payload,files:[],error:null};
     await saveRecord(b,id,record);
     return json({jobId:id,status:'PROCESSING',progress:0,provider:'molab',model:'acestep-v15-xl-turbo'},202);
   }
@@ -90,15 +98,17 @@ export default {
     if(!action&&request.method==='GET') {
       if(!hasSubmitAuth(request,env))return json({error:'Unauthorized'},401);
       const j=await getRecord(b,id);
-      if(!j)return json({error:'Not found'},404);
+      if(!j||!ownsJob(request,j))return json({error:'Not found'},404);
       // Only public, non-sensitive progress metadata. Never return user prompt, lease or token.
       const urls=await Promise.all(j.files.map((_,i)=>signAudio(id,i,env)));
-      return json({jobId:id,status:j.status==='COMPLETE'?'COMPLETED':j.status==='FAILED'?'FAILED':'PROCESSING',progress:j.status==='COMPLETE'?100:j.status==='LEASED'?50:0,error:j.error,provider:'molab',model:'acestep-v15-xl-turbo',audioUrl:urls[0]||null,audioUrls:urls,candidates:urls.map((u,i)=>({id:i===0?'A':'B',audioUrl:u,provider:'molab',model:'acestep-v15-xl-turbo'}))});
+      return json({jobId:id,status:j.status==='COMPLETE'?'COMPLETED':j.status==='FAILED'?'FAILED':'PROCESSING',progress:j.status==='COMPLETE'?100:j.status==='LEASED'?50:0,error:j.error,provider:'molab',model:'acestep-v15-xl-turbo',metadata:{audioFormat:'wav'},audioUrl:urls[0]||null,audioUrls:urls,candidates:urls.map((u,i)=>({id:i===0?'A':'B',audioUrl:u,audioFormat:'wav',provider:'molab',model:'acestep-v15-xl-turbo'}))});
     }
     if(action==='audio'&&request.method==='GET') {
       const idx=Number(parts[2]);
-      if(!hasSubmitAuth(request,env)&&!(Number.isInteger(idx)&&await verifyAudio(id,idx,url,env)))return json({error:'Unauthorized'},401);
+      const signed=Number.isInteger(idx)&&await verifyAudio(id,idx,url,env);
+      if(!hasSubmitAuth(request,env)&&!signed)return json({error:'Unauthorized'},401);
       const j=await getRecord(b,id);
+      if(!signed&&(!j||!ownsJob(request,j)))return json({error:'Not found'},404);
       if(!j||j.status!=='COMPLETE')return json({error:'Audio not ready'},404);
       const i=Number(parts[2]);if(!Number.isInteger(i)||i<0||i>=j.files.length)return json({error:'Not found'},404);
       const obj=await b.get(audioKey(id,i));

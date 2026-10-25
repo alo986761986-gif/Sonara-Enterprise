@@ -627,7 +627,10 @@ async function proxyGeneration(user: AuthenticatedUser, body: Record<string, any
     ? String(process.env.SONARA_ELEVEN_MUSIC_URL || DEFAULT_ELEVEN_MUSIC_URL).trim()
     : `${String(process.env.SONARA_ENGINE_API_URL || DEFAULT_ENGINE_URL).replace(/\/$/, '')}/api/engine/generate`;
 
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Sonara-User-Uid': user.uid
+  };
   const internalSecret = String(process.env.SONARA_INTERNAL_PROXY_SECRET || '').trim();
   if (internalSecret) headers['X-Sonara-Internal-Secret'] = internalSecret;
 
