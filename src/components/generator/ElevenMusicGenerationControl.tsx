@@ -653,10 +653,22 @@ export default function ElevenMusicGenerationControl() {
 
       processing(jobId, Math.max(10, Number(payload.progress || 10)), String(payload.metadata?.currentStage || 'SONARA: rendering'));
       const deadline = Date.now() + Math.max(10 * 60_000, context.durationSec * 5000);
+      const relayJob = jobId.startsWith('sr2_');
       while (Date.now() < deadline) {
         await sleep(2000);
-        const poll = await fetch(`/api/music/job/${encodeURIComponent(jobId)}`, { cache: 'no-store' });
-        if (!poll.ok) continue;
+        const poll = await fetch(relayJob
+          ? `/api/billing/job?jobId=${encodeURIComponent(jobId)}`
+          : `/api/music/job/${encodeURIComponent(jobId)}`, {
+          cache: 'no-store',
+          credentials: 'same-origin',
+          headers: relayJob ? { Authorization: `Bearer ${token}` } : undefined
+        });
+        if (!poll.ok) {
+          if (relayJob && [400, 401, 403, 404].includes(poll.status)) {
+            throw new Error(errorText(await readJson<JobResponse>(poll), 'Accedi con lo stesso account che ha avviato questa generazione.'));
+          }
+          continue;
+        }
         const current = normalize(await readJson<JobResponse>(poll));
         const status = String(current.status || 'PROCESSING').toUpperCase();
         if (status === 'FAILED') throw new Error(errorText(current, 'Generazione SONARA fallita.'));

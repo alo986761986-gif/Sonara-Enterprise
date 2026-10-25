@@ -1,34 +1,6 @@
 name: Deploy SONARA Music + Blackwell Video AI
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/deploy-cloudflare-video-recovery.yml"
-      - "cloudflare/sonara-web-v15-router.mjs"
-      - "cloudflare/sonara-video-ui-edge.mjs"
-      - "cloudflare/sonara-video-ui-edge.test.mjs"
-      - "index.html"
-      - "wrangler.jsonc"
-      - "cloudflare/sonara-ab-player-visibility-edge.mjs"
-      - "cloudflare/sonara-native-auth-safe.mjs"
-      - "cloudflare/sonara-native-video-state.mjs"
-      - "cloudflare/sonara-video-native-route.test.mjs"
-      - "cloudflare/sonara-native-video-state.test.mjs"
-      - "api/video/provider.ts"
-      - "src/components/video/VideoAISectionControl.tsx"
-      - "src/server/video/provider-molab-fast-profile.test.ts"
-      - "scripts/molab-sonara-wan22-video-worker.py"
-      - "cloudflare/sonara-engine-v15-authoritative-prompt.mjs"
-      - "cloudflare/sonara-engine-v15-authoritative-prompt.test.mjs"
-      - "cloudflare/extreme-fidelity-v16.test.mjs"
-      - "scripts/activate-extreme-fidelity-v16.cjs"
-      - "cloudflare/sonara-engine-v17-lm-composer.mjs"
-      - "cloudflare/sonara-engine-v18-fast-hq.mjs"
-      - "cloudflare/sonara-engine-v19-resilient-dual.mjs"
-      - "cloudflare/sonara-web-generator-stability.mjs"
-      - "scripts/kaggle-sonara-music-v20-dual-t4.py"
   workflow_dispatch:
 
 permissions:
@@ -177,3 +149,4 @@ jobs:
           console.log(JSON.stringify({status: health.status, aceStepWorkerCount: count, aceStepWorkers: workers, stableDualProfile: health.stableDualProfile, audioQualityJudge: health.audioQualityJudge, studioVersion: health.sonaraNextStudio?.version}));
           console.log('Music remains healthy with both Kaggle T4 workers, Quality Gate v2 and Studio 2.0 active.');
           NODE
+

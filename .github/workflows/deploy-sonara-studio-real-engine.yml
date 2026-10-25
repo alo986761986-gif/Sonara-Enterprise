@@ -2,29 +2,6 @@ name: Deploy SONARA Studio Real Engine
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "src/components/studio/SonaraStudio.tsx"
-      - "src/components/studio/StudioSectionControl.tsx"
-      - "src/components/studio/SonaraSessions2Timeline.tsx"
-      - "src/components/studio/studioRealEngine.ts"
-      - "scripts/activate-studio-real-engine-v2.cjs"
-      - "scripts/activate-studio-video-v1.cjs"
-      - "scripts/activate-studio-key-control.cjs"
-      - "scripts/activate-studio-sessions-native.cjs"
-      - "scripts/build-dispatch.cjs"
-      - "scripts/ace-step-real-music-v3-molab-activate-0904.py"
-      - "public/sonara-studio-pitch-key-dsp-v6.js"
-      - "public/sonara-studio-wav-cleanup-v7.js"
-      - "cloudflare/sonara-real-music-v3-edge.mjs"
-      - "cloudflare/sonara-speed-v4-edge.mjs"
-      - "cloudflare/sonara-studio-pitch-key-upload-bridge.mjs"
-      - "cloudflare/sonara-studio-key-pitch-guard.mjs"
-      - "cloudflare/sonara-studio-native-pitch-bridge.mjs"
-      - "wrangler.jsonc"
-      - "index.html"
-      - ".github/workflows/deploy-sonara-studio-real-engine.yml"
 
 permissions:
   contents: read
@@ -210,3 +187,4 @@ jobs:
           done
           echo "Studio/Real Music V3 public verification failed." >&2
           exit 1
+
