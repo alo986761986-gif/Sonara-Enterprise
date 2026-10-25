@@ -34,6 +34,9 @@ async function internalKey(env) {
   return hex(await crypto.subtle.sign('HMAC', key, enc.encode(DOMAIN)));
 }
 
+// Server-side native billing shares the exact private key used for relay polling.
+export { internalKey as deriveRelayGatewayInternalKey };
+
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,

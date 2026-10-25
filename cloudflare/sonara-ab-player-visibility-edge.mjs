@@ -1,9 +1,12 @@
 import runtime, { SonaraJobState } from './sonara-studio-ai-router.mjs';
 import { SonaraAuthStore, handleSonaraNativeAuth } from './sonara-native-auth.mjs';
+import relayRuntime from './sonara-r2-https-relay.mjs';
+import { prepareMolabR2RelayPayload } from './sonara-molab-xl-router.mjs';
+import { deriveRelayGatewayInternalKey } from './sonara-gateway-verifier.mjs';
 
 export { SonaraJobState, SonaraAuthStore };
 
-const VERSION = 'sonara-ab-player-playback-edge-v4';
+const VERSION = 'sonara-ab-player-playback-edge-v5-r2';
 const AUTH_VERSION = 'sonara-native-auth-v2';
 
 const AB_VISIBILITY_SCRIPT = `<script id="sonara-ab-player-playback-edge-v2">(()=>{
@@ -149,28 +152,94 @@ async function authorizeNativeMusicGeneration(request, env) {
   return null;
 }
 
-async function forwardVerifiedMusicGeneration(request, env, ctx) {
-  const target = new URL('/api/engine/generate', request.url);
-  const headers = new Headers(request.headers);
-  headers.delete('content-length');
-  headers.set('content-type', request.headers.get('content-type') || 'application/json');
-  headers.set('x-sonara-native-auth', 'verified');
-
-  const internalSecret = String(env?.SONARA_INTERNAL_PROXY_SECRET || '').trim();
-  if (internalSecret) headers.set('X-Sonara-Internal-Secret', internalSecret);
-
-  const body = await request.arrayBuffer();
-  const engineRequest = new Request(target.toString(), {
-    method: 'POST',
-    headers,
-    body,
-    redirect: 'manual'
+function nativeGenerationError(code, message, status) {
+  return new Response(JSON.stringify({ error: { code, message } }), {
+    status,
+    headers: { 'content-type': 'application/json; charset=UTF-8', 'cache-control': 'no-store' }
   });
+}
 
-  const response = await runtime.fetch(engineRequest, env, ctx);
+async function forwardVerifiedRelayGeneration(request, env, ctx) {
+  // Entitlements were checked above. Resolve ownership from the same native
+  // session authority used by the Vercel job-polling gateway, never from input.
+  const sessionHeaders = new Headers();
+  const cookie = request.headers.get('cookie');
+  if (cookie) sessionHeaders.set('cookie', cookie);
+  const sessionResponse = await handleSonaraNativeAuth(new Request(
+    new URL('/api/sonara-auth/session', request.url),
+    { method: 'GET', headers: sessionHeaders, redirect: 'manual' }
+  ), env);
+  if (!sessionResponse) {
+    return nativeGenerationError('AUTH_STORE_UNAVAILABLE', 'Servizio account SONARA non disponibile.', 503);
+  }
+  if (!sessionResponse.ok) return sessionResponse;
+  const session = await sessionResponse.json().catch(() => ({}));
+  const uid = String(session?.user?.uid || '').trim();
+  if (session?.authenticated !== true || !uid || uid.length > 128) {
+    return nativeGenerationError('AUTH_TOKEN_INVALID', 'Accedi con un account SONARA valido.', 401);
+  }
+
+  let source;
+  try { source = await request.json(); }
+  catch { return nativeGenerationError('INVALID_JSON', 'Corpo JSON non valido.', 400); }
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    return nativeGenerationError('INVALID_JSON', 'Corpo JSON non valido.', 400);
+  }
+  if (!env.SONARA_AUDIO_BUCKET || String(env.SONARA_RELAY_TOKEN || '').length < 32) {
+    return nativeGenerationError('R2_RELAY_UNAVAILABLE', 'Collegamento MoLab R2 non disponibile.', 503);
+  }
+
+  try {
+    const internalSecret = await deriveRelayGatewayInternalKey(env);
+    const payload = await prepareMolabR2RelayPayload({ ...source, sonaraUserUid: uid });
+    // Rebuild the internal request: client-supplied owner and gateway headers
+    // must never authorize a different user or survive this trust boundary.
+    const headers = new Headers({
+      'content-type': 'application/json',
+      'X-Sonara-Internal-Secret': internalSecret,
+      'X-Sonara-User-Uid': uid
+    });
+    const target = new URL('/api/sonara-relay/enqueue', request.url);
+    return await relayRuntime.fetch(new Request(target, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+      redirect: 'manual'
+    }), { ...env, SONARA_INTERNAL_PROXY_SECRET: internalSecret }, ctx);
+  } catch {
+    // When the relay is enabled, fail closed; never retry through a Quick Tunnel.
+    return nativeGenerationError('R2_RELAY_UNAVAILABLE', 'Collegamento MoLab R2 non disponibile.', 503);
+  }
+}
+
+async function forwardVerifiedMusicGeneration(request, env, ctx) {
+  const relayEnabled = env.SONARA_R2_RELAY_ENABLED === 'true';
+  let response;
+  if (relayEnabled) {
+    response = await forwardVerifiedRelayGeneration(request, env, ctx);
+  } else {
+    const target = new URL('/api/engine/generate', request.url);
+    const headers = new Headers(request.headers);
+    headers.delete('content-length');
+    headers.set('content-type', request.headers.get('content-type') || 'application/json');
+    headers.set('x-sonara-native-auth', 'verified');
+
+    const internalSecret = String(env?.SONARA_INTERNAL_PROXY_SECRET || '').trim();
+    if (internalSecret) headers.set('X-Sonara-Internal-Secret', internalSecret);
+
+    const body = await request.arrayBuffer();
+    const engineRequest = new Request(target.toString(), {
+      method: 'POST',
+      headers,
+      body,
+      redirect: 'manual'
+    });
+
+    response = await runtime.fetch(engineRequest, env, ctx);
+  }
   const out = new Headers(response.headers);
   out.set('x-sonara-billing', 'native-entitlement');
-  out.set('x-sonara-generation-route', 'native-to-molab');
+  out.set('x-sonara-generation-route', relayEnabled ? 'native-to-molab-r2' : 'native-to-molab');
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
