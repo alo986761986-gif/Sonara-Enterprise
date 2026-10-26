@@ -81,7 +81,7 @@ run(['tsx', 'src/services/promptDirector.test.ts']);
 console.log('[SONARA] Validating authoritative backend genre lock.');
 run(['tsx', 'backend/test/genre_lock_authoritative_v3.test.ts']);
 console.log('[SONARA] Validating Cloudflare v14 professional prompt preservation.');
-runCommand(node, ['--test', 'cloudflare/sonara-engine-v14-universal-taxonomy-lock.test.mjs']);
+run(['tsx', '--test', 'cloudflare/sonara-engine-v14-universal-taxonomy-lock.test.mjs']);
 console.log('[SONARA] Validating Professional Lyrics v2 quality and genre synchronization.');
 run(['tsx', 'src/professionalLyrics.test.ts']);
 console.log('[SONARA] Running 500-case music benchmark and release standard.');
