@@ -159,7 +159,26 @@ function nativeGenerationError(code, message, status) {
   });
 }
 
+async function relayAgentAvailable(env) {
+  if (!env.SONARA_AUDIO_BUCKET) return false;
+  try {
+    const obj = await env.SONARA_AUDIO_BUCKET.get('relay-v1/agent/heartbeat.json');
+    const heartbeat = obj ? await obj.json() : null;
+    const lastSeen = Number(heartbeat?.lastSeen || 0);
+    return lastSeen > 0 && Date.now() - lastSeen <= 15000;
+  } catch {
+    return false;
+  }
+}
+
 async function forwardVerifiedRelayGeneration(request, env, ctx) {
+  if (!(await relayAgentAvailable(env))) {
+    return nativeGenerationError(
+      'MOLAB_RELAY_OFFLINE',
+      'MoLab RTX PRO 6000 non è collegato. Il relay SONARA si sta ripristinando: riprova tra pochi secondi.',
+      503
+    );
+  }
   // Entitlements were checked above. Resolve ownership from the same native
   // session authority used by the Vercel job-polling gateway, never from input.
   const sessionHeaders = new Headers();
