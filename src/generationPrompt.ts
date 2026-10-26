@@ -1,5 +1,6 @@
 import { getMusicStyleProfile } from './musicStyleIntelligence';
 import { hierarchyAuthorityText, resolveMusicTaxonomyHierarchy } from './musicTaxonomyHierarchy';
+import { getMusicFamilyProfile } from './musicFamilyIntelligence';
 
 export type VocalMode = 'instrumental' | 'male' | 'female' | 'duet';
 
@@ -68,12 +69,12 @@ function creativeControlDirection(weirdness: number, styleInfluence: number, sub
         ? 'Use adventurous structure, timbre, transitions and melodic decisions while remaining musically intentional.'
         : 'Push into highly unconventional but still deliberate musical ideas; avoid random noise, incoherence or technical failure.';
   const styleDirection = styleInfluence <= 25
-    ? `Treat ${subgenre} as a loose stylistic reference while preserving the exact technical locks and creator instructions.`
+    ? `Express ${subgenre} with restrained signature markers, but remain fully inside the selected Family > Genre > Subgenre hierarchy. Never cross into another musical family or neighboring genre.`
     : styleInfluence <= 60
-      ? `Keep a balanced ${subgenre} identity while allowing cross-style interpretation where it supports the creator brief.`
+      ? `Use balanced ${subgenre} specificity while keeping the selected family, genre and subgenre exact. Cross-family and cross-genre interpretation is forbidden.`
       : styleInfluence <= 85
-        ? `Follow ${subgenre} conventions strongly in groove, instrumentation, harmony, arrangement and production.`
-        : `Apply maximum ${subgenre} fidelity: every major musical and production decision must reinforce the selected style.`;
+        ? `Follow ${subgenre} conventions strongly in groove, instrumentation, harmony, arrangement and production while preserving the selected family boundary.`
+        : `Apply maximum ${subgenre} fidelity: every major musical and production decision must reinforce the selected family, genre and subgenre.`;
 
   return `Weirdness: ${weirdness}/100. ${weirdnessDirection}\nStyle Influence: ${styleInfluence}/100. ${styleDirection}`;
 }
@@ -269,6 +270,7 @@ export function buildGenerationPrompt(input: GenerationPromptInput): string {
   const weirdness = clampInteger(input.weirdness, 50, 0, 100);
   const styleInfluence = clampInteger(input.styleInfluence, 50, 0, 100);
   const profile = getMusicStyleProfile(genreFamily, genre, subgenre);
+  const familyProfile = getMusicFamilyProfile(genreFamily);
   const fallbackBrief = buildRandomCreativeBrief({
     ...input,
     genreFamily,
@@ -304,7 +306,7 @@ export function buildGenerationPrompt(input: GenerationPromptInput): string {
     `CREATOR BRIEF — VERBATIM:\n<<<\n${userIntent}\n>>>`,
     `CREATOR DIRECTIVE CONTRACT:\nPreserve every compatible instrument, sound source, musical action, section, dynamic change, emotional contrast, production treatment and exclusion stated above. A creator detail must be ignored or translated into the nearest authentic equivalent whenever it conflicts with ${genreFamily} > ${genre} > ${subgenre} or would introduce a neighboring genre. Where the brief leaves a detail unspecified, complete it using authentic ${subgenre} practice.`,
     `EXPLICIT CREATOR EXCLUSIONS:\n${explicitExclusions}`,
-    `AUTHORITATIVE MUSICAL IDENTITY:\nTitle: ${title}\nCanonical path: ${resolvedTaxonomy.canonicalPath}\nFamily: ${genreFamily}\nGenre: ${genre}\nSubgenre: ${subgenre}\nAtmosphere: ${mood}\n${hierarchyAuthorityText(resolvedTaxonomy)}\nPriority rule: Family constrains Genre; Genre constrains Subgenre; Subgenre defines the exact musical DNA; Atmosphere modifies only emotional presentation inside that DNA. The creator brief never overrides this hierarchy.`,
+    `AUTHORITATIVE MUSICAL IDENTITY:\nTitle: ${title}\nCanonical path: ${resolvedTaxonomy.canonicalPath}\nFamily: ${genreFamily}\nGenre: ${genre}\nSubgenre: ${subgenre}\nAtmosphere: ${mood}\n${hierarchyAuthorityText(resolvedTaxonomy)}\nFamily execution rule: ${familyProfile.rhythm} ${familyProfile.instrumentation}\nPriority rule: Family constrains Genre; Genre constrains Subgenre; Subgenre defines the exact musical DNA; Atmosphere modifies only emotional presentation inside that DNA. The creator brief never overrides this hierarchy.`,
     `CREATIVE CONTROLS:\n${creativeControlDirection(weirdness, styleInfluence, subgenre)}`,
     `SUBGENRE STYLE DNA — FILL UNSPECIFIED DETAILS ONLY:\n${compactProfileText(profile.identity, 720)}`,
     `TECHNICAL PARAMETERS:\nTempo: exactly ${bpm} BPM\nKey: exactly ${key}\nDuration: approximately ${durationSec} seconds, ending on a complete musical bar\nTime signature: use the meter authentic to ${subgenre}; otherwise use 4/4\nDo not drift from tempo or key. Any expressive timing must occur inside the pulse, not by changing the requested BPM.`,

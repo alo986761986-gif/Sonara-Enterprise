@@ -41,7 +41,7 @@ assert.match(creativeControlPrompt, /CREATIVE CONTROLS:/);
 assert.match(creativeControlPrompt, /Weirdness: 92\/100/);
 assert.match(creativeControlPrompt, /Style Influence: 18\/100/);
 assert.match(creativeControlPrompt, /highly unconventional but still deliberate musical ideas/i);
-assert.match(creativeControlPrompt, /loose stylistic reference/i);
+assert.match(creativeControlPrompt, /Never cross into another musical family/i);
 
 const studioEightMinutePrompt = buildGenerationPrompt({ ...techHouse, durationSec: 480 });
 const studioEightMinuteBrief = buildRandomCreativeBrief({ ...techHouse, durationSec: 480, variant: 2 });

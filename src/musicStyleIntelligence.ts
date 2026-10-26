@@ -5,6 +5,7 @@ import {
   type MusicStyleProfile
 } from './musicStyleIntelligenceLegacy';
 import { getHouseStylePatch } from './houseStyleIntelligence';
+import { getMusicFamilyProfile } from './musicFamilyIntelligence';
 
 export type { MusicStyleProfile } from './musicStyleIntelligenceLegacy';
 
@@ -214,20 +215,22 @@ export function getMusicStyleProfile(family: string, genre: string, subgenre: st
   const exact = exactFor(family, genre, subgenre);
   const rules = matchingRules(family, genre, subgenre);
   const taxonomyPath = `${family} > ${genre} > ${subgenre}`;
+  const familyProfile = getMusicFamilyProfile(family);
   return {
     identity: sentences([
       `Professional taxonomy path: ${taxonomyPath}. ${subgenre} is a distinct musical vocabulary, not a cosmetic label`,
+      `FAMILY SONIC IDENTITY — ${family}: ${familyProfile.identity}`,
       exact?.identity,
       ...rules.map(rule => rule.identity),
       base.identity,
       `The documented instrumentation, rhythm, harmony, phrasing, form, cultural context, era and production conventions of ${subgenre} override generic ${genre} habits`
     ]),
-    instrumentation: sentences([exact?.instrumentation, ...rules.map(rule => rule.instrumentation), base.instrumentation, `Every sound must have an authentic ${subgenre} role, credible register, articulation and performance behavior`]),
-    rhythm: sentences([exact?.rhythm, ...rules.map(rule => rule.rhythm), base.rhythm, `The groove must identify ${subgenre} before melody or production effects are added`]),
-    harmony: sentences([exact?.harmony, ...rules.map(rule => rule.harmony), base.harmony, `Do not force generic pop harmony when ${subgenre} requires another modal, tonal, cyclical or texture-based system`]),
-    arrangement: sentences([exact?.arrangement, ...rules.map(rule => rule.arrangement), base.arrangement, `Develop ${subgenre} through authentic phrase lengths, transitions and energy behavior, never by repeating an unchanged loop to fill time`]),
-    production: sentences([exact?.production, ...rules.map(rule => rule.production), base.production, `The mix and master must preserve the era, acousticness, dynamics and spatial logic of ${subgenre}`]),
-    avoid: sentences([exact?.avoid, ...rules.map(rule => rule.avoid), base.avoid, `Do not substitute generic ${family}, generic ${genre}, pop, cinematic underscore or a neighboring subgenre for ${subgenre}`, 'Do not use culturally unrelated instruments, rhythms, tunings, accents or production cliches']),
+    instrumentation: sentences([`FAMILY PALETTE — ${family}: ${familyProfile.instrumentation}`, exact?.instrumentation, ...rules.map(rule => rule.instrumentation), base.instrumentation, `Every sound must have an authentic ${subgenre} role, credible register, articulation and performance behavior`]),
+    rhythm: sentences([`FAMILY RHYTHM — ${family}: ${familyProfile.rhythm}`, exact?.rhythm, ...rules.map(rule => rule.rhythm), base.rhythm, `The groove must identify ${subgenre} before melody or production effects are added`]),
+    harmony: sentences([`FAMILY HARMONY — ${family}: ${familyProfile.harmony}`, exact?.harmony, ...rules.map(rule => rule.harmony), base.harmony, `Do not force generic pop harmony when ${subgenre} requires another modal, tonal, cyclical or texture-based system`]),
+    arrangement: sentences([`FAMILY FORM — ${family}: ${familyProfile.arrangement}`, exact?.arrangement, ...rules.map(rule => rule.arrangement), base.arrangement, `Develop ${subgenre} through authentic phrase lengths, transitions and energy behavior, never by repeating an unchanged loop to fill time`]),
+    production: sentences([`FAMILY PRODUCTION — ${family}: ${familyProfile.production}`, exact?.production, ...rules.map(rule => rule.production), base.production, `The mix and master must preserve the era, acousticness, dynamics and spatial logic of ${subgenre}`]),
+    avoid: sentences([`FAMILY ANTI-DRIFT — ${family}: ${familyProfile.avoid}`, exact?.avoid, ...rules.map(rule => rule.avoid), base.avoid, `Do not substitute generic ${family}, generic ${genre}, pop, cinematic underscore or a neighboring subgenre for ${subgenre}`, 'Do not use culturally unrelated instruments, rhythms, tunings, accents or production cliches']),
     moods: moodList(family, genre, subgenre, exact, rules)
   };
 }

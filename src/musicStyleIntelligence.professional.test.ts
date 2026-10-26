@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 
 import { WORLD_MUSIC_GENRES } from './data/worldMusicGenres.ts';
+import { MUSIC_FAMILY_PROFILES, getMusicFamilyProfile } from './musicFamilyIntelligence.ts';
 import {
   getAtmospheresForSelection,
   getMusicStyleProfile,
@@ -35,6 +36,10 @@ const NON_ATMOSPHERE_LABELS = new Set([
   'melodic', 'breakbeat', 'west-coast', 'slow', 'fast', 'synthetic'
 ]);
 
+const taxonomyFamilyNames = WORLD_MUSIC_GENRES.map(item => item.family).sort();
+const familyProfileNames = Object.keys(MUSIC_FAMILY_PROFILES).sort();
+assert.deepEqual(familyProfileNames, taxonomyFamilyNames, 'every musical family must have exactly one dedicated family DNA contract');
+
 let familyCount = 0;
 let genreCount = 0;
 let subgenreCount = 0;
@@ -44,6 +49,10 @@ for (const family of WORLD_MUSIC_GENRES) {
   familyCount += 1;
   assert.ok(family.family.trim().length >= 3, `invalid family label: ${family.family}`);
   assert.ok(family.genres.length > 0, `family without genres: ${family.family}`);
+  const familyProfile = getMusicFamilyProfile(family.family);
+  for (const field of ['identity', 'instrumentation', 'rhythm', 'harmony', 'arrangement', 'production', 'avoid'] as const) {
+    assert.ok(familyProfile[field].length >= 80, `weak family ${field}: ${family.family}`);
+  }
 
   const genreNames = family.genres.map(item => item.name.toLocaleLowerCase('en-US'));
   assert.equal(new Set(genreNames).size, genreNames.length, `duplicate genres in family: ${family.family}`);
@@ -58,6 +67,13 @@ for (const family of WORLD_MUSIC_GENRES) {
     for (const subgenre of genre.subgenres) {
       subgenreCount += 1;
       const profile = getMusicStyleProfile(family.family, genre.name, subgenre);
+      assert.ok(profile.identity.includes(familyProfile.identity), `family identity missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
+      assert.ok(profile.instrumentation.includes(familyProfile.instrumentation), `family instrumentation missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
+      assert.ok(profile.rhythm.includes(familyProfile.rhythm), `family rhythm missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
+      assert.ok(profile.harmony.includes(familyProfile.harmony), `family harmony missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
+      assert.ok(profile.arrangement.includes(familyProfile.arrangement), `family arrangement missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
+      assert.ok(profile.production.includes(familyProfile.production), `family production missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
+      assert.ok(profile.avoid.includes(familyProfile.avoid), `family anti-drift missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
       const atmospheres = getAtmospheresForSelection(family.family, genre.name, subgenre);
       const audit = getMusicTaxonomyAudit(family.family, genre.name, subgenre);
 

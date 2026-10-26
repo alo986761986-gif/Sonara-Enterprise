@@ -70,6 +70,8 @@ console.log('[SONARA] Enforcing absolute selected-style precedence.');
 runCommand(node, ['scripts/activate-authoritative-style-precedence-v3.cjs']);
 console.log('[SONARA] Activating ACE-Step 1.5 XL-Turbo production routing.');
 runCommand(node, ['scripts/activate-ace-step-production.cjs']);
+console.log('[SONARA] Validating 25 musical-family DNA contracts.');
+run(['tsx', 'src/musicFamilyIntelligence.test.ts']);
 console.log('[SONARA] Validating professional music taxonomy.');
 run(['tsx', 'src/musicStyleIntelligence.professional.test.ts']);
 console.log('[SONARA] Validating canonical real family > genre > subgenre taxonomy v4.');
