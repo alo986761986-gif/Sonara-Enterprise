@@ -1,5 +1,6 @@
 import engineV13 from './sonara-engine-v13-electronic-taxonomy-lock.mjs';
-import { hierarchyAuthorityText, resolveMusicTaxonomyHierarchy } from '../src/musicTaxonomyHierarchy.ts';
+import taxonomyHierarchy from '../src/musicTaxonomyHierarchy.ts';
+const { hierarchyAuthorityText, resolveMusicTaxonomyHierarchy } = taxonomyHierarchy;
 
 function normalize(value) {
   return String(value || '')
