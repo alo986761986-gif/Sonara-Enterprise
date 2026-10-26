@@ -1,4 +1,5 @@
 import { getMusicStyleProfile } from './musicStyleIntelligence';
+import { hierarchyAuthorityText, resolveMusicTaxonomyHierarchy } from './musicTaxonomyHierarchy';
 
 export interface UniversalStyleCaptionInput {
   genreFamily: string;
@@ -24,10 +25,16 @@ function compact(value: string, maxLength: number): string {
 }
 
 export function buildUniversalStyleCaption({ genreFamily, genre, subgenre, mood }: UniversalStyleCaptionInput): string {
-  const family = clean(genreFamily, 72) || 'Music';
-  const genreName = clean(genre, 72) || 'Music';
-  const subgenreName = clean(subgenre, 84) || genreName;
-  const atmosphere = clean(mood, 48) || 'Authentic';
+  const resolved = resolveMusicTaxonomyHierarchy({
+    family: clean(genreFamily, 72),
+    genre: clean(genre, 72),
+    subgenre: clean(subgenre, 84),
+    atmosphere: clean(mood, 48)
+  });
+  const family = resolved.family;
+  const genreName = resolved.genre;
+  const subgenreName = resolved.subgenre;
+  const atmosphere = resolved.atmosphere;
   const profile = getMusicStyleProfile(family, genreName, subgenreName);
 
   const identity = compact(profile.identity, 145);
@@ -36,7 +43,8 @@ export function buildUniversalStyleCaption({ genreFamily, genre, subgenre, mood 
   const harmony = compact(profile.harmony, 70);
 
   return [
-    `${family} > ${genreName} > ${subgenreName}.`,
+    `${resolved.canonicalPath}.`,
+    hierarchyAuthorityText(resolved),
     identity,
     `Groove: ${rhythm}.`,
     `Palette: ${instrumentation}.`,
@@ -46,5 +54,5 @@ export function buildUniversalStyleCaption({ genreFamily, genre, subgenre, mood 
     .join(' ')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 470);
+    .slice(0, 760);
 }

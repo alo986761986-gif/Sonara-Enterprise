@@ -1,4 +1,5 @@
 import engineV13 from './sonara-engine-v13-electronic-taxonomy-lock.mjs';
+import { hierarchyAuthorityText, resolveMusicTaxonomyHierarchy } from '../src/musicTaxonomyHierarchy.ts';
 
 function normalize(value) {
   return String(value || '')
@@ -31,15 +32,21 @@ function vocalTag(body) {
 }
 
 export function universalCaption(body) {
-  const family = String(body?.genreFamily || body?.genre_family || 'Music').trim();
-  const genre = String(body?.genre || 'Music').trim();
-  const subgenre = String(body?.subgenre || genre).trim();
-  const mood = String(body?.mood || 'Authentic').trim();
+  const resolved = resolveMusicTaxonomyHierarchy({
+    family: body?.genreFamily || body?.genre_family,
+    genre: body?.genre,
+    subgenre: body?.subgenre,
+    atmosphere: body?.mood || body?.atmosphere
+  });
+  const family = resolved.family;
+  const genre = resolved.genre;
+  const subgenre = resolved.subgenre;
+  const mood = resolved.atmosphere;
   const professionalPrompt = String(body?.prompt || '').replace(/\s+/g, ' ').trim();
   const supplied = String(body?.styleCaption || '').replace(/\s+/g, ' ').trim();
   const fallbackIdentity = `${family} > ${genre} > ${subgenre}. Authentic ${subgenre} identity. Atmosphere: ${mood}.`;
   const detailedIdentity = professionalPrompt || supplied || fallbackIdentity;
-  const authority = `AUTHORITATIVE STYLE LOCK: ${family} > ${genre} > ${subgenre}. The selected subgenre ${subgenre} is mandatory and must never be replaced by ${genre}, House, Melodic House, generic pop, cinematic underscore or any neighboring style.`;
+  const authority = `AUTHORITATIVE STYLE LOCK: ${resolved.canonicalPath}. ${hierarchyAuthorityText(resolved)} The selected subgenre ${subgenre} is mandatory and must never be replaced by generic ${genre}, generic pop, cinematic underscore or any neighboring style.`;
   const voice = vocalTag(body);
   const opening = `Begin immediately with an unmistakable ${subgenre} instrument, rhythm, motif, vocal phrase or defining texture in bar 1; ${subgenre} identity must be audible by 8 seconds; no empty or generic extended intro.`;
   const fidelity = `Preserve the supplied ${subgenre} instrumentation, rhythm, harmony, phrasing, arrangement, cultural context and production instructions. Every major musical decision must remain recognizably ${subgenre}.`;
@@ -57,18 +64,36 @@ function universalStructureLyrics(body) {
 }
 
 export function buildUniversalLockedBody(body = {}) {
-  if (isElectronicFamily(body)) return body;
   if (!String(body?.genre || '').trim() || !String(body?.subgenre || '').trim()) return body;
+
+  const resolved = resolveMusicTaxonomyHierarchy({
+    family: body?.genreFamily || body?.genre_family,
+    genre: body?.genre,
+    subgenre: body?.subgenre,
+    atmosphere: body?.mood || body?.atmosphere
+  });
+  const canonical = {
+    ...body,
+    genreFamily: resolved.family,
+    genre_family: resolved.family,
+    genre: resolved.genre,
+    subgenre: resolved.subgenre,
+    mood: resolved.atmosphere,
+    atmosphere: resolved.atmosphere,
+    sonaraCanonicalTaxonomyPath: resolved.canonicalPath,
+    sonaraTaxonomyCorrections: resolved.corrections
+  };
+  if (isElectronicFamily(canonical)) return canonical;
 
   const requestedStyleInfluence = clamp(body.styleInfluence ?? body.style_influence, 50, 0, 100);
   const requestedWeirdness = clamp(body.weirdness, 50, 0, 100);
   return {
-    ...body,
-    prompt: universalCaption(body),
-    lyrics: universalStructureLyrics(body),
+    ...canonical,
+    prompt: universalCaption(canonical),
+    lyrics: universalStructureLyrics(canonical),
     styleInfluence: requestedStyleInfluence,
     weirdness: requestedWeirdness,
-    sonaraGenreLock: 'universal-v14-taxonomy720-authoritative-prompt'
+    sonaraGenreLock: 'universal-v15-hierarchy-authoritative-prompt'
   };
 }
 
@@ -76,14 +101,13 @@ async function withUniversalLock(request) {
   let body;
   try { body = await request.clone().json(); } catch { return request; }
 
-  // Preserve all previously validated House/Techno/Electronic locks exactly as they are.
-  if (isElectronicFamily(body)) return request;
+  // Canonicalize the hierarchy for every family first. Electronic-specific locks still run downstream.
   const locked = buildUniversalLockedBody(body);
   if (locked === body) return request;
 
   const headers = new Headers(request.headers);
   headers.delete('content-length');
-  headers.set('x-sonara-genre-lock', 'universal-v14-taxonomy720-authoritative-prompt');
+  headers.set('x-sonara-genre-lock', 'universal-v15-hierarchy-authoritative-prompt');
   return new Request(request.url, {
     method: request.method,
     headers,
@@ -100,11 +124,12 @@ async function decorateHealth(request, response) {
     const data = await response.clone().json();
     return new Response(JSON.stringify({
       ...data,
-      universalGenreLock: 'v14-taxonomy720-authoritative-prompt',
+      universalGenreLock: 'v15-hierarchy-authoritative-prompt',
       universalTaxonomyFamilies: 25,
       universalTaxonomyGenres: 86,
       universalTaxonomySubgenres: 720,
       universalAtmosphereAware: true,
+      universalHierarchyCanonicalization: true,
       universalIntroIdentitySeconds: 8,
       universalProfessionalPromptPreserved: true,
       universalCreativeControlsPreserved: true,

@@ -1,4 +1,5 @@
 import { getMusicStyleProfile } from './musicStyleIntelligence';
+import { hierarchyAuthorityText, resolveMusicTaxonomyHierarchy } from './musicTaxonomyHierarchy';
 
 export type VocalMode = 'instrumental' | 'male' | 'female' | 'duet';
 
@@ -190,10 +191,16 @@ const PROFESSIONAL_VARIANTS = [
 ];
 
 export function buildRandomCreativeBrief(input: RandomCreativeBriefInput): string {
-  const family = cleanText(input.genreFamily, 'Music', 120);
-  const genre = cleanText(input.genre, 'Music', 120);
-  const subgenre = cleanText(input.subgenre, genre, 120);
-  const mood = cleanText(input.mood, 'Authentic', 80);
+  const resolvedTaxonomy = resolveMusicTaxonomyHierarchy({
+    family: input.genreFamily,
+    genre: input.genre,
+    subgenre: input.subgenre,
+    atmosphere: input.mood
+  });
+  const family = resolvedTaxonomy.family;
+  const genre = resolvedTaxonomy.genre;
+  const subgenre = resolvedTaxonomy.subgenre;
+  const mood = resolvedTaxonomy.atmosphere;
   const key = cleanText(input.key, 'A Minor', 40);
   const title = cleanText(input.title, `Sonara ${subgenre} Track`, 160);
   const bpm = clampInteger(input.bpm, 124, 40, 220);
@@ -245,10 +252,16 @@ function finalPromptWithinBudget(sections: string[], userIntent: string): string
 }
 
 export function buildGenerationPrompt(input: GenerationPromptInput): string {
-  const genreFamily = cleanText(input.genreFamily, 'Music', 120);
-  const genre = cleanText(input.genre, 'Music', 120);
-  const subgenre = cleanText(input.subgenre, genre, 120);
-  const mood = cleanText(input.mood, 'Authentic', 80);
+  const resolvedTaxonomy = resolveMusicTaxonomyHierarchy({
+    family: input.genreFamily,
+    genre: input.genre,
+    subgenre: input.subgenre,
+    atmosphere: input.mood
+  });
+  const genreFamily = resolvedTaxonomy.family;
+  const genre = resolvedTaxonomy.genre;
+  const subgenre = resolvedTaxonomy.subgenre;
+  const mood = resolvedTaxonomy.atmosphere;
   const key = cleanText(input.key, 'A Minor', 40);
   const title = cleanText(input.title, `Sonara ${subgenre} Track`, 160);
   const bpm = clampInteger(input.bpm, 124, 40, 220);
@@ -287,11 +300,11 @@ export function buildGenerationPrompt(input: GenerationPromptInput): string {
     : '- No additional exclusions were stated by the creator.';
 
   const sections = [
-    `EXECUTION PRIORITY — NON-NEGOTIABLE:\n1. The creator brief is the primary artistic source of truth for instruments, sections, energy, texture, era, performance behavior, transitions and exclusions.\n2. The interface controls remain exact locks for Family, Genre, Subgenre, Atmosphere, BPM, key, duration and vocal mode.\n3. SONARA opening timing is also a hard lock: creator-specified sections remain mandatory, but the intro may not expand into a long prelude or consume a large fraction of the track.\n4. Curated style DNA may fill only details the creator did not specify. It must never replace a specific creator instruction with a generic genre default.\n5. Interpret the creator's language directly. Italian or any other non-English wording is semantically binding, not decorative.\n6. Produce an original composition and performance; do not imitate or reproduce any identifiable existing recording.`,
+    `EXECUTION PRIORITY — NON-NEGOTIABLE:\n1. The selected musical hierarchy is the primary artistic authority: Family > Genre > Subgenre > Atmosphere. It cannot be overridden by free text, personalization, defaults, previous prompts or neighboring styles.\n2. The creator brief controls compatible instruments, sections, energy, texture, era, performance behavior, transitions and exclusions only inside the selected taxonomy.\n3. BPM, key, duration and vocal mode remain exact interface locks.\n4. SONARA opening timing is a hard lock: creator-specified sections remain mandatory only when compatible with the selected musical DNA, and the intro may not expand into a long prelude.\n5. Curated style DNA fills unspecified details and rejects creator requests that would cause family, genre or subgenre drift.\n6. Interpret the creator's language directly, but taxonomy labels remain authoritative.\n7. Produce an original composition and performance; do not imitate or reproduce any identifiable existing recording.`,
     `CREATOR BRIEF — VERBATIM:\n<<<\n${userIntent}\n>>>`,
-    `CREATOR DIRECTIVE CONTRACT:\nPreserve every explicit instrument, sound source, musical action, section, dynamic change, emotional contrast, production treatment and exclusion stated above. Concrete creator details take precedence over generic defaults except for the global opening-timing lock. Do not silently omit, weaken, rename or substitute them. Where the brief leaves a detail unspecified, complete it using authentic ${subgenre} practice.`,
+    `CREATOR DIRECTIVE CONTRACT:\nPreserve every compatible instrument, sound source, musical action, section, dynamic change, emotional contrast, production treatment and exclusion stated above. A creator detail must be ignored or translated into the nearest authentic equivalent whenever it conflicts with ${genreFamily} > ${genre} > ${subgenre} or would introduce a neighboring genre. Where the brief leaves a detail unspecified, complete it using authentic ${subgenre} practice.`,
     `EXPLICIT CREATOR EXCLUSIONS:\n${explicitExclusions}`,
-    `AUTHORITATIVE MUSICAL IDENTITY:\nTitle: ${title}\nFamily: ${genreFamily}\nGenre: ${genre}\nSubgenre: ${subgenre}\nAtmosphere: ${mood}\nPriority rule: the selected subgenre ${subgenre} overrides generic family or genre conventions whenever they conflict, while the creator brief overrides generic style-fill details.`,
+    `AUTHORITATIVE MUSICAL IDENTITY:\nTitle: ${title}\nCanonical path: ${resolvedTaxonomy.canonicalPath}\nFamily: ${genreFamily}\nGenre: ${genre}\nSubgenre: ${subgenre}\nAtmosphere: ${mood}\n${hierarchyAuthorityText(resolvedTaxonomy)}\nPriority rule: Family constrains Genre; Genre constrains Subgenre; Subgenre defines the exact musical DNA; Atmosphere modifies only emotional presentation inside that DNA. The creator brief never overrides this hierarchy.`,
     `CREATIVE CONTROLS:\n${creativeControlDirection(weirdness, styleInfluence, subgenre)}`,
     `SUBGENRE STYLE DNA — FILL UNSPECIFIED DETAILS ONLY:\n${compactProfileText(profile.identity, 720)}`,
     `TECHNICAL PARAMETERS:\nTempo: exactly ${bpm} BPM\nKey: exactly ${key}\nDuration: approximately ${durationSec} seconds, ending on a complete musical bar\nTime signature: use the meter authentic to ${subgenre}; otherwise use 4/4\nDo not drift from tempo or key. Any expressive timing must occur inside the pulse, not by changing the requested BPM.`,

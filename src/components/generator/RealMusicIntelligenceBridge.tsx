@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import type { VocalMode } from '../../generationPrompt';
 import { getMusicStyleProfile } from '../../musicStyleIntelligence';
+import { resolveMusicTaxonomyHierarchy } from '../../musicTaxonomyHierarchy';
 
 function setNativeValue(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) {
   const prototype = element instanceof HTMLTextAreaElement
@@ -68,6 +69,12 @@ function readLiveContext(): LiveContext {
   const uiBpm = Math.max(40, Math.min(220, Math.round(Number(bpmInput?.value || 124))));
   const promptBpm = extractPromptBpm(prompt);
   const authoritativeBpm = promptBpm ?? uiBpm;
+  const resolvedTaxonomy = resolveMusicTaxonomyHierarchy({
+    family: valueAt(0, 'Electronic / Dance'),
+    genre: valueAt(1, 'House'),
+    subgenre: valueAt(2, valueAt(1, 'House')),
+    atmosphere: valueAt(3, 'Authentic')
+  });
 
   if (promptBpm && bpmInput && Number(bpmInput.value) !== promptBpm) {
     setNativeValue(bpmInput, String(promptBpm));
@@ -75,10 +82,10 @@ function readLiveContext(): LiveContext {
 
   return {
     prompt,
-    genreFamily: valueAt(0, 'Electronic / Dance'),
-    genre: valueAt(1, 'House'),
-    subgenre: valueAt(2, valueAt(1, 'House')),
-    mood: valueAt(3, 'Authentic'),
+    genreFamily: resolvedTaxonomy.family,
+    genre: resolvedTaxonomy.genre,
+    subgenre: resolvedTaxonomy.subgenre,
+    mood: resolvedTaxonomy.atmosphere,
     keySignature: valueAt(4, 'A Minor'),
     bpm: authoritativeBpm,
     durationSec: Math.max(30, Math.min(480, Math.round(Number(valueAt(5, '30')) || 30))),
@@ -100,7 +107,7 @@ function taxonomyExecutionContract(context: LiveContext, creatorIntent: string) 
     `Genre: ${context.genre}`,
     `Subgenre: ${context.subgenre}`,
     `Atmosphere: ${context.mood}`,
-    `HARD PRIORITY: ${context.genreFamily} > ${context.genre} > ${context.subgenre}. These selected interface values define the musical identity and cannot be overridden by free text, personalization, previous prompts, defaults or neighboring styles.`,
+    `HARD PRIORITY: ${context.genreFamily} > ${context.genre} > ${context.subgenre} > ${context.mood}. Family constrains Genre; Genre constrains Subgenre; Subgenre defines the exact musical DNA; Atmosphere modifies only emotion and production color inside that DNA. Free text, personalization, previous prompts and neighboring styles cannot override any higher level.`,
     `${context.subgenre} must be unmistakable in groove, drums, bass language, instrumentation, harmony, melody, arrangement, transitions and production. Never collapse it into generic ${context.genre}, generic EDM, generic pop or another subgenre.`,
     `ATMOSPHERE ROLE: ${context.mood} changes emotion, energy, tension, space, density and production color only INSIDE ${context.subgenre}. It must never change the genre or subgenre.`,
     creatorIntent
@@ -162,7 +169,7 @@ export default function RealMusicIntelligenceBridge() {
             const contract = taxonomyExecutionContract(executionContext, creatorIntent);
             const headers = new Headers(baseRequest.headers);
             headers.set('content-type', 'application/json');
-            headers.set('x-sonara-musical-dna', 'taxonomy-first-v2');
+            headers.set('x-sonara-musical-dna', 'hierarchy-lock-v3');
             headers.set('x-sonara-family', live.genreFamily);
             headers.set('x-sonara-genre', live.genre);
             headers.set('x-sonara-subgenre', live.subgenre);
@@ -223,10 +230,10 @@ export default function RealMusicIntelligenceBridge() {
               sonaraCreatorStylePriority: false,
               promptGenreAuthoritative: true,
               sonaraRealPrompt: true,
-              sonaraRealPromptVersion: 'taxonomy-first-v2',
+              sonaraRealPromptVersion: 'hierarchy-lock-v3',
               sonaraLyricsAuthoritative: true
             };
-            headers.set('x-sonara-real-prompt', 'taxonomy-first-v2');
+            headers.set('x-sonara-real-prompt', 'hierarchy-lock-v3');
             headers.set('x-sonara-requested-bpm', String(authoritativeBpm));
             return nativeFetch(new Request(baseRequest.url, {
               method: 'POST',

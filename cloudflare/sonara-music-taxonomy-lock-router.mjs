@@ -1,10 +1,11 @@
 import runtime, { SonaraJobState } from './sonara-yue-router.mjs';
 import { getMusicStyleProfile, getMusicTaxonomyAudit } from '../src/musicStyleIntelligence.ts';
+import { hierarchyAuthorityText, resolveMusicTaxonomyHierarchy } from '../src/musicTaxonomyHierarchy.ts';
 
 export { SonaraJobState };
 
-const TAXONOMY_LOCK_ID = 'sonara-musical-dna-v4-clean-realism';
-const PROMPT_VERSION = 'sonara-clean-ui-hidden-dna-v4';
+const TAXONOMY_LOCK_ID = 'sonara-musical-dna-v5-hierarchy-lock';
+const PROMPT_VERSION = 'sonara-clean-ui-hidden-dna-v5-hierarchy';
 const REALISM_VERSION = 'sonara-human-realism-v1';
 const MAX_CREATOR_CHARS = 2400;
 const MAX_CANONICAL_PROMPT_CHARS = 9800;
@@ -201,11 +202,12 @@ function exactRequestedBpm(body = {}) {
 }
 
 function selectedMusicalDna(body = {}) {
-  const family = clean(body.sonaraSelectedFamily || body.genreFamily || body.genre_family, 'Music');
-  const genre = clean(body.sonaraSelectedGenre || body.genre, 'Music');
-  const subgenre = clean(body.sonaraSelectedSubgenre || body.subgenre, genre);
-  const atmosphere = clean(body.sonaraSelectedMood || body.mood || body.atmosphere, 'Authentic');
-  return { family, genre, subgenre, atmosphere };
+  return resolveMusicTaxonomyHierarchy({
+    family: body.sonaraSelectedFamily || body.genreFamily || body.genre_family,
+    genre: body.sonaraSelectedGenre || body.genre,
+    subgenre: body.sonaraSelectedSubgenre || body.subgenre,
+    atmosphere: body.sonaraSelectedMood || body.mood || body.atmosphere
+  });
 }
 
 function originalCreatorBrief(body = {}) {
@@ -248,7 +250,9 @@ function canonicalTaxonomyPrompt(body = {}) {
   const sections = [
     `SONARA MUSICAL DNA ${TAXONOMY_LOCK_ID}. THIS HIDDEN BACKEND CONTRACT IS AUTHORITATIVE; THE SHORT UI PROMPT IS ONLY A CLEAN CREATOR VIEW.`,
     `PRIMARY IDENTITY: FAMILY = ${family}; GENRE = ${genre}; SUBGENRE = ${subgenre}; ATMOSPHERE = ${atmosphere}.`,
-    `HARD STYLE ORDER: ${family} > ${genre} > ${subgenre}. The exact subgenre ${subgenre} is non-negotiable and must be immediately recognizable in groove, drum language, bass behavior, instrumentation, harmony, melody, arrangement, transitions, sound design, mix and mastering character.`,
+    `CANONICAL HIERARCHY: ${family} > ${genre} > ${subgenre} > ${atmosphere}.`,
+    hierarchyAuthorityText(selectedMusicalDna(body)),
+    `HARD STYLE ORDER: the exact subgenre ${subgenre} is non-negotiable and must be immediately recognizable in groove, drum language, bass behavior, instrumentation, harmony, melody, arrangement, transitions, sound design, mix and mastering character. Never borrow defining grammar from another family or sibling genre.`,
     `AUTHENTIC STYLE IDENTITY: ${profile.identity}`,
     `AUTHENTIC INSTRUMENTATION: ${profile.instrumentation}`,
     `RHYTHM/GROOVE DNA: ${profile.rhythm}`,
@@ -257,7 +261,7 @@ function canonicalTaxonomyPrompt(body = {}) {
     `PRODUCTION DNA: ${profile.production}`,
     `ANTI-DRIFT: ${profile.avoid}`,
     `STYLE AUDIT: ${audit.fingerprint}; specificity ${audit.specificityScore}/100; exactProfile=${audit.exactProfile}.`,
-    `ATMOSPHERE LOCK: ${atmosphere} changes emotion, energy, density, brightness/darkness, tension, space and performance character INSIDE ${subgenre}. Atmosphere must never replace or weaken the selected genre/subgenre.`,
+    `ATMOSPHERE LOCK: ${atmosphere} is a subordinate modifier chosen from this subgenre's compatible atmosphere set. It changes emotion, energy, density, brightness/darkness, tension, space and performance character INSIDE ${subgenre}; it must never replace, hybridize or weaken ${family} > ${genre} > ${subgenre}.`,
     instrumentRealism,
     vocalRealism,
     'WEIRDNESS RULE: creativity is allowed only inside the selected musical DNA. STYLE INFLUENCE RULE: it changes the intensity of authentic subgenre conventions, never permission to leave the taxonomy.',
@@ -294,6 +298,9 @@ export async function lockMusicTaxonomyRequest(request) {
     sonaraSelectedGenre: dna.genre,
     sonaraSelectedSubgenre: dna.subgenre,
     sonaraSelectedMood: dna.atmosphere,
+    sonaraCanonicalTaxonomyPath: dna.canonicalPath,
+    sonaraTaxonomyCorrections: dna.corrections,
+    sonaraCompatibleAtmospheres: dna.atmosphereOptions,
     bpm,
     requestedBpm: bpm,
     requested_bpm: bpm,
