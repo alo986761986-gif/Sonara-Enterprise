@@ -2,6 +2,7 @@ import { getMusicStyleProfile } from './musicStyleIntelligence';
 import { hierarchyAuthorityText, resolveMusicTaxonomyHierarchy } from './musicTaxonomyHierarchy';
 import { getMusicFamilyProfile } from './musicFamilyIntelligence';
 import { getMusicGenreProfile } from './musicGenreIntelligence';
+import { getMusicSubgenreProfile } from './musicSubgenreIntelligence';
 
 export type VocalMode = 'instrumental' | 'male' | 'female' | 'duet';
 
@@ -70,11 +71,11 @@ function creativeControlDirection(weirdness: number, styleInfluence: number, sub
         ? 'Use adventurous structure, timbre, transitions and melodic decisions while remaining musically intentional.'
         : 'Push into highly unconventional but still deliberate musical ideas; avoid random noise, incoherence or technical failure.';
   const styleDirection = styleInfluence <= 25
-    ? `Express ${subgenre} with restrained signature markers, but remain fully inside the selected Family > Genre > Subgenre hierarchy. Never cross into another musical family or neighboring genre.`
+    ? `Express ${subgenre} with restrained signature markers, but remain fully inside the selected Family > Genre > Subgenre hierarchy. Never cross into another musical family, neighboring genre or sibling subgenre.`
     : styleInfluence <= 60
-      ? `Use balanced ${subgenre} specificity while keeping the selected family, genre and subgenre exact. Cross-family and cross-genre interpretation is forbidden. The selected genre must remain clearly audible even when Style Influence is low.`
+      ? `Use balanced ${subgenre} specificity while keeping the selected family, genre and subgenre exact. Cross-family, cross-genre and cross-subgenre interpretation is forbidden. The selected genre and exact subgenre must remain clearly audible even when Style Influence is low.`
       : styleInfluence <= 85
-        ? `Follow ${subgenre} conventions strongly in groove, instrumentation, harmony, arrangement and production while preserving the selected family boundary.`
+        ? `Follow ${subgenre} conventions strongly in groove, instrumentation, harmony, arrangement and production while preserving the selected family boundary and exact subgenre identity.`
         : `Apply maximum ${subgenre} fidelity: every major musical and production decision must reinforce the selected family, genre and subgenre.`;
 
   return `Weirdness: ${weirdness}/100. ${weirdnessDirection}\nStyle Influence: ${styleInfluence}/100. ${styleDirection}`;
@@ -273,6 +274,7 @@ export function buildGenerationPrompt(input: GenerationPromptInput): string {
   const profile = getMusicStyleProfile(genreFamily, genre, subgenre);
   const familyProfile = getMusicFamilyProfile(genreFamily);
   const genreProfile = getMusicGenreProfile(genreFamily, genre);
+  const subgenreProfile = getMusicSubgenreProfile(genreFamily, genre, subgenre);
   const fallbackBrief = buildRandomCreativeBrief({
     ...input,
     genreFamily,
@@ -306,9 +308,9 @@ export function buildGenerationPrompt(input: GenerationPromptInput): string {
   const sections = [
     `EXECUTION PRIORITY — NON-NEGOTIABLE:\n1. The selected musical hierarchy is the primary artistic authority: Family > Genre > Subgenre > Atmosphere. It cannot be overridden by free text, personalization, defaults, previous prompts or neighboring styles.\n2. The creator brief controls compatible instruments, sections, energy, texture, era, performance behavior, transitions and exclusions only inside the selected taxonomy.\n3. BPM, key, duration and vocal mode remain exact interface locks.\n4. SONARA opening timing is a hard lock: creator-specified sections remain mandatory only when compatible with the selected musical DNA, and the intro may not expand into a long prelude.\n5. Curated style DNA fills unspecified details and rejects creator requests that would cause family, genre or subgenre drift.\n6. Interpret the creator's language directly, but taxonomy labels remain authoritative.\n7. Produce an original composition and performance; do not imitate or reproduce any identifiable existing recording.`,
     `CREATOR BRIEF — VERBATIM:\n<<<\n${userIntent}\n>>>`,
-    `CREATOR DIRECTIVE CONTRACT:\nPreserve every compatible instrument, sound source, musical action, section, dynamic change, emotional contrast, production treatment and exclusion stated above. A creator detail must be ignored or translated into the nearest authentic equivalent whenever it conflicts with ${genreFamily} > ${genre} > ${subgenre} or would introduce a neighboring genre. Where the brief leaves a detail unspecified, complete it using authentic ${subgenre} practice.`,
+    `CREATOR DIRECTIVE CONTRACT:\nPreserve every compatible instrument, sound source, musical action, section, dynamic change, emotional contrast, production treatment and exclusion stated above. A creator detail must be ignored or translated into the nearest authentic equivalent whenever it conflicts with ${genreFamily} > ${genre} > ${subgenre} or would introduce a neighboring genre or sibling subgenre. Where the brief leaves a detail unspecified, complete it using authentic ${subgenre} practice.`,
     `EXPLICIT CREATOR EXCLUSIONS:\n${explicitExclusions}`,
-    `AUTHORITATIVE MUSICAL IDENTITY:\nTitle: ${title}\nCanonical path: ${resolvedTaxonomy.canonicalPath}\nFamily: ${genreFamily}\nGenre: ${genre}\nSubgenre: ${subgenre}\nAtmosphere: ${mood}\n${hierarchyAuthorityText(resolvedTaxonomy)}\nFamily execution rule: ${familyProfile.rhythm} ${familyProfile.instrumentation}\nGenre execution rule: ${genreProfile.rhythm} ${genreProfile.instrumentation} ${genreProfile.avoid}\nPriority rule: Family constrains Genre; Genre constrains Subgenre; Subgenre defines the exact musical DNA; Atmosphere modifies only emotional presentation inside that DNA. The creator brief never overrides this hierarchy.`,
+    `AUTHORITATIVE MUSICAL IDENTITY:\nTitle: ${title}\nCanonical path: ${resolvedTaxonomy.canonicalPath}\nFamily: ${genreFamily}\nGenre: ${genre}\nSubgenre: ${subgenre}\nAtmosphere: ${mood}\n${hierarchyAuthorityText(resolvedTaxonomy)}\nSubgenre execution rule: ${subgenreProfile.rhythm} ${subgenreProfile.instrumentation} ${subgenreProfile.avoid}\nGenre execution rule: ${genreProfile.rhythm} ${genreProfile.instrumentation} ${genreProfile.avoid}\nFamily execution rule: ${familyProfile.rhythm} ${familyProfile.instrumentation}\nPriority rule: Family constrains Genre; Genre constrains Subgenre; Subgenre defines the exact musical DNA; Atmosphere modifies only emotional presentation inside that DNA. The creator brief never overrides this hierarchy.`,
     `CREATIVE CONTROLS:\n${creativeControlDirection(weirdness, styleInfluence, subgenre)}`,
     `SUBGENRE STYLE DNA — FILL UNSPECIFIED DETAILS ONLY:\n${compactProfileText(profile.identity, 720)}`,
     `TECHNICAL PARAMETERS:\nTempo: exactly ${bpm} BPM\nKey: exactly ${key}\nDuration: approximately ${durationSec} seconds, ending on a complete musical bar\nTime signature: use the meter authentic to ${subgenre}; otherwise use 4/4\nDo not drift from tempo or key. Any expressive timing must occur inside the pulse, not by changing the requested BPM.`,

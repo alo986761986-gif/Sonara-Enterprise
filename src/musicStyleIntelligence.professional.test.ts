@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { WORLD_MUSIC_GENRES } from './data/worldMusicGenres.ts';
 import { MUSIC_FAMILY_PROFILES, getMusicFamilyProfile } from './musicFamilyIntelligence.ts';
 import { getMusicGenreProfile } from './musicGenreIntelligence.ts';
+import { getMusicSubgenreProfile } from './musicSubgenreIntelligence.ts';
 import {
   getAtmospheresForSelection,
   getMusicStyleProfile,
@@ -72,7 +73,19 @@ for (const family of WORLD_MUSIC_GENRES) {
     const siblingFingerprints = new Set<string>();
     for (const subgenre of genre.subgenres) {
       subgenreCount += 1;
+      const subgenreProfile = getMusicSubgenreProfile(family.family, genre.name, subgenre);
+      assert.equal(subgenreProfile.subgenre, subgenre, `wrong Subgenre DNA identity: ${family.family} / ${genre.name} / ${subgenre}`);
+      for (const field of ['identity', 'instrumentation', 'rhythm', 'harmony', 'arrangement', 'production', 'avoid'] as const) {
+        assert.ok(subgenreProfile[field].length >= 140, `weak Subgenre DNA ${field}: ${family.family} / ${genre.name} / ${subgenre}`);
+      }
       const profile = getMusicStyleProfile(family.family, genre.name, subgenre);
+      assert.ok(profile.identity.includes(subgenreProfile.identity), `subgenre identity missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
+      assert.ok(profile.instrumentation.includes(subgenreProfile.instrumentation), `subgenre instrumentation missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
+      assert.ok(profile.rhythm.includes(subgenreProfile.rhythm), `subgenre rhythm missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
+      assert.ok(profile.harmony.includes(subgenreProfile.harmony), `subgenre harmony missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
+      assert.ok(profile.arrangement.includes(subgenreProfile.arrangement), `subgenre arrangement missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
+      assert.ok(profile.production.includes(subgenreProfile.production), `subgenre production missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
+      assert.ok(profile.avoid.includes(subgenreProfile.avoid), `subgenre anti-drift missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
       assert.ok(profile.identity.includes(genreProfile.identity), `genre identity missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
       assert.ok(profile.instrumentation.includes(genreProfile.instrumentation), `genre instrumentation missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
       assert.ok(profile.rhythm.includes(genreProfile.rhythm), `genre rhythm missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);

@@ -2,6 +2,7 @@ import { WORLD_MUSIC_GENRES, type MusicGenre, type MusicGenreFamily } from './da
 import { getAtmospheresForSelection } from './musicStyleIntelligence';
 import { getMusicFamilyProfile } from './musicFamilyIntelligence';
 import { getMusicGenreProfile } from './musicGenreIntelligence';
+import { getMusicSubgenreProfile } from './musicSubgenreIntelligence';
 
 export interface MusicTaxonomyHierarchyInput {
   family?: unknown;
@@ -120,6 +121,7 @@ export function resolveMusicTaxonomyHierarchy(input: MusicTaxonomyHierarchyInput
 export function hierarchyAuthorityText(selection: ResolvedMusicTaxonomyHierarchy): string {
   const familyProfile = getMusicFamilyProfile(selection.family);
   const genreProfile = getMusicGenreProfile(selection.family, selection.genre);
+  const subgenreProfile = getMusicSubgenreProfile(selection.family, selection.genre, selection.subgenre);
   return [
     `FAMILY BOUNDARY: ${selection.family} is the outer musical world. Do not borrow defining grammar from another family.`,
     `FAMILY SONIC IDENTITY: ${familyProfile.identity}`,
@@ -128,6 +130,8 @@ export function hierarchyAuthorityText(selection: ResolvedMusicTaxonomyHierarchy
     `GENRE SONIC IDENTITY: ${genreProfile.identity}`,
     `GENRE ANTI-DRIFT: ${genreProfile.avoid}`,
     `SUBGENRE DNA: ${selection.subgenre} is the most specific style identity and must dominate groove, drums, bass behavior, instrumentation, harmony, melody, phrasing, arrangement and production.`,
+    `SUBGENRE SONIC IDENTITY: ${subgenreProfile.identity}`,
+    `SUBGENRE ANTI-DRIFT: ${subgenreProfile.avoid}`,
     `ATMOSPHERE MODIFIER: ${selection.atmosphere} may change emotion, tension, brightness, density, space and performance intensity only inside ${selection.subgenre}; it must never change family, genre or subgenre.`
   ].join(' ');
 }
