@@ -123,3 +123,9 @@ export function hierarchyAuthorityText(selection: ResolvedMusicTaxonomyHierarchy
     `ATMOSPHERE MODIFIER: ${selection.atmosphere} may change emotion, tension, brightness, density, space and performance intensity only inside ${selection.subgenre}; it must never change family, genre or subgenre.`
   ].join(' ');
 }
+
+
+export default {
+  resolveMusicTaxonomyHierarchy,
+  hierarchyAuthorityText
+};
