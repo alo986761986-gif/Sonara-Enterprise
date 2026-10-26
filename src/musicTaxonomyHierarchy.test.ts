@@ -3,12 +3,12 @@ import { resolveMusicTaxonomyHierarchy } from './musicTaxonomyHierarchy';
 
 const bossa = resolveMusicTaxonomyHierarchy({
   family: 'Latin America',
-  genre: 'Brazilian',
+  genre: 'Bossa Nova',
   subgenre: 'Bossa Nova',
   atmosphere: 'Intimate'
 });
 assert.equal(bossa.family, 'Latin America');
-assert.equal(bossa.genre, 'Brazilian');
+assert.equal(bossa.genre, 'Bossa Nova');
 assert.equal(bossa.subgenre, 'Bossa Nova');
 assert.equal(bossa.atmosphere, 'Intimate');
 
