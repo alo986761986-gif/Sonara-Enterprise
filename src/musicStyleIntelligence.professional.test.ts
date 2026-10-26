@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 import { WORLD_MUSIC_GENRES } from './data/worldMusicGenres.ts';
 import { MUSIC_FAMILY_PROFILES, getMusicFamilyProfile } from './musicFamilyIntelligence.ts';
+import { getMusicGenreProfile } from './musicGenreIntelligence.ts';
 import {
   getAtmospheresForSelection,
   getMusicStyleProfile,
@@ -59,6 +60,11 @@ for (const family of WORLD_MUSIC_GENRES) {
 
   for (const genre of family.genres) {
     genreCount += 1;
+    const genreProfile = getMusicGenreProfile(family.family, genre.name);
+    assert.equal(genreProfile.genre, genre.name, `wrong Genre DNA identity: ${family.family} / ${genre.name}`);
+    for (const field of ['identity', 'instrumentation', 'rhythm', 'harmony', 'arrangement', 'production', 'avoid'] as const) {
+      assert.ok(genreProfile[field].length >= 120, `weak Genre DNA ${field}: ${family.family} / ${genre.name}`);
+    }
     assert.ok(!LEGACY_CONTAINER_GENRES.has(genre.name), `legacy container leaked into genre menu: ${family.family} / ${genre.name}`);
     assert.ok(hasCuratedGenreIdentity(genre.name), `missing professional genre blueprint: ${family.family} / ${genre.name}`);
     assert.ok(genre.subgenres.length > 0, `genre without subgenres: ${family.family} / ${genre.name}`);
@@ -67,6 +73,13 @@ for (const family of WORLD_MUSIC_GENRES) {
     for (const subgenre of genre.subgenres) {
       subgenreCount += 1;
       const profile = getMusicStyleProfile(family.family, genre.name, subgenre);
+      assert.ok(profile.identity.includes(genreProfile.identity), `genre identity missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
+      assert.ok(profile.instrumentation.includes(genreProfile.instrumentation), `genre instrumentation missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
+      assert.ok(profile.rhythm.includes(genreProfile.rhythm), `genre rhythm missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
+      assert.ok(profile.harmony.includes(genreProfile.harmony), `genre harmony missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
+      assert.ok(profile.arrangement.includes(genreProfile.arrangement), `genre arrangement missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
+      assert.ok(profile.production.includes(genreProfile.production), `genre production missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
+      assert.ok(profile.avoid.includes(genreProfile.avoid), `genre anti-drift missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
       assert.ok(profile.identity.includes(familyProfile.identity), `family identity missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
       assert.ok(profile.instrumentation.includes(familyProfile.instrumentation), `family instrumentation missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
       assert.ok(profile.rhythm.includes(familyProfile.rhythm), `family rhythm missing from leaf: ${family.family} / ${genre.name} / ${subgenre}`);
@@ -97,7 +110,7 @@ for (const family of WORLD_MUSIC_GENRES) {
 }
 
 assert.equal(familyCount, 25, 'all 25 music families must remain available');
-assert.ok(genreCount > 140, `professional hierarchy must expose real genres instead of legacy buckets (found ${genreCount})`);
+assert.equal(genreCount, 356, `professional hierarchy must expose exactly 356 real genres (found ${genreCount})`);
 // The legacy catalog contained 720 menu positions, but Jazz Fusion appeared twice:
 // once incorrectly under Jazz and once under its real Jazz Fusion parent. Exact-parent
 // normalization intentionally deduplicates that single legacy duplicate, leaving 719
