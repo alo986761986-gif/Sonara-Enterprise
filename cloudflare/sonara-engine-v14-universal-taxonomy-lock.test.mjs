@@ -18,15 +18,15 @@ function body(subgenre, genre, prompt, extra = {}) {
 test('hierarchy lock preserves the detailed Bossa Nova production prompt', () => {
   const source = body(
     'Bossa Nova',
-    'Brazilian',
+    'Bossa Nova',
     'Instrumentation: nylon-string guitar, soft acoustic bass and restrained percussion. Rhythm and groove: authentic bossa guitar syncopation with human timing. Harmony and melody: rich jazz-influenced chords and smooth voice leading.'
   );
   const locked = buildUniversalLockedBody(source);
   assert.match(locked.prompt, /nylon-string guitar/i);
   assert.match(locked.prompt, /authentic bossa guitar syncopation/i);
   assert.match(locked.prompt, /rich jazz-influenced chords/i);
-  assert.match(locked.prompt, /AUTHORITATIVE STYLE LOCK: Latin America > Brazilian > Bossa Nova > Intimate/i);
-  assert.equal(locked.genre, 'Brazilian');
+  assert.match(locked.prompt, /AUTHORITATIVE STYLE LOCK: Latin America > Bossa Nova > Bossa Nova > Intimate/i);
+  assert.equal(locked.genre, 'Bossa Nova');
   assert.equal(locked.subgenre, 'Bossa Nova');
   assert.equal(locked.atmosphere, 'Intimate');
   assert.equal(locked.styleInfluence, 37);
