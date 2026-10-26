@@ -4,6 +4,7 @@ import { WORLD_MUSIC_GENRES } from './data/worldMusicGenres.ts';
 import { MUSIC_FAMILY_PROFILES, getMusicFamilyProfile } from './musicFamilyIntelligence.ts';
 import { getMusicGenreProfile } from './musicGenreIntelligence.ts';
 import { getMusicSubgenreProfile } from './musicSubgenreIntelligence.ts';
+import { getMusicAtmosphereProfile, NON_ATMOSPHERE_LABELS as ATMOSPHERE_TECHNICAL_LABELS } from './musicAtmosphereIntelligence.ts';
 import {
   getAtmospheresForSelection,
   getMusicStyleProfile,
@@ -113,6 +114,9 @@ for (const family of WORLD_MUSIC_GENRES) {
       assert.equal(new Set(atmospheres.map(value => value.toLocaleLowerCase('en-US'))).size, atmospheres.length, `duplicate atmospheres: ${family.family} / ${genre.name} / ${subgenre}`);
       for (const atmosphere of atmospheres) {
         assert.ok(!NON_ATMOSPHERE_LABELS.has(atmosphere.toLocaleLowerCase('en-US')), `technical/non-atmosphere label leaked into UI: ${family.family} / ${genre.name} / ${subgenre} -> ${atmosphere}`);
+        assert.ok(!ATMOSPHERE_TECHNICAL_LABELS.has(atmosphere.toLocaleLowerCase('en-US')), `Atmosphere DNA rejected technical label: ${family.family} / ${genre.name} / ${subgenre} -> ${atmosphere}`);
+        const atmosphereProfile = getMusicAtmosphereProfile(atmosphere, { family: family.family, genre: genre.name, subgenre });
+        assert.ok(atmosphereProfile.guardrail.includes(`${family.family} > ${genre.name} > ${subgenre}`), `atmosphere lost taxonomy guardrail: ${family.family} / ${genre.name} / ${subgenre} -> ${atmosphere}`);
       }
       assert.ok(audit.specificityScore >= 55, `low taxonomy specificity: ${audit.taxonomyPath} (${audit.specificityScore})`);
       assert.ok(!siblingFingerprints.has(audit.fingerprint), `identical sibling fingerprint: ${audit.taxonomyPath}`);

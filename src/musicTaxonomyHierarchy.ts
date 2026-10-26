@@ -3,6 +3,7 @@ import { getAtmospheresForSelection } from './musicStyleIntelligence';
 import { getMusicFamilyProfile } from './musicFamilyIntelligence';
 import { getMusicGenreProfile } from './musicGenreIntelligence';
 import { getMusicSubgenreProfile } from './musicSubgenreIntelligence';
+import { getMusicAtmosphereProfile } from './musicAtmosphereIntelligence';
 
 export interface MusicTaxonomyHierarchyInput {
   family?: unknown;
@@ -122,6 +123,11 @@ export function hierarchyAuthorityText(selection: ResolvedMusicTaxonomyHierarchy
   const familyProfile = getMusicFamilyProfile(selection.family);
   const genreProfile = getMusicGenreProfile(selection.family, selection.genre);
   const subgenreProfile = getMusicSubgenreProfile(selection.family, selection.genre, selection.subgenre);
+  const atmosphereProfile = getMusicAtmosphereProfile(selection.atmosphere, {
+    family: selection.family,
+    genre: selection.genre,
+    subgenre: selection.subgenre
+  });
   return [
     `FAMILY BOUNDARY: ${selection.family} is the outer musical world. Do not borrow defining grammar from another family.`,
     `FAMILY SONIC IDENTITY: ${familyProfile.identity}`,
@@ -132,7 +138,12 @@ export function hierarchyAuthorityText(selection: ResolvedMusicTaxonomyHierarchy
     `SUBGENRE DNA: ${selection.subgenre} is the most specific style identity and must dominate groove, drums, bass behavior, instrumentation, harmony, melody, phrasing, arrangement and production.`,
     `SUBGENRE SONIC IDENTITY: ${subgenreProfile.identity}`,
     `SUBGENRE ANTI-DRIFT: ${subgenreProfile.avoid}`,
-    `ATMOSPHERE MODIFIER: ${selection.atmosphere} may change emotion, tension, brightness, density, space and performance intensity only inside ${selection.subgenre}; it must never change family, genre or subgenre.`
+    `ATMOSPHERE MODIFIER: ${selection.atmosphere} may change emotion, tension, brightness, density, space and performance intensity only inside ${selection.subgenre}; it must never change family, genre or subgenre.`,
+    `ATMOSPHERE SONIC IDENTITY: ${atmosphereProfile.identity}`,
+    `ATMOSPHERE PERFORMANCE: ${atmosphereProfile.performance}`,
+    `ATMOSPHERE ARRANGEMENT: ${atmosphereProfile.arrangement}`,
+    `ATMOSPHERE PRODUCTION: ${atmosphereProfile.production}`,
+    `ATMOSPHERE GUARDRAIL: ${atmosphereProfile.guardrail}`
   ].join(' ');
 }
 

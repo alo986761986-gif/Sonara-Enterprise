@@ -3,6 +3,7 @@ import { hierarchyAuthorityText, resolveMusicTaxonomyHierarchy } from './musicTa
 import { getMusicFamilyProfile } from './musicFamilyIntelligence';
 import { getMusicGenreProfile } from './musicGenreIntelligence';
 import { getMusicSubgenreProfile } from './musicSubgenreIntelligence';
+import { getMusicAtmosphereProfile } from './musicAtmosphereIntelligence';
 
 export type VocalMode = 'instrumental' | 'male' | 'female' | 'duet';
 
@@ -275,6 +276,7 @@ export function buildGenerationPrompt(input: GenerationPromptInput): string {
   const familyProfile = getMusicFamilyProfile(genreFamily);
   const genreProfile = getMusicGenreProfile(genreFamily, genre);
   const subgenreProfile = getMusicSubgenreProfile(genreFamily, genre, subgenre);
+  const atmosphereProfile = getMusicAtmosphereProfile(mood, { family: genreFamily, genre, subgenre });
   const fallbackBrief = buildRandomCreativeBrief({
     ...input,
     genreFamily,
@@ -310,7 +312,7 @@ export function buildGenerationPrompt(input: GenerationPromptInput): string {
     `CREATOR BRIEF — VERBATIM:\n<<<\n${userIntent}\n>>>`,
     `CREATOR DIRECTIVE CONTRACT:\nPreserve every compatible instrument, sound source, musical action, section, dynamic change, emotional contrast, production treatment and exclusion stated above. A creator detail must be ignored or translated into the nearest authentic equivalent whenever it conflicts with ${genreFamily} > ${genre} > ${subgenre} or would introduce a neighboring genre or sibling subgenre. Where the brief leaves a detail unspecified, complete it using authentic ${subgenre} practice.`,
     `EXPLICIT CREATOR EXCLUSIONS:\n${explicitExclusions}`,
-    `AUTHORITATIVE MUSICAL IDENTITY:\nTitle: ${title}\nCanonical path: ${resolvedTaxonomy.canonicalPath}\nFamily: ${genreFamily}\nGenre: ${genre}\nSubgenre: ${subgenre}\nAtmosphere: ${mood}\n${hierarchyAuthorityText(resolvedTaxonomy)}\nSubgenre execution rule: ${subgenreProfile.rhythm} ${subgenreProfile.instrumentation} ${subgenreProfile.avoid}\nGenre execution rule: ${genreProfile.rhythm} ${genreProfile.instrumentation} ${genreProfile.avoid}\nFamily execution rule: ${familyProfile.rhythm} ${familyProfile.instrumentation}\nPriority rule: Family constrains Genre; Genre constrains Subgenre; Subgenre defines the exact musical DNA; Atmosphere modifies only emotional presentation inside that DNA. The creator brief never overrides this hierarchy.`,
+    `AUTHORITATIVE MUSICAL IDENTITY:\nTitle: ${title}\nCanonical path: ${resolvedTaxonomy.canonicalPath}\nFamily: ${genreFamily}\nGenre: ${genre}\nSubgenre: ${subgenre}\nAtmosphere: ${mood}\n${hierarchyAuthorityText(resolvedTaxonomy)}\nSubgenre execution rule: ${subgenreProfile.rhythm} ${subgenreProfile.instrumentation} ${subgenreProfile.avoid}\nAtmosphere execution rule: ${atmosphereProfile.performance} ${atmosphereProfile.arrangement} ${atmosphereProfile.production} ${atmosphereProfile.guardrail}\nGenre execution rule: ${genreProfile.rhythm} ${genreProfile.instrumentation} ${genreProfile.avoid}\nFamily execution rule: ${familyProfile.rhythm} ${familyProfile.instrumentation}\nPriority rule: Family constrains Genre; Genre constrains Subgenre; Subgenre defines the exact musical DNA; Atmosphere modifies only emotional presentation, dynamics, density, space and production color inside that DNA and must itself be clearly audible. The creator brief never overrides this hierarchy.`,
     `CREATIVE CONTROLS:\n${creativeControlDirection(weirdness, styleInfluence, subgenre)}`,
     `SUBGENRE STYLE DNA — FILL UNSPECIFIED DETAILS ONLY:\n${compactProfileText(profile.identity, 720)}`,
     `TECHNICAL PARAMETERS:\nTempo: exactly ${bpm} BPM\nKey: exactly ${key}\nDuration: approximately ${durationSec} seconds, ending on a complete musical bar\nTime signature: use the meter authentic to ${subgenre}; otherwise use 4/4\nDo not drift from tempo or key. Any expressive timing must occur inside the pulse, not by changing the requested BPM.`,

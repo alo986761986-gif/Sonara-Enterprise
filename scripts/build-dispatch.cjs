@@ -76,6 +76,8 @@ console.log('[SONARA] Validating 356 real-genre DNA contracts.');
 run(['tsx', 'src/musicGenreIntelligence.test.ts']);
 console.log('[SONARA] Validating 731 exact-subgenre DNA contracts.');
 run(['tsx', 'src/musicSubgenreIntelligence.test.ts']);
+console.log('[SONARA] Validating all selectable Atmosphere DNA contracts.');
+run(['tsx', 'src/musicAtmosphereIntelligence.test.ts']);
 console.log('[SONARA] Validating professional music taxonomy.');
 run(['tsx', 'src/musicStyleIntelligence.professional.test.ts']);
 console.log('[SONARA] Validating canonical real family > genre > subgenre taxonomy v4.');

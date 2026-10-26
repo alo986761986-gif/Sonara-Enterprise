@@ -8,6 +8,7 @@ import { getHouseStylePatch } from './houseStyleIntelligence';
 import { getMusicFamilyProfile } from './musicFamilyIntelligence';
 import { getMusicGenreProfile } from './musicGenreIntelligence';
 import { getMusicSubgenreProfile } from './musicSubgenreIntelligence';
+import { sanitizeAtmosphereOptions } from './musicAtmosphereIntelligence';
 
 export type { MusicStyleProfile } from './musicStyleIntelligenceLegacy';
 
@@ -209,7 +210,7 @@ export function hasCuratedGenreIdentity(genre: string): boolean {
 export function getAtmospheresForSelection(family: string, genre: string, subgenre: string): string[] {
   const exact = exactFor(family, genre, subgenre);
   const rules = matchingRules(family, genre, subgenre);
-  return moodList(family, genre, subgenre, exact, rules);
+  return sanitizeAtmosphereOptions(moodList(family, genre, subgenre, exact, rules), family, 8, 10);
 }
 
 export function getMusicStyleProfile(family: string, genre: string, subgenre: string): MusicStyleProfile {
