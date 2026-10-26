@@ -1,6 +1,7 @@
 import runtime, { SonaraJobState } from './sonara-yue-router.mjs';
 import { getMusicStyleProfile, getMusicTaxonomyAudit } from '../src/musicStyleIntelligence.ts';
-import { hierarchyAuthorityText, resolveMusicTaxonomyHierarchy } from '../src/musicTaxonomyHierarchy.ts';
+import taxonomyHierarchy from '../src/musicTaxonomyHierarchy.ts';
+const { hierarchyAuthorityText, resolveMusicTaxonomyHierarchy } = taxonomyHierarchy;
 
 export { SonaraJobState };
 
