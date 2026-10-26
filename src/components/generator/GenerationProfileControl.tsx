@@ -4,7 +4,7 @@ import { ShieldCheck, Sparkles, Zap } from 'lucide-react';
 
 export type GenerationProfileV3 = 'fast' | 'quality' | 'ultra';
 
-const PROFILE_KEY = 'sonara.generation.profile.v5';
+const PROFILE_KEY = 'sonara.generation.profile.v6';
 const HOST_ID = 'sonara-generation-profile-native-host';
 const CONTROL_ID = 'sonara-generation-profile-v3';
 const PROFILES: Array<{
@@ -23,9 +23,9 @@ const PROFILES: Array<{
   },
   {
     id: 'quality',
-    label: 'REALISTIC',
-    subtitle: 'Strumentazione più naturale',
-    detail: '1 brano · 8 step · LM planning · realism V3',
+    label: 'REALISTIC FAST',
+    subtitle: 'Realismo + velocità',
+    detail: '1 brano · 4 step · realism V3 + DCW',
     icon: Sparkles
   },
   {
@@ -194,7 +194,7 @@ export default function GenerationProfileControl() {
                 <Sparkles className="h-3.5 w-3.5" />SONARA AI QUALITY
               </div>
               <div className="mt-1 text-xs font-bold text-white">{active.subtitle}</div>
-              <div className="mt-1 text-[10px] text-slate-400">REALISTIC è il profilo consigliato: 8 step Turbo, LM planning e resa strumentale più naturale. INSTANT resta disponibile per le anteprime.</div>
+              <div className="mt-1 text-[10px] text-slate-400">REALISTIC FAST è il profilo consigliato: 4 step Turbo, realism V3 e DCW per mantenere naturalezza con tempi molto più bassi. ULTRA usa 8 step + LM planning.</div>
             </div>
             <div className="rounded-lg border border-white/10 bg-slate-950/45 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-wider text-violet-200">
               {profile === 'ultra' ? 'PIANIFICAZIONE MUSICALE' : profile === 'quality' ? 'REALISMO STRUMENTALE' : 'GENERAZIONE INSTANT'}

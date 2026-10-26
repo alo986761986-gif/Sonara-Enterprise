@@ -23,7 +23,7 @@ const payload = {
 };
 
 for (const [profile, steps, shift, thinking] of [
-  ['fast', 1, 1, false], ['quality', 8, 3, true], ['ultra', 8, 3, true]
+  ['fast', 1, 1, false], ['quality', 4, 3, false], ['ultra', 8, 3, true]
 ]) {
   test(`${profile} selects native XL parameters and preserves the creator's job`, () => {
     const before = JSON.stringify(payload);
@@ -237,24 +237,24 @@ test('normalization opt-out remains respected', () => {
 });
 
 
-test('missing profile defaults to REALISTIC single-track execution', () => {
+test('missing profile defaults to REALISTIC FAST single-track execution', () => {
   const body = { ...source };
   delete body.generationProfileV3;
   const result = applyR2GenerationProfile(payload, body, body);
   const metadata = r2GenerationMetadata(body);
   assert.equal(result.sonara_r2_generation_profile, 'quality');
-  assert.equal(result.inference_steps, 8);
+  assert.equal(result.inference_steps, 4);
   assert.equal(result.shift, 3);
-  assert.equal(result.thinking, true);
+  assert.equal(result.thinking, false);
   assert.equal(result.batch_size, 1);
   assert.equal(result.sonara_instant_mode, false);
   assert.equal(result.dcw_enabled, true);
   assert.equal(result.dcw_mode, 'double');
-  assert.equal(result.dcw_scaler, 0.02);
-  assert.equal(result.dcw_high_scaler, 0.06);
+  assert.equal(result.dcw_scaler, 0.05);
+  assert.equal(result.dcw_high_scaler, 0.02);
   assert.equal(result.use_tiled_decode, false);
   assert.equal(metadata.candidateCount, 1);
-  assert.equal(metadata.executionProfile, 'xl-turbo-realistic-lm-single-track');
+  assert.equal(metadata.executionProfile, 'xl-turbo-realistic-fast-single-track');
 });
 
 

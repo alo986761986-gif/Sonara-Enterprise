@@ -99,7 +99,7 @@ function profileOf(body = {}) {
 
 function inferenceStepsOf(_body = {}, profile = profileOf(_body)) {
   if (profile === 'ultra') return 8;
-  if (profile === 'quality') return 8;
+  if (profile === 'quality') return 4;
   return 1;
 }
 
@@ -275,7 +275,7 @@ export function buildMolabPayload(body, count, capabilities = {}) {
     inference_steps: inferenceSteps,
     guidance_scale: 1.0,
     batch_size: count,
-    thinking: profile !== 'fast' && realMusic,
+    thinking: profile === 'ultra' && realMusic,
     lm_temperature: humanLmTemperature,
     lm_cfg_scale: humanLmCfgScale,
     lm_top_k: 0,

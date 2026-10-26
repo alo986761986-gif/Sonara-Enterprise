@@ -85,7 +85,7 @@ const empty = (id: CandidateId): CandidateState => ({
 });
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-const GENERATION_PROFILE_KEY = 'sonara.generation.profile.v5';
+const GENERATION_PROFILE_KEY = 'sonara.generation.profile.v6';
 const readGenerationProfile = (): 'fast' | 'quality' | 'ultra' => {
   const value = window.localStorage.getItem(GENERATION_PROFILE_KEY);
   return value === 'quality' || value === 'ultra' || value === 'fast' ? value : 'quality';
@@ -608,7 +608,7 @@ export default function ElevenMusicGenerationControl() {
       const token = await getFirebaseIdToken(true);
       const generationId = crypto.randomUUID ? crypto.randomUUID() : `generation-${Date.now()}`;
       localStorage.setItem('sonara.lastGenerationPairId', generationId);
-      processing('', 8, instant ? 'SONARA INSTANT: generazione prioritaria' : generationProfile === 'quality' ? 'SONARA REALISTIC: 8 step + LM planning' : autoCover ? 'SONARA ULTRA: audio + copertine A/B' : 'SONARA ULTRA: generazione dei 2 master');
+      processing('', 8, instant ? 'SONARA INSTANT: generazione prioritaria' : generationProfile === 'quality' ? 'SONARA REALISTIC FAST: 4 step + realism V3' : autoCover ? 'SONARA ULTRA: audio + copertine A/B' : 'SONARA ULTRA: generazione dei 2 master');
 
       if (autoCover) {
         void generateCover('A', context, generationId, token, 0);
@@ -666,7 +666,7 @@ export default function ElevenMusicGenerationControl() {
       const deadline = Date.now() + Math.max(10 * 60_000, context.durationSec * 5000);
       const relayJob = jobId.startsWith('sr2_');
       while (Date.now() < deadline) {
-        await sleep(instant ? 350 : generationProfile === 'quality' ? 650 : 1000);
+        await sleep(instant ? 300 : generationProfile === 'quality' ? 350 : 750);
         const poll = await fetch(relayJob
           ? `/api/billing/job?jobId=${encodeURIComponent(jobId)}`
           : `/api/music/job/${encodeURIComponent(jobId)}`, {

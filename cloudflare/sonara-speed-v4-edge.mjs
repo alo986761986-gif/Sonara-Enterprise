@@ -4,14 +4,14 @@ import { r2GenerationMetadata } from './sonara-r2-generation-profile.mjs';
 
 export { SonaraJobState, SonaraAuthStore };
 
-const VERSION = 'sonara-speed-v4.5-realistic-default';
+const VERSION = 'sonara-speed-v4.6-realistic-fast-default';
 const STATE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/speed-v4/';
 const STATE_TTL = 6 * 60 * 60;
 const JOB_RE = /^\/api\/music\/job\/([^/]+)$/;
 const GENERATE_PATHS = new Set(['/api/engine/generate', '/api/billing/generate']);
 const ASR_TIMEOUT = 180_000;
 const FAST_STEPS = 1;
-const QUALITY_STEPS = 8;
+const QUALITY_STEPS = 4;
 const ULTRA_STEPS = 8;
 
 const clean = value => String(value ?? '').trim();
@@ -229,7 +229,7 @@ function speedBody(body, profile) {
       sonaraFastUltra: false,
       sonaraSpeedInferenceSteps: QUALITY_STEPS,
       sonaraSpeedSampler: 'euler',
-      sonaraSpeedExecutionProfile: 'realistic-lm-single-track',
+      sonaraSpeedExecutionProfile: 'realistic-fast-single-track',
       sonaraRequestedGenerationProfile: profile,
       sonaraAutomaticCandidateRanking: false,
       sonaraVisibleCandidateTarget: 1,

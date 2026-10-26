@@ -9,7 +9,7 @@ import {
 export { SonaraJobState, SonaraAuthStore };
 
 const VERSION = 'sonara-music-director-v3';
-const PROFILE_KEY = 'sonara.generation.profile.v5';
+const PROFILE_KEY = 'sonara.generation.profile.v6';
 const STATE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/music-director-v3/';
 const STATE_TTL = 6 * 60 * 60;
 const GENERATE_PATHS = new Set(['/api/billing/generate', '/api/engine/generate']);
