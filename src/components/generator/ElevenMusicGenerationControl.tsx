@@ -687,7 +687,7 @@ export default function ElevenMusicGenerationControl() {
           await applyCompleted(jobId, current, context, generationId, token, expectedCount);
           return;
         }
-        processing(jobId, Math.max(10, Number(current.progress || 10)), String(current.metadata?.currentStage || 'SONARA: rendering'));
+        processing(jobId, Math.max(1, Number(current.progress ?? 1)), String(current.metadata?.currentStage || 'SONARA: rendering'));
       }
       throw new Error('SONARA sta impiegando più del previsto.');
     } catch (cause) {

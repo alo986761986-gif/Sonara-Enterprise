@@ -28,7 +28,10 @@ export async function relayReadiness(req: any, res: any) {
       gatewayAuthenticated: authenticated,
       storageConfigured: data?.storageConfigured === true,
       relayEnabled: data?.relayEnabled === true,
-      musicReadinessVerified: false,
+      agentOnline: data?.agentOnline === true,
+      agentRevision: String(data?.agentRevision || ''),
+      agentAgeMs: Number.isFinite(Number(data?.agentAgeMs)) ? Number(data.agentAgeMs) : null,
+      musicReadinessVerified: data?.agentOnline === true,
     });
   } catch {
     return send(503, { service: 'sonara-relay-readiness', gatewayAuthenticated: false, reason: 'GATEWAY_UNREACHABLE' });

@@ -33,6 +33,24 @@ const valid = id => /^sr2_[0-9a-f-]{36}$/.test(id||'');
 const getRecord = async (b,id) => { const o=await b.get(key(id));return o?o.json():null; };
 const saveRecord = (b,id,record,options={}) => b.put(key(id), JSON.stringify(record), {httpMetadata:{contentType:'application/json'},...options});
 const audioKey=(id,index)=>PREFIX+'audio/'+id+'/'+index+'.wav';
+const AGENT_HEARTBEAT_KEY=PREFIX+'agent/heartbeat.json';
+const AGENT_ONLINE_MS=8000;
+const writeAgentHeartbeat=async(b,request)=>{
+  if(!b)return;
+  const revision=String(request.headers.get('X-Sonara-Agent-Revision')||'').slice(0,80);
+  const now=Date.now();
+  await b.put(AGENT_HEARTBEAT_KEY,JSON.stringify({revision,lastSeen:now}),{httpMetadata:{contentType:'application/json'}});
+};
+const readAgentHeartbeat=async b=>{
+  if(!b)return {online:false,revision:'',ageMs:null,lastSeen:null};
+  try{
+    const obj=await b.get(AGENT_HEARTBEAT_KEY);
+    const value=obj?await obj.json():null;
+    const lastSeen=Number(value?.lastSeen||0);
+    const ageMs=lastSeen>0?Math.max(0,Date.now()-lastSeen):null;
+    return {online:ageMs!==null&&ageMs<=AGENT_ONLINE_MS,revision:String(value?.revision||''),ageMs,lastSeen:lastSeen||null};
+  }catch{return {online:false,revision:'',ageMs:null,lastSeen:null};}
+};
 export const relayQueueKey=(createdAt,id)=>PREFIX+'queue/'+String(Math.max(0,Number(createdAt)||0)).padStart(13,'0')+'/'+id;
 export const relayQueueJobId=queueObjectKey=>String(queueObjectKey||'').split('/').pop()||'';
 const referenceMetaKey=id=>PREFIX+'references/'+id+'.json';
@@ -103,6 +121,7 @@ export default {
   // It works while the public relay switch is off, permitting safe provisioning.
   if(p==='/api/sonara-relay/auth'&&request.method==='GET') {
     if(!(await hasWorkerAuth(request,env)))return json({error:'Unauthorized'},401);
+    if(b)ctx.waitUntil(writeAgentHeartbeat(b,request));
     return json({
       service:'sonara-r2-relay',
       authenticated:true,
@@ -118,6 +137,7 @@ export default {
   if(p==='/api/sonara-relay/queue-status'&&request.method==='GET') {
     if(!(await hasWorkerAuth(request,env)))return json({error:'Unauthorized'},401);
     if(!b)return json({error:'SONARA relay storage not configured'},503);
+    const heartbeat=await readAgentHeartbeat(b);
     const list=await b.list({prefix:PREFIX+'jobs/',limit:100}),now=Date.now();
     const counts={queued:0,leased:0,expiredLeases:0,complete:0,failed:0,unreadable:0,other:0,claimable:0,attemptsExhausted:0};
     for(let offset=0;offset<list.objects.length;offset+=4) {
@@ -137,7 +157,7 @@ export default {
         else if(j.status==='QUEUED'||expired)counts.claimable++;
       }
     }
-    return json({service:'sonara-relay-queue-status',sampled:list.objects.length,limit:100,truncated:Boolean(list.truncated),counts});
+    return json({service:'sonara-relay-queue-status',sampled:list.objects.length,limit:100,truncated:Boolean(list.truncated),agentOnline:heartbeat.online,agentRevision:heartbeat.revision,agentAgeMs:heartbeat.ageMs,counts});
   }
   if(env.SONARA_R2_RELAY_ENABLED!=='true'||!b) return json({error:'SONARA relay not configured'},503);
   // Authenticated browser upload only. The reference stays private in R2 and
@@ -246,9 +266,15 @@ export default {
       if(!hasSubmitAuth(request,env))return json({error:'Unauthorized'},401);
       const j=await getRecord(b,id);
       if(!j||!ownsJob(request,j))return json({error:'Not found'},404);
-      // Only public, non-sensitive progress metadata. Never return user prompt, lease or token.
+      const heartbeat=await readAgentHeartbeat(b);
       const urls=await Promise.all(j.files.map((_,i)=>signAudio(id,i,env)));
-      return json({jobId:id,status:j.status==='COMPLETE'?'COMPLETED':j.status==='FAILED'?'FAILED':'PROCESSING',progress:j.status==='COMPLETE'?100:j.status==='LEASED'?50:0,error:j.error,provider:'molab',model:'acestep-v15-xl-turbo',metadata:{audioFormat:'wav'},audioUrl:urls[0]||null,audioUrls:urls,candidates:urls.map((u,i)=>({id:i===0?'A':'B',audioUrl:u,audioFormat:'wav',provider:'molab',model:'acestep-v15-xl-turbo'}))});
+      const currentStage=j.status==='COMPLETE'?'SONARA: audio pronto'
+        :j.status==='FAILED'?'SONARA: generazione non riuscita'
+        :j.status==='LEASED'?'MoLab RTX PRO 6000: job acquisito, ACE-Step in lavorazione'
+        :heartbeat.online?'MoLab RTX PRO 6000: relay online, acquisizione job'
+        :'MoLab RTX PRO 6000: relay non raggiungibile';
+      const progress=j.status==='COMPLETE'?100:j.status==='LEASED'?50:heartbeat.online?18:8;
+      return json({jobId:id,status:j.status==='COMPLETE'?'COMPLETED':j.status==='FAILED'?'FAILED':'PROCESSING',progress,error:j.error,provider:'molab',model:'acestep-v15-xl-turbo',metadata:{audioFormat:'wav',currentStage,relayOnline:heartbeat.online,relayRevision:heartbeat.revision,relayAgeMs:heartbeat.ageMs,queueState:j.status,queuedAt:j.createdAt||null,updatedAt:j.updatedAt||null},audioUrl:urls[0]||null,audioUrls:urls,candidates:urls.map((u,i)=>({id:i===0?'A':'B',audioUrl:u,audioFormat:'wav',provider:'molab',model:'acestep-v15-xl-turbo'}))});
     }
     if(action==='audio'&&(request.method==='GET'||request.method==='HEAD')) {
       const idx=Number(parts[2]);

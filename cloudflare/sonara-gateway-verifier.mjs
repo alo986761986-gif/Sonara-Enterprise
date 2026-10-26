@@ -58,12 +58,28 @@ export function withGatewayVerifier(runtime) {
         if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405);
         if (!usable) return json({ service: 'sonara-gateway', authenticated: false, error: 'Gateway not configured' }, 503);
         if (!(await authenticated(request, env))) return json({ error: 'Unauthorized' }, 401);
+        let agentOnline = false;
+        let agentRevision = '';
+        let agentAgeMs = null;
+        if (env.SONARA_AUDIO_BUCKET) {
+          try {
+            const obj = await env.SONARA_AUDIO_BUCKET.get('relay-v1/agent/heartbeat.json');
+            const heartbeat = obj ? await obj.json() : null;
+            const lastSeen = Number(heartbeat?.lastSeen || 0);
+            agentAgeMs = lastSeen > 0 ? Math.max(0, Date.now() - lastSeen) : null;
+            agentOnline = agentAgeMs !== null && agentAgeMs <= 8000;
+            agentRevision = String(heartbeat?.revision || '');
+          } catch {}
+        }
         return json({
           service: 'sonara-gateway',
           authenticated: true,
           revision: REVISION,
           storageConfigured: Boolean(env.SONARA_AUDIO_BUCKET),
           relayEnabled: env.SONARA_R2_RELAY_ENABLED === 'true',
+          agentOnline,
+          agentRevision,
+          agentAgeMs,
         });
       }
 
