@@ -208,6 +208,7 @@ def start_api(py, env):
         "ACESTEP_LM_OFFLOAD_TO_CPU": "false",
         "ACESTEP_API_HOST": "127.0.0.1",
         "ACESTEP_API_PORT": str(PORT),
+        "ACESTEP_NO_INIT": "false",
         "ACESTEP_API_WORKERS": "1",
         "ACESTEP_QUEUE_WORKERS": "1",
         "ACESTEP_QUEUE_MAXSIZE": "64",
