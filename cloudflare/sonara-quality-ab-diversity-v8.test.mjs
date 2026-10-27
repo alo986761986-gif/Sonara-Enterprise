@@ -29,11 +29,11 @@ assert.match(router, /sonara_natural_instrument_ab_required/);
 assert.doesNotMatch(router, /different drum\/percussion phrasing/);
 
 // Do not regress the established latency contract.
-assert.match(router, /if \(profile === 'quality'\) return 2;/);
+assert.match(router, /if \(profile === 'quality'\) return 4;/);
 assert.match(router, /if \(profile === 'ultra'\) return 8;/);
 assert.match(router, /return 1;/);
 
 console.log('SONARA_QUALITY_AB_DIVERSITY_V8=PASS');
 console.log('QUALITY_A_B=SAME_BRIEF_DIFFERENT_COMPOSITIONS');
-console.log('QUALITY_SPEED=2_STEPS_PRESERVED');
+console.log('QUALITY_SPEED=4_STEPS_PRESERVED');
 console.log('NATURAL_INSTRUMENT_AB_LOCK=PASS');
