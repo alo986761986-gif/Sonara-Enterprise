@@ -5,7 +5,8 @@ import { mixMasterPlan, safePeakTarget, MIX_MASTER_VERSION } from './sonara-mix-
 // Official API/INFERENCE/Tutorial at ca1e85fe recommend 8 steps and shift 3
 // for Turbo. Native `thinking` generates LM audio codes; it does not require
 // SONARA's optional, custom realism API. REALISTIC and ULTRA use native LM planning; INSTANT remains the speed preview.
-export const R2_GENERATION_POLICY = 'sonara-xl-turbo-realistic-fast-v3';
+export const R2_GENERATION_POLICY = 'sonara-xl-turbo-realistic-fast-v4-natural-ab';
+export const NATURAL_INSTRUMENT_AB_PROFILE = 'sonara-natural-instruments-ab-v1';
 
 const text = value => typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
 const firstText = (...values) => values.map(text).find(Boolean) || '';
@@ -46,6 +47,9 @@ export function r2GenerationMetadata(body = {}, count = null) {
     instrumentRealismDepth: realism?.depth || null,
     ensembleInteractionCount: realism?.ensembleInteractions?.length || 0,
     sectionAwareArrangement: realism?.structureAware || false,
+    naturalInstrumentABProfile: realism ? NATURAL_INSTRUMENT_AB_PROFILE : null,
+    naturalInstrumentABRequired: Boolean(realism),
+    naturalDrumAntiRepetition: Boolean(realism?.naturalDrumAntiRepetition),
     mixMasterEnabled: Boolean(mixMaster),
     mixMasterVersion: mixMaster ? MIX_MASTER_VERSION : null,
     mixMasterProfile: mixMaster?.id || null,
@@ -144,7 +148,7 @@ export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody 
     lm_repetition_penalty: 1.0,
     lm_negative_prompt: profile === 'fast'
       ? 'NO USER INPUT'
-      : 'robotic quantization, static velocity, identical repeated bars, MIDI-like note triggering, plastic acoustic timbre, phase-locked acoustic doubles, metallic artifacts, brittle cymbals, fake room resets, overcompression, clipped transients',
+      : 'robotic quantization, static velocity, identical repeated bars, MIDI-like note triggering, machine-gun drums, cheap one-note drum pulse, repetitive synthetic thud, toy percussion, identical kick snare or tom transient on every beat, flat drum envelopes, genre-inappropriate drum substitution, plastic acoustic timbre, phase-locked acoustic doubles, metallic artifacts, brittle cymbals, fake room resets, overcompression, clipped transients',
     allow_lm_batch: thinking && effectiveBatchSize > 1,
     dcw_enabled: profile === 'fast' ? payload.dcw_enabled : true,
     dcw_mode: profile === 'fast' ? payload.dcw_mode : 'double',
@@ -159,6 +163,8 @@ export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody 
     sonara_r2_generation_policy: R2_GENERATION_POLICY,
     sonara_instrument_realism: profile === 'fast' ? null : INSTRUMENT_REALISM_VERSION,
     sonara_instrument_realism_depth: profile === 'fast' ? null : profile,
+    sonara_natural_instrument_ab_profile: profile === 'fast' ? null : NATURAL_INSTRUMENT_AB_PROFILE,
+    sonara_natural_instrument_ab_required: profile !== 'fast',
     enable_normalization: profile === 'fast' ? payload.enable_normalization : normalizationEnabled,
     normalization_db: profile === 'fast' ? payload.normalization_db : normalizationDb,
     sonara_mix_master_profile: mixMaster?.id || null,

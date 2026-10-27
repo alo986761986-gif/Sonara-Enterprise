@@ -12,6 +12,9 @@ assert.match(guard, /sonaraQualityIndependentCompositionV8/);
 assert.match(guard, /sonaraQualityIndependentSeedV8/);
 assert.doesNotMatch(guard, /same seed-base as A/i);
 assert.doesNotMatch(guard, /Only conservative phrase, voicing, fill and transition differences are allowed/i);
+assert.match(guard, /sonara-natural-instruments-ab-v1/);
+assert.match(guard, /NATURAL INSTRUMENT A\/B LOCK V1/);
+assert.match(guard, /sonaraNaturalInstrumentABRequired/);
 
 assert.match(router, /sonara-quality-ab-diversity-v8/);
 assert.match(router, /QUALITY B INDEPENDENT COMPOSITION V8/);
@@ -20,6 +23,10 @@ assert.match(router, /sonara_quality_independent_seed_v8/);
 assert.match(router, /const qualityVariantB = profile === 'quality'/);
 assert.doesNotMatch(router, /same seed-base as A/i);
 assert.doesNotMatch(router, /qualitySafeB/);
+assert.match(router, /sonara-natural-instruments-ab-v1/);
+assert.match(router, /cheap one-note drum pulse/);
+assert.match(router, /sonara_natural_instrument_ab_required/);
+assert.doesNotMatch(router, /different drum\/percussion phrasing/);
 
 // Do not regress the established latency contract.
 assert.match(router, /if \(profile === 'quality'\) return 2;/);
@@ -29,3 +36,4 @@ assert.match(router, /return 1;/);
 console.log('SONARA_QUALITY_AB_DIVERSITY_V8=PASS');
 console.log('QUALITY_A_B=SAME_BRIEF_DIFFERENT_COMPOSITIONS');
 console.log('QUALITY_SPEED=2_STEPS_PRESERVED');
+console.log('NATURAL_INSTRUMENT_AB_LOCK=PASS');

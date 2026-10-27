@@ -10,6 +10,7 @@ export { SonaraJobState, SonaraAuthStore };
 
 const VERSION = 'sonara-quality-ultra-stability-1';
 const QUALITY_AB_DIVERSITY_PROFILE = 'sonara-quality-ab-diversity-v8';
+const NATURAL_INSTRUMENT_AB_PROFILE = 'sonara-natural-instruments-ab-v1';
 const STATE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/quality-ultra-stability-v1/';
 const STATE_TTL = 6 * 60 * 60;
 const JOB_RE = /^\/api\/music\/job\/(stable-qv1-[A-Za-z0-9_-]+)$/;
@@ -188,10 +189,11 @@ function makeVariantBody(body, profile, variantIndex, retryIndex = 0) {
   const promptFidelity = profile === 'quality'
     ? 'QUALITY SAME-BRIEF / DIFFERENT-COMPOSITION CONTRACT V8 — ABSOLUTE: both visible songs must execute the exact same creator brief and preserve concept, genre/subgenre, mood, era, energy, requested instruments, rhythmic feel, production character, vocal role/identity, language, lyrics/theme, atmosphere, exclusions, BPM, key and duration. A and B MUST nevertheless be two genuinely different original compositions. Candidate B must not reuse A as a take, clone, near-copy or remix. Independence applies to melody, hook contour, harmonic/voicing route, bass phrasing, drum phrasing, section development, transitions and arrangement decisions while all creator semantics stay locked.'
     : 'FINAL PROMPT FIDELITY CONTRACT — NON-NEGOTIABLE: the creator prompt is the source of truth for BOTH Song A and Song B. Preserve every explicit semantic requirement from the prompt: musical concept, genre and subgenre, mood, era, energy, instrumentation, production style, rhythmic feel, vocal role and identity, language, lyrics, theme/story, atmosphere, exclusions, exact BPM/key/duration when specified, and all named creative details. Song B must sound like a second original composition commissioned from the EXACT SAME brief, never like a different prompt. Independence applies only to the musical solution, not to the requested identity or meaning.';
+  const naturalInstrumentLock = 'SONARA NATURAL INSTRUMENT A/B LOCK V1 — applies equally to A and B. Preserve a believable, genre-authentic source character for every requested instrument. Drum/percussion quality is non-negotiable: no cheap one-note pulse, no machine-gun repetition, no toy-like thud replacing a real genre drum role, no identical transient or envelope on every beat, and no flat copy-paste percussion loop. Electronic genres may keep precise programmed timing, but kick, clap/snare, hats and percussion must retain professional timbre, intentional accents and decays, phrase-aware fills and subtle variation on non-anchor layers. Acoustic/live genres require physical articulation, dynamics, decay and room continuity. A/B independence may change composition and genre-authentic groove details, but must NEVER lower instrumental realism or substitute the requested instrument palette.';
   const direction = profile === 'quality'
     ? (variantIndex === 0
       ? 'SONARA QUALITY A PRIMARY SINGLE TAKE — render one complete, literal realization of this exact creator brief. Stay inside the requested genre, mood, instrumentation, groove family, vocal intent and production language. This take establishes the reference identity for QUALITY.'
-      : 'SONARA QUALITY B INDEPENDENT COMPOSITION V8 — compose a genuinely different second song from the EXACT SAME creator brief. Keep genre/subgenre, mood, era, groove identity, requested instrument palette, production language, singer identity, lyrics/language, BPM, key, duration and atmosphere locked. MUST use an independent seed and MUST create a new primary melody/hook contour, a different harmonic or voicing route, different bass phrasing, different drum/percussion phrasing, different section development, different transitions and a clearly distinct arrangement path. Do not reuse A as a take, clone or near-copy. Do not drift into another genre, concept or unrelated instrumentation. SAME BRIEF; DIFFERENT SONG.')
+      : 'SONARA QUALITY B INDEPENDENT COMPOSITION V8 — compose a genuinely different second song from the EXACT SAME creator brief. Keep genre/subgenre, mood, era, groove identity, requested instrument palette, production language, singer identity, lyrics/language, BPM, key, duration and atmosphere locked. MUST use an independent seed and MUST create a new primary melody/hook contour, a different harmonic or voicing route, different bass phrasing, different genre-authentic groove details and fills while preserving the same drum/percussion source family and realism floor, different section development, different transitions and a clearly distinct arrangement path. Do not reuse A as a take, clone or near-copy. Do not drift into another genre, concept or unrelated instrumentation. SAME BRIEF; DIFFERENT SONG.')
     : (variantIndex === 0
       ? 'SONARA SONG A — compose the first complete realization of the creator prompt. Follow the prompt literally and musically: no genre drift, no mood drift, no missing requested instruments or vocal intent.'
       : 'SONARA SONG B — compose a genuinely different song for the EXACT SAME creator prompt. Use a new melody, harmonic route/voicings, bass phrasing, drum details, hook contour, transitions and section development, while preserving ALL prompt semantics and stylistic requirements. Do not change concept, genre/subgenre, mood, era, instrumentation brief, production character, vocal intent, lyrics/theme or requested atmosphere. If novelty conflicts with prompt fidelity, PROMPT FIDELITY ALWAYS WINS.');
@@ -223,10 +225,13 @@ function makeVariantBody(body, profile, variantIndex, retryIndex = 0) {
     sonaraQualityABDiversificationProfile: profile === 'quality' ? QUALITY_AB_DIVERSITY_PROFILE : null,
     sonaraQualityIndependentCompositionV8: profile === 'quality',
     sonaraQualityIndependentSeedV8: profile === 'quality',
+    sonaraNaturalInstrumentABProfile: NATURAL_INSTRUMENT_AB_PROFILE,
+    sonaraNaturalInstrumentABRequired: true,
+    sonaraNaturalInstrumentABInstruction: naturalInstrumentLock,
     sonaraQualityRetry: retryIndex,
-    sonaraStabilityInstruction: [fidelity, direction, promptFidelity].filter(Boolean).join('\n\n').slice(0, 6000),
-    sonaraQualityTakeInstruction: profile === 'quality' ? [direction, promptFidelity].filter(Boolean).join('\n\n').slice(0, 5000) : '',
-    prompt: [prompt, `SONARA ${profile.toUpperCase()} STABILITY DIRECTOR.`, fidelity, direction, promptFidelity, `${profile === 'quality' ? 'Independent Quality composition' : 'Independent composition'} seed=${independentSeed}.`].filter(Boolean).join('\n\n').slice(0, 12000)
+    sonaraStabilityInstruction: [fidelity, naturalInstrumentLock, direction, promptFidelity].filter(Boolean).join('\n\n').slice(0, 7000),
+    sonaraQualityTakeInstruction: profile === 'quality' ? [naturalInstrumentLock, direction, promptFidelity].filter(Boolean).join('\n\n').slice(0, 6000) : '',
+    prompt: [prompt, `SONARA ${profile.toUpperCase()} STABILITY DIRECTOR.`, fidelity, naturalInstrumentLock, direction, promptFidelity, `${profile === 'quality' ? 'Independent Quality composition' : 'Independent composition'} seed=${independentSeed}.`].filter(Boolean).join('\n\n').slice(0, 12000)
   };
 }
 

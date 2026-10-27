@@ -15,6 +15,7 @@ const NATURAL_TONE_PROFILE = 'sonara-natural-tone-v15-silk';
 const QUALITY_47_RESCUE_PROFILE = 'sonara-quality-47-rescue-v1';
 const FAST_80_RESCUE_PROFILE = 'sonara-fast-80-rescue-v1';
 const QUALITY_AB_DIVERSITY_PROFILE = 'sonara-quality-ab-diversity-v8';
+const NATURAL_INSTRUMENT_AB_PROFILE = 'sonara-natural-instruments-ab-v1';
 const MODEL = 'acestep-v15-xl-turbo';
 const PUBLIC_API_ORIGIN = 'https://api.sonaraenterprise.com';
 const CACHE_PREFIX = 'https://sonaraenterprise.com/__sonara_internal/molab-xl-only-v1/';
@@ -147,6 +148,7 @@ function fidelityInstruction(body = {}, controls = qualityControls(body)) {
     creativity,
     'Do not collapse the result into generic EDM, generic pop, generic house, or any neighboring genre unless the creator explicitly asked for it.',
     'Use genre-authentic drums, bass language, instrumentation, harmonic vocabulary, melodic phrasing, transitions, mix balance and mastering character.',
+    'SONARA NATURAL INSTRUMENT A/B LOCK V1: every generated side must keep professional, believable instrument source character. Reject cheap one-note drum pulses, machine-gun repetition, toy-like thuds, identical per-hit transients, flat copy-paste percussion loops and genre-inappropriate drum substitutions. Electronic genres keep tight programmed timing but require professional kick/snare/clap/hats/percussion timbre, intentional accents and decays, and phrase-aware variation; acoustic/live genres require physical articulation, dynamics, decay and coherent room continuity.',
     'SONARA FULL INSTRUMENTATION V12: make the arrangement feel full, rich, layered and professionally produced rather than sparse or demo-like.',
     'SONARA MUSICAL COMPLEXITY V16: make the composition feel intentionally developed across time. Introduce motif transformations, counter-lines, secondary rhythmic cells, chord-voicing changes, bass variations, call-and-response, 2-4 bar micro-variations, phrase-end fills, evolving automation, dynamic role swaps and section-specific orchestration. Each chorus/drop/return should evolve from the previous one rather than repeat identically. Complexity must remain genre-authentic, coherent and memorable; never add random layers merely to increase density.',
     'When the requested genre supports it, build roughly 8-12 distinct complementary musical/production roles: primary drums, secondary percussion, bass, chord/harmonic instrument, supporting harmony layer, lead or hook instrument, counter-melody/response layer, atmosphere/texture, fills/ornaments, transitions and genre-authentic ear-candy.',
@@ -169,7 +171,7 @@ function realMusicInstruction(body = {}) {
     'Use instrument-specific articulation, attack, decay, sustain, release, believable register, breathing room and performance variation.',
     'Repeated sections must sound re-performed rather than cloned: vary fills, note lengths, accents, ornaments, automation, ambience and transition details while preserving the hook identity.',
     'Maintain continuous room, reverb and delay behavior across edits and transitions; avoid hard ambience resets, identical tails and artificial section seams.',
-    'Electronic music must sound like deliberate hardware/software production: stable club timing with subtle groove, evolving synthesis, controlled modulation and non-static drum/bass articulation. Do not imitate acoustic instruments unless requested.',
+    'Electronic music must sound like deliberate hardware/software production: stable club timing with subtle groove, evolving synthesis, controlled modulation and non-static drum/bass articulation. Keep the anchor kick stable, but hats, claps/snares and percussion must not collapse into an identical one-note thud pattern; vary accents, decay, texture and phrase-end details inside the genre. Do not imitate acoustic instruments unless requested.',
     'Keep low frequencies physical and controlled, mids dimensional, highs detailed without brittle hash, and stereo width deep but mono-compatible.',
     'Avoid plastic timbre, smeared transients, phasey widening, metallic alias-like texture, over-limiting, pumping without musical intent, accidental silence and abrupt endings.',
     'Keep the exact requested BPM, key, meter, genre identity, lyrics and duration. Realism must never override creator controls.',
@@ -247,11 +249,12 @@ export function buildMolabPayload(body, count, capabilities = {}) {
   const authoritativePrompt = String(body.prompt || '').trim().slice(0, 7600);
   const finalInstruction = fidelityInstruction(body, controls).slice(0, 4000);
   const stabilityInstruction = String(body.sonaraStabilityInstruction || body.sonaraQualityTakeInstruction || '').trim().slice(0, 6000);
+  const naturalInstrumentInstruction = profile === 'fast' ? '' : String(body.sonaraNaturalInstrumentABInstruction || 'SONARA NATURAL INSTRUMENT A/B LOCK V1: preserve professional genre-authentic instrument source character on every output; no cheap one-note drum pulse, machine-gun repetition, toy percussion, identical repeated transients or generic synthetic thud substitution. A and B may differ musically, but both must meet the same realism floor.').trim().slice(0, 4000);
   const candidateDirection = qualityVariantB
-    ? 'QUALITY B INDEPENDENT COMPOSITION V8: use the EXACT SAME creator brief but create a genuinely different song. Keep genre/subgenre, mood, era, groove identity, requested instruments, production language, singer identity, lyrics/language, BPM, key, duration and atmosphere locked. Use the independent seed supplied for B. Create a new melody and hook contour, different harmonic/voicing route, different bass phrasing, different drum/percussion phrasing, different section development, different transitions and a clearly distinct arrangement path. Never clone A, never reuse A as a conservative take, and never drift to a neighboring genre. SAME BRIEF; DIFFERENT SONG.'
+    ? 'QUALITY B INDEPENDENT COMPOSITION V8: use the EXACT SAME creator brief but create a genuinely different song. Keep genre/subgenre, mood, era, groove identity, requested instruments, production language, singer identity, lyrics/language, BPM, key, duration and atmosphere locked. Use the independent seed supplied for B. Create a new melody and hook contour, different harmonic/voicing route, different bass phrasing, different genre-authentic groove details and fills while preserving the same drum/percussion source family, timbral quality and realism floor, different section development, different transitions and a clearly distinct arrangement path. Never clone A, never reuse A as a conservative take, and never drift to a neighboring genre. SAME BRIEF; DIFFERENT SONG.'
     : (count === 2
       ? (profile === 'quality'
-        ? 'QUALITY A/B DIVERSITY V8: render two genuinely different original compositions from the EXACT SAME creator brief. Preserve concept, genre/subgenre, mood, era, requested instrument palette, groove identity, production character, vocal intent, lyrics/language, BPM, key, duration and atmosphere, but force independent melody/hook, harmony or voicing route, bass phrasing, drum phrasing, section development and transitions.'
+        ? 'QUALITY A/B DIVERSITY V8: render two genuinely different original compositions from the EXACT SAME creator brief. Preserve concept, genre/subgenre, mood, era, requested instrument palette, groove identity, production character, vocal intent, lyrics/language, BPM, key, duration and atmosphere, but force independent melody/hook, harmony or voicing route, bass phrasing, genre-authentic groove details and fills, section development and transitions, while keeping the same professional drum/percussion source family and realism floor.'
         : 'Render two candidates in one GPU batch. Both MUST preserve the same creator style, BPM, key, lyrics and vocal-language locks. Candidate A prioritizes hook and groove. Candidate B changes melody, voicing, transitions and timbral balance without changing genre identity.')
       : (profile === 'quality'
         ? 'QUALITY A SINGLE TAKE V6: render one highly faithful professional master that establishes the exact requested musical identity. Stay literal, coherent and genre-authentic.'
@@ -262,6 +265,7 @@ export function buildMolabPayload(body, count, capabilities = {}) {
     realMusic ? 'SONARA MOLAB RTX PRO 6000 — REAL MUSIC MODE.' : 'SONARA MOLAB RTX PRO 6000 — STABLE HIGH-FIDELITY MODE.',
     finalInstruction,
     stabilityInstruction,
+    naturalInstrumentInstruction,
     realMusic ? realMusicInstruction(body) : '',
     locks,
     `Weirdness=${controls.weirdness}/100 controls creativity INSIDE the requested style. Style Influence=${controls.styleInfluence}/100 controls adherence to the creator style.`,
@@ -282,7 +286,7 @@ export function buildMolabPayload(body, count, capabilities = {}) {
     lm_top_p: humanTopP,
     lm_repetition_penalty: realMusic ? (profile === 'ultra' ? 1.08 : 1.04) : 1.0,
     lm_negative_prompt: realMusic
-      ? 'generic style drift, wrong BPM, wrong key, robotic quantization, static velocity, identical repeated bars, identical drum velocities, copy-paste phrasing, cloned chorus performance, fixed vibrato, pitch-staircase tuning, breathless synthetic vocal, plastic timbre, metallic artifacts, harsh clipping, piercing highs, brittle cymbals, shrill leads, shrill vocals, whistling resonances, fizzy treble, metallic upper mids, glassy 3-6 kHz presence, excessive 6-10 kHz sibilance, abrasive upper mids, overly sharp transients, stacked bright risers, excessive noise FX, overcompression, phasey stereo, hard ambience resets, accidental silence, malformed ending, unwanted vocals'
+      ? 'generic style drift, wrong BPM, wrong key, robotic quantization, static velocity, identical repeated bars, identical drum velocities, machine-gun drums, cheap one-note drum pulse, repetitive synthetic thud, toy percussion, identical kick snare or tom transient on every beat, flat drum envelope, genre-inappropriate drum substitution, copy-paste phrasing, cloned chorus performance, fixed vibrato, pitch-staircase tuning, breathless synthetic vocal, plastic timbre, metallic artifacts, harsh clipping, piercing highs, brittle cymbals, shrill leads, shrill vocals, whistling resonances, fizzy treble, metallic upper mids, glassy 3-6 kHz presence, excessive 6-10 kHz sibilance, abrasive upper mids, overly sharp transients, stacked bright risers, excessive noise FX, overcompression, phasey stereo, hard ambience resets, accidental silence, malformed ending, unwanted vocals'
       : 'NO USER INPUT',
     use_format: false,
     use_cot_metas: false,
@@ -311,6 +315,8 @@ export function buildMolabPayload(body, count, capabilities = {}) {
     sonara_quality_independent_composition_v8: profile === 'quality',
     sonara_quality_independent_seed_v8: profile === 'quality',
     sonara_quality_variant_b_v8: qualityVariantB,
+    sonara_natural_instrument_ab_profile: profile === 'fast' ? null : NATURAL_INSTRUMENT_AB_PROFILE,
+    sonara_natural_instrument_ab_required: profile !== 'fast',
     sonara_real_music_v1: realMusic,
     sonara_generation_profile: 'auto',
     sonara_speed_inference_steps: inferenceSteps,
@@ -500,6 +506,8 @@ function qualityMetadata(count, payload = {}) {
     fast80RescueProfile: FAST_80_RESCUE_PROFILE,
     qualityABDiversificationProfile: payload?.sonara_quality_independent_composition_v8 === true ? QUALITY_AB_DIVERSITY_PROFILE : null,
     qualityABIndependentCompositionV8: payload?.sonara_quality_independent_composition_v8 === true,
+    naturalInstrumentABProfile: payload?.sonara_natural_instrument_ab_required === true ? NATURAL_INSTRUMENT_AB_PROFILE : null,
+    naturalInstrumentABRequired: payload?.sonara_natural_instrument_ab_required === true,
     harshnessGuard: true,
     smoothTopEnd: true,
     fxRestraint: true,
@@ -871,6 +879,8 @@ async function readiness(request, env) {
     richArrangementProfile: RICH_ARRANGEMENT_PROFILE,
     fast80RescueProfile: FAST_80_RESCUE_PROFILE,
     qualityABDiversificationProfile: QUALITY_AB_DIVERSITY_PROFILE,
+    naturalInstrumentABProfile: NATURAL_INSTRUMENT_AB_PROFILE,
+    naturalInstrumentABRequired: true,
     fullInstrumentation: true,
     sectionDensityIntelligence: true,
     soundEffectsIntelligence: true,

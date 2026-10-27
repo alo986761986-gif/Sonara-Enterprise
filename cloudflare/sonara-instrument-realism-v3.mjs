@@ -1,4 +1,4 @@
-export const INSTRUMENT_REALISM_VERSION = 'sonara-instrument-realism-v3';
+export const INSTRUMENT_REALISM_VERSION = 'sonara-instrument-realism-v4-natural-ab';
 
 const text = value => typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
 const list = value => {
@@ -87,6 +87,23 @@ function genrePocket(body = {}) {
   return '';
 }
 
+function sourceCharacterLock(body = {}, families = []) {
+  const context = [
+    body.genre, body.subgenre, body.sonaraWorldStyleGenre, body.sonaraWorldStyleInstrumentation,
+    body.rawPrompt, body.creatorPrompt, body.creator_prompt, body.musicPrompt, body.prompt
+  ].map(text).join(' ').toLowerCase();
+  const electronicGenre = /\b(house|tech house|techno|edm|dance|electronic|trance|garage|drum and bass|dnb|trap|drill|synthwave|electro|breakbeat|dubstep)\b/.test(context)
+    || (families.length > 0 && families.every(id => id === 'electronic'));
+
+  if (electronicGenre) {
+    return 'source-character lock: keep genre-authentic electronic drums and instruments professional and intentional; preserve the anchor kick pulse but reject cheap one-note drum pulses, machine-gun repetition, identical full-bar drum loops, toy percussion, static envelopes and the exact same transient on every hit; hats, claps/snares and percussion need believable accent, decay, texture, swing or phrase-level variation while the club clock remains stable';
+  }
+  if (families.includes('acoustic-drums') || families.includes('hand-percussion')) {
+    return 'drum/percussion naturalism: repeated hits respond to phrase and dynamics; reject machine-gun repetition, identical sample resets, toy-like thuds and flat repeated transients; preserve stick or hand variation, decay overlap, ghost notes or fills where stylistic, and one coherent physical kit or percussion space';
+  }
+  return 'instrument-source lock: preserve believable source character, articulation and decay for every requested instrument; never replace a defined instrumental role with a generic synthetic pulse, toy-like sample or identical repeated articulation';
+}
+
 function sectionCue(structure, depth) {
   if (!structure.tagged) return depth === 'ultra'
     ? 'arrangement motion: create believable phrase-to-phrase changes in density, fills and dynamics without repetitive copy-paste accompaniment'
@@ -154,6 +171,7 @@ export function instrumentRealismPlan(body = {}, options = {}) {
     ...matched.map(rule => rule.cue),
     ...interactions,
     pocket,
+    sourceCharacterLock(body, families),
     sectionCue(structure, depth),
     performanceAuthenticityCue(families, depth),
     recordingRealityCue(families),
@@ -169,6 +187,8 @@ export function instrumentRealismPlan(body = {}, options = {}) {
     families,
     ensembleInteractions: interactions,
     structureAware: structure.tagged,
+    sourceCharacterLocked: true,
+    naturalDrumAntiRepetition: true,
     cue
   };
 }

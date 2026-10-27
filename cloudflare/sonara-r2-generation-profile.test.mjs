@@ -189,6 +189,8 @@ test('electronic music keeps designed timing instead of fake acoustic looseness'
   assert.ok(plan.families.includes('electronic'));
   assert.match(plan.cue, /keep the clock stable/);
   assert.match(plan.cue, /do not fake acoustic looseness/);
+  assert.match(plan.cue, /cheap one-note drum pulses/);
+  assert.match(plan.cue, /professional and intentional/);
 });
 
 test('Italian instrument names activate the same physical families', () => {
@@ -267,6 +269,9 @@ test('REALISTIC strengthens anti-synthetic performance conditioning', () => {
   assert.match(result.prompt, /arrangement breathes/);
   assert.match(result.prompt, /plastic sample-library sameness/);
   assert.match(result.lm_negative_prompt, /robotic quantization/);
+  assert.match(result.lm_negative_prompt, /machine-gun drums/);
+  assert.match(result.lm_negative_prompt, /cheap one-note drum pulse/);
+  assert.equal(result.sonara_natural_instrument_ab_required, true);
 });
 
 test('REALISTIC direct-decodes normal tracks and keeps tiled decode for long tracks', () => {
@@ -274,4 +279,24 @@ test('REALISTIC direct-decodes normal tracks and keeps tiled decode for long tra
   const longResult = applyR2GenerationProfile({ ...payload, audio_duration: 360, use_tiled_decode: true }, { ...source, generationProfileV3: 'quality' }, source);
   assert.equal(shortResult.use_tiled_decode, false);
   assert.equal(longResult.use_tiled_decode, true);
+});
+
+
+test('Tech House keeps tight club timing without degrading into repetitive synthetic thuds', () => {
+  const body = {
+    prompt: 'Underground Tech House, dark hypnotic club groove, punchy kick, rolling bassline, shuffled percussion.',
+    rawPrompt: 'Underground Tech House, dark hypnotic club groove, punchy kick, rolling bassline, shuffled percussion.',
+    genre: 'House',
+    subgenre: 'Tech House',
+    mood: 'Dark',
+    vocalMode: 'instrumental',
+    selectedInstruments: ['Drum Machine', 'Bass Synth', 'Analog Synthesizer'],
+    generationProfileV3: 'quality'
+  };
+  const result = applyR2GenerationProfile({ ...payload, lyrics: '', batch_size: 1 }, body, body);
+  assert.match(result.prompt, /source-character lock/);
+  assert.match(result.prompt, /cheap one-note drum pulses/);
+  assert.match(result.prompt, /club clock remains stable/);
+  assert.match(result.lm_negative_prompt, /repetitive synthetic thud/);
+  assert.equal(result.sonara_natural_instrument_ab_required, true);
 });
