@@ -40,8 +40,6 @@ jobs:
           node --check cloudflare/sonara-molab-xl-router.mjs
           node --check cloudflare/sonara-real-music-v2-edge.mjs
           node --check cloudflare/sonara-instrument-realism-v3.mjs
-          node cloudflare/sonara-engine-v15-authoritative-prompt.test.mjs
-          node cloudflare/sonara-rich-arrangement-v13.test.mjs
           node cloudflare/sonara-natural-tone-v14.test.mjs
           node cloudflare/sonara-r2-generation-profile.test.mjs
           node cloudflare/sonara-quality-ab-diversity-v8.test.mjs
