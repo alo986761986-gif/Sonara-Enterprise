@@ -1,4 +1,4 @@
-name: Deploy SONARA Natural Tone V14
+name: Verify SONARA Natural Tone V15 Silk
 
 on:
   push:
@@ -11,154 +11,59 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: sonara-natural-tone-v14-production
+  group: sonara-natural-tone-v15-silk-verification
   cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
-      SONARA_BROWSER_UA: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140 Safari/537.36
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
 
-      - name: Apply Natural Tone V14
+      - name: Verify current Natural Tone production contract
         run: |
           python scripts/patch-natural-tone-v14.py
           python scripts/patch-natural-tone-v14-edge.py
 
-      - name: Validate tone, richness and speed
+      - name: Validate V15 Silk and Natural Instruments A/B
         run: |
           node --check cloudflare/sonara-engine-v15-authoritative-prompt.mjs
           node --check cloudflare/sonara-molab-xl-router.mjs
           node --check cloudflare/sonara-real-music-v2-edge.mjs
+          node --check cloudflare/sonara-instrument-realism-v3.mjs
           node cloudflare/sonara-engine-v15-authoritative-prompt.test.mjs
           node cloudflare/sonara-rich-arrangement-v13.test.mjs
           node cloudflare/sonara-natural-tone-v14.test.mjs
-          grep -Fq "const NATURAL_TONE_PROFILE = 'sonara-natural-tone-v14';" cloudflare/sonara-real-music-v2-edge.mjs
+          node cloudflare/sonara-r2-generation-profile.test.mjs
+          node cloudflare/sonara-quality-ab-diversity-v8.test.mjs
+          grep -Fq "const NATURAL_TONE_PROFILE = 'sonara-natural-tone-v15-silk';" cloudflare/sonara-real-music-v2-edge.mjs
+          grep -Fq "const NATURAL_TONE_PROFILE = 'sonara-natural-tone-v15-silk';" cloudflare/sonara-molab-xl-router.mjs
+          grep -Fq "sonara-natural-instruments-ab-v1" cloudflare/sonara-molab-xl-router.mjs
+          grep -Fq "cheap one-note drum pulse" cloudflare/sonara-molab-xl-router.mjs
           ! grep -Fq "dcwMode: 'double'" cloudflare/sonara-real-music-v2-edge.mjs
           ! grep -Fq "dcwHighScaler: 0.06" cloudflare/sonara-real-music-v2-edge.mjs
-          node scripts/verify-quality-latency-v14.mjs
 
       - name: Install and build
         run: |
           npm install
           npm run build
 
-      - name: Revalidate patched production source after build
+      - name: Revalidate production source after build
         run: |
           node cloudflare/sonara-natural-tone-v14.test.mjs
-          grep -Fq "const NATURAL_TONE_PROFILE = 'sonara-natural-tone-v14';" cloudflare/sonara-molab-xl-router.mjs
+          node cloudflare/sonara-r2-generation-profile.test.mjs
+          node cloudflare/sonara-quality-ab-diversity-v8.test.mjs
+          grep -Fq "sonara-natural-tone-v15-silk" cloudflare/sonara-molab-xl-router.mjs
+          grep -Fq "sonara-natural-instruments-ab-v1" cloudflare/sonara-molab-xl-router.mjs
           grep -Fq "dcw_mode: 'low'" cloudflare/sonara-molab-xl-router.mjs
           grep -Fq "dcw_scaler: 0.02" cloudflare/sonara-molab-xl-router.mjs
           grep -Fq "dcw_high_scaler: 0.0" cloudflare/sonara-molab-xl-router.mjs
-          grep -Fq "const NATURAL_TONE_PROFILE = 'sonara-natural-tone-v14';" cloudflare/sonara-real-music-v2-edge.mjs
-          grep -Fq "dcwMode: 'low'" cloudflare/sonara-real-music-v2-edge.mjs
-          grep -Fq "dcwHighScaler: 0.0" cloudflare/sonara-real-music-v2-edge.mjs
-          ! grep -Fq "dcwHighScaler: 0.06" cloudflare/sonara-real-music-v2-edge.mjs
-
-      - name: Verify MoLab RTX endpoint
-        shell: bash
-        run: |
-          set -euo pipefail
-          trigger=".github/molab-xl-trigger"
-          url="$(sed -n 's/^SONARA_MOLAB_XL_URL=//p' "${trigger}" | tail -n 1 | tr -d '\r')"
-          model="$(sed -n 's/^MODEL=//p' "${trigger}" | tail -n 1 | tr -d '\r')"
-          test "${model}" = "acestep-v15-xl-turbo"
-          echo "MOLAB_XL_URL=${url%/}" >> "${GITHUB_ENV}"
-          for attempt in $(seq 1 8); do
-            health="$(curl -fsS --connect-timeout 8 --max-time 15 -A "${SONARA_BROWSER_UA}" -H 'Accept: application/json' "${url%/}/health" || true)"
-            if [[ -n "${health}" ]] && printf '%s' "${health}" | jq -e 'def d: (.data // .); (((d.status // "") | tostring | ascii_downcase) | IN("ok","ready","healthy","online","success")) and ((d.models_initialized // true) == true)' >/dev/null 2>&1; then
-              exit 0
-            fi
-            sleep 4
-          done
-          exit 1
-
-      - name: Resolve Cloudflare account
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${CLOUDFLARE_API_TOKEN}"
-          account_id="${CLOUDFLARE_ACCOUNT_ID}"
-          if [[ -z "${account_id}" ]]; then
-            zone_response="$(curl -fsS -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" -H 'Content-Type: application/json' 'https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=50')"
-            account_id="$(printf '%s' "${zone_response}" | jq -r '.result[] | select(.name == "sonaraenterprise.com") | .account.id' | head -n 1)"
-          fi
-          test -n "${account_id}"
-          echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
-
-      - name: Deploy Worker
-        shell: bash
-        run: |
-          set -euo pipefail
-          printf '%s' "${MOLAB_XL_URL}" | npx --yes wrangler@latest secret put SONARA_MOLAB_XL_URL --config wrangler.jsonc
-          npx --yes wrangler@latest deploy --config wrangler.jsonc
-
-      - name: Verify live Natural Tone V14
-        shell: bash
-        run: |
-          set -euo pipefail
-          last_response=''
-          for attempt in $(seq 1 15); do
-            response="$(curl -sS --max-time 30 -A "${SONARA_BROWSER_UA}" -H 'Accept: application/json' -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/molab/ready?tone=v14-${GITHUB_SHA}-${attempt}" || true)"
-            last_response="${response}"
-            if [[ -n "${response}" ]]; then
-              echo "LIVE_READY_ATTEMPT=${attempt}"
-              printf '%s\n' "${response}" | jq -c '{ready, profile, fidelityProfile, richArrangementProfile, naturalToneProfile, harshnessGuard, smoothTopEnd, fxRestraint, dcwEnabled, dcwMode, dcwScaler, dcwLowScaler, dcwHighScaler, fastInferenceSteps, qualityInferenceSteps, ultraInferenceSteps, maxBatchSize}' 2>/dev/null || printf '%s\n' "${response}" | head -c 1200
-              echo
-            fi
-            if [[ -n "${response}" ]] && printf '%s' "${response}" | jq -e '
-              .ready == true and
-              .richArrangementProfile == "sonara-rich-arrangement-v13" and
-              .naturalToneProfile == "sonara-natural-tone-v14" and
-              .harshnessGuard == true and
-              .smoothTopEnd == true and
-              .fxRestraint == true and
-              .dcwMode == "low" and
-              ((.dcwScaler // .dcwLowScaler) == 0.02) and
-              .dcwHighScaler == 0 and
-              .qualityInferenceSteps == 2 and
-              .fastInferenceSteps == 1 and
-              .ultraInferenceSteps == 8 and
-              .maxBatchSize == 2
-            ' >/dev/null 2>&1; then
-              echo 'SONARA_NATURAL_TONE_V14_LIVE=PASS'
-              exit 0
-            fi
-            sleep 4
-          done
-          echo 'SONARA_NATURAL_TONE_V14_LIVE=FAIL'
-          if [[ -n "${last_response}" ]]; then
-            printf '%s\n' "${last_response}" | jq . 2>/dev/null || printf '%s\n' "${last_response}" | head -c 4000
-          fi
-          exit 1
-
-      - name: Persist production source
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "sonara-production-bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add cloudflare/sonara-engine-v15-authoritative-prompt.mjs cloudflare/sonara-molab-xl-router.mjs cloudflare/sonara-real-music-v2-edge.mjs
-          if git diff --cached --quiet; then exit 0; fi
-          git commit -m "fix: activate natural tone v14 across production chain"
-          for attempt in 1 2; do
-            if git push origin HEAD:main; then exit 0; fi
-            git fetch origin main
-            git rebase origin/main
-          done
-          exit 1
