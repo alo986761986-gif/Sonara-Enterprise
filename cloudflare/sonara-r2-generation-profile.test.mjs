@@ -109,7 +109,8 @@ test('ULTRA uses supported native planning controls, without caption/lyrics rewr
   assert.equal(result.lm_temperature, 0.85);
   assert.equal(result.lm_cfg_scale, 2.5);
   assert.equal(result.lm_top_p, 0.9);
-  assert.equal(result.lm_negative_prompt, 'NO USER INPUT');
+  assert.match(result.lm_negative_prompt, /robotic quantization/);
+  assert.match(result.lm_negative_prompt, /machine-gun drums/);
   assert.equal(result.sonara_generation_profile, 'auto');
   for (const field of ['lm_batch_chunk_size', 'use_cot_metas', 'use_constrained_decoding']) {
     assert.equal(field in result, false, `${field} is not a stock REST control`);
