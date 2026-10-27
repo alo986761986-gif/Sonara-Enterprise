@@ -7,7 +7,7 @@
   "keep_vars": true,
   "vars": {
     "SONARA_GATEWAY_SHA256": "45e015f3256d950f2a30db43b2f22e1a56655fe03c65bf2cded2d789152efdb1",
-    "SONARA_RELAY_TOKEN_SHA256": "f80486a75d62ac487a1325f7535f675e75209e88c2c003303048a2d3d15ae1d4",
+    "SONARA_RELAY_TOKEN_SHA256": "c0bdada48c6bcf0155f5515b3750719cd14c9708e7553b64b1c8d8a45795a390",,
     "SONARA_R2_RELAY_ENABLED": "true",
     "SONARA_YUE_WORKER_URL": "https://yue.sonaraenterprise.com",
     "SONARA_PRODUCTION_CHAIN": "sonara-real-music-v3-edge.mjs -> sonara-ultra-diversity-v1-edge.mjs -> sonara-speed-v4-edge.mjs -> sonara-real-music-v2-edge.mjs -> sonara-studio-pitch-key-upload-bridge.mjs -> sonara-studio-native-pitch-bridge.mjs -> sonara-studio-key-pitch-guard.mjs -> sonara-quality-ultra-stability-guard.mjs [REAL_MUSIC_V3][TRACK_GENOME][HUMANIZER][VOICE_REALISM][AUTO_REFINE][INDEPENDENT_AB_V3][PROMPT_FIDELITY_V4]"
