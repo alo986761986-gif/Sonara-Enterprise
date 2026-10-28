@@ -121,7 +121,7 @@ export default {
   // It works while the public relay switch is off, permitting safe provisioning.
   if(p==='/api/sonara-relay/auth'&&request.method==='GET') {
     if(!(await hasWorkerAuth(request,env)))return json({error:'Unauthorized'},401);
-    if(b)ctx.waitUntil(writeAgentHeartbeat(b,request));
+    if(b)await writeAgentHeartbeat(b,request);
     return json({
       service:'sonara-r2-relay',
       authenticated:true,
@@ -210,6 +210,7 @@ export default {
   // MoLab polls through HTTPS/443, authenticates with a Worker secret.
   if(p==='/api/sonara-relay/claim'&&request.method==='POST') {
     if(!(await hasWorkerAuth(request,env)))return json({error:'Unauthorized'},401);
+    if(b)await writeAgentHeartbeat(b,request);
     const agentRevision=request.headers.get('X-Sonara-Agent-Revision')||'';
     if(agentRevision!==REQUIRED_AGENT_REVISION&&agentRevision!==REFERENCE_AGENT_REVISION)
       return json({jobId:null,agentUpdateRequired:true,requiredAgentRevision:REQUIRED_AGENT_REVISION,referenceAgentRevision:REFERENCE_AGENT_REVISION});
