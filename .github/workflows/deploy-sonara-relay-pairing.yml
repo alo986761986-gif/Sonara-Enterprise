@@ -33,6 +33,12 @@ jobs:
         with:
           node-version: "24"
 
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build SONARA assets
+        run: npm run build
+
       - name: Resolve Cloudflare account
         shell: bash
         run: |
