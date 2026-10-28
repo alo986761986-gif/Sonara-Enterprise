@@ -45,6 +45,7 @@ def main():
     signal.signal(signal.SIGTERM, request_stop)
     env = os.environ.copy()
     env.pop('SONARA_RELAY_TOKEN', None)
+    env['SONARA_LOCAL_API_AUTH_MODE'] = 'none'
     consecutive_fast_exits = 0
     while not STOP:
         started = time.monotonic()
