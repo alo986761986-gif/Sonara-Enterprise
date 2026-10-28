@@ -1,2 +1,2 @@
-trigger: 2026-08-31T20:24:00Z
-reason: publish universal fixed player for generated A/B and all saved publication audio on sonaraenterprise.com
+trigger: 2026-10-28T08:30:00Z
+reason: deploy updated MoLab relay fingerprint and current SONARA worker configuration
