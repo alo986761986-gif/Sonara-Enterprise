@@ -8,6 +8,8 @@ import os
 import pathlib
 import signal
 import time
+import wave
+import audioop
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -173,6 +175,174 @@ def extract_paths(task):
     add(result)
     return found[:2]
 
+def wav_quality_report(path):
+    try:
+        with wave.open(str(path), 'rb') as wav:
+            channels = wav.getnchannels()
+            width = wav.getsampwidth()
+            rate = wav.getframerate()
+            frames = wav.getnframes()
+            raw = wav.readframes(frames)
+        if width not in (1, 2, 3, 4) or channels < 1 or rate <= 0 or not raw:
+            raise ValueError('Unsupported WAV')
+        mono = raw if channels == 1 else audioop.tomono(raw, width, 0.5, 0.5)
+        peak = audioop.max(mono, width)
+        rms = audioop.rms(mono, width)
+        max_amp = float((1 << (8 * width - 1)) - 1)
+        peak_ratio = peak / max_amp if max_amp else 0.0
+        rms_ratio = rms / max_amp if max_amp else 0.0
+        peak_db = 20.0 * __import__('math').log10(max(peak_ratio, 1e-9))
+        rms_db = 20.0 * __import__('math').log10(max(rms_ratio, 1e-9))
+        # Bounded chunk scan for silence/clipping/DC without third-party DSP.
+        sample_count = max(1, len(mono) // width)
+        stride = max(1, sample_count // 200000)
+        clipped = silent = 0
+        dc_sum = 0.0
+        seen = 0
+        import struct
+        for i in range(0, sample_count, stride):
+            start = i * width
+            chunk = mono[start:start + width]
+            if len(chunk) != width:
+                break
+            if width == 1:
+                value = chunk[0] - 128
+                scale = 127.0
+            elif width == 2:
+                value = struct.unpack('<h', chunk)[0]
+                scale = 32767.0
+            elif width == 3:
+                raw3 = int.from_bytes(chunk, 'little', signed=False)
+                if raw3 & 0x800000:
+                    raw3 -= 1 << 24
+                value = raw3
+                scale = 8388607.0
+            else:
+                value = struct.unpack('<i', chunk)[0]
+                scale = 2147483647.0
+            ratio = value / scale if scale else 0.0
+            seen += 1
+            dc_sum += ratio
+            if abs(ratio) >= 0.999:
+                clipped += 1
+            if abs(ratio) <= 0.001:
+                silent += 1
+        clipping = clipped / max(1, seen)
+        silence = silent / max(1, seen)
+        dc = dc_sum / max(1, seen)
+        duration = frames / float(rate)
+        score = 100.0
+        score -= min(35.0, clipping * 50000.0)
+        score -= min(30.0, max(0.0, silence - 0.08) * 150.0)
+        score -= min(20.0, abs(dc) * 500.0)
+        if peak_db > -0.2:
+            score -= 8.0
+        if rms_db > -5.0 or rms_db < -28.0:
+            score -= 10.0
+        return {
+            'ok': True,
+            'durationSeconds': round(duration, 3),
+            'sampleRate': rate,
+            'channels': channels,
+            'bitDepth': width * 8,
+            'peakDb': round(peak_db, 2),
+            'rmsDb': round(rms_db, 2),
+            'clippingRatio': round(clipping, 6),
+            'silenceRatio': round(silence, 4),
+            'dcOffset': round(dc, 6),
+            'score': round(max(0.0, min(100.0, score)), 1),
+        }
+    except Exception:
+        return {'ok': False, 'score': 0.0}
+
+
+def vocal_report(path, payload):
+    lyrics = str(payload.get('lyrics') or '').strip()
+    vocal_mode = str(payload.get('vocal_mode') or payload.get('vocalMode') or '').strip().lower()
+    if not lyrics or vocal_mode in ('instrumental', 'none', 'off', 'no vocals'):
+        return {'performed': False, 'lyricAccuracy': None, 'mismatchRanges': []}
+    try:
+        answer = local('POST', '/v1/sonara/transcribe', {
+            'path': str(path),
+            'language': str(payload.get('vocal_language') or 'auto'),
+            'expected_lyrics': lyrics,
+            'word_timestamps': True,
+        }, timeout=240)
+        data = answer.get('data', answer)
+        accuracy = data.get('lyric_accuracy') if isinstance(data, dict) else None
+        ranges = data.get('mismatch_ranges', []) if isinstance(data, dict) else []
+        return {
+            'performed': True,
+            'lyricAccuracy': float(accuracy) if accuracy is not None else None,
+            'wordErrorRate': data.get('word_error_rate') if isinstance(data, dict) else None,
+            'language': data.get('language') if isinstance(data, dict) else None,
+            'mismatchRanges': ranges[:12] if isinstance(ranges, list) else [],
+        }
+    except Exception:
+        return {'performed': True, 'lyricAccuracy': None, 'mismatchRanges': [], 'error': 'ASRUnavailable'}
+
+
+def combined_candidate_score(audio_report, vocal):
+    score = float(audio_report.get('score') or 0.0)
+    accuracy = vocal.get('lyricAccuracy')
+    if accuracy is not None:
+        score = score * 0.72 + max(0.0, min(1.0, float(accuracy))) * 100.0 * 0.28
+    return round(score, 2)
+
+
+def wait_local_task(task_id, timeout=900):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        answer = local('POST', '/query_result', {'task_id_list': [task_id]}, timeout=50)
+        data = answer.get('data', [])
+        task = data[0] if isinstance(data, list) and data else data if isinstance(data, dict) else {}
+        if task:
+            status = normalized_status(task.get('status'))
+            if status < 0:
+                raise RuntimeError('Repair task failed')
+            if status == 1:
+                paths = extract_paths(task)
+                return paths[0] if paths else None
+        time.sleep(1)
+    return None
+
+
+def maybe_repair_vocal(path, payload, vocal):
+    profile = str(payload.get('sonara_r2_generation_profile') or payload.get('generationProfileV3') or '').strip().lower()
+    accuracy = vocal.get('lyricAccuracy')
+    ranges = vocal.get('mismatchRanges') or []
+    if profile != 'ultra' or accuracy is None or accuracy >= 0.90 or not ranges:
+        return path, False
+    first = ranges[0] if isinstance(ranges[0], dict) else {}
+    start = max(0.0, float(first.get('start') or 0.0) - 0.35)
+    end = max(start + 0.8, float(first.get('end') or start + 1.5) + 0.35)
+    repair = dict(payload)
+    repair.update({
+        'task_type': 'repaint',
+        'src_audio_path': str(path),
+        'repainting_start': round(start, 3),
+        'repainting_end': round(end, 3),
+        'repaint_mode': 'balanced',
+        'repaint_strength': 0.52,
+        'repaint_latent_crossfade_frames': 12,
+        'repaint_wav_crossfade_sec': 0.18,
+        'batch_size': 1,
+        'use_random_seed': False,
+        'instruction': (
+            f'Repaint only {start:.2f}-{end:.2f} seconds. Preserve everything outside exactly. '
+            'Correct the sung lyric words and pronunciation while preserving singer identity, melody, BPM, key, '
+            'arrangement, ambience, loudness and natural human performance.'
+        ),
+    })
+    answer = local('POST', '/release_task', repair, timeout=120)
+    nested = answer.get('data', answer)
+    task_id = nested.get('task_id') if isinstance(nested, dict) else None
+    if not task_id:
+        return path, False
+    repaired = wait_local_task(task_id, timeout=900)
+    return (repaired or path), bool(repaired)
+
+
 def process(job):
     job_id = job['jobId']
     head = {**claim_headers(), 'X-Sonara-Lease': job['leaseId']}
@@ -237,8 +407,46 @@ def process(job):
                 expected = max(1, min(2, int(job['payload'].get('batch_size', 1))))
                 if len(paths) < expected:
                     raise RuntimeError('Incomplete ACE-Step audio output')
-                for index, path in enumerate(paths[:expected]):
-                    progress('uploading', track=index + 1, trackCount=expected)
+
+                # Score real WAV candidates locally before upload; best becomes Song A.
+                evaluated = []
+                for original_index, candidate_path in enumerate(paths[:expected]):
+                    audio_report = wav_quality_report(candidate_path)
+                    vocal = vocal_report(candidate_path, payload)
+                    repaired_path, repaired = maybe_repair_vocal(candidate_path, payload, vocal)
+                    if repaired:
+                        candidate_path = repaired_path
+                        audio_report = wav_quality_report(candidate_path)
+                        vocal = vocal_report(candidate_path, payload)
+                    evaluated.append({
+                        'path': candidate_path,
+                        'originalIndex': original_index,
+                        'audio': audio_report,
+                        'vocal': vocal,
+                        'autoRepaired': repaired,
+                        'score': combined_candidate_score(audio_report, vocal),
+                    })
+                evaluated.sort(key=lambda item: item['score'], reverse=True)
+                quality_summary = [
+                    {
+                        'rank': rank + 1,
+                        'originalIndex': item['originalIndex'],
+                        'score': item['score'],
+                        'audio': item['audio'],
+                        'vocal': {
+                            'performed': item['vocal'].get('performed'),
+                            'lyricAccuracy': item['vocal'].get('lyricAccuracy'),
+                            'wordErrorRate': item['vocal'].get('wordErrorRate'),
+                            'language': item['vocal'].get('language'),
+                        },
+                        'autoRepaired': item['autoRepaired'],
+                    }
+                    for rank, item in enumerate(evaluated)
+                ]
+
+                for index, item in enumerate(evaluated):
+                    path = item['path']
+                    progress('uploading', track=index + 1, trackCount=expected, qualityScore=item['score'])
                     request('POST', base + '/renew', {}, head, 20)
                     fetched = time.monotonic()
                     data = local('GET', '/v1/audio?' + urllib.parse.urlencode({'path': path}), timeout=90)
@@ -248,12 +456,11 @@ def process(job):
                     if len(data) > 80 * 1024 * 1024:
                         raise RuntimeError('WAV exceeds configured upload limit')
                     uploaded = time.monotonic()
-                    # Keep uploads serial: the relay updates one shared files record.
                     request('PUT', base + '/audio/' + str(index), data, {**head, 'Content-Type': 'audio/wav'}, timeout=120)
                     timings['upload' + str(index + 1) + 'Seconds'] = round(time.monotonic() - uploaded, 2)
                     del data
                 completed = time.monotonic()
-                request('POST', base + '/complete', {}, head, 30)
+                request('POST', base + '/complete', {'quality': quality_summary, 'rankingVersion': 'sonara-local-critic-v1'}, head, 30)
                 timings['completeSeconds'] = round(time.monotonic() - completed, 2)
                 timings['totalSeconds'] = round(time.monotonic() - started, 2)
                 publish_status('completed', jobId=job_id, trackCount=expected, timings=timings)
