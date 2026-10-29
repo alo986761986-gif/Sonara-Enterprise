@@ -6,11 +6,14 @@
   "legal_policy": {
     "allowed_license_types": [
       "OWNED",
-      "EXPLICITLY_LICENSED"
+      "EXPLICITLY_LICENSED",
+      "CC0_PUBLIC_DOMAIN"
     ],
     "require_rights_to_train": true,
     "synthetic_audio_allowed_for_development": true,
-    "synthetic_audio_allowed_for_promotion": false
+    "synthetic_audio_allowed_for_promotion": false,
+    "cc0_public_domain_allowed": true,
+    "cc0_note": "CC0/public-domain material is accepted when source provenance and source license evidence are recorded."
   },
   "dataset_policy": {
     "development_min_tracks": 8,
