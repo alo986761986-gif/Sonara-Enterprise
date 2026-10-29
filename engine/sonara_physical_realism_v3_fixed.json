@@ -1,0 +1,71 @@
+{
+  "version": "sonara-physical-realism-v3-fixed",
+  "trainer": "ACE-Step training_v2 fixed",
+  "base_model": "acestep-v15-xl-turbo",
+  "dataset": {
+    "rows": 224,
+    "promotion_rows": 216,
+    "augmentation_rows": 8,
+    "source_dataset_sha256": "673e46563e7ed5616d1b77dfc3c4152023d4967d7a18d101872364c56975d887",
+    "tensor_inventory_sha256": "7e4f99472565d40572e6f782e297b76830e626dc5878b9762227abe5fb25d3b4",
+    "human_phrase_level_performances": 24,
+    "phrase_family_coverage": 4,
+    "phrase_family_counts": {
+      "guitars-fretted": 12,
+      "bass": 4,
+      "bowed-strings": 4,
+      "brass-woodwinds": 4
+    }
+  },
+  "families": {
+    "acoustic-drums": 24,
+    "bass": 28,
+    "bowed-strings": 28,
+    "brass-woodwinds": 28,
+    "guitars-fretted": 76,
+    "piano-keys": 32
+  },
+  "adapter": {
+    "path": "/marimo/SONARA-ACE-Step-CLEAN/sonara_training/physical_realism_v3_fixed/output/final",
+    "sha256": "23a582687d4c45f508e059753c06e8ca905c6e16b09aecfb65f89819d081907e",
+    "total_params": 83886080,
+    "nonzero_params": 83886080,
+    "nonzero_pct": 100,
+    "max_abs": 0.03125,
+    "l2": 75.44022470310524
+  },
+  "checkpoints": {
+    "epoch5": {
+      "sha256": "2b1c47a284a6599dcc713c57bed1834733d2924d0d4a224ef1f8185e24531fd2",
+      "loss": 0.4663
+    },
+    "epoch10": {
+      "sha256": "23a582687d4c45f508e059753c06e8ca905c6e16b09aecfb65f89819d081907e",
+      "loss": 0.4626
+    },
+    "weights_changed": true,
+    "final_matches_epoch10": true,
+    "different_from_v2_fixed": true
+  },
+  "training": {
+    "epochs": 10,
+    "steps": 560,
+    "rank": 64,
+    "alpha": 128,
+    "dropout": 0.1,
+    "learning_rate": 0.0001,
+    "effective_batch_size": 4,
+    "cfg_ratio": 0.15,
+    "precision": "bf16",
+    "audio_generated_during_training": false
+  },
+  "promotion": {
+    "dataset_gate_passed": true,
+    "status": "PENDING_AUDIO_BENCHMARK"
+  },
+  "inference": {
+    "adapter_name": "sonara_physical_realism_v3_fixed_dev",
+    "recommended_dev_scale": 0.55,
+    "default_enabled": false
+  }
+}
