@@ -141,8 +141,11 @@ def detect_ace_api_root():
     raise SystemExit("ACE_STEP_SAFE_ROOT_NOT_FOUND")
 
 
-def stage_dataset_inside_safe_root(source_dir, resolved, safe_root):
-    workspace=safe_root/"sonara_training"/"physical_realism_v1"
+def stage_dataset_inside_safe_root(source_dir, resolved, safe_root, run_name):
+    safe_name="".join(ch if ch.isalnum() or ch in ("-","_") else "_" for ch in run_name).strip("_")
+    if not safe_name:
+        raise SystemExit("RUN_NAME_INVALID")
+    workspace=safe_root/"sonara_training"/safe_name
     audio_dir=workspace/"audio"
     tensor_dir=workspace/"tensors"
     out_dir=workspace/"output"
@@ -340,6 +343,7 @@ def main():
     ap.add_argument("--alpha",type=int,default=128)
     ap.add_argument("--promotion",action="store_true")
     ap.add_argument("--start-only",action="store_true")
+    ap.add_argument("--run-name",default="physical_realism_v2")
     args=ap.parse_args()
 
     data_dir=pathlib.Path(args.dataset_dir).resolve()
@@ -351,7 +355,7 @@ def main():
 
     safe_root=detect_ace_api_root()
     workspace,staged_data_dir,tensor_dir,out_dir,staged_resolved=stage_dataset_inside_safe_root(
-        data_dir,resolved,safe_root
+        data_dir,resolved,safe_root,args.run_name
     )
     export_dir=out_dir/"exported"
 
@@ -366,7 +370,8 @@ def main():
     final_status=monitor_training()
     result,weights,config=export_adapter(out_dir,export_dir)
     summary={
-        "version":"sonara-physical-realism-lora-official-v1",
+        "version":"sonara-physical-realism-lora-official-v2",
+        "runName":args.run_name,
         "trainedAt":datetime.now(timezone.utc).isoformat(),
         "trainer":"ACE-Step-1.5 official MIT training API",
         "dataset":report,
