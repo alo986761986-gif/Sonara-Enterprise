@@ -21,16 +21,19 @@ function profileOf(body) {
 
 export function r2GenerationSettings(body = {}) {
   const profile = profileOf(body);
+  const realism = profile === 'fast' ? null : instrumentRealismPlan(body, { depth: profile });
+  const physicalFidelity = Boolean(realism?.physicalFidelityRequired);
   return {
     profile,
-    steps: profile === 'fast' ? 1 : profile === 'quality' ? 4 : 8,
+    physicalFidelity,
+    steps: profile === 'fast' ? 1 : profile === 'ultra' ? 8 : physicalFidelity ? 8 : 4,
     shift: profile === 'fast' ? 1.0 : 3.0,
-    thinking: profile === 'ultra'
+    thinking: profile === 'ultra' || (profile === 'quality' && physicalFidelity)
   };
 }
 
 export function r2GenerationMetadata(body = {}, count = null) {
-  const { profile, steps, shift, thinking } = r2GenerationSettings(body);
+  const { profile, steps, shift, thinking, physicalFidelity } = r2GenerationSettings(body);
   const effectiveCount = Number.isFinite(Number(count)) ? Math.max(1, Math.min(2, Math.round(Number(count)))) : profile === 'ultra' ? 2 : 1;
   const realism = profile === 'fast' ? null : instrumentRealismPlan(body, { depth: profile });
   const mixMaster = profile === 'fast' ? null : mixMasterPlan(body, { depth: profile });
@@ -38,13 +41,15 @@ export function r2GenerationMetadata(body = {}, count = null) {
     generationPolicy: R2_GENERATION_POLICY,
     generationProfile: profile,
     requestedGenerationProfile: profile,
-    executionProfile: profile === 'fast' ? 'xl-turbo-instant-single-track' : profile === 'quality' ? 'xl-turbo-human-realism-euler4-batch' : 'xl-turbo-ultra-human-realism-heun8-batch',
+    executionProfile: profile === 'fast' ? 'xl-turbo-instant-single-track' : profile === 'quality' ? (physicalFidelity ? 'xl-turbo-physical-realism-lm8-batch' : 'xl-turbo-human-realism-euler4-batch') : 'xl-turbo-ultra-human-realism-heun8-batch',
     inferenceSteps: steps, shift, samplerMode: profile === 'ultra' ? 'heun' : 'euler', lmThinking: thinking,
     lmAudioPlanning: thinking, lmModel: 'acestep-5Hz-lm-4B',
     instrumentRealismEnabled: Boolean(realism),
     instrumentRealismVersion: realism ? INSTRUMENT_REALISM_VERSION : null,
     instrumentRealismFamilies: realism?.families || [],
     instrumentRealismDepth: realism?.depth || null,
+    physicalFidelityRequired: Boolean(realism?.physicalFidelityRequired),
+    physicalPlayabilityLocked: Boolean(realism?.physicalPlayabilityLocked),
     ensembleInteractionCount: realism?.ensembleInteractions?.length || 0,
     sectionAwareArrangement: realism?.structureAware || false,
     naturalInstrumentABProfile: realism ? NATURAL_INSTRUMENT_AB_PROFILE : null,
@@ -113,7 +118,7 @@ function caption(payload, body, source, lyrics) {
 }
 
 export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody = resolvedBody) {
-  const { profile, steps, shift, thinking } = r2GenerationSettings(resolvedBody);
+  const { profile, steps, shift, thinking, physicalFidelity } = r2GenerationSettings(resolvedBody);
   const lyrics = originalLyrics(payload, sourceBody);
   const mixMaster = profile === 'fast' ? null : mixMasterPlan({ ...resolvedBody, ...sourceBody, lyrics }, { depth: profile });
   const normalizationEnabled = payload.enable_normalization !== false;
@@ -148,7 +153,7 @@ export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody 
     lm_repetition_penalty: 1.0,
     lm_negative_prompt: profile === 'fast'
       ? 'NO USER INPUT'
-      : 'robotic quantization, static velocity, identical repeated bars, MIDI-like note triggering, machine-gun drums, cheap one-note drum pulse, repetitive synthetic thud, toy percussion, identical kick snare or tom transient on every beat, flat drum envelopes, genre-inappropriate drum substitution, plastic acoustic timbre, phase-locked acoustic doubles, metallic artifacts, brittle cymbals, fake room resets, overcompression, clipped transients',
+      : 'robotic quantization, static velocity, identical repeated bars, MIDI-like note triggering, machine-gun drums, cheap one-note drum pulse, repetitive synthetic thud, toy percussion, identical kick snare or tom transient on every beat, flat drum envelopes, genre-inappropriate drum substitution, plastic acoustic timbre, phase-locked acoustic doubles, sample-library sameness, impossible instrument fingering, impossible drummer limb patterns, endless breathless wind or brass sustain, frozen vibrato, organ-like brass, synth-like acoustic bass, identical guitar strums, identical piano attacks, room-tail resets, metallic artifacts, brittle cymbals, fake room resets, overcompression, clipped transients',
     allow_lm_batch: thinking && effectiveBatchSize > 1,
     dcw_enabled: profile === 'fast' ? payload.dcw_enabled : true,
     dcw_mode: profile === 'fast' ? payload.dcw_mode : 'double',
@@ -163,6 +168,8 @@ export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody 
     sonara_r2_generation_policy: R2_GENERATION_POLICY,
     sonara_instrument_realism: profile === 'fast' ? null : INSTRUMENT_REALISM_VERSION,
     sonara_instrument_realism_depth: profile === 'fast' ? null : profile,
+    sonara_physical_fidelity_required: physicalFidelity,
+    sonara_physical_playability_lock: physicalFidelity,
     sonara_natural_instrument_ab_profile: profile === 'fast' ? null : NATURAL_INSTRUMENT_AB_PROFILE,
     sonara_natural_instrument_ab_required: profile !== 'fast',
     enable_normalization: profile === 'fast' ? payload.enable_normalization : normalizationEnabled,
