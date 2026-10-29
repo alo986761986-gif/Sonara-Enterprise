@@ -81,7 +81,8 @@ def main():
             rights_ready+=1
         if not synthetic:
             real_count+=1
-        rows.append({
+        normalized=dict(old)
+        normalized.update({
             "audio_path":rel,
             "prompt_override":str(old.get("prompt_override") or prompt_for(family)),
             "genre":str(old.get("genre") or ""),
@@ -93,15 +94,21 @@ def main():
             "bpm":old.get("bpm"),
             "key":str(old.get("key") or ""),
             "time_signature":str(old.get("time_signature") or "4"),
+            "performance_type":str(old.get("performance_type") or "note_or_hit"),
             "custom_tag":"<SONARA_PHYSICAL_REALISM>",
             "sha256":sha256(p),
         })
+        rows.append(normalized)
 
     manifest_path.write_text(json.dumps(rows,indent=2)+"\n",encoding="utf-8")
     required_families={"acoustic-drums","piano-keys","guitars-fretted","bass","bowed-strings","brass-woodwinds"}
     present_families={family for family,count in family_counts.items() if count>0}
     missing_families=sorted(required_families-present_families)
     max_family_share=(max(family_counts.values())/len(files)) if files else 1.0
+    phrase_level_count=sum(
+        1 for row in rows
+        if str(row.get("performance_type") or "").strip().lower() in {"phrase","phrase_level","performance","full_performance"}
+    )
     development_ready=rights_ready==len(files) and len(files)>=8
     promotion_ready=(
         development_ready
@@ -109,6 +116,7 @@ def main():
         and len(files)>=50
         and not missing_families
         and max_family_share<=0.40
+        and phrase_level_count>=24
     )
     report={
         "generatedAt":datetime.now(timezone.utc).isoformat(),
@@ -118,6 +126,8 @@ def main():
         "families":family_counts,
         "missingPromotionFamilies":missing_families,
         "maxFamilyShare":round(max_family_share,4),
+        "phraseLevelPerformances":phrase_level_count,
+        "requiredPhraseLevelPerformances":24,
         "manifest":str(manifest_path),
         "developmentReady":development_ready,
         "promotionReady":promotion_ready,
@@ -130,6 +140,7 @@ def main():
     print("DEVELOPMENT_READY="+str(report["developmentReady"]))
     print("MISSING_PROMOTION_FAMILIES="+json.dumps(report["missingPromotionFamilies"],separators=(",",":")))
     print("MAX_FAMILY_SHARE="+str(report["maxFamilyShare"]))
+    print("PHRASE_LEVEL_PERFORMANCES="+str(report["phraseLevelPerformances"])+"/24")
     print("PROMOTION_READY="+str(report["promotionReady"]))
     if not report["developmentReady"]:
         print("TRAINING_READY=False")
