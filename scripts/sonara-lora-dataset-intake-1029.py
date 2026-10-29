@@ -105,10 +105,20 @@ def main():
     present_families={family for family,count in family_counts.items() if count>0}
     missing_families=sorted(required_families-present_families)
     max_family_share=(max(family_counts.values())/len(files)) if files else 1.0
-    phrase_level_count=sum(
-        1 for row in rows
+    eligible_phrase_rows=[
+        row for row in rows
         if str(row.get("performance_type") or "").strip().lower() in {"phrase","phrase_level","performance","full_performance"}
-    )
+        and not bool(row.get("synthetic",False))
+        and row.get("promotion_eligible") is not False
+    ]
+    phrase_level_count=len(eligible_phrase_rows)
+    phrase_family_counts={}
+    for row in eligible_phrase_rows:
+        fam=str(row.get("instrument_family") or "unknown").strip().lower()
+        phrase_family_counts[fam]=phrase_family_counts.get(fam,0)+1
+    phrase_family_coverage=len([fam for fam,count in phrase_family_counts.items() if count>0])
+    max_phrase_family_share=(max(phrase_family_counts.values())/phrase_level_count) if phrase_level_count else 1.0
+
     development_ready=rights_ready==len(files) and len(files)>=8
     promotion_ready=(
         development_ready
@@ -117,6 +127,8 @@ def main():
         and not missing_families
         and max_family_share<=0.40
         and phrase_level_count>=24
+        and phrase_family_coverage>=4
+        and max_phrase_family_share<=0.50
     )
     report={
         "generatedAt":datetime.now(timezone.utc).isoformat(),
@@ -128,6 +140,10 @@ def main():
         "maxFamilyShare":round(max_family_share,4),
         "phraseLevelPerformances":phrase_level_count,
         "requiredPhraseLevelPerformances":24,
+        "phraseFamilyCounts":phrase_family_counts,
+        "phraseFamilyCoverage":phrase_family_coverage,
+        "requiredPhraseFamilyCoverage":4,
+        "maxPhraseFamilyShare":round(max_phrase_family_share,4),
         "manifest":str(manifest_path),
         "developmentReady":development_ready,
         "promotionReady":promotion_ready,
@@ -141,6 +157,9 @@ def main():
     print("MISSING_PROMOTION_FAMILIES="+json.dumps(report["missingPromotionFamilies"],separators=(",",":")))
     print("MAX_FAMILY_SHARE="+str(report["maxFamilyShare"]))
     print("PHRASE_LEVEL_PERFORMANCES="+str(report["phraseLevelPerformances"])+"/24")
+    print("PHRASE_FAMILY_COVERAGE="+str(report["phraseFamilyCoverage"])+"/4")
+    print("PHRASE_FAMILY_COUNTS="+json.dumps(report["phraseFamilyCounts"],separators=(",",":")))
+    print("MAX_PHRASE_FAMILY_SHARE="+str(report["maxPhraseFamilyShare"]))
     print("PROMOTION_READY="+str(report["promotionReady"]))
     if not report["developmentReady"]:
         print("TRAINING_READY=False")
