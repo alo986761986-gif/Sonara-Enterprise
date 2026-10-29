@@ -63,7 +63,7 @@ def resolve_audio(data_dir,row):
 
 def validate_dataset(data_dir,manifest,promotion):
     rows=load_manifest(manifest)
-    allowed={"OWNED","EXPLICITLY_LICENSED","CC0_PUBLIC_DOMAIN"}
+    allowed={"OWNED","EXPLICITLY_LICENSED","CC0_PUBLIC_DOMAIN","CC_BY_4_0"}
     real_count=0
     resolved=[]
     families={}
@@ -72,6 +72,8 @@ def validate_dataset(data_dir,manifest,promotion):
             raise SystemExit(f"DATASET_ROW_INVALID={idx}")
         p=resolve_audio(data_dir,row)
         license_type=str(row.get("license_type") or "").upper()
+        if license_type == "CC_BY_4_0" and not str(row.get("source_attribution") or "").strip():
+            raise SystemExit("CC_BY_4_0_ATTRIBUTION_REQUIRED")
         if license_type not in allowed:
             raise SystemExit(f"DATASET_LICENSE_NOT_ALLOWED={idx}:{license_type or 'MISSING'}")
         if row.get("rights_to_train") is not True:
