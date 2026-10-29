@@ -13,7 +13,7 @@ ROOT = pathlib.Path.home() / ".sonara"
 AGENT = ROOT / "sonara_r2_pull_agent.py"
 WATCHDOG = ROOT / "sonara_relay_watchdog.py"
 LOG = ROOT / "relay-watchdog.log"
-PIN = "bfeba68e0f941a571e74df04b7d4d1a77984649e"
+PIN = "df66e44f8677179251e487737f873390b048f483"
 BASE = f"https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/{PIN}/molab"
 
 def fetch(name: str) -> bytes:
