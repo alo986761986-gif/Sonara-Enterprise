@@ -90,16 +90,33 @@ def main():
         "export_path":str(EXPORT),
         "lora_output_dir":str(OUT),
     },120)
-    weights=EXPORT/"adapter_model.safetensors"
-    cfg=EXPORT/"adapter_config.json"
-    if not weights.is_file() or weights.stat().st_size < 1024:
-        raise SystemExit("ADAPTER_SAFETENSORS_MISSING")
-    if not cfg.is_file():
-        raise SystemExit("ADAPTER_CONFIG_MISSING")
+    candidates=[
+        EXPORT,
+        EXPORT/"adapter",
+        checkpoint,
+        checkpoint/"adapter",
+    ]
+    adapter_dir=None
+    weights=None
+    cfg=None
+    for candidate in candidates:
+        candidate=pathlib.Path(candidate)
+        w=candidate/"adapter_model.safetensors"
+        a=candidate/"adapter_config.json"
+        if w.is_file() and a.is_file() and w.stat().st_size>=1024:
+            adapter_dir=candidate
+            weights=w
+            cfg=a
+            break
+    if adapter_dir is None:
+        discovered=[str(p) for p in EXPORT.rglob("adapter_model.safetensors")] if EXPORT.exists() else []
+        raise SystemExit("ADAPTER_SAFETENSORS_MISSING;DISCOVERED="+json.dumps(discovered))
+
+    print("ADAPTER_LAYOUT="+str(adapter_dir),flush=True)
 
     summary={
         "checkpoint":str(checkpoint),
-        "exportDir":str(EXPORT),
+        "exportDir":str(adapter_dir),
         "weights":str(weights),
         "weightsBytes":weights.stat().st_size,
         "sha256":sha256(weights),
@@ -111,7 +128,7 @@ def main():
     report.write_text(json.dumps(summary,indent=2)+"\n",encoding="utf-8")
     print("REAL_LORA_READY=True",flush=True)
     print("CHECKPOINT_EPOCH=10",flush=True)
-    print("ADAPTER_DIR="+str(EXPORT),flush=True)
+    print("ADAPTER_DIR="+str(adapter_dir),flush=True)
     print("ADAPTER_SHA256="+summary["sha256"],flush=True)
     print("PROMOTION_STATUS=DEVELOPMENT_ONLY",flush=True)
     print("RESULT_JSON="+str(report),flush=True)
