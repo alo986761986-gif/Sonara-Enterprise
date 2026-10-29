@@ -1,2 +1,2 @@
-trigger: 2026-10-29T11:20:00Z
-reason: deploy latency optimization for QUALITY and bounded ULTRA critic path
+trigger: 2026-10-29T11:45:00Z
+reason: deploy Physical Instrument Realism V6 and adaptive 8-step fidelity routing
