@@ -201,7 +201,7 @@ def main():
         }
         rows.append(row)
         added.append(row)
-        print(f"EGSET12_HUMAN_PHRASE_IMPORTED={idx}/{len(FILES)} DURATION={dur:.2f}s",flush=True)
+        print(f"EGSET12_HUMAN_PHRASE_IMPORTED={idx}/{len(source_files)} DURATION={dur:.2f}s",flush=True)
 
     DATASET.write_text(json.dumps(rows,indent=2)+"\n",encoding="utf-8")
     report={
