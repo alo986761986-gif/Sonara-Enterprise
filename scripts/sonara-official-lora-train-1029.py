@@ -311,13 +311,21 @@ def export_adapter(out_dir,export_dir):
         "export_path":str(export_dir),
         "lora_output_dir":str(out_dir),
     },120)
-    weights=export_dir/"adapter_model.safetensors"
-    config=export_dir/"adapter_config.json"
-    if not weights.is_file() or weights.stat().st_size < 1024:
-        raise SystemExit("REAL_LORA_SAFETENSORS_MISSING")
-    if not config.is_file():
-        raise SystemExit("REAL_LORA_CONFIG_MISSING")
-    if (export_dir/"adapter_model.bin").exists():
+    adapter_dir=None
+    weights=None
+    config=None
+    for candidate in (export_dir,export_dir/"adapter"):
+        w=candidate/"adapter_model.safetensors"
+        cfg=candidate/"adapter_config.json"
+        if w.is_file() and cfg.is_file() and w.stat().st_size>=1024:
+            adapter_dir=candidate
+            weights=w
+            config=cfg
+            break
+    if adapter_dir is None:
+        discovered=[str(p) for p in export_dir.rglob("adapter_model.safetensors")] if export_dir.exists() else []
+        raise SystemExit("REAL_LORA_SAFETENSORS_MISSING;DISCOVERED="+json.dumps(discovered))
+    if (adapter_dir/"adapter_model.bin").exists():
         raise SystemExit("LEGACY_ADAPTER_BIN_REJECTED")
     return result,weights,config
 
