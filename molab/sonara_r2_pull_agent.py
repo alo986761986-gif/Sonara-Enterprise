@@ -9,7 +9,8 @@ import pathlib
 import signal
 import time
 import wave
-import audioop
+import struct
+import math
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -175,6 +176,21 @@ def extract_paths(task):
     add(result)
     return found[:2]
 
+def _pcm_sample(chunk, width):
+    if width == 1:
+        return chunk[0] - 128, 127.0
+    if width == 2:
+        return struct.unpack('<h', chunk)[0], 32767.0
+    if width == 3:
+        value = int.from_bytes(chunk, 'little', signed=False)
+        if value & 0x800000:
+            value -= 1 << 24
+        return value, 8388607.0
+    if width == 4:
+        return struct.unpack('<i', chunk)[0], 2147483647.0
+    raise ValueError('Unsupported PCM width')
+
+
 def wav_quality_report(path):
     try:
         with wave.open(str(path), 'rb') as wav:
@@ -185,52 +201,56 @@ def wav_quality_report(path):
             raw = wav.readframes(frames)
         if width not in (1, 2, 3, 4) or channels < 1 or rate <= 0 or not raw:
             raise ValueError('Unsupported WAV')
-        mono = raw if channels == 1 else audioop.tomono(raw, width, 0.5, 0.5)
-        peak = audioop.max(mono, width)
-        rms = audioop.rms(mono, width)
-        max_amp = float((1 << (8 * width - 1)) - 1)
-        peak_ratio = peak / max_amp if max_amp else 0.0
-        rms_ratio = rms / max_amp if max_amp else 0.0
-        peak_db = 20.0 * __import__('math').log10(max(peak_ratio, 1e-9))
-        rms_db = 20.0 * __import__('math').log10(max(rms_ratio, 1e-9))
-        # Bounded chunk scan for silence/clipping/DC without third-party DSP.
-        sample_count = max(1, len(mono) // width)
-        stride = max(1, sample_count // 200000)
-        clipped = silent = 0
+
+        frame_size = width * channels
+        available_frames = len(raw) // frame_size
+        if available_frames <= 0:
+            raise ValueError('Empty WAV')
+
+        stride = max(1, available_frames // 200000)
+        peak_ratio = 0.0
+        square_sum = 0.0
+        clipped = 0
+        silent = 0
         dc_sum = 0.0
         seen = 0
-        import struct
-        for i in range(0, sample_count, stride):
-            start = i * width
-            chunk = mono[start:start + width]
-            if len(chunk) != width:
-                break
-            if width == 1:
-                value = chunk[0] - 128
-                scale = 127.0
-            elif width == 2:
-                value = struct.unpack('<h', chunk)[0]
-                scale = 32767.0
-            elif width == 3:
-                raw3 = int.from_bytes(chunk, 'little', signed=False)
-                if raw3 & 0x800000:
-                    raw3 -= 1 << 24
-                value = raw3
-                scale = 8388607.0
-            else:
-                value = struct.unpack('<i', chunk)[0]
-                scale = 2147483647.0
-            ratio = value / scale if scale else 0.0
+
+        for frame_index in range(0, available_frames, stride):
+            frame_start = frame_index * frame_size
+            mono_ratio = 0.0
+            valid_channels = 0
+            for channel in range(channels):
+                start = frame_start + channel * width
+                chunk = raw[start:start + width]
+                if len(chunk) != width:
+                    continue
+                value, scale = _pcm_sample(chunk, width)
+                mono_ratio += value / scale if scale else 0.0
+                valid_channels += 1
+            if valid_channels <= 0:
+                continue
+            mono_ratio /= valid_channels
+            absolute = abs(mono_ratio)
+            peak_ratio = max(peak_ratio, absolute)
+            square_sum += mono_ratio * mono_ratio
+            dc_sum += mono_ratio
             seen += 1
-            dc_sum += ratio
-            if abs(ratio) >= 0.999:
+            if absolute >= 0.999:
                 clipped += 1
-            if abs(ratio) <= 0.001:
+            if absolute <= 0.001:
                 silent += 1
-        clipping = clipped / max(1, seen)
-        silence = silent / max(1, seen)
-        dc = dc_sum / max(1, seen)
+
+        if seen <= 0:
+            raise ValueError('No analyzable PCM samples')
+
+        rms_ratio = math.sqrt(square_sum / seen)
+        peak_db = 20.0 * math.log10(max(peak_ratio, 1e-9))
+        rms_db = 20.0 * math.log10(max(rms_ratio, 1e-9))
+        clipping = clipped / seen
+        silence = silent / seen
+        dc = dc_sum / seen
         duration = frames / float(rate)
+
         score = 100.0
         score -= min(35.0, clipping * 50000.0)
         score -= min(30.0, max(0.0, silence - 0.08) * 150.0)
@@ -239,6 +259,7 @@ def wav_quality_report(path):
             score -= 8.0
         if rms_db > -5.0 or rms_db < -28.0:
             score -= 10.0
+
         return {
             'ok': True,
             'durationSeconds': round(duration, 3),
