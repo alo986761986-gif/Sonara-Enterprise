@@ -98,15 +98,29 @@ def main():
         })
 
     manifest_path.write_text(json.dumps(rows,indent=2)+"\n",encoding="utf-8")
+    required_families={"acoustic-drums","piano-keys","guitars-fretted","bass","bowed-strings","brass-woodwinds"}
+    present_families={family for family,count in family_counts.items() if count>0}
+    missing_families=sorted(required_families-present_families)
+    max_family_share=(max(family_counts.values())/len(files)) if files else 1.0
+    development_ready=rights_ready==len(files) and len(files)>=8
+    promotion_ready=(
+        development_ready
+        and real_count==len(files)
+        and len(files)>=50
+        and not missing_families
+        and max_family_share<=0.40
+    )
     report={
         "generatedAt":datetime.now(timezone.utc).isoformat(),
         "audioFiles":len(files),
         "realFiles":real_count,
         "rightsReady":rights_ready,
         "families":family_counts,
+        "missingPromotionFamilies":missing_families,
+        "maxFamilyShare":round(max_family_share,4),
         "manifest":str(manifest_path),
-        "developmentReady":rights_ready==len(files) and len(files)>=1,
-        "promotionReady":rights_ready==len(files) and real_count==len(files) and len(files)>=50,
+        "developmentReady":development_ready,
+        "promotionReady":promotion_ready,
     }
     (ROOT/"sonara_dataset_readiness.json").write_text(json.dumps(report,indent=2)+"\n",encoding="utf-8")
     print("DATASET_MANIFEST="+str(manifest_path))
@@ -114,6 +128,8 @@ def main():
     print("REAL_AUDIO="+str(real_count)+"/"+str(len(files)))
     print("FAMILIES="+json.dumps(family_counts,separators=(",",":")))
     print("DEVELOPMENT_READY="+str(report["developmentReady"]))
+    print("MISSING_PROMOTION_FAMILIES="+json.dumps(report["missingPromotionFamilies"],separators=(",",":")))
+    print("MAX_FAMILY_SHARE="+str(report["maxFamilyShare"]))
     print("PROMOTION_READY="+str(report["promotionReady"]))
     if not report["developmentReady"]:
         print("TRAINING_READY=False")
