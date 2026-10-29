@@ -1,0 +1,28 @@
+[
+  {
+    "audio_path": "drums/session_001.wav",
+    "prompt_override": "Live acoustic drum kit, natural room, dynamic drummer performance, ghost notes, realistic cymbal decay and phrase-aware fills.",
+    "genre": "Jazz Fusion",
+    "subgenre": "Modern Jazz Fusion",
+    "instrument_family": "acoustic-drums",
+    "license_type": "OWNED",
+    "rights_to_train": true,
+    "synthetic": false,
+    "bpm": 170,
+    "key": "E minor",
+    "custom_tag": "<SONARA_PHYSICAL_REALISM>"
+  },
+  {
+    "audio_path": "guitar/session_001.wav",
+    "prompt_override": "Real electric guitar performance with pick dynamics, fret/string resonance, natural chord releases and amplifier/cabinet response.",
+    "genre": "Rock",
+    "subgenre": "Alternative Rock",
+    "instrument_family": "guitars-fretted",
+    "license_type": "OWNED",
+    "rights_to_train": true,
+    "synthetic": false,
+    "bpm": 132,
+    "key": "D major",
+    "custom_tag": "<SONARA_PHYSICAL_REALISM>"
+  }
+]
