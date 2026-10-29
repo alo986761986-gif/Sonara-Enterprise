@@ -191,7 +191,7 @@ def _pcm_sample(chunk, width):
     raise ValueError('Unsupported PCM width')
 
 
-def wav_quality_report(path):
+def wav_quality_report(path, physical_fidelity=False):
     try:
         with wave.open(str(path), 'rb') as wav:
             channels = wav.getnchannels()
@@ -214,6 +214,10 @@ def wav_quality_report(path):
         silent = 0
         dc_sum = 0.0
         seen = 0
+        envelope = []
+        envelope_acc = 0.0
+        envelope_count = 0
+        envelope_bucket = 32
 
         for frame_index in range(0, available_frames, stride):
             frame_start = frame_index * frame_size
@@ -235,6 +239,12 @@ def wav_quality_report(path):
             square_sum += mono_ratio * mono_ratio
             dc_sum += mono_ratio
             seen += 1
+            envelope_acc += absolute
+            envelope_count += 1
+            if envelope_count >= envelope_bucket:
+                envelope.append(envelope_acc / envelope_count)
+                envelope_acc = 0.0
+                envelope_count = 0
             if absolute >= 0.999:
                 clipped += 1
             if absolute <= 0.001:
@@ -251,6 +261,25 @@ def wav_quality_report(path):
         dc = dc_sum / seen
         duration = frames / float(rate)
 
+        transient_variation = None
+        repeated_transient_ratio = None
+        if envelope_count:
+            envelope.append(envelope_acc / envelope_count)
+        if len(envelope) >= 8:
+            local_peaks = [
+                envelope[i] for i in range(1, len(envelope) - 1)
+                if envelope[i] >= 0.02 and envelope[i] >= envelope[i - 1] and envelope[i] >= envelope[i + 1]
+            ]
+            if len(local_peaks) >= 4:
+                mean_peak = sum(local_peaks) / len(local_peaks)
+                variance = sum((value - mean_peak) ** 2 for value in local_peaks) / len(local_peaks)
+                transient_variation = math.sqrt(variance) / max(mean_peak, 1e-9)
+                rounded = [round(value, 3) for value in local_peaks]
+                counts = {}
+                for value in rounded:
+                    counts[value] = counts.get(value, 0) + 1
+                repeated_transient_ratio = max(counts.values()) / len(rounded)
+
         score = 100.0
         score -= min(35.0, clipping * 50000.0)
         score -= min(30.0, max(0.0, silence - 0.08) * 150.0)
@@ -259,6 +288,11 @@ def wav_quality_report(path):
             score -= 8.0
         if rms_db > -5.0 or rms_db < -28.0:
             score -= 10.0
+        if physical_fidelity:
+            if transient_variation is not None and transient_variation < 0.08:
+                score -= min(18.0, (0.08 - transient_variation) * 225.0)
+            if repeated_transient_ratio is not None and repeated_transient_ratio > 0.35:
+                score -= min(22.0, (repeated_transient_ratio - 0.35) * 44.0)
 
         return {
             'ok': True,
@@ -271,6 +305,9 @@ def wav_quality_report(path):
             'clippingRatio': round(clipping, 6),
             'silenceRatio': round(silence, 4),
             'dcOffset': round(dc, 6),
+            'physicalFidelityEvaluated': bool(physical_fidelity),
+            'transientVariation': round(transient_variation, 4) if transient_variation is not None else None,
+            'repeatedTransientRatio': round(repeated_transient_ratio, 4) if repeated_transient_ratio is not None else None,
             'score': round(max(0.0, min(100.0, score)), 1),
         }
     except Exception:
@@ -479,12 +516,12 @@ def process(job):
                 # Score real WAV candidates locally before upload; best becomes Song A.
                 evaluated = []
                 for original_index, candidate_path in enumerate(paths[:4]):
-                    audio_report = wav_quality_report(candidate_path)
+                    audio_report = wav_quality_report(candidate_path, bool(payload.get('sonara_physical_fidelity_required')))
                     vocal = vocal_report(candidate_path, payload)
                     repaired_path, repaired = maybe_repair_vocal(candidate_path, payload, vocal)
                     if repaired:
                         candidate_path = repaired_path
-                        audio_report = wav_quality_report(candidate_path)
+                        audio_report = wav_quality_report(candidate_path, bool(payload.get('sonara_physical_fidelity_required')))
                         vocal = vocal_report(candidate_path, payload)
                     evaluated.append({
                         'path': candidate_path,
@@ -530,7 +567,7 @@ def process(job):
                     timings['upload' + str(index + 1) + 'Seconds'] = round(time.monotonic() - uploaded, 2)
                     del data
                 completed = time.monotonic()
-                request('POST', base + '/complete', {'quality': quality_summary, 'rankingVersion': 'sonara-local-critic-v1'}, head, 30)
+                request('POST', base + '/complete', {'quality': quality_summary, 'rankingVersion': 'sonara-local-critic-v2-physical'}, head, 30)
                 timings['completeSeconds'] = round(time.monotonic() - completed, 2)
                 timings['totalSeconds'] = round(time.monotonic() - started, 2)
                 publish_status('completed', jobId=job_id, trackCount=expected, timings=timings)
