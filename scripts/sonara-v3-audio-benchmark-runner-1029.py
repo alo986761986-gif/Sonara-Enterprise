@@ -28,6 +28,8 @@ V2_NAME="sonara_physical_realism_v2_fixed_dev"
 V3_NAME="sonara_physical_realism_v3_fixed_dev"
 V2_SCALE=0.60
 V3_SCALE=0.55
+V2_PATH="/marimo/SONARA-ACE-Step-CLEAN/sonara_training/physical_realism_v2_fixed/output/final"
+V3_PATH="/marimo/SONARA-ACE-Step-CLEAN/sonara_training/physical_realism_v3_fixed/output/final"
 MODEL="acestep-v15-xl-turbo"
 
 def call(method,path,payload=None,timeout=180):
@@ -123,44 +125,95 @@ def lora_status():
     return call("GET","/v1/lora/status",None,30)
 
 def activate_adapter(name,scale):
-    status=lora_status()
-    adapters=set(status.get("adapters") or [])
-    if name not in adapters:
-        raise RuntimeError("LORA_ADAPTER_NOT_LOADED="+name)
-
-    # Explicitly select the adapter through the SONARA hotfix endpoint.
-    call("POST","/v1/lora/active",{"adapter_name":name},60)
-    call("POST","/v1/lora/scale",{"adapter_name":name,"scale":scale},60)
+    # Robust benchmark isolation: keep exactly one adapter loaded at a time.
+    # This avoids relying on active-adapter switching in multi-adapter mode.
+    desired_path=V2_PATH if name==V2_NAME else V3_PATH if name==V3_NAME else None
+    if desired_path is None:
+        raise RuntimeError("UNKNOWN_BENCHMARK_ADAPTER="+name)
 
     status=lora_status()
-    if str(status.get("active_adapter") or "")!=name:
-        raise RuntimeError(
-            "LORA_SWITCH_FAILED="+str(status.get("active_adapter"))+" expected="+name
-        )
+    current_adapters=set(status.get("adapters") or [])
+    current_active=str(status.get("active_adapter") or "")
 
+    if current_adapters!={name} or current_active!=name:
+        if bool(status.get("lora_loaded")):
+            call("POST","/v1/lora/toggle",{"use_lora":False},60)
+            call("POST","/v1/lora/unload",{},180)
+
+        call("POST","/v1/lora/load",{
+            "lora_path":desired_path,
+            "adapter_name":name,
+        },180)
+
+    call("POST","/v1/lora/scale",{
+        "adapter_name":name,
+        "scale":scale,
+    },60)
+
+    status=lora_status()
     if not bool(status.get("use_lora")):
         call("POST","/v1/lora/toggle",{"use_lora":True},60)
         status=lora_status()
 
-    if not bool(status.get("use_lora")):
-        raise RuntimeError("LORA_ENABLE_FAILED")
+    adapters=set(status.get("adapters") or [])
+    if adapters!={name}:
+        raise RuntimeError("LORA_ISOLATION_FAILED="+str(sorted(adapters)))
     if str(status.get("active_adapter") or "")!=name:
         raise RuntimeError(
-            "LORA_ACTIVE_AFTER_ENABLE_FAILED="+str(status.get("active_adapter"))+" expected="+name
+            "LORA_ACTIVE_VERIFY_FAILED="+str(status.get("active_adapter"))+" expected="+name
         )
+    if not bool(status.get("use_lora")):
+        raise RuntimeError("LORA_ENABLE_FAILED")
 
     actual=float((status.get("scales") or {}).get(name,-1))
     if abs(actual-scale)>1e-6:
         raise RuntimeError(f"LORA_SCALE_MISMATCH={name}:{actual}/{scale}")
-    print(f"ACTIVE_ADAPTER={name} SCALE={actual}",flush=True)
 
-def disable_lora():
+    print(f"ACTIVE_ADAPTER={name} SCALE={actual} ISOLATED=True",flush=True)
+
+def restore_dev_adapters():
     try:
-        call("POST","/v1/lora/toggle",{"use_lora":False},60)
         status=lora_status()
-        print("LORA_ACTIVE_AFTER_BENCHMARK="+str(bool(status.get("use_lora"))),flush=True)
+        if bool(status.get("lora_loaded")):
+            call("POST","/v1/lora/toggle",{"use_lora":False},60)
+            call("POST","/v1/lora/unload",{},180)
+
+        call("POST","/v1/lora/load",{
+            "lora_path":V2_PATH,
+            "adapter_name":V2_NAME,
+        },180)
+        call("POST","/v1/lora/scale",{
+            "adapter_name":V2_NAME,
+            "scale":V2_SCALE,
+        },60)
+        call("POST","/v1/lora/toggle",{"use_lora":False},60)
+
+        call("POST","/v1/lora/load",{
+            "lora_path":V3_PATH,
+            "adapter_name":V3_NAME,
+        },180)
+        call("POST","/v1/lora/scale",{
+            "adapter_name":V3_NAME,
+            "scale":V3_SCALE,
+        },60)
+        call("POST","/v1/lora/toggle",{"use_lora":False},60)
+
+        status=lora_status()
+        adapters=set(status.get("adapters") or [])
+        if V2_NAME not in adapters or V3_NAME not in adapters:
+            raise RuntimeError("DEV_ADAPTER_RESTORE_INCOMPLETE")
+        if bool(status.get("use_lora")):
+            raise RuntimeError("DEV_ADAPTER_RESTORE_LEFT_LORA_ON")
+
+        print("V2_RESTORED_AFTER_BENCHMARK=True",flush=True)
+        print("V3_RESTORED_AFTER_BENCHMARK=True",flush=True)
+        print("LORA_ACTIVE_AFTER_BENCHMARK=False",flush=True)
     except Exception as exc:
-        print("LORA_DISABLE_WARNING="+type(exc).__name__,flush=True)
+        print("LORA_RESTORE_WARNING="+type(exc).__name__,flush=True)
+        try:
+            call("POST","/v1/lora/toggle",{"use_lora":False},60)
+        except Exception:
+            pass
 
 def generate(case,seed,adapter_name,scale,out_path):
     activate_adapter(adapter_name,scale)
@@ -416,15 +469,11 @@ def main():
     if bool(initial.get("use_lora")):
         raise SystemExit("BENCHMARK_REQUIRES_LORA_OFF_AT_START")
 
-    probe_name=str(initial.get("active_adapter") or V3_NAME)
-    try:
-        call("POST","/v1/lora/active",{"adapter_name":probe_name},30)
-    except Exception as exc:
-        raise SystemExit("BENCHMARK_ACTIVE_ENDPOINT_NOT_READY") from exc
-    probe_status=lora_status()
-    if str(probe_status.get("active_adapter") or "")!=probe_name:
-        raise SystemExit("BENCHMARK_ACTIVE_ENDPOINT_VERIFY_FAILED")
-    print("LORA_ACTIVE_ENDPOINT_READY=True",flush=True)
+    if not pathlib.Path(V2_PATH).joinpath("adapter_model.safetensors").is_file():
+        raise SystemExit("BENCHMARK_V2_ADAPTER_FILE_MISSING")
+    if not pathlib.Path(V3_PATH).joinpath("adapter_model.safetensors").is_file():
+        raise SystemExit("BENCHMARK_V3_ADAPTER_FILE_MISSING")
+    print("BENCHMARK_ADAPTER_ISOLATION_MODE=UNLOAD_RELOAD",flush=True)
 
     clips=[]
     pairs=[]
@@ -560,7 +609,7 @@ def main():
                     flush=True,
                 )
     finally:
-        disable_lora()
+        restore_dev_adapters()
 
     v2=[x for x in clips if x["adapterLabel"]=="v2"]
     v3=[x for x in clips if x["adapterLabel"]=="v3"]
