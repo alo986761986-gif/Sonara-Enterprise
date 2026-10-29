@@ -90,11 +90,44 @@ def dryad_archive_metadata():
         raise SystemExit(f"DRYAD_ARCHIVE_MATCHES={len(matches)}")
     item=matches[0]
     links=item.get("_links") or {}
-    self_href=(links.get("self") or {}).get("href","")
-    match=re.search(r"/files/(\\d+)$",str(self_href))
-    if not match:
+
+    # Dryad file metadata may expose the numeric identifier through different
+    # HAL relations depending on API version / anonymous access. Accept:
+    #   /api/v2/files/<id>
+    #   /api/v2/downloads/<id>
+    #   absolute URLs, trailing slashes, query strings, or a top-level id.
+    file_id=None
+    top_id=item.get("id")
+    if str(top_id or "").isdigit():
+        file_id=str(top_id)
+
+    if file_id is None:
+        hrefs=[]
+        for rel in ("self","stash:download","download"):
+            value=links.get(rel) or {}
+            if isinstance(value,dict):
+                href=value.get("href")
+            else:
+                href=value
+            if href:
+                hrefs.append(str(href))
+
+        for href in hrefs:
+            match=re.search(
+                r"/(?:files|downloads)/(\\d+)(?:/download)?/?(?:[?#].*)?$",
+                href,
+            )
+            if match:
+                file_id=match.group(1)
+                break
+
+    if file_id is None:
+        print(
+            "DRYAD_FILE_LINKS_DEBUG="
+            +json.dumps(links,separators=(",",":"),default=str),
+            flush=True,
+        )
         raise SystemExit("DRYAD_FILE_ID_MISSING")
-    file_id=match.group(1)
 
     # IMPORTANT: /api/v2/files/<id>/download requires an authenticated API user.
     # Public published files are served by the web download stream instead.
