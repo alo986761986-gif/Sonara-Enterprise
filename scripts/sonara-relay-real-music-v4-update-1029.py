@@ -39,13 +39,13 @@ def write_private(path: pathlib.Path, data: bytes) -> None:
         os.fchmod(out.fileno(), 0o600)
         out.write(data)
 
-def stop_relay_only() -> None:
+def relay_pids() -> list[int]:
     try:
         rows = subprocess.check_output(["ps", "-eo", "pid=,args="], text=True)
     except Exception:
-        return
+        return []
     me = os.getpid()
-    targets = []
+    found = []
     for row in rows.splitlines():
         parts = row.strip().split(maxsplit=1)
         if len(parts) != 2:
@@ -58,13 +58,33 @@ def stop_relay_only() -> None:
             continue
         cmd = parts[1]
         if "sonara_relay_watchdog.py" in cmd or "sonara_r2_pull_agent.py" in cmd:
-            targets.append(pid)
+            found.append(pid)
+    return found
+
+
+def stop_relay_only() -> None:
+    targets = relay_pids()
     for pid in targets:
         try:
             os.kill(pid, signal.SIGINT)
         except ProcessLookupError:
             pass
-    time.sleep(3)
+    deadline = time.time() + 15
+    while time.time() < deadline:
+        if not relay_pids():
+            return
+        time.sleep(0.5)
+    for pid in relay_pids():
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    deadline = time.time() + 8
+    while time.time() < deadline:
+        if not relay_pids():
+            return
+        time.sleep(0.5)
+    raise SystemExit("SONARA updater: previous relay processes did not stop cleanly")
 
 def main() -> None:
     ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -86,18 +106,37 @@ def main() -> None:
             cwd=str(ROOT),
             start_new_session=True,
         )
-    time.sleep(4)
     status_path = ROOT / "relay-agent-status.json"
+    started_at = time.time()
+    status = {}
+    deadline = started_at + 35
+    import json
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            break
+        try:
+            if status_path.is_file():
+                candidate = json.loads(status_path.read_text(encoding="utf-8"))
+                if float(candidate.get("updatedAt") or 0) >= started_at - 1:
+                    status = candidate
+                    if candidate.get("state") in ("waiting_for_authorized_job", "standby", "connection_unavailable"):
+                        break
+        except Exception:
+            pass
+        time.sleep(1)
+
     print("SONARA_RELAY_UPDATE_PIN=" + PIN)
     print("WATCHDOG_PID=" + str(proc.pid))
+    print("WATCHDOG_RUNNING=" + str(proc.poll() is None))
     print("ACE_STEP=NOT_TOUCHED")
     print("RELAY_TOKEN=NOT_PRINTED")
-    if status_path.is_file():
-        import json
-        status = json.loads(status_path.read_text(encoding="utf-8"))
-        for key in ("revision","state","authenticated","modelsReady","storageConfigured","gatewayConfigured","relayEnabled"):
-            if key in status:
-                print(f"{key}={status.get(key)}")
+    for key in ("revision","state","authenticated","modelsReady","storageConfigured","gatewayConfigured","relayEnabled"):
+        if key in status:
+            print(f"{key}={status.get(key)}")
+    if proc.poll() is not None:
+        raise SystemExit("SONARA updater: watchdog exited before relay became ready")
+    if status.get("state") == "stopped_for_update" or not status:
+        raise SystemExit("SONARA updater: relay did not publish a fresh readiness state")
 
 if __name__ == "__main__":
     main()
