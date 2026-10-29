@@ -307,6 +307,47 @@ def wait_local_task(task_id, timeout=900):
     return None
 
 
+def wait_local_paths(task_id, timeout=1200):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        answer = local('POST', '/query_result', {'task_id_list': [task_id]}, timeout=50)
+        data = answer.get('data', [])
+        task = data[0] if isinstance(data, list) and data else data if isinstance(data, dict) else {}
+        if task:
+            status = normalized_status(task.get('status'))
+            if status < 0:
+                raise RuntimeError('Candidate batch failed')
+            if status == 1:
+                return extract_paths(task)
+        time.sleep(1)
+    return []
+
+
+def ultra_second_batch(payload):
+    profile = str(payload.get('sonara_r2_generation_profile') or '').strip().lower()
+    if profile != 'ultra':
+        return []
+    second = dict(payload)
+    second['batch_size'] = 2
+    second['use_random_seed'] = True
+    try:
+        seed = int(second.get('seed') or 0)
+    except (TypeError, ValueError):
+        seed = 0
+    second['seed'] = (seed + 104729) if seed > 0 else -1
+    second['sonara_internal_variant_batch'] = 2
+    second['prompt'] = (
+        str(second.get('prompt') or '') +
+        '\nSONARA ULTRA INTERNAL VARIANT BATCH: create two additional fully original performances '
+        'from the same creator brief. Preserve genre, BPM, key, lyrics, singer identity and instrument palette, '
+        'but change melody/voicing/fills/section detail enough to provide meaningful ranking diversity.'
+    )[-12000:]
+    answer = local('POST', '/release_task', second, timeout=120)
+    nested = answer.get('data', answer)
+    task_id = nested.get('task_id') if isinstance(nested, dict) else None
+    return wait_local_paths(task_id, timeout=1200) if task_id else []
+
+
 def maybe_repair_vocal(path, payload, vocal):
     profile = str(payload.get('sonara_r2_generation_profile') or payload.get('generationProfileV3') or '').strip().lower()
     accuracy = vocal.get('lyricAccuracy')
@@ -408,9 +449,18 @@ def process(job):
                 if len(paths) < expected:
                     raise RuntimeError('Incomplete ACE-Step audio output')
 
+                # ULTRA gets a second internal batch; only the best two are published.
+                if str(payload.get('sonara_r2_generation_profile') or '').strip().lower() == 'ultra':
+                    progress('generating_extra_candidates', internalCandidateTarget=4)
+                    request('POST', base + '/renew', {}, head, 20)
+                    try:
+                        paths.extend(ultra_second_batch(payload))
+                    except Exception:
+                        pass
+
                 # Score real WAV candidates locally before upload; best becomes Song A.
                 evaluated = []
-                for original_index, candidate_path in enumerate(paths[:expected]):
+                for original_index, candidate_path in enumerate(paths[:4]):
                     audio_report = wav_quality_report(candidate_path)
                     vocal = vocal_report(candidate_path, payload)
                     repaired_path, repaired = maybe_repair_vocal(candidate_path, payload, vocal)
@@ -444,6 +494,8 @@ def process(job):
                     for rank, item in enumerate(evaluated)
                 ]
 
+                evaluated = evaluated[:2]
+                expected = min(2, len(evaluated))
                 for index, item in enumerate(evaluated):
                     path = item['path']
                     progress('uploading', track=index + 1, trackCount=expected, qualityScore=item['score'])
