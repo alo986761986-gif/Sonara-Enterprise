@@ -78,11 +78,25 @@ def validate_dataset(data_dir,manifest,promotion):
         if not prompt:
             raise SystemExit(f"DATASET_PROMPT_REQUIRED={idx}")
         resolved.append((row,p))
+    required_families={"acoustic-drums","piano-keys","guitars-fretted","bass","bowed-strings","brass-woodwinds"}
+    present_families={family for family,count in families.items() if count>0}
+    missing_families=sorted(required_families-present_families)
+    max_family_share=(max(families.values())/len(rows)) if rows else 1.0
     if promotion and real_count < 50:
         raise SystemExit(f"PROMOTION_REQUIRES_50_REAL_TRACKS_CURRENT={real_count}")
     if promotion and real_count != len(rows):
         raise SystemExit("PROMOTION_REJECTS_SYNTHETIC_AUDIO")
-    return rows,resolved,{"tracks":len(rows),"realTracks":real_count,"families":families}
+    if promotion and missing_families:
+        raise SystemExit("PROMOTION_MISSING_FAMILIES="+",".join(missing_families))
+    if promotion and max_family_share > 0.40:
+        raise SystemExit(f"PROMOTION_FAMILY_IMBALANCE_MAX_SHARE={max_family_share:.4f}")
+    return rows,resolved,{
+        "tracks":len(rows),
+        "realTracks":real_count,
+        "families":families,
+        "missingPromotionFamilies":missing_families,
+        "maxFamilyShare":round(max_family_share,4),
+    }
 
 def sha256(path):
     h=hashlib.sha256()
@@ -180,8 +194,8 @@ def start_training(tensor_dir,out_dir,epochs,rank,alpha):
         "lora_dropout":0.1,
         "learning_rate":1e-4,
         "train_epochs":epochs,
-        "train_batch_size":2,
-        "gradient_accumulation":2,
+        "train_batch_size":1,
+        "gradient_accumulation":4,
         "save_every_n_epochs":5,
         "training_shift":3.0,
         "training_seed":42,
@@ -234,7 +248,7 @@ def main():
     ap.add_argument("--dataset-json",default="")
     ap.add_argument("--tensor-dir",default=str(DEFAULT_TENSORS))
     ap.add_argument("--output-dir",default=str(DEFAULT_OUT))
-    ap.add_argument("--epochs",type=int,default=100)
+    ap.add_argument("--epochs",type=int,default=75)
     ap.add_argument("--rank",type=int,default=64)
     ap.add_argument("--alpha",type=int,default=128)
     ap.add_argument("--promotion",action="store_true")
