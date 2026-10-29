@@ -327,7 +327,7 @@ def main():
     ap.add_argument("--dataset-json",default="")
     ap.add_argument("--tensor-dir",default=str(DEFAULT_TENSORS))
     ap.add_argument("--output-dir",default=str(DEFAULT_OUT))
-    ap.add_argument("--epochs",type=int,default=75)
+    ap.add_argument("--epochs",type=int,default=10)
     ap.add_argument("--rank",type=int,default=64)
     ap.add_argument("--alpha",type=int,default=128)
     ap.add_argument("--promotion",action="store_true")
