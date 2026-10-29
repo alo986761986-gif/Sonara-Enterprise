@@ -56,7 +56,7 @@ def resolve_audio(data_dir,row):
 
 def validate_dataset(data_dir,manifest,promotion):
     rows=load_manifest(manifest)
-    allowed={"OWNED","EXPLICITLY_LICENSED"}
+    allowed={"OWNED","EXPLICITLY_LICENSED","CC0_PUBLIC_DOMAIN"}
     real_count=0
     resolved=[]
     families={}
