@@ -1,5 +1,5 @@
 {
-  "version": "sonara-physical-realism-lora-v1.2",
+  "version": "sonara-physical-realism-lora-v1.3",
   "base_model": "acestep-v15-xl-turbo",
   "training_tool": "ACE-Step 1.5 official training API (MIT)",
   "activation_tag": "<SONARA_PHYSICAL_REALISM>",
@@ -7,13 +7,17 @@
     "allowed_license_types": [
       "OWNED",
       "EXPLICITLY_LICENSED",
-      "CC0_PUBLIC_DOMAIN"
+      "CC0_PUBLIC_DOMAIN",
+      "CC_BY_4_0"
     ],
     "require_rights_to_train": true,
     "synthetic_audio_allowed_for_development": true,
     "synthetic_audio_allowed_for_promotion": false,
     "cc0_public_domain_allowed": true,
-    "cc0_note": "CC0/public-domain material is accepted when source provenance and source license evidence are recorded."
+    "cc0_note": "CC0/public-domain material is accepted when source provenance and source license evidence are recorded.",
+    "cc_by_4_0_allowed": true,
+    "cc_by_4_0_require_attribution": true,
+    "cc_by_4_0_note": "CC BY 4.0 material is allowed only when source attribution and license URL are preserved in dataset metadata and downstream notices."
   },
   "dataset_policy": {
     "development_min_tracks": 8,
