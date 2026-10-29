@@ -124,17 +124,31 @@ def lora_status():
 
 def activate_adapter(name,scale):
     status=lora_status()
-    if not bool(status.get("use_lora")):
-        call("POST","/v1/lora/toggle",{"use_lora":True},60)
-    # When LoRA is enabled, setting a named scale also switches active PEFT adapter.
+    adapters=set(status.get("adapters") or [])
+    if name not in adapters:
+        raise RuntimeError("LORA_ADAPTER_NOT_LOADED="+name)
+
+    # Explicitly select the adapter through the SONARA hotfix endpoint.
+    call("POST","/v1/lora/active",{"adapter_name":name},60)
     call("POST","/v1/lora/scale",{"adapter_name":name,"scale":scale},60)
+
     status=lora_status()
-    if not bool(status.get("use_lora")):
-        raise RuntimeError("LORA_ENABLE_FAILED")
     if str(status.get("active_adapter") or "")!=name:
         raise RuntimeError(
             "LORA_SWITCH_FAILED="+str(status.get("active_adapter"))+" expected="+name
         )
+
+    if not bool(status.get("use_lora")):
+        call("POST","/v1/lora/toggle",{"use_lora":True},60)
+        status=lora_status()
+
+    if not bool(status.get("use_lora")):
+        raise RuntimeError("LORA_ENABLE_FAILED")
+    if str(status.get("active_adapter") or "")!=name:
+        raise RuntimeError(
+            "LORA_ACTIVE_AFTER_ENABLE_FAILED="+str(status.get("active_adapter"))+" expected="+name
+        )
+
     actual=float((status.get("scales") or {}).get(name,-1))
     if abs(actual-scale)>1e-6:
         raise RuntimeError(f"LORA_SCALE_MISMATCH={name}:{actual}/{scale}")
@@ -401,6 +415,16 @@ def main():
         raise SystemExit("BENCHMARK_ADAPTERS_NOT_LOADED")
     if bool(initial.get("use_lora")):
         raise SystemExit("BENCHMARK_REQUIRES_LORA_OFF_AT_START")
+
+    probe_name=str(initial.get("active_adapter") or V3_NAME)
+    try:
+        call("POST","/v1/lora/active",{"adapter_name":probe_name},30)
+    except Exception as exc:
+        raise SystemExit("BENCHMARK_ACTIVE_ENDPOINT_NOT_READY") from exc
+    probe_status=lora_status()
+    if str(probe_status.get("active_adapter") or "")!=probe_name:
+        raise SystemExit("BENCHMARK_ACTIVE_ENDPOINT_VERIFY_FAILED")
+    print("LORA_ACTIVE_ENDPOINT_READY=True",flush=True)
 
     clips=[]
     pairs=[]
