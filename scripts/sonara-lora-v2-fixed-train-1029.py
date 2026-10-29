@@ -121,8 +121,8 @@ def main():
 
     if not (OUT/"final"/"adapter_model.safetensors").is_file():
         cmd=[
-            UV,"run","python","train.py","fixed",
-            "--plain","--yes",
+            UV,"run","python","train.py",
+            "--plain","--yes","fixed",
             "--checkpoint-dir",str(CHECKPOINTS),
             "--model-variant","xl_turbo",
             "--base-model","xl_turbo",
