@@ -1,0 +1,302 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import hashlib
+import html
+import json
+import pathlib
+import re
+import shutil
+import subprocess
+import tempfile
+import urllib.parse
+import urllib.request
+
+ROOT=pathlib.Path("/marimo/SONARA-LORA-DATASET")
+DATASET=ROOT/"dataset.json"
+OUT=ROOT/"commons-phrase-v1"
+API="https://commons.wikimedia.org/w/api.php"
+UA="SONARA-Physical-Realism-Phrase-Ingest/1.0 (Wikimedia Commons; provenance-preserving)"
+
+TARGETS={
+    "acoustic-drums":{
+        "count":4,
+        "queries":["drum solo", "acoustic drums solo", "percussion solo"],
+        "prompt":"Real human acoustic drum or percussion phrase with natural groove, limb-plausible coordination, dynamic accents, ghost-note variation, cymbal/skin decay and continuous room response.",
+    },
+    "piano-keys":{
+        "count":4,
+        "queries":["piano solo performance", "piano improvisation", "solo piano"],
+        "prompt":"Real human piano phrase with expressive timing, velocity-shaped hammer attacks, pedal continuity, natural key releases, register-dependent resonance and physically playable voicings.",
+    },
+    "guitars-fretted":{
+        "count":4,
+        "queries":["classical guitar solo", "acoustic guitar solo", "guitar improvisation"],
+        "prompt":"Real human guitar phrase with playable fretboard motion, pick/finger variation, natural string order, chord releases, fret/string resonance and phrase-level timing.",
+    },
+    "bass":{
+        "count":4,
+        "queries":["double bass solo", "upright bass solo", "bass guitar solo"],
+        "prompt":"Real human bass phrase with physical string attack, finger/pick variation, natural note lengths, playable position changes, slides and coherent low-end body resonance.",
+    },
+    "bowed-strings":{
+        "count":4,
+        "queries":["violin solo performance", "cello solo performance", "viola solo"],
+        "prompt":"Real human bowed-string phrase with natural bow changes, connected legato, position shifts, phrase-shaped vibrato, dynamic bow pressure/speed and resonant wooden body.",
+    },
+    "brass-woodwinds":{
+        "count":4,
+        "queries":["flute solo performance", "clarinet solo", "saxophone solo", "trumpet solo performance"],
+        "prompt":"Real human brass or woodwind phrase with breath-capacity phrasing, idiomatic articulation, register-dependent timbre, natural pitch connections and expressive dynamics.",
+    },
+}
+
+def request_json(params, timeout=60):
+    query=urllib.parse.urlencode(params)
+    req=urllib.request.Request(
+        API+"?"+query,
+        headers={"User-Agent":UA,"Accept":"application/json"},
+    )
+    with urllib.request.urlopen(req,timeout=timeout) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+def clean_html(value):
+    if isinstance(value,dict):
+        value=value.get("value","")
+    text=html.unescape(str(value or ""))
+    return re.sub(r"<[^>]+>"," ",text).replace("\n"," ").strip()
+
+def meta_value(meta,key):
+    value=meta.get(key,{})
+    return clean_html(value)
+
+def license_ok(meta):
+    short=meta_value(meta,"LicenseShortName").lower()
+    copyrighted=meta_value(meta,"Copyrighted").lower()
+    if "cc0" in short:
+        return True
+    if "public domain" in short and copyrighted in {"false","0","no"}:
+        return True
+    return False
+
+def query_candidates(term):
+    data=request_json({
+        "action":"query",
+        "format":"json",
+        "generator":"search",
+        "gsrsearch":term,
+        "gsrnamespace":"6",
+        "gsrlimit":"50",
+        "prop":"imageinfo",
+        "iiprop":"url|mime|mediatype|size|extmetadata",
+        "iiurlwidth":"0",
+    })
+    pages=(data.get("query") or {}).get("pages") or {}
+    out=[]
+    for page in pages.values():
+        infos=page.get("imageinfo") or []
+        if not infos:
+            continue
+        info=infos[0]
+        mediatype=str(info.get("mediatype") or "").upper()
+        mime=str(info.get("mime") or "").lower()
+        if mediatype!="AUDIO" and not mime.startswith("audio/") and mime!="application/ogg":
+            continue
+        meta=info.get("extmetadata") or {}
+        if not license_ok(meta):
+            continue
+        url=info.get("url")
+        if not url:
+            continue
+        out.append({
+            "title":page.get("title") or "",
+            "url":url,
+            "mime":mime,
+            "mediatype":mediatype,
+            "size":info.get("size"),
+            "meta":meta,
+        })
+    return out
+
+def sha256(path):
+    h=hashlib.sha256()
+    with open(path,"rb") as f:
+        while True:
+            chunk=f.read(1024*1024)
+            if not chunk:
+                break
+            h.update(chunk)
+    return h.hexdigest()
+
+def run_capture(cmd):
+    return subprocess.run(cmd,text=True,capture_output=True,check=True)
+
+def duration_seconds(path):
+    p=run_capture([
+        "ffprobe","-v","error","-show_entries","format=duration",
+        "-of","default=noprint_wrappers=1:nokey=1",str(path)
+    ])
+    return float(p.stdout.strip())
+
+def transcode_phrase(src,dest,duration):
+    if duration < 12.0:
+        return False
+    clip=min(24.0,duration)
+    if duration > clip+3:
+        start=min(max(1.0,duration*0.20),duration-clip-1.0)
+    else:
+        start=0.0
+    dest.parent.mkdir(parents=True,exist_ok=True)
+    cmd=[
+        "ffmpeg","-y","-v","error",
+        "-ss",f"{start:.3f}","-i",str(src),
+        "-t",f"{clip:.3f}",
+        "-ar","48000","-ac","2",
+        "-c:a","pcm_s24le",
+        str(dest)
+    ]
+    subprocess.run(cmd,check=True)
+    return dest.is_file() and dest.stat().st_size>100000
+
+def download(url,path):
+    req=urllib.request.Request(url,headers={"User-Agent":UA})
+    with urllib.request.urlopen(req,timeout=180) as response, open(path,"wb") as out:
+        while True:
+            chunk=response.read(1024*1024)
+            if not chunk:
+                break
+            out.write(chunk)
+
+def load_dataset():
+    if not DATASET.is_file():
+        raise SystemExit("DATASET_JSON_MISSING")
+    data=json.loads(DATASET.read_text(encoding="utf-8"))
+    if not isinstance(data,list):
+        raise SystemExit("DATASET_JSON_INVALID")
+    return data
+
+def main():
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        raise SystemExit("FFMPEG_OR_FFPROBE_MISSING")
+
+    rows=load_dataset()
+    # Remove only previous phrase-v1 rows so reruns are deterministic.
+    rows=[r for r in rows if str(r.get("dataset_stage") or "")!="commons-phrase-v1"]
+    existing_sources={str(r.get("source_url") or "") for r in rows if isinstance(r,dict)}
+    OUT.mkdir(parents=True,exist_ok=True)
+
+    added=[]
+    audit=[]
+    for family,spec in TARGETS.items():
+        selected=0
+        seen_urls=set()
+        print("PHRASE_FAMILY="+family,flush=True)
+        for term in spec["queries"]:
+            if selected>=spec["count"]:
+                break
+            try:
+                candidates=query_candidates(term)
+            except Exception as exc:
+                audit.append({"family":family,"query":term,"status":"query_error","error":str(exc)})
+                continue
+            print("QUERY="+term+" CANDIDATES="+str(len(candidates)),flush=True)
+            for cand in candidates:
+                if selected>=spec["count"]:
+                    break
+                url=str(cand["url"])
+                if url in seen_urls or url in existing_sources:
+                    continue
+                seen_urls.add(url)
+
+                title=str(cand["title"])
+                suffix=pathlib.Path(urllib.parse.urlparse(url).path).suffix or ".bin"
+                tmp_src=None
+                try:
+                    with tempfile.NamedTemporaryFile(prefix="sonara_commons_",suffix=suffix,delete=False) as tmp:
+                        tmp_src=pathlib.Path(tmp.name)
+                    download(url,tmp_src)
+                    if tmp_src.stat().st_size<100000:
+                        raise RuntimeError("source_too_small")
+                    dur=duration_seconds(tmp_src)
+                    if dur<12.0:
+                        audit.append({"family":family,"title":title,"url":url,"status":"rejected_short","duration":dur})
+                        continue
+
+                    safe_name=re.sub(r"[^A-Za-z0-9._-]+","_",pathlib.Path(title.replace("File:","")).stem)[:80]
+                    dest=OUT/family/f"{selected+1:02d}_{safe_name}.wav"
+                    if not transcode_phrase(tmp_src,dest,dur):
+                        raise RuntimeError("transcode_failed")
+
+                    meta=cand["meta"]
+                    license_short=meta_value(meta,"LicenseShortName")
+                    license_url=meta_value(meta,"LicenseUrl")
+                    artist=meta_value(meta,"Artist")
+                    credit=meta_value(meta,"Credit")
+                    description=meta_value(meta,"ImageDescription")
+                    row={
+                        "audio_path":str(dest.relative_to(ROOT)),
+                        "prompt_override":spec["prompt"],
+                        "genre":"Human Performance Phrase",
+                        "subgenre":family,
+                        "instrument_family":family,
+                        "license_type":"CC0_PUBLIC_DOMAIN",
+                        "rights_to_train":True,
+                        "synthetic":False,
+                        "bpm":None,
+                        "key":"",
+                        "time_signature":"4",
+                        "performance_type":"phrase_level",
+                        "custom_tag":"<SONARA_PHYSICAL_REALISM>",
+                        "dataset_stage":"commons-phrase-v1",
+                        "source":"Wikimedia Commons",
+                        "source_title":title,
+                        "source_url":url,
+                        "source_page":"https://commons.wikimedia.org/wiki/"+urllib.parse.quote(title.replace(" ","_"),safe=":/_"),
+                        "source_license":license_short,
+                        "source_license_url":license_url,
+                        "source_artist":artist,
+                        "source_credit":credit,
+                        "source_description":description,
+                        "source_duration_seconds":round(dur,3),
+                        "training_clip_seconds":round(min(24.0,dur),3),
+                        "sha256":sha256(dest),
+                    }
+                    rows.append(row)
+                    added.append(row)
+                    existing_sources.add(url)
+                    selected+=1
+                    print("PHRASE_ACCEPTED="+family+":"+str(selected)+"/"+str(spec["count"])+" "+title,flush=True)
+                except Exception as exc:
+                    audit.append({"family":family,"title":title,"url":url,"status":"error","error":str(exc)})
+                finally:
+                    if tmp_src is not None:
+                        tmp_src.unlink(missing_ok=True)
+
+        if selected<spec["count"]:
+            print("PHRASE_FAMILY_INCOMPLETE="+family+":"+str(selected)+"/"+str(spec["count"]),flush=True)
+
+    DATASET.write_text(json.dumps(rows,indent=2)+"\n",encoding="utf-8")
+    report={
+        "version":"sonara-commons-phrase-v1",
+        "target":24,
+        "added":len(added),
+        "complete":len(added)>=24,
+        "families":{},
+        "licensePolicy":"Only Wikimedia Commons files reporting CC0 or Public domain with Copyrighted=False are accepted.",
+        "auditEntries":len(audit),
+    }
+    for row in added:
+        fam=row["instrument_family"]
+        report["families"][fam]=report["families"].get(fam,0)+1
+
+    (ROOT/"commons_phrase_v1_report.json").write_text(json.dumps(report,indent=2)+"\n",encoding="utf-8")
+    (ROOT/"commons_phrase_v1_audit.json").write_text(json.dumps(audit,indent=2)+"\n",encoding="utf-8")
+
+    print("PHRASE_LEVEL_IMPORTED="+str(len(added)),flush=True)
+    print("PHRASE_FAMILIES="+json.dumps(report["families"],separators=(",",":")),flush=True)
+    print("DATASET_TOTAL_ROWS="+str(len(rows)),flush=True)
+    print("PHRASE_GATE_COMPLETE="+str(report["complete"]),flush=True)
+    print("NEXT_ACTION=RUN_DATASET_INTAKE",flush=True)
+
+if __name__=="__main__":
+    main()
