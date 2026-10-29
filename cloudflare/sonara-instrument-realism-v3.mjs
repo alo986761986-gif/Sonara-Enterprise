@@ -1,4 +1,4 @@
-export const INSTRUMENT_REALISM_VERSION = 'sonara-instrument-realism-v4-natural-ab';
+export const INSTRUMENT_REALISM_VERSION = 'sonara-instrument-realism-v5-human-performance';
 
 const text = value => typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
 const list = value => {
@@ -136,8 +136,11 @@ function performanceAuthenticityCue(families, depth) {
   const acoustic = families.some(id => id !== 'electronic');
   const cues = [
     'performance authenticity: repeated notes and repeated bars must not share identical attack, velocity, envelope or timing fingerprints',
+    'human gesture continuity: dynamics, timing, articulation and tone must evolve as one connected performance across a phrase rather than as isolated note events',
     'musicians phrase in arcs across several beats and bars instead of triggering isolated MIDI-like notes',
-    'arrangement breathes: not every instrument plays continuously; entrances, rests, pickups and releases follow musical phrases'
+    'ensemble response: accompaniment reacts to lead phrasing, section energy and groove changes; fills and accents answer musical events instead of appearing on a fixed loop',
+    'arrangement breathes: not every instrument plays continuously; entrances, rests, pickups and releases follow musical phrases',
+    'timbral non-repetition: repeated attacks should vary subtly in spectral balance, transient shape and decay whenever the source would physically vary'
   ];
   if (acoustic) cues.push('mechanical and performer noises may exist only at subtle natural levels and must follow the physical action that caused them');
   if (families.includes('acoustic-drums')) cues.push('drum shells, cymbals and room tails overlap naturally across hits; no sample-reset effect unless the genre explicitly asks for it');
@@ -152,8 +155,8 @@ function performanceAuthenticityCue(families, depth) {
 function recordingRealityCue(families) {
   const electronicOnly = families.length > 0 && families.every(id => id === 'electronic');
   return electronicOnly
-    ? 'recording reality: programmed sources remain intentionally synthetic when requested, but avoid cheap preset repetition, static envelopes and phase-locked copy-paste loops'
-    : 'recording reality: preserve body resonance, air, room continuity, believable transient-to-sustain ratios and small phrase-dependent tone changes; avoid plastic sample-library sameness';
+    ? 'recording reality: programmed sources remain intentionally synthetic when requested, but avoid cheap preset repetition, static envelopes, phase-locked copy-paste loops and identical modulation cycles; preserve purposeful swing, velocity/accent hierarchy, evolving filter/envelope behavior and phrase-aware automation'
+    : 'recording reality: preserve body resonance, air, room continuity, believable transient-to-sustain ratios, performer distance and small phrase-dependent tone changes; avoid plastic sample-library sameness, perfectly identical attacks and abrupt room resets';
 }
 
 export function instrumentRealismPlan(body = {}, options = {}) {
