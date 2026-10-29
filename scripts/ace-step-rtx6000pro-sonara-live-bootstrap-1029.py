@@ -16,7 +16,7 @@ import urllib.request
 from pathlib import Path
 
 SONARA_REPO = "alo986761986-gif/Sonara-Enterprise"
-SONARA_SOURCE_PIN = "43d86d77944c9dceeb1a549aac94546bf778d9da"
+SONARA_SOURCE_PIN = "87d7690c5d70fb812d3b40f7e4ab67b163e24c7c"
 RAW_SCRIPTS = f"https://raw.githubusercontent.com/{SONARA_REPO}/{SONARA_SOURCE_PIN}/scripts"
 RAW_MOLAB = f"https://raw.githubusercontent.com/{SONARA_REPO}/{SONARA_SOURCE_PIN}/molab"
 
