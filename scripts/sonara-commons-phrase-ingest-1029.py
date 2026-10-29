@@ -72,51 +72,174 @@ def meta_value(meta,key):
 
 def license_ok(meta):
     short=meta_value(meta,"LicenseShortName").lower()
+    license_name=meta_value(meta,"License").lower()
+    usage=meta_value(meta,"UsageTerms").lower()
+    license_url=meta_value(meta,"LicenseUrl").lower()
     copyrighted=meta_value(meta,"Copyrighted").lower()
-    if "cc0" in short:
-        return True
-    if "public domain" in short and copyrighted in {"false","0","no"}:
-        return True
-    return False
 
-def query_candidates(term):
+    cc0_signal=(
+        "cc0" in short
+        or "cc-zero" in license_name
+        or "publicdomain/zero/1.0" in license_url
+        or "creative commons cc0" in usage
+    )
+    public_domain_signal=(
+        "public domain" in short
+        or "public domain" in usage
+        or license_name in {"pd","public-domain","public domain"}
+    )
+    explicitly_not_copyrighted=copyrighted in {"false","0","no",""}
+    return cc0_signal or (public_domain_signal and explicitly_not_copyrighted)
+
+def _search_file_titles(term, limit=120):
+    titles=[]
+    sroffset=None
+    while len(titles)<limit:
+        params={
+            "action":"query",
+            "format":"json",
+            "list":"search",
+            "srsearch":f"{term} filetype:audio",
+            "srnamespace":"6",
+            "srlimit":"50",
+        }
+        if sroffset is not None:
+            params["sroffset"]=str(sroffset)
+        data=request_json(params)
+        batch=((data.get("query") or {}).get("search") or [])
+        for item in batch:
+            title=str(item.get("title") or "")
+            if title and title not in titles:
+                titles.append(title)
+                if len(titles)>=limit:
+                    break
+        cont=data.get("continue") or {}
+        if "sroffset" not in cont or not batch:
+            break
+        sroffset=cont["sroffset"]
+    return titles
+
+
+def _category_file_titles(term, limit=120):
+    # Fallback: search relevant Commons categories, then enumerate file members.
     data=request_json({
         "action":"query",
         "format":"json",
-        "generator":"search",
-        "gsrsearch":term,
-        "gsrnamespace":"6",
-        "gsrlimit":"50",
-        "prop":"imageinfo",
-        "iiprop":"url|mime|mediatype|size|extmetadata",
-        "iiurlwidth":"0",
+        "list":"search",
+        "srsearch":term,
+        "srnamespace":"14",
+        "srlimit":"10",
     })
-    pages=(data.get("query") or {}).get("pages") or {}
+    categories=[str(x.get("title") or "") for x in ((data.get("query") or {}).get("search") or [])]
+    titles=[]
+    for category in categories:
+        cmcontinue=None
+        while len(titles)<limit:
+            params={
+                "action":"query",
+                "format":"json",
+                "list":"categorymembers",
+                "cmtitle":category,
+                "cmnamespace":"6",
+                "cmlimit":"100",
+                "cmtype":"file",
+            }
+            if cmcontinue:
+                params["cmcontinue"]=cmcontinue
+            page=request_json(params)
+            members=((page.get("query") or {}).get("categorymembers") or [])
+            for item in members:
+                title=str(item.get("title") or "")
+                if title and title not in titles:
+                    titles.append(title)
+                    if len(titles)>=limit:
+                        break
+            cont=page.get("continue") or {}
+            cmcontinue=cont.get("cmcontinue")
+            if not cmcontinue or not members:
+                break
+        if len(titles)>=limit:
+            break
+    return titles
+
+
+def _fetch_file_infos(titles):
     out=[]
-    for page in pages.values():
-        infos=page.get("imageinfo") or []
-        if not infos:
-            continue
-        info=infos[0]
-        mediatype=str(info.get("mediatype") or "").upper()
-        mime=str(info.get("mime") or "").lower()
-        if mediatype!="AUDIO" and not mime.startswith("audio/") and mime!="application/ogg":
-            continue
-        meta=info.get("extmetadata") or {}
-        if not license_ok(meta):
-            continue
-        url=info.get("url")
-        if not url:
-            continue
-        out.append({
-            "title":page.get("title") or "",
-            "url":url,
-            "mime":mime,
-            "mediatype":mediatype,
-            "size":info.get("size"),
-            "meta":meta,
+    for offset in range(0,len(titles),25):
+        batch=titles[offset:offset+25]
+        data=request_json({
+            "action":"query",
+            "format":"json",
+            "titles":"|".join(batch),
+            "prop":"imageinfo",
+            "iiprop":"url|mime|mediatype|size|extmetadata",
         })
+        pages=(data.get("query") or {}).get("pages") or {}
+        for page in pages.values():
+            infos=page.get("imageinfo") or []
+            if not infos:
+                continue
+            info=infos[0]
+            meta=info.get("extmetadata") or {}
+            url=str(info.get("url") or "")
+            mime=str(info.get("mime") or "").lower()
+            title=str(page.get("title") or "")
+            suffix=pathlib.Path(urllib.parse.urlparse(url).path).suffix.lower()
+            audio_like=(
+                mime.startswith("audio/")
+                or suffix in {".wav",".flac",".mp3",".ogg",".oga",".opus",".m4a",".aac"}
+            )
+            if not audio_like:
+                continue
+            out.append({
+                "title":title,
+                "url":url,
+                "mime":mime,
+                "mediatype":str(info.get("mediatype") or ""),
+                "size":info.get("size"),
+                "meta":meta,
+            })
     return out
+
+
+def query_candidates(term):
+    titles=_search_file_titles(term,120)
+    direct_infos=_fetch_file_infos(titles)
+    direct_audio=len(direct_infos)
+    accepted=[item for item in direct_infos if license_ok(item["meta"])]
+
+    print(
+        "COMMONS_SEARCH="
+        +term
+        +" FILE_HITS="+str(len(titles))
+        +" AUDIO_HITS="+str(direct_audio)
+        +" LICENSE_OK="+str(len(accepted)),
+        flush=True,
+    )
+
+    if len(accepted)>=8:
+        return accepted
+
+    category_titles=_category_file_titles(term,120)
+    category_infos=_fetch_file_infos(category_titles)
+    existing={item["url"] for item in accepted}
+    for item in category_infos:
+        if item["url"] in existing:
+            continue
+        if license_ok(item["meta"]):
+            accepted.append(item)
+            existing.add(item["url"])
+
+    print(
+        "COMMONS_CATEGORY_FALLBACK="
+        +term
+        +" FILE_HITS="+str(len(category_titles))
+        +" AUDIO_HITS="+str(len(category_infos))
+        +" LICENSE_OK_TOTAL="+str(len(accepted)),
+        flush=True,
+    )
+    return accepted
+
 
 def sha256(path):
     h=hashlib.sha256()
