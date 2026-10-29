@@ -1,4 +1,4 @@
-export const INSTRUMENT_REALISM_VERSION = 'sonara-instrument-realism-v5-human-performance';
+export const INSTRUMENT_REALISM_VERSION = 'sonara-instrument-realism-v6-physical-performance';
 
 const text = value => typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
 const list = value => {
@@ -10,21 +10,21 @@ const unique = values => [...new Set(values.map(text).filter(Boolean))];
 
 const RULES = [
   { id:'piano-keys', re:/\b(piano|pianoforte|rhodes|wurlitzer|wurli|clavinet|harpsichord|clavichord|celesta|electric piano)\b/i,
-    cue:'keys: velocity-shaped attacks, pedal and release timing, register-specific resonance and voicings that breathe' },
+    cue:'keys: hammer/velocity-shaped attacks, register-specific string/body resonance, sustain-pedal sympathetic resonance, key-off releases, hand-playable voicings and phrase-dependent pedaling; avoid impossible MIDI-dense chord stacks and identical sampled attacks' },
   { id:'bowed-strings', re:/\b(violin|violino|viola|cello|violoncello|double bass|contrabass|string section|strings|archi|sarangi|erhu|haegeum|kamancheh|rebab)\b/i,
-    cue:'bowed strings: changing bow pressure and speed, connected legato, selective vibrato, section-size detail and body resonance' },
+    cue:'bowed strings: changing bow pressure/speed/contact point, real bow changes, connected legato, finger-position shifts, phrase-shaped vibrato, non-synchronous section attacks and resonant wooden body; avoid frozen vibrato and synth-pad uniformity' },
   { id:'guitars-fretted', re:/\b(guitar|chitarra|mandolin|mandolino|banjo|ukulele|bouzouki|charango|cavaquinho|vihuela|balalaika|domra|sitar|sarod|oud|baglama|bağlama|dombra|pipa|shamisen|koto|guzheng)\b/i,
-    cue:'plucked strings: pick or finger variation, realistic chord releases, fret and string resonance, position-dependent tone and non-identical strums' },
+    cue:'plucked strings: physically playable fretboard positions and chord shapes, pick/finger variation, realistic string order on strums, chord releases, fret/string resonance, position-dependent tone and subtle hand noise tied to actual movement; electric guitar preserves believable pickup/amp/cab response instead of generic synth distortion' },
   { id:'bass', re:/\b(bass guitar|fretless bass|electric bass|upright bass|double bass|sub bass|mono bass|bass synth|basso elettrico|contrabbasso|basso)\b/i,
-    cue:'bass: changing pluck or attack, note-length decisions, slides where musical, finger-to-finger variation and physical low-end resonance' },
+    cue:'bass: physically playable fingering, changing finger/pick attack, note-length decisions, slides only where reachable and musical, finger-to-finger variation, string/fret resonance and coherent DI/amp body; avoid static sine-like bass when an acoustic/electric bass is requested' },
   { id:'acoustic-drums', re:/\b(acoustic drum kit|jazz drum kit|rock drum kit|drum kit|batteria acustica|batteria|kick drum|snare drum|hi-hat|ride cymbal|crash cymbal|floor tom|rack tom|timpani|concert bass drum)\b/i,
-    cue:'drums: distinct stick velocities, ghost notes where stylistic, realistic rebounds and fills, cymbal decay and one believable kit-and-room image' },
+    cue:'drums: one coherent real kit, drummer-limb-plausible patterns, distinct stick velocities, ghost notes where stylistic, realistic rebounds, flam/drag variation, foot hi-hat behavior, cymbal choke/decay overlap, tom shell resonance, room/overhead continuity and fills that lead into sections; never retrigger the exact same transient or reset room tails on every hit' },
   { id:'hand-percussion', re:/\b(conga|bongo|djembe|tabla|caj[oó]n|darbuka|dhol|pakhawaj|mridangam|ghatam|kanjira|pandeiro|surdo|tambourine|tamburello|shaker|maraca|claves|riq|bendir|talking drum|taiko|janggu|kendang|percussion|percussioni)\b/i,
-    cue:'hand percussion: changing strike position and strength, hand-to-hand variation, real skin or wood decay and human subdivision' },
+    cue:'hand percussion: hand-playable patterns, changing strike position/strength, hand-to-hand variation, open/slap/muted articulation differences, real skin/wood resonance and decay, phrase-aware subdivision and no identical retriggered sample on each pulse' },
   { id:'brass', re:/\b(trumpet|tromba|cornet|flugelhorn|flicorno|french horn|corno|trombone|euphonium|tuba|sousaphone|bugle|brass|ottoni)\b/i,
-    cue:'brass: breath and embouchure-shaped attacks, dynamic swells, valve or slide continuity and natural pitch connections' },
+    cue:'brass: breath-capacity phrase lengths, embouchure-shaped attacks, register-dependent tone, dynamic swells, valve/slide continuity, lip slurs and natural pitch connections; avoid organ-like sustain, frozen formants and impossible breathless lines' },
   { id:'woodwinds', re:/\b(flute|flauto|piccolo|oboe|english horn|bassoon|fagotto|clarinet|clarinetto|saxophone|sax|recorder|whistle|bansuri|shakuhachi|dizi|ney|duduk|shehnai|woodwind|legni)\b/i,
-    cue:'winds: breath-shaped phrase lengths, tongued and legato attacks, natural register transitions and only subtle mechanical noise' },
+    cue:'winds: breath-capacity phrase lengths, tongued/legato/subtone attacks where idiomatic, register-dependent tone, natural register breaks, finger-transition continuity and only subtle key/mechanical noise tied to articulation; avoid synthetic endless sustain and fixed vibrato' },
   { id:'reeds-organs', re:/\b(accordion|fisarmonica|bandoneon|concertina|harmonium|melodica|pipe organ|organo|hammond organ|reed organ)\b/i,
     cue:'reeds and organs: continuous air or tone, believable key or bellows articulation, drawbar or register continuity and non-static sustain' },
   { id:'electronic', re:/\b(synth|synthesizer|sintetizzatore|drum machine|tr-808|808|tr-909|909|tr-606|606|sampler|mpc|groovebox|mellotron|vocoder|modular|wavetable|granular|fm synthesizer)\b/i,
@@ -182,16 +182,22 @@ export function instrumentRealismPlan(body = {}, options = {}) {
     mixCue(families, depth),
     'no cloned note envelopes, plastic transients, machine-gun repetition, phase-locked acoustic doubles or identical repeated articulations'
   ].filter(Boolean).join('; ');
+  const physicalFamilies = families.filter(id => id !== 'electronic');
+  const electronicOnly = families.length > 0 && physicalFamilies.length === 0;
   return {
     version: INSTRUMENT_REALISM_VERSION,
     depth,
     enabled: true,
     explicitInstruments: instruments.slice(0, 12),
     families,
+    physicalFamilies,
+    physicalFidelityRequired: physicalFamilies.length > 0,
+    electronicOnly,
     ensembleInteractions: interactions,
     structureAware: structure.tagged,
     sourceCharacterLocked: true,
     naturalDrumAntiRepetition: true,
+    physicalPlayabilityLocked: physicalFamilies.length > 0,
     cue
   };
 }
