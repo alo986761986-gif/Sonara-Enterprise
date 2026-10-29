@@ -280,6 +280,9 @@ def wav_quality_report(path):
 def vocal_report(path, payload):
     lyrics = str(payload.get('lyrics') or '').strip()
     vocal_mode = str(payload.get('vocal_mode') or payload.get('vocalMode') or '').strip().lower()
+    profile = str(payload.get('sonara_r2_generation_profile') or payload.get('generationProfileV3') or '').strip().lower()
+    if profile != 'ultra':
+        return {'performed': False, 'lyricAccuracy': None, 'mismatchRanges': [], 'mode': 'non-blocking-quality'}
     if not lyrics or vocal_mode in ('instrumental', 'none', 'off', 'no vocals'):
         return {'performed': False, 'lyricAccuracy': None, 'mismatchRanges': []}
     try:
@@ -470,14 +473,8 @@ def process(job):
                 if len(paths) < expected:
                     raise RuntimeError('Incomplete ACE-Step audio output')
 
-                # ULTRA gets a second internal batch; only the best two are published.
-                if str(payload.get('sonara_r2_generation_profile') or '').strip().lower() == 'ultra':
-                    progress('generating_extra_candidates', internalCandidateTarget=4)
-                    request('POST', base + '/renew', {}, head, 20)
-                    try:
-                        paths.extend(ultra_second_batch(payload))
-                    except Exception:
-                        pass
+                # Keep latency bounded: no second serial ULTRA batch in the live path.
+                # The first native batch is ranked locally and only the best two are published.
 
                 # Score real WAV candidates locally before upload; best becomes Song A.
                 evaluated = []
