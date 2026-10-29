@@ -1,7 +1,7 @@
 {
-  "version": "sonara-physical-realism-lora-v1",
+  "version": "sonara-physical-realism-lora-v1.1",
   "base_model": "acestep-v15-xl-turbo",
-  "training_tool": "Side-Step corrected LoRA (PEFT)",
+  "training_tool": "ACE-Step 1.5 official training API (MIT)",
   "activation_tag": "<SONARA_PHYSICAL_REALISM>",
   "legal_policy": {
     "allowed_license_types": [
@@ -35,7 +35,7 @@
     "goal": "recorded human performances with natural articulation, room continuity, dynamics and physical playability"
   },
   "training": {
-    "mode": "fixed",
+    "mode": "official-api",
     "adapter_type": "lora",
     "model_variant": "turbo",
     "rank": 64,
@@ -58,7 +58,11 @@
         "max_tracks": null,
         "epochs": 75
       }
-    ]
+    ],
+    "endpoint": "/v1/training/start",
+    "preprocess_endpoint": "/v1/dataset/preprocess",
+    "status_endpoint": "/v1/training/status",
+    "export_endpoint": "/v1/training/export"
   },
   "inference": {
     "shift": 3,
@@ -73,5 +77,8 @@
     "requires_benchmark": "engine/sonara_benchmark_v1.json",
     "requires_dataset_promotion_eligibility": true,
     "benchmark_status_required": "PASS"
-  }
+  },
+  "research_only_tools": [
+    "Side-Step 1.1.2-beta (CC BY-NC-SA 4.0; not approved for SONARA commercial production without separate permission)"
+  ]
 }
