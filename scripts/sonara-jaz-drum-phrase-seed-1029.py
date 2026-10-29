@@ -82,17 +82,17 @@ def main():
         bpm=int(bpm_match.group(1)) if bpm_match else None
         row={
             "audio_path":str(dest.relative_to(ROOT)),
-            "prompt_override":"Real jazz drum-kit groove with phrase-level timing, velocity variation, ghost notes, cymbal decay, dynamic fills and non-identical repeated hits.",
+            "prompt_override":"Jazz drum-kit groove with varied velocity, ghost-note patterns, cymbal decay, dynamic fills and non-identical repeated hits; algorithmically sequenced from licensed multi-velocity drum samples.",
             "genre":"Jazz",
             "subgenre":"Jazz Drums",
             "instrument_family":"acoustic-drums",
             "license_type":"CC_BY_4_0",
             "rights_to_train":True,
-            "synthetic":False,
+            "synthetic":True,
             "bpm":bpm,
             "key":"",
             "time_signature":"4",
-            "performance_type":"phrase_level",
+            "performance_type":"programmed_loop",
             "custom_tag":"<SONARA_PHYSICAL_REALISM>",
             "dataset_stage":"phrase-seed-v4-jaz-drm",
             "source":"WaivOps JAZ-DRM",
@@ -115,7 +115,7 @@ def main():
         "added":len(added),
         "family":"acoustic-drums",
         "promotionReady":False,
-        "reason":"High-quality drum phrase seed added. Other instrument families still require licensed phrase-level material."
+        "reason":"Rhythmic augmentation only: JAZ-DRM loops are algorithmically generated from MIDI patterns and multisamples, so they do not count as human phrase-level promotion data."
     }
     (ROOT/"phrase_seed_v4_report.json").write_text(json.dumps(report,indent=2)+"\n",encoding="utf-8")
     print("PHRASE_LEVEL_ADDED="+str(len(added)),flush=True)
