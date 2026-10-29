@@ -77,7 +77,7 @@ def main():
         license_type=str(old.get("license_type") or "UNDECLARED").upper()
         rights=old.get("rights_to_train") is True
         synthetic=bool(old.get("synthetic",False))
-        if rights and license_type in {"OWNED","EXPLICITLY_LICENSED","CC0_PUBLIC_DOMAIN"}:
+        if rights and license_type in {"OWNED","EXPLICITLY_LICENSED","CC0_PUBLIC_DOMAIN","CC_BY_4_0"}:
             rights_ready+=1
         if not synthetic:
             real_count+=1
