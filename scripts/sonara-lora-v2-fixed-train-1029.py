@@ -99,6 +99,7 @@ def main():
     if pt_count < 192:
         raise SystemExit(f"V2_TENSORS_INCOMPLETE={pt_count}")
     print("PREPROCESSED_TENSORS="+str(pt_count),flush=True)
+    print("MODEL_DIR_RESOLVED="+str(CHECKPOINTS/"acestep-v15-xl-turbo"),flush=True)
 
     # Audit old API-trained adapters. They are retained only as forensic artifacts.
     for name,path in OLD_ADAPTERS.items():
@@ -124,7 +125,7 @@ def main():
             UV,"run","python","train.py",
             "--plain","--yes","fixed",
             "--checkpoint-dir",str(CHECKPOINTS),
-            "--model-variant","xl_turbo",
+            "--model-variant","acestep-v15-xl-turbo",
             "--base-model","xl_turbo",
             "--dataset-dir",str(TENSORS),
             "--output-dir",str(OUT),
