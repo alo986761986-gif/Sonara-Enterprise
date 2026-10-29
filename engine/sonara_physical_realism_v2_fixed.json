@@ -1,0 +1,44 @@
+{
+  "version": "sonara-physical-realism-v2-fixed",
+  "trainer": "ACE-Step training_v2 fixed",
+  "base_model": "acestep-v15-xl-turbo",
+  "dataset_rows": 192,
+  "families": {
+    "piano-keys": 32,
+    "guitars-fretted": 64,
+    "acoustic-drums": 24,
+    "bass": 24,
+    "bowed-strings": 24,
+    "brass-woodwinds": 24
+  },
+  "adapter": {
+    "path": "/marimo/SONARA-ACE-Step-CLEAN/sonara_training/physical_realism_v2_fixed/output/final",
+    "sha256": "6887ed270c8e4a67c589d6c41da0a57777ffd99470d1e89f196b988545c46bcc",
+    "total_params": 83886080,
+    "nonzero_params": 83886080,
+    "nonzero_pct": 100,
+    "max_abs": 0.03125,
+    "l2": 75.38244351990701
+  },
+  "checkpoints": {
+    "epoch5": {
+      "sha256": "0f10991d6457d7b7f633da0ff02b90ace3ec83d89750b8f5ef33054e00ceb483",
+      "loss": 0.4526
+    },
+    "epoch10": {
+      "sha256": "6887ed270c8e4a67c589d6c41da0a57777ffd99470d1e89f196b988545c46bcc",
+      "loss": 0.4351
+    },
+    "weights_changed": true
+  },
+  "promotion": {
+    "status": "BLOCKED_PHRASE_LEVEL_DATA_REQUIRED",
+    "phrase_level_performances": 0,
+    "required_phrase_level_performances": 24
+  },
+  "inference": {
+    "adapter_name": "sonara_physical_realism_v2_fixed_dev",
+    "recommended_dev_scale": 0.6,
+    "default_enabled": false
+  }
+}
