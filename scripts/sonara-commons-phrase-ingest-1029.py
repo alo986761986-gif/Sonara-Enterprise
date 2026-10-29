@@ -21,35 +21,106 @@ UA="SONARA-Physical-Realism-Phrase-Ingest/1.0 (Wikimedia Commons; provenance-pre
 TARGETS={
     "acoustic-drums":{
         "count":4,
-        "queries":["drum solo", "acoustic drums solo", "percussion solo"],
+        "queries":["drum solo performance", "drummer solo", "snare drum solo", "percussion solo performance", "tabla solo performance"],
         "prompt":"Real human acoustic drum or percussion phrase with natural groove, limb-plausible coordination, dynamic accents, ghost-note variation, cymbal/skin decay and continuous room response.",
     },
     "piano-keys":{
         "count":4,
-        "queries":["piano solo performance", "piano improvisation", "solo piano"],
+        "queries":["piano solo performance", "piano improvisation performance", "piano recital solo"],
         "prompt":"Real human piano phrase with expressive timing, velocity-shaped hammer attacks, pedal continuity, natural key releases, register-dependent resonance and physically playable voicings.",
     },
     "guitars-fretted":{
         "count":4,
-        "queries":["classical guitar solo", "acoustic guitar solo", "guitar improvisation"],
+        "queries":["classical guitar solo performance", "acoustic guitar solo performance", "guitar improvisation performance", "guitar recital solo"],
         "prompt":"Real human guitar phrase with playable fretboard motion, pick/finger variation, natural string order, chord releases, fret/string resonance and phrase-level timing.",
     },
     "bass":{
         "count":4,
-        "queries":["double bass solo", "upright bass solo", "bass guitar solo"],
+        "queries":["double bass solo performance", "contrabass solo performance", "upright bass solo performance", "bass guitar solo performance"],
         "prompt":"Real human bass phrase with physical string attack, finger/pick variation, natural note lengths, playable position changes, slides and coherent low-end body resonance.",
     },
     "bowed-strings":{
         "count":4,
-        "queries":["violin solo performance", "cello solo performance", "viola solo"],
+        "queries":["violin solo performance", "cello solo performance", "viola solo performance", "violin recital solo"],
         "prompt":"Real human bowed-string phrase with natural bow changes, connected legato, position shifts, phrase-shaped vibrato, dynamic bow pressure/speed and resonant wooden body.",
     },
     "brass-woodwinds":{
         "count":4,
-        "queries":["flute solo performance", "clarinet solo", "saxophone solo", "trumpet solo performance"],
+        "queries":["flute solo performance", "clarinet solo performance", "saxophone solo performance", "trumpet solo performance", "trombone solo performance", "oboe solo performance"],
         "prompt":"Real human brass or woodwind phrase with breath-capacity phrasing, idiomatic articulation, register-dependent timbre, natural pitch connections and expressive dynamics.",
     },
 }
+
+FAMILY_EVIDENCE={
+    "acoustic-drums":[
+        "drum","drums","drummer","drumset","drum set","percussion","percussionist",
+        "snare","tom-tom","tom tom","cajon","cajón","bongo","conga","tabla","darbuka",
+        "tambourine","shaker","timpani","marimba","vibraphone"
+    ],
+    "piano-keys":["piano","pianoforte","pianist","fortepiano","rhodes","wurlitzer","clavinet"],
+    "guitars-fretted":[
+        "guitar","guitarra","guitare","gitarre","guitarist","lute","mandolin","ukulele",
+        "oud","sitar"
+    ],
+    "bass":[
+        "double bass","contrabass","contrabasso","upright bass","bass guitar",
+        "electric bass","bassist","bass solo"
+    ],
+    "bowed-strings":[
+        "violin","violino","violinist","viola","violist","cello","violoncello",
+        "cellist","bowed string"
+    ],
+    "brass-woodwinds":[
+        "flute","flaut","flauto","flutist","clarinet","clarinett","saxophone","sax",
+        "trumpet","trombone","oboe","bassoon","fagott","french horn","horn solo",
+        "woodwind","brass solo"
+    ],
+}
+
+PERFORMANCE_EVIDENCE=[
+    "solo","improvis","performance","recital","exercise","etude","étude","study",
+    "practice","demonstration","demo","phrase","riff","groove","cadence","cadenza",
+    "excerpt","movement","session"
+]
+
+FULL_MIX_BLOCKLIST=[
+    "orchestra","orchestral","his gang","and his orchestra","ensemble","quartet",
+    "quintet","sextet","septet","octet","band","choir","chorus","opera","symphony",
+    "concerto with orchestra","full mix","song","recording of"
+]
+
+def _text_blob(candidate):
+    meta=candidate.get("meta") or {}
+    values=[
+        candidate.get("title",""),
+        meta_value(meta,"ImageDescription"),
+        meta_value(meta,"ObjectName"),
+        meta_value(meta,"Credit"),
+        meta_value(meta,"Artist"),
+        meta_value(meta,"Categories"),
+    ]
+    return " ".join(str(v or "") for v in values).lower()
+
+def candidate_matches_family(candidate,family):
+    blob=_text_blob(candidate)
+    if any(block in blob for block in FULL_MIX_BLOCKLIST):
+        # Allow orchestral terms only when the title/description explicitly foregrounds
+        # the target instrument and says solo.
+        instrument_ok=any(term in blob for term in FAMILY_EVIDENCE[family])
+        solo_ok="solo" in blob
+        if not (instrument_ok and solo_ok):
+            return False
+    instrument_ok=any(term in blob for term in FAMILY_EVIDENCE[family])
+    performance_ok=any(term in blob for term in PERFORMANCE_EVIDENCE)
+    return instrument_ok and performance_ok
+
+def canonical_performance_key(candidate):
+    title=str(candidate.get("title") or "").lower()
+    title=title.removeprefix("file:")
+    title=re.sub(r"\.(wav|flac|mp3|ogg|oga|opus|m4a|aac)$","",title)
+    title=re.sub(r"[^a-z0-9]+"," ",title).strip()
+    return title
+
 
 def request_json(params, timeout=60):
     query=urllib.parse.urlencode(params)
@@ -202,18 +273,21 @@ def _fetch_file_infos(titles):
     return out
 
 
-def query_candidates(term):
+def query_candidates(term,family):
     titles=_search_file_titles(term,120)
     direct_infos=_fetch_file_infos(titles)
     direct_audio=len(direct_infos)
-    accepted=[item for item in direct_infos if license_ok(item["meta"])]
+    accepted=[
+        item for item in direct_infos
+        if license_ok(item["meta"]) and candidate_matches_family(item,family)
+    ]
 
     print(
         "COMMONS_SEARCH="
         +term
         +" FILE_HITS="+str(len(titles))
         +" AUDIO_HITS="+str(direct_audio)
-        +" LICENSE_OK="+str(len(accepted)),
+        +" STRICT_MATCHES="+str(len(accepted)),
         flush=True,
     )
 
@@ -226,7 +300,7 @@ def query_candidates(term):
     for item in category_infos:
         if item["url"] in existing:
             continue
-        if license_ok(item["meta"]):
+        if license_ok(item["meta"]) and candidate_matches_family(item,family):
             accepted.append(item)
             existing.add(item["url"])
 
@@ -235,7 +309,7 @@ def query_candidates(term):
         +term
         +" FILE_HITS="+str(len(category_titles))
         +" AUDIO_HITS="+str(len(category_infos))
-        +" LICENSE_OK_TOTAL="+str(len(accepted)),
+        +" STRICT_MATCHES_TOTAL="+str(len(accepted)),
         flush=True,
     )
     return accepted
@@ -303,10 +377,16 @@ def main():
         raise SystemExit("FFMPEG_OR_FFPROBE_MISSING")
 
     rows=load_dataset()
-    # Remove only previous phrase-v1 rows so reruns are deterministic.
+    # Rebuild phrase-v1 from scratch on every run. The previous loose-search
+    # version admitted false positives and duplicate encodings.
+    previous_phrase_rows=[r for r in rows if str(r.get("dataset_stage") or "")=="commons-phrase-v1"]
     rows=[r for r in rows if str(r.get("dataset_stage") or "")!="commons-phrase-v1"]
-    existing_sources={str(r.get("source_url") or "") for r in rows if isinstance(r,dict)}
+    if OUT.exists():
+        shutil.rmtree(OUT)
     OUT.mkdir(parents=True,exist_ok=True)
+    print("REMOVED_PREVIOUS_PHRASE_ROWS="+str(len(previous_phrase_rows)),flush=True)
+    existing_sources={str(r.get("source_url") or "") for r in rows if isinstance(r,dict)}
+    existing_performances=set()
 
     added=[]
     audit=[]
@@ -318,7 +398,7 @@ def main():
             if selected>=spec["count"]:
                 break
             try:
-                candidates=query_candidates(term)
+                candidates=query_candidates(term,family)
             except Exception as exc:
                 audit.append({"family":family,"query":term,"status":"query_error","error":str(exc)})
                 continue
@@ -327,7 +407,8 @@ def main():
                 if selected>=spec["count"]:
                     break
                 url=str(cand["url"])
-                if url in seen_urls or url in existing_sources:
+                performance_key=canonical_performance_key(cand)
+                if url in seen_urls or url in existing_sources or performance_key in existing_performances:
                     continue
                 seen_urls.add(url)
 
@@ -387,6 +468,7 @@ def main():
                     rows.append(row)
                     added.append(row)
                     existing_sources.add(url)
+                    existing_performances.add(performance_key)
                     selected+=1
                     print("PHRASE_ACCEPTED="+family+":"+str(selected)+"/"+str(spec["count"])+" "+title,flush=True)
                 except Exception as exc:
