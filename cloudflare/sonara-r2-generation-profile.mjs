@@ -5,7 +5,7 @@ import { mixMasterPlan, safePeakTarget, MIX_MASTER_VERSION } from './sonara-mix-
 // Official API/INFERENCE/Tutorial at ca1e85fe recommend 8 steps and shift 3
 // for Turbo. Native `thinking` generates LM audio codes; it does not require
 // SONARA's optional, custom realism API. REALISTIC and ULTRA use native LM planning; INSTANT remains the speed preview.
-export const R2_GENERATION_POLICY = 'sonara-xl-turbo-realistic-fast-v4-natural-ab';
+export const R2_GENERATION_POLICY = 'sonara-xl-turbo-human-realism-v5';
 export const NATURAL_INSTRUMENT_AB_PROFILE = 'sonara-natural-instruments-ab-v1';
 
 const text = value => typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
@@ -23,9 +23,9 @@ export function r2GenerationSettings(body = {}) {
   const profile = profileOf(body);
   return {
     profile,
-    steps: profile === 'fast' ? 1 : profile === 'quality' ? 4 : 8,
+    steps: profile === 'fast' ? 1 : 8,
     shift: profile === 'fast' ? 1.0 : 3.0,
-    thinking: profile === 'ultra'
+    thinking: profile !== 'fast'
   };
 }
 
@@ -38,8 +38,8 @@ export function r2GenerationMetadata(body = {}, count = null) {
     generationPolicy: R2_GENERATION_POLICY,
     generationProfile: profile,
     requestedGenerationProfile: profile,
-    executionProfile: profile === 'fast' ? 'xl-turbo-instant-single-track' : profile === 'quality' ? 'xl-turbo-realistic-fast-single-track' : 'xl-turbo-ultra-lm-batch',
-    inferenceSteps: steps, shift, samplerMode: 'euler', lmThinking: thinking,
+    executionProfile: profile === 'fast' ? 'xl-turbo-instant-single-track' : profile === 'quality' ? 'xl-turbo-human-realism-lm8-single-track' : 'xl-turbo-ultra-human-realism-heun8-batch',
+    inferenceSteps: steps, shift, samplerMode: profile === 'ultra' ? 'heun' : 'euler', lmThinking: thinking,
     lmAudioPlanning: thinking, lmModel: 'acestep-5Hz-lm-4B',
     instrumentRealismEnabled: Boolean(realism),
     instrumentRealismVersion: realism ? INSTRUMENT_REALISM_VERSION : null,
@@ -133,7 +133,7 @@ export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody 
     shift,
     guidance_scale: 1.0,
     infer_method: 'ode',
-    sampler_mode: 'euler',
+    sampler_mode: profile === 'ultra' ? 'heun' : 'euler',
     thinking,
     sample_mode: false,
     use_format: false,
@@ -152,13 +152,13 @@ export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody 
     allow_lm_batch: thinking && effectiveBatchSize > 1,
     dcw_enabled: profile === 'fast' ? payload.dcw_enabled : true,
     dcw_mode: profile === 'fast' ? payload.dcw_mode : 'double',
-    dcw_scaler: profile === 'fast' ? payload.dcw_scaler : (thinking ? 0.02 : 0.05),
-    dcw_high_scaler: profile === 'fast' ? payload.dcw_high_scaler : (thinking ? 0.06 : 0.02),
+    dcw_scaler: profile === 'fast' ? payload.dcw_scaler : (profile === 'ultra' ? 0.02 : 0.05),
+    dcw_high_scaler: profile === 'fast' ? payload.dcw_high_scaler : (profile === 'ultra' ? 0.06 : 0.02),
     dcw_wavelet: profile === 'fast' ? payload.dcw_wavelet : 'haar',
     use_tiled_decode: profile === 'fast' ? payload.use_tiled_decode : !directVaeDecode,
     sonara_generation_profile: 'auto',
     sonara_speed_inference_steps: steps,
-    sonara_speed_sampler: 'euler',
+    sonara_speed_sampler: profile === 'ultra' ? 'heun' : 'euler',
     sonara_r2_generation_profile: profile,
     sonara_r2_generation_policy: R2_GENERATION_POLICY,
     sonara_instrument_realism: profile === 'fast' ? null : INSTRUMENT_REALISM_VERSION,
