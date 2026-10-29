@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import tarfile
@@ -88,16 +89,25 @@ def dryad_archive_metadata():
     if len(matches)!=1:
         raise SystemExit(f"DRYAD_ARCHIVE_MATCHES={len(matches)}")
     item=matches[0]
-    download=((item.get("_links") or {}).get("stash:download") or {}).get("href")
-    if not download:
-        raise SystemExit("DRYAD_DOWNLOAD_LINK_MISSING")
+    links=item.get("_links") or {}
+    self_href=(links.get("self") or {}).get("href","")
+    match=re.search(r"/files/(\\d+)$",str(self_href))
+    if not match:
+        raise SystemExit("DRYAD_FILE_ID_MISSING")
+    file_id=match.group(1)
+
+    # IMPORTANT: /api/v2/files/<id>/download requires an authenticated API user.
+    # Public published files are served by the web download stream instead.
+    public_download=f"{DRYAD}/downloads/file_stream/{file_id}"
+
     return {
         "versionId":int(version_id),
+        "fileId":int(file_id),
         "path":str(item.get("path")),
         "size":int(item.get("size") or 0),
         "digest":str(item.get("digest") or "").lower(),
         "digestType":str(item.get("digestType") or "").lower(),
-        "downloadUrl":abs_url(download),
+        "downloadUrl":public_download,
     }
 
 def digest_file(path,algo):
@@ -109,18 +119,48 @@ def digest_file(path,algo):
             h.update(b)
     return h.hexdigest()
 
+def public_download_preflight(meta):
+    url=str(meta["downloadUrl"])
+    # Ask only for the first byte. Dryad may answer 206 or redirect to a presigned
+    # object URL; both prove anonymous public access works.
+    req=urllib.request.Request(
+        url,
+        headers={
+            "User-Agent":"Mozilla/5.0 SONARA-URMP-Ingest/2.0",
+            "Accept":"application/octet-stream,*/*;q=0.1",
+            "Range":"bytes=0-0",
+            "Cache-Control":"no-cache",
+        },
+    )
+    with urllib.request.urlopen(req,timeout=90) as r:
+        status=getattr(r,"status",200)
+        content_type=str(r.headers.get("Content-Type") or "")
+        final_url=str(r.geturl())
+        chunk=r.read(1)
+    if status not in (200,206) or not chunk:
+        raise SystemExit(f"URMP_PUBLIC_DOWNLOAD_PREFLIGHT_FAILED={status}")
+    print("DRYAD_PUBLIC_DOWNLOAD_OK=True",flush=True)
+    print("DRYAD_PUBLIC_DOWNLOAD_STATUS="+str(status),flush=True)
+    print("DRYAD_PUBLIC_CONTENT_TYPE="+content_type,flush=True)
+    print("DRYAD_PUBLIC_REDIRECTED="+str(final_url!=url),flush=True)
+
+
 def download_archive(meta,path):
     expected_size=int(meta["size"])
     reserve=6*1024**3
     free=shutil.disk_usage("/marimo").free
-    print("DISK_FREE_GB="+f"{free/1024**3:.2f}",flush=True)
+    free_gb=free/1024**3
+    print("DISK_FREE_GB="+f"{free_gb:.2f}",flush=True)
     print("URMP_ARCHIVE_GB="+f"{expected_size/1024**3:.2f}",flush=True)
-    if expected_size and free < expected_size+reserve:
+    if free_gb < 1000000 and expected_size and free < expected_size+reserve:
         raise SystemExit(
             "INSUFFICIENT_DISK_FOR_URMP="
-            +f"FREE_GB={free/1024**3:.2f};REQUIRED_GB={(expected_size+reserve)/1024**3:.2f}"
+            +f"FREE_GB={free_gb:.2f};REQUIRED_GB={(expected_size+reserve)/1024**3:.2f}"
         )
+    if free_gb >= 1000000:
+        print("DISK_FREE_REPORT_UNRELIABLE=True",flush=True)
 
+    public_download_preflight(meta)
     CACHE.mkdir(parents=True,exist_ok=True)
     part=path.with_suffix(path.suffix+".part")
     if path.is_file() and (not expected_size or path.stat().st_size==expected_size):
@@ -282,6 +322,7 @@ def main():
 
     meta=dryad_archive_metadata()
     print("DRYAD_VERSION_ID="+str(meta["versionId"]),flush=True)
+    print("DRYAD_FILE_ID="+str(meta["fileId"]),flush=True)
     print("DRYAD_FILE="+meta["path"],flush=True)
     archive=CACHE/"Dataset.tar.gz"
 
