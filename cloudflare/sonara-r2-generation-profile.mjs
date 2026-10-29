@@ -23,9 +23,9 @@ export function r2GenerationSettings(body = {}) {
   const profile = profileOf(body);
   return {
     profile,
-    steps: profile === 'fast' ? 1 : 8,
+    steps: profile === 'fast' ? 1 : profile === 'quality' ? 4 : 8,
     shift: profile === 'fast' ? 1.0 : 3.0,
-    thinking: profile !== 'fast'
+    thinking: profile === 'ultra'
   };
 }
 
@@ -38,7 +38,7 @@ export function r2GenerationMetadata(body = {}, count = null) {
     generationPolicy: R2_GENERATION_POLICY,
     generationProfile: profile,
     requestedGenerationProfile: profile,
-    executionProfile: profile === 'fast' ? 'xl-turbo-instant-single-track' : profile === 'quality' ? 'xl-turbo-human-realism-lm8-single-track' : 'xl-turbo-ultra-human-realism-heun8-batch',
+    executionProfile: profile === 'fast' ? 'xl-turbo-instant-single-track' : profile === 'quality' ? 'xl-turbo-human-realism-euler4-batch' : 'xl-turbo-ultra-human-realism-heun8-batch',
     inferenceSteps: steps, shift, samplerMode: profile === 'ultra' ? 'heun' : 'euler', lmThinking: thinking,
     lmAudioPlanning: thinking, lmModel: 'acestep-5Hz-lm-4B',
     instrumentRealismEnabled: Boolean(realism),
@@ -56,10 +56,10 @@ export function r2GenerationMetadata(body = {}, count = null) {
     targetPeakDb: mixMaster?.targetPeakDb ?? null,
     batchSize: effectiveCount, candidateCount: effectiveCount, singleGpuBatch: true,
     visibleCandidateTarget: effectiveCount, internalCandidateTarget: effectiveCount,
-    automaticSecondBatch: profile === 'ultra', automaticCandidateRanking: profile !== 'fast',
-    automaticQualityRepair: profile !== 'fast', realMusicV3: profile !== 'fast', trackGenome: profile !== 'fast',
+    automaticSecondBatch: false, automaticCandidateRanking: profile !== 'fast',
+    automaticQualityRepair: profile === 'ultra', realMusicV3: profile !== 'fast', trackGenome: profile !== 'fast',
     humanizer: profile !== 'fast', vocalRefinement: profile !== 'fast', stemPostProductionReady: profile !== 'fast',
-    lyricVerificationMode: profile === 'fast' ? 'not-performed' : 'local-asr-v3', lyricVerificationPending: profile !== 'fast'
+    lyricVerificationMode: profile === 'ultra' ? 'local-asr-v3' : 'non-blocking', lyricVerificationPending: profile === 'ultra'
   };
 }
 
