@@ -1,5 +1,5 @@
 {
-  "version": "sonara-physical-realism-lora-v1.1",
+  "version": "sonara-physical-realism-lora-v1.2",
   "base_model": "acestep-v15-xl-turbo",
   "training_tool": "ACE-Step 1.5 official training API (MIT)",
   "activation_tag": "<SONARA_PHYSICAL_REALISM>",
@@ -35,7 +35,10 @@
       "brass-woodwinds"
     ],
     "max_single_family_share": 0.4,
-    "goal": "recorded human performances with natural articulation, room continuity, dynamics and physical playability"
+    "goal": "recorded human performances with natural articulation, room continuity, dynamics and physical playability",
+    "promotion_min_phrase_level_performances": 24,
+    "multisamples_role": "timbre_and_articulation_bootstrap_only",
+    "phrase_level_goal": "Teach timing, transitions, breath, groove, legato and performance continuity."
   },
   "training": {
     "mode": "official-api",
@@ -79,7 +82,8 @@
     "reject_legacy_adapter_model_bin": true,
     "requires_benchmark": "engine/sonara_benchmark_v1.json",
     "requires_dataset_promotion_eligibility": true,
-    "benchmark_status_required": "PASS"
+    "benchmark_status_required": "PASS",
+    "requires_phrase_level_performances": true
   },
   "research_only_tools": [
     "Side-Step 1.1.2-beta (CC BY-NC-SA 4.0; not approved for SONARA commercial production without separate permission)"
