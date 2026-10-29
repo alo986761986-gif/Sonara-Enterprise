@@ -56,10 +56,10 @@ export function r2GenerationMetadata(body = {}, count = null) {
     targetPeakDb: mixMaster?.targetPeakDb ?? null,
     batchSize: effectiveCount, candidateCount: effectiveCount, singleGpuBatch: true,
     visibleCandidateTarget: effectiveCount, internalCandidateTarget: effectiveCount,
-    automaticSecondBatch: false, automaticCandidateRanking: false,
-    automaticQualityRepair: false, realMusicV3: false, trackGenome: false,
-    humanizer: false, vocalRefinement: false, stemPostProductionReady: false,
-    lyricVerificationMode: 'not-performed', lyricVerificationPending: false
+    automaticSecondBatch: profile === 'ultra', automaticCandidateRanking: profile !== 'fast',
+    automaticQualityRepair: profile !== 'fast', realMusicV3: profile !== 'fast', trackGenome: profile !== 'fast',
+    humanizer: profile !== 'fast', vocalRefinement: profile !== 'fast', stemPostProductionReady: profile !== 'fast',
+    lyricVerificationMode: profile === 'fast' ? 'not-performed' : 'local-asr-v3', lyricVerificationPending: profile !== 'fast'
   };
 }
 
@@ -121,7 +121,7 @@ export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody 
     ? safePeakTarget(payload.normalization_db, mixMaster.targetPeakDb)
     : payload.normalization_db;
   const requestedBatchSize = Math.max(1, Math.min(2, Math.round(Number(payload.batch_size) || (profile === 'ultra' ? 2 : 1))));
-  const effectiveBatchSize = profile === 'ultra' ? requestedBatchSize : 1;
+  const effectiveBatchSize = profile === 'fast' ? 1 : requestedBatchSize;
   const durationSeconds = Number(payload.audio_duration);
   const directVaeDecode = profile !== 'fast' && (!Number.isFinite(durationSeconds) || durationSeconds <= 240);
   const next = {
