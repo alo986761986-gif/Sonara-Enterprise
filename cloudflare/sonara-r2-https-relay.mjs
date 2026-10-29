@@ -275,7 +275,8 @@ export default {
         :heartbeat.online?'MoLab RTX PRO 6000: relay online, acquisizione job'
         :'MoLab RTX PRO 6000: relay non raggiungibile';
       const progress=j.status==='COMPLETE'?100:j.status==='LEASED'?50:heartbeat.online?18:8;
-      return json({jobId:id,status:j.status==='COMPLETE'?'COMPLETED':j.status==='FAILED'?'FAILED':'PROCESSING',progress,error:j.error,provider:'molab',model:'acestep-v15-xl-turbo',metadata:{audioFormat:'wav',currentStage,relayOnline:heartbeat.online,relayRevision:heartbeat.revision,relayAgeMs:heartbeat.ageMs,queueState:j.status,queuedAt:j.createdAt||null,updatedAt:j.updatedAt||null},audioUrl:urls[0]||null,audioUrls:urls,candidates:urls.map((u,i)=>({id:i===0?'A':'B',audioUrl:u,audioFormat:'wav',provider:'molab',model:'acestep-v15-xl-turbo'}))});
+      const quality=Array.isArray(j.quality)?j.quality:[];
+      return json({jobId:id,status:j.status==='COMPLETE'?'COMPLETED':j.status==='FAILED'?'FAILED':'PROCESSING',progress,error:j.error,provider:'molab',model:'acestep-v15-xl-turbo',metadata:{audioFormat:'wav',currentStage,relayOnline:heartbeat.online,relayRevision:heartbeat.revision,relayAgeMs:heartbeat.ageMs,queueState:j.status,queuedAt:j.createdAt||null,updatedAt:j.updatedAt||null,automaticCandidateRanking:quality.length>0,automaticQualityRepair:quality.some(item=>item?.autoRepaired===true),rankingVersion:j.rankingVersion||null,qualityReports:quality},audioUrl:urls[0]||null,audioUrls:urls,candidates:urls.map((u,i)=>({id:i===0?'A':'B',audioUrl:u,audioFormat:'wav',provider:'molab',model:'acestep-v15-xl-turbo',sonaraQuality:quality[i]||null,sonaraRecommended:i===0&&quality.length>0,directorRank:i+1}))});
     }
     if(action==='audio'&&(request.method==='GET'||request.method==='HEAD')) {
       const idx=Number(parts[2]);
@@ -342,6 +343,10 @@ export default {
     }
     if(action==='complete'&&request.method==='POST') {
       if(!j.files.length)return json({error:'No audio uploaded'},409);
+      let completion={};
+      try{completion=await request.json();}catch{}
+      if(Array.isArray(completion?.quality))j.quality=completion.quality.slice(0,2);
+      if(typeof completion?.rankingVersion==='string')j.rankingVersion=completion.rankingVersion.slice(0,80);
       const reference=j.reference;
       j.status='COMPLETE';j.leaseUntil=0;j.updatedAt=Date.now();delete j.payload;delete j.leaseId;delete j.reference;
       await saveRecord(b,id,j);
