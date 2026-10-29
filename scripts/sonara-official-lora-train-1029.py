@@ -5,6 +5,8 @@ import argparse
 import hashlib
 import json
 import pathlib
+import os
+import shutil
 import time
 import urllib.error
 import urllib.request
@@ -15,6 +17,11 @@ ROOT=pathlib.Path("/marimo")
 DEFAULT_DATA=ROOT/"SONARA-LORA-DATASET"
 DEFAULT_TENSORS=ROOT/"SONARA-LORA-TENSORS"
 DEFAULT_OUT=ROOT/"SONARA-LORA-OFFICIAL-OUTPUT"
+KNOWN_ACE_ROOTS=[
+    ROOT/"SONARA-ACE-Step-CLEAN"/"ACE-Step-1.5",
+    ROOT/"ACE-Step-1.5",
+    ROOT/"ACE-Step",
+]
 TAG="<SONARA_PHYSICAL_REALISM>"
 AUDIO_EXTS={".wav",".flac",".mp3",".ogg",".opus",".m4a",".aac"}
 
@@ -97,6 +104,78 @@ def validate_dataset(data_dir,manifest,promotion):
         "missingPromotionFamilies":missing_families,
         "maxFamilyShare":round(max_family_share,4),
     }
+
+def _looks_like_ace_root(path):
+    path=pathlib.Path(path)
+    return path.is_dir() and (path/"acestep").is_dir()
+
+
+def detect_ace_api_root():
+    candidates=[]
+    proc=pathlib.Path("/proc")
+    if proc.is_dir():
+        for item in proc.iterdir():
+            if not item.name.isdigit():
+                continue
+            try:
+                cmd=(item/"cmdline").read_bytes().replace(b"\x00",b" ").decode("utf-8","ignore")
+                if "acestep.api_server" not in cmd and "api_server.py" not in cmd:
+                    continue
+                cwd=pathlib.Path(os.readlink(item/"cwd")).resolve()
+                candidates.append(cwd)
+            except Exception:
+                continue
+    candidates.extend(KNOWN_ACE_ROOTS)
+    seen=set()
+    for candidate in candidates:
+        try:
+            resolved=pathlib.Path(candidate).resolve()
+        except Exception:
+            continue
+        key=str(resolved)
+        if key in seen:
+            continue
+        seen.add(key)
+        if _looks_like_ace_root(resolved):
+            return resolved
+    raise SystemExit("ACE_STEP_SAFE_ROOT_NOT_FOUND")
+
+
+def stage_dataset_inside_safe_root(source_dir, resolved, safe_root):
+    workspace=safe_root/"sonara_training"/"physical_realism_v1"
+    audio_dir=workspace/"audio"
+    tensor_dir=workspace/"tensors"
+    out_dir=workspace/"output"
+    audio_dir.mkdir(parents=True,exist_ok=True)
+    tensor_dir.mkdir(parents=True,exist_ok=True)
+    out_dir.mkdir(parents=True,exist_ok=True)
+
+    staged=[]
+    for index,(row,source_path) in enumerate(resolved):
+        collection=str(row.get("source_collection") or pathlib.Path(str(row.get("audio_path") or "")).parent.name or "source")
+        dest_dir=audio_dir/collection
+        dest_dir.mkdir(parents=True,exist_ok=True)
+        dest=dest_dir/pathlib.Path(source_path).name
+        if dest.exists():
+            try:
+                if dest.stat().st_size != pathlib.Path(source_path).stat().st_size:
+                    dest.unlink()
+            except Exception:
+                dest.unlink(missing_ok=True)
+        if not dest.exists():
+            try:
+                os.link(source_path,dest)
+            except Exception:
+                shutil.copy2(source_path,dest)
+        staged_row=dict(row)
+        staged_row["audio_path"]=str(dest)
+        staged.append((staged_row,dest))
+
+    print("ACE_STEP_SAFE_ROOT="+str(safe_root),flush=True)
+    print("STAGED_AUDIO_DIR="+str(audio_dir),flush=True)
+    print("STAGED_AUDIO_FILES="+str(len(staged)),flush=True)
+    return workspace,audio_dir,tensor_dir,out_dir,staged
+
 
 def sha256(path):
     h=hashlib.sha256()
@@ -257,14 +336,18 @@ def main():
 
     data_dir=pathlib.Path(args.dataset_dir).resolve()
     manifest=pathlib.Path(args.dataset_json).resolve() if args.dataset_json else data_dir/"dataset.json"
-    tensor_dir=pathlib.Path(args.tensor_dir).resolve()
-    out_dir=pathlib.Path(args.output_dir).resolve()
-    export_dir=out_dir/"exported"
 
     rows,resolved,report=validate_dataset(data_dir,manifest,args.promotion)
     print("DATASET_VALID="+json.dumps(report,separators=(",",":")),flush=True)
     healthcheck()
-    official_dataset=configure_dataset(data_dir,resolved)
+
+    safe_root=detect_ace_api_root()
+    workspace,staged_data_dir,tensor_dir,out_dir,staged_resolved=stage_dataset_inside_safe_root(
+        data_dir,resolved,safe_root
+    )
+    export_dir=out_dir/"exported"
+
+    official_dataset=configure_dataset(staged_data_dir,staged_resolved)
     print("OFFICIAL_DATASET_JSON="+str(official_dataset),flush=True)
     preprocess(tensor_dir)
     start_training(tensor_dir,out_dir,args.epochs,args.rank,args.alpha)
