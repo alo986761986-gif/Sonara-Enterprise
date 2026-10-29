@@ -5,7 +5,6 @@ import hashlib
 import json
 import os
 import pathlib
-import re
 import shutil
 import subprocess
 import tarfile
@@ -113,12 +112,16 @@ def dryad_archive_metadata():
                 hrefs.append(str(href))
 
         for href in hrefs:
-            match=re.search(
-                r"/(?:files|downloads)/(\\d+)(?:/download)?/?(?:[?#].*)?$",
-                href,
-            )
-            if match:
-                file_id=match.group(1)
+            parsed=urllib.parse.urlparse(href)
+            parts=[part for part in parsed.path.split("/") if part]
+            for marker in ("files","downloads"):
+                if marker not in parts:
+                    continue
+                pos=parts.index(marker)
+                if pos+1 < len(parts) and parts[pos+1].isdigit():
+                    file_id=parts[pos+1]
+                    break
+            if file_id is not None:
                 break
 
     if file_id is None:
