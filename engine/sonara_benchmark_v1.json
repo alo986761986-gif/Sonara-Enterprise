@@ -1,0 +1,1025 @@
+{
+  "version": "sonara-benchmark-v1",
+  "created": "2026-10-29",
+  "model": "acestep-v15-xl-turbo",
+  "lm": "acestep-5Hz-lm-4B",
+  "profiles": [
+    "quality",
+    "ultra"
+  ],
+  "cases": [
+    {
+      "id": "B01_house_deep_instrumental",
+      "genre": "Deep House",
+      "bpm": 124,
+      "key": "F# minor",
+      "variant": "instrumental",
+      "prompt": "Deep House, 124 BPM, F# minor, warm sub bass, Rhodes chords, organic percussion, intimate female vocal. Instrumental only.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B02_house_deep_vocal",
+      "genre": "Deep House",
+      "bpm": 124,
+      "key": "F# minor",
+      "variant": "vocal",
+      "prompt": "Deep House, 124 BPM, F# minor, warm sub bass, Rhodes chords, organic percussion, intimate female vocal. Full song with intelligible lyrics and stable singer identity.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B03_house_deep_long-form",
+      "genre": "Deep House",
+      "bpm": 124,
+      "key": "F# minor",
+      "variant": "long-form",
+      "prompt": "Deep House, 124 BPM, F# minor, warm sub bass, Rhodes chords, organic percussion, intimate female vocal. Long-form evolving arrangement with clear development and composed ending.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B04_house_deep_minimal",
+      "genre": "Deep House",
+      "bpm": 124,
+      "key": "F# minor",
+      "variant": "minimal",
+      "prompt": "Deep House, 124 BPM, F# minor, warm sub bass, Rhodes chords, organic percussion, intimate female vocal. Minimal but finished arrangement with strong groove and no demo-like emptiness.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B05_house_deep_dense",
+      "genre": "Deep House",
+      "bpm": 124,
+      "key": "F# minor",
+      "variant": "dense",
+      "prompt": "Deep House, 124 BPM, F# minor, warm sub bass, Rhodes chords, organic percussion, intimate female vocal. Rich layered arrangement with spectral separation and natural dynamics.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B06_house_tech_instrumental",
+      "genre": "Tech House",
+      "bpm": 128,
+      "key": "A minor",
+      "variant": "instrumental",
+      "prompt": "Tech House, 128 BPM, A minor, 909-style kick, rolling bass, shuffled hats, sparse vocal hook. Instrumental only.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B07_house_tech_vocal",
+      "genre": "Tech House",
+      "bpm": 128,
+      "key": "A minor",
+      "variant": "vocal",
+      "prompt": "Tech House, 128 BPM, A minor, 909-style kick, rolling bass, shuffled hats, sparse vocal hook. Full song with intelligible lyrics and stable singer identity.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B08_house_tech_long-form",
+      "genre": "Tech House",
+      "bpm": 128,
+      "key": "A minor",
+      "variant": "long-form",
+      "prompt": "Tech House, 128 BPM, A minor, 909-style kick, rolling bass, shuffled hats, sparse vocal hook. Long-form evolving arrangement with clear development and composed ending.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B09_house_tech_minimal",
+      "genre": "Tech House",
+      "bpm": 128,
+      "key": "A minor",
+      "variant": "minimal",
+      "prompt": "Tech House, 128 BPM, A minor, 909-style kick, rolling bass, shuffled hats, sparse vocal hook. Minimal but finished arrangement with strong groove and no demo-like emptiness.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B10_house_tech_dense",
+      "genre": "Tech House",
+      "bpm": 128,
+      "key": "A minor",
+      "variant": "dense",
+      "prompt": "Tech House, 128 BPM, A minor, 909-style kick, rolling bass, shuffled hats, sparse vocal hook. Rich layered arrangement with spectral separation and natural dynamics.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B11_house_melodic_instrumental",
+      "genre": "Melodic House",
+      "bpm": 122,
+      "key": "C minor",
+      "variant": "instrumental",
+      "prompt": "Melodic House, 122 BPM, C minor, evolving arpeggio, warm pads, emotional synth lead, organic drums. Instrumental only.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B12_house_melodic_vocal",
+      "genre": "Melodic House",
+      "bpm": 122,
+      "key": "C minor",
+      "variant": "vocal",
+      "prompt": "Melodic House, 122 BPM, C minor, evolving arpeggio, warm pads, emotional synth lead, organic drums. Full song with intelligible lyrics and stable singer identity.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B13_house_melodic_long-form",
+      "genre": "Melodic House",
+      "bpm": 122,
+      "key": "C minor",
+      "variant": "long-form",
+      "prompt": "Melodic House, 122 BPM, C minor, evolving arpeggio, warm pads, emotional synth lead, organic drums. Long-form evolving arrangement with clear development and composed ending.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B14_house_melodic_minimal",
+      "genre": "Melodic House",
+      "bpm": 122,
+      "key": "C minor",
+      "variant": "minimal",
+      "prompt": "Melodic House, 122 BPM, C minor, evolving arpeggio, warm pads, emotional synth lead, organic drums. Minimal but finished arrangement with strong groove and no demo-like emptiness.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B15_house_melodic_dense",
+      "genre": "Melodic House",
+      "bpm": 122,
+      "key": "C minor",
+      "variant": "dense",
+      "prompt": "Melodic House, 122 BPM, C minor, evolving arpeggio, warm pads, emotional synth lead, organic drums. Rich layered arrangement with spectral separation and natural dynamics.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B16_techno_melodic_instrumental",
+      "genre": "Melodic Techno",
+      "bpm": 126,
+      "key": "D minor",
+      "variant": "instrumental",
+      "prompt": "Melodic Techno, 126 BPM, D minor, driving bass, analog sequence, cinematic breakdown, wide lead. Instrumental only.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B17_techno_melodic_vocal",
+      "genre": "Melodic Techno",
+      "bpm": 126,
+      "key": "D minor",
+      "variant": "vocal",
+      "prompt": "Melodic Techno, 126 BPM, D minor, driving bass, analog sequence, cinematic breakdown, wide lead. Full song with intelligible lyrics and stable singer identity.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B18_techno_melodic_long-form",
+      "genre": "Melodic Techno",
+      "bpm": 126,
+      "key": "D minor",
+      "variant": "long-form",
+      "prompt": "Melodic Techno, 126 BPM, D minor, driving bass, analog sequence, cinematic breakdown, wide lead. Long-form evolving arrangement with clear development and composed ending.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B19_techno_melodic_minimal",
+      "genre": "Melodic Techno",
+      "bpm": 126,
+      "key": "D minor",
+      "variant": "minimal",
+      "prompt": "Melodic Techno, 126 BPM, D minor, driving bass, analog sequence, cinematic breakdown, wide lead. Minimal but finished arrangement with strong groove and no demo-like emptiness.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B20_techno_melodic_dense",
+      "genre": "Melodic Techno",
+      "bpm": 126,
+      "key": "D minor",
+      "variant": "dense",
+      "prompt": "Melodic Techno, 126 BPM, D minor, driving bass, analog sequence, cinematic breakdown, wide lead. Rich layered arrangement with spectral separation and natural dynamics.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B21_techno_hard_instrumental",
+      "genre": "Hard Techno",
+      "bpm": 145,
+      "key": "F minor",
+      "variant": "instrumental",
+      "prompt": "Hard Techno, 145 BPM, F minor, distorted kick, rumble, industrial percussion, dark synth. Instrumental only.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B22_techno_hard_vocal",
+      "genre": "Hard Techno",
+      "bpm": 145,
+      "key": "F minor",
+      "variant": "vocal",
+      "prompt": "Hard Techno, 145 BPM, F minor, distorted kick, rumble, industrial percussion, dark synth. Full song with intelligible lyrics and stable singer identity.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B23_techno_hard_long-form",
+      "genre": "Hard Techno",
+      "bpm": 145,
+      "key": "F minor",
+      "variant": "long-form",
+      "prompt": "Hard Techno, 145 BPM, F minor, distorted kick, rumble, industrial percussion, dark synth. Long-form evolving arrangement with clear development and composed ending.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B24_techno_hard_minimal",
+      "genre": "Hard Techno",
+      "bpm": 145,
+      "key": "F minor",
+      "variant": "minimal",
+      "prompt": "Hard Techno, 145 BPM, F minor, distorted kick, rumble, industrial percussion, dark synth. Minimal but finished arrangement with strong groove and no demo-like emptiness.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B25_techno_hard_dense",
+      "genre": "Hard Techno",
+      "bpm": 145,
+      "key": "F minor",
+      "variant": "dense",
+      "prompt": "Hard Techno, 145 BPM, F minor, distorted kick, rumble, industrial percussion, dark synth. Rich layered arrangement with spectral separation and natural dynamics.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B26_jazz_fusion_instrumental",
+      "genre": "Jazz Fusion",
+      "bpm": 170,
+      "key": "E minor",
+      "variant": "instrumental",
+      "prompt": "Jazz Fusion, 170 BPM, E minor, live drums, electric bass, Rhodes, saxophone, guitar. Instrumental only.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B27_jazz_fusion_vocal",
+      "genre": "Jazz Fusion",
+      "bpm": 170,
+      "key": "E minor",
+      "variant": "vocal",
+      "prompt": "Jazz Fusion, 170 BPM, E minor, live drums, electric bass, Rhodes, saxophone, guitar. Full song with intelligible lyrics and stable singer identity.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B28_jazz_fusion_long-form",
+      "genre": "Jazz Fusion",
+      "bpm": 170,
+      "key": "E minor",
+      "variant": "long-form",
+      "prompt": "Jazz Fusion, 170 BPM, E minor, live drums, electric bass, Rhodes, saxophone, guitar. Long-form evolving arrangement with clear development and composed ending.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B29_jazz_fusion_minimal",
+      "genre": "Jazz Fusion",
+      "bpm": 170,
+      "key": "E minor",
+      "variant": "minimal",
+      "prompt": "Jazz Fusion, 170 BPM, E minor, live drums, electric bass, Rhodes, saxophone, guitar. Minimal but finished arrangement with strong groove and no demo-like emptiness.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B30_jazz_fusion_dense",
+      "genre": "Jazz Fusion",
+      "bpm": 170,
+      "key": "E minor",
+      "variant": "dense",
+      "prompt": "Jazz Fusion, 170 BPM, E minor, live drums, electric bass, Rhodes, saxophone, guitar. Rich layered arrangement with spectral separation and natural dynamics.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B31_neo_soul_instrumental",
+      "genre": "Neo Soul",
+      "bpm": 92,
+      "key": "B minor",
+      "variant": "instrumental",
+      "prompt": "Neo Soul, 92 BPM, B minor, human drums, electric bass, Rhodes, guitar, soulful vocal. Instrumental only.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B32_neo_soul_vocal",
+      "genre": "Neo Soul",
+      "bpm": 92,
+      "key": "B minor",
+      "variant": "vocal",
+      "prompt": "Neo Soul, 92 BPM, B minor, human drums, electric bass, Rhodes, guitar, soulful vocal. Full song with intelligible lyrics and stable singer identity.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B33_neo_soul_long-form",
+      "genre": "Neo Soul",
+      "bpm": 92,
+      "key": "B minor",
+      "variant": "long-form",
+      "prompt": "Neo Soul, 92 BPM, B minor, human drums, electric bass, Rhodes, guitar, soulful vocal. Long-form evolving arrangement with clear development and composed ending.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B34_neo_soul_minimal",
+      "genre": "Neo Soul",
+      "bpm": 92,
+      "key": "B minor",
+      "variant": "minimal",
+      "prompt": "Neo Soul, 92 BPM, B minor, human drums, electric bass, Rhodes, guitar, soulful vocal. Minimal but finished arrangement with strong groove and no demo-like emptiness.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B35_neo_soul_dense",
+      "genre": "Neo Soul",
+      "bpm": 92,
+      "key": "B minor",
+      "variant": "dense",
+      "prompt": "Neo Soul, 92 BPM, B minor, human drums, electric bass, Rhodes, guitar, soulful vocal. Rich layered arrangement with spectral separation and natural dynamics.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B36_funk_instrumental",
+      "genre": "Funk",
+      "bpm": 112,
+      "key": "E minor",
+      "variant": "instrumental",
+      "prompt": "Funk, 112 BPM, E minor, live drums, slap bass, clavinet, brass accents, guitar. Instrumental only.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B37_funk_vocal",
+      "genre": "Funk",
+      "bpm": 112,
+      "key": "E minor",
+      "variant": "vocal",
+      "prompt": "Funk, 112 BPM, E minor, live drums, slap bass, clavinet, brass accents, guitar. Full song with intelligible lyrics and stable singer identity.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B38_funk_long-form",
+      "genre": "Funk",
+      "bpm": 112,
+      "key": "E minor",
+      "variant": "long-form",
+      "prompt": "Funk, 112 BPM, E minor, live drums, slap bass, clavinet, brass accents, guitar. Long-form evolving arrangement with clear development and composed ending.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B39_funk_minimal",
+      "genre": "Funk",
+      "bpm": 112,
+      "key": "E minor",
+      "variant": "minimal",
+      "prompt": "Funk, 112 BPM, E minor, live drums, slap bass, clavinet, brass accents, guitar. Minimal but finished arrangement with strong groove and no demo-like emptiness.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B40_funk_dense",
+      "genre": "Funk",
+      "bpm": 112,
+      "key": "E minor",
+      "variant": "dense",
+      "prompt": "Funk, 112 BPM, E minor, live drums, slap bass, clavinet, brass accents, guitar. Rich layered arrangement with spectral separation and natural dynamics.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B41_rock_alt_instrumental",
+      "genre": "Alternative Rock",
+      "bpm": 132,
+      "key": "D major",
+      "variant": "instrumental",
+      "prompt": "Alternative Rock, 132 BPM, D major, live drums, bass guitar, two guitars, expressive vocal. Instrumental only.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B42_rock_alt_vocal",
+      "genre": "Alternative Rock",
+      "bpm": 132,
+      "key": "D major",
+      "variant": "vocal",
+      "prompt": "Alternative Rock, 132 BPM, D major, live drums, bass guitar, two guitars, expressive vocal. Full song with intelligible lyrics and stable singer identity.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B43_rock_alt_long-form",
+      "genre": "Alternative Rock",
+      "bpm": 132,
+      "key": "D major",
+      "variant": "long-form",
+      "prompt": "Alternative Rock, 132 BPM, D major, live drums, bass guitar, two guitars, expressive vocal. Long-form evolving arrangement with clear development and composed ending.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B44_rock_alt_minimal",
+      "genre": "Alternative Rock",
+      "bpm": 132,
+      "key": "D major",
+      "variant": "minimal",
+      "prompt": "Alternative Rock, 132 BPM, D major, live drums, bass guitar, two guitars, expressive vocal. Minimal but finished arrangement with strong groove and no demo-like emptiness.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B45_rock_alt_dense",
+      "genre": "Alternative Rock",
+      "bpm": 132,
+      "key": "D major",
+      "variant": "dense",
+      "prompt": "Alternative Rock, 132 BPM, D major, live drums, bass guitar, two guitars, expressive vocal. Rich layered arrangement with spectral separation and natural dynamics.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B46_pop_modern_instrumental",
+      "genre": "Modern Pop",
+      "bpm": 118,
+      "key": "C major",
+      "variant": "instrumental",
+      "prompt": "Modern Pop, 118 BPM, C major, tight drums, bass, piano, synth layers, clear lead vocal. Instrumental only.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B47_pop_modern_vocal",
+      "genre": "Modern Pop",
+      "bpm": 118,
+      "key": "C major",
+      "variant": "vocal",
+      "prompt": "Modern Pop, 118 BPM, C major, tight drums, bass, piano, synth layers, clear lead vocal. Full song with intelligible lyrics and stable singer identity.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B48_pop_modern_long-form",
+      "genre": "Modern Pop",
+      "bpm": 118,
+      "key": "C major",
+      "variant": "long-form",
+      "prompt": "Modern Pop, 118 BPM, C major, tight drums, bass, piano, synth layers, clear lead vocal. Long-form evolving arrangement with clear development and composed ending.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B49_pop_modern_minimal",
+      "genre": "Modern Pop",
+      "bpm": 118,
+      "key": "C major",
+      "variant": "minimal",
+      "prompt": "Modern Pop, 118 BPM, C major, tight drums, bass, piano, synth layers, clear lead vocal. Minimal but finished arrangement with strong groove and no demo-like emptiness.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    },
+    {
+      "id": "B50_pop_modern_dense",
+      "genre": "Modern Pop",
+      "bpm": 118,
+      "key": "C major",
+      "variant": "dense",
+      "prompt": "Modern Pop, 118 BPM, C major, tight drums, bass, piano, synth layers, clear lead vocal. Rich layered arrangement with spectral separation and natural dynamics.",
+      "assertions": [
+        "genre_fidelity",
+        "bpm_lock",
+        "key_lock",
+        "natural_instrument_behavior",
+        "no_static_tu_tu_tu_percussion",
+        "section_development",
+        "clean_ending",
+        "no_clipping",
+        "low_silence",
+        "candidate_diversity"
+      ]
+    }
+  ],
+  "promotion_gates": {
+    "total_cases": 50,
+    "quality_score_median_min": 88,
+    "ultra_score_median_min": 92,
+    "bpm_pass_rate_min": 0.98,
+    "key_pass_rate_min": 0.95,
+    "lyric_accuracy_median_min": 0.92,
+    "clipping_failure_rate_max": 0.01,
+    "silence_failure_rate_max": 0.02,
+    "static_percussion_failure_rate_max": 0.02,
+    "candidate_diversity_pass_rate_min": 0.95,
+    "must_not_regress_latency_over_baseline_percent": 35
+  }
+}
