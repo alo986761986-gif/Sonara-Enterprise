@@ -7,7 +7,7 @@ import subprocess
 import sys
 import urllib.request
 
-PIN="447f509bd96d5dbb600c75616117c32e961d62a9"
+PIN="fc1d7adea35a8541af6485e821716309fa2f9c1b"
 RAW=f"https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/{PIN}"
 
 ROOT=pathlib.Path("/marimo")
