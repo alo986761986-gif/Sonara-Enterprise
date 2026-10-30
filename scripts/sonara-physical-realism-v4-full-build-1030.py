@@ -10,7 +10,8 @@ import urllib.request
 ROOT=pathlib.Path("/marimo")
 DATASET=ROOT/"SONARA-LORA-DATASET"
 ACE=ROOT/"SONARA-ACE-Step-CLEAN"
-PIN="cb55ebebd14bf074030b1fe9d0453d4728b12bb7"\nREPO_RAW=f"https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/{PIN}"
+PIN="cb55ebebd14bf074030b1fe9d0453d4728b12bb7"
+REPO_RAW=f"https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/{PIN}"
 
 STEPS=[
     ("cc0-bootstrap-v4","scripts/sonara-cc0-bootstrap-v4-ingest-1030.py"),
@@ -75,7 +76,8 @@ def dataset_gate()->dict:
     return data
 
 def main():
-    print("=== SONARA PHYSICAL REALISM V4 - FULL BUILD ===",flush=True)\n    print("SONARA_V4_SOURCE_PIN="+PIN,flush=True)
+    print("=== SONARA PHYSICAL REALISM V4 - FULL BUILD ===",flush=True)
+    print("SONARA_V4_SOURCE_PIN="+PIN,flush=True)
     print("PRODUCTION_ENGINE_UNCHANGED=True",flush=True)
     print("BASE_MODEL=acestep-v15-xl-turbo",flush=True)
     print("LM_MODEL=acestep-5Hz-lm-4B",flush=True)
