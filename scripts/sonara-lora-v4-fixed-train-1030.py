@@ -15,7 +15,7 @@ PREPROCESS_REPORT=V4_WORK/"sonara_v4_preprocess_report.json"
 OUT=ROOT/"sonara_training"/"physical_realism_v4_fixed"/"output"
 UV=shutil.which("uv") or "/usr/local/bin/uv"
 
-V4_FIXED=ROOT/"sonara_training"/"physical_realism_v4_fixed"/"output"/"final"/"adapter_model.safetensors"
+V3_FIXED=ROOT/"sonara_training"/"physical_realism_v3_fixed"/"output"/"final"/"adapter_model.safetensors"
 
 EXPECTED_TENSORS_MIN=320
 EXPECTED_MODEL="acestep-v15-xl-turbo"
@@ -179,11 +179,11 @@ def main():
     gpu_snapshot()
 
     if V4_FIXED.is_file():
-        v4_sha=sha256(V4_FIXED)
-        print("V4_FIXED_REFERENCE_SHA256="+v4_sha,flush=True)
+        v3_sha=sha256(V3_FIXED)
+        print("V3_FIXED_REFERENCE_SHA256="+v3_sha,flush=True)
     else:
-        v4_sha=None
-        print("V4_FIXED_REFERENCE_SHA256=MISSING",flush=True)
+        v3_sha=None
+        print("V3_FIXED_REFERENCE_SHA256=MISSING",flush=True)
 
     final_existing=OUT/"final"/"adapter_model.safetensors"
     if OUT.exists() and not final_existing.is_file():
@@ -269,7 +269,7 @@ def main():
             "V4_FIXED_PARAMETER_COUNT_UNEXPECTED="
             +str(i10["totalParams"])+"/"+str(ifinal["totalParams"])
         )
-    if v4_sha and hf == v4_sha:
+    if v3_sha and hf == v3_sha:
         raise SystemExit("V4_FINAL_IDENTICAL_TO_V4_FIXED")
 
     report={
@@ -302,7 +302,7 @@ def main():
         "final":{"path":str(final_dir),"sha256":hf,**ifinal},
         "checkpointWeightsChanged":h5!=h10,
         "finalMatchesEpoch10":hf==h10,
-        "differentFromV3Fixed":(hf!=v4_sha) if v4_sha else None,
+        "differentFromV3Fixed":(hf!=v3_sha) if v3_sha else None,
         "datasetPromotionGatePassed":True,
         "audioGeneratedDuringTraining":False,
         "promotionStatus":"PENDING_V3_V4_AUDIO_BENCHMARK",
@@ -313,8 +313,8 @@ def main():
 
     print("CHECKPOINT_WEIGHTS_CHANGED=True",flush=True)
     print("FINAL_MATCHES_EPOCH10=True",flush=True)
-    if v4_sha:
-        print("DIFFERENT_FROM_V4_FIXED=True",flush=True)
+    if v3_sha:
+        print("DIFFERENT_FROM_V3_FIXED=True",flush=True)
     print("REAL_LORA_V4_FIXED_READY=True",flush=True)
     print("PROMOTION_STATUS=PENDING_V3_V4_AUDIO_BENCHMARK",flush=True)
     print("NO_AUDIO_GENERATED=True",flush=True)
