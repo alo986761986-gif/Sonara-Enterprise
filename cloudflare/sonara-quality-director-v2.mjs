@@ -1,3 +1,4 @@
+// deploy-trigger: 2026-10-30 new RTX PRO 6000 relay pairing
 import { analyzeAudioCandidate as analyzeAudioCandidateV1 } from './sonara-audio-quality-engine.mjs';
 
 export const QUALITY_DIRECTOR_VERSION = 'sonara-engine-quality-2.0';
