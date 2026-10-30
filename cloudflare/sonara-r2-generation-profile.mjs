@@ -5,7 +5,7 @@ import { mixMasterPlan, safePeakTarget, MIX_MASTER_VERSION } from './sonara-mix-
 // Official API/INFERENCE/Tutorial at ca1e85fe recommend 8 steps and shift 3
 // for Turbo. Native `thinking` generates LM audio codes; it does not require
 // SONARA's optional, custom realism API. REALISTIC and ULTRA use native LM planning; INSTANT remains the speed preview.
-export const R2_GENERATION_POLICY = 'sonara-xl-turbo-human-realism-v5';
+export const R2_GENERATION_POLICY = 'sonara-xl-turbo-human-realism-v6-lm8';
 export const NATURAL_INSTRUMENT_AB_PROFILE = 'sonara-natural-instruments-ab-v1';
 
 const text = value => typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
@@ -26,9 +26,9 @@ export function r2GenerationSettings(body = {}) {
   return {
     profile,
     physicalFidelity,
-    steps: profile === 'fast' ? 1 : profile === 'ultra' ? 8 : physicalFidelity ? 8 : 4,
+    steps: profile === 'fast' ? 1 : 8,
     shift: profile === 'fast' ? 1.0 : 3.0,
-    thinking: profile === 'ultra' || (profile === 'quality' && physicalFidelity)
+    thinking: profile !== 'fast'
   };
 }
 
@@ -41,7 +41,7 @@ export function r2GenerationMetadata(body = {}, count = null) {
     generationPolicy: R2_GENERATION_POLICY,
     generationProfile: profile,
     requestedGenerationProfile: profile,
-    executionProfile: profile === 'fast' ? 'xl-turbo-instant-single-track' : profile === 'quality' ? (physicalFidelity ? 'xl-turbo-physical-realism-lm8-batch' : 'xl-turbo-human-realism-euler4-batch') : 'xl-turbo-ultra-human-realism-heun8-batch',
+    executionProfile: profile === 'fast' ? 'xl-turbo-instant-single-track' : profile === 'quality' ? 'xl-turbo-quality-human-realism-lm8-batch' : 'xl-turbo-ultra-human-realism-heun8-batch',
     inferenceSteps: steps, shift, samplerMode: profile === 'ultra' ? 'heun' : 'euler', lmThinking: thinking,
     lmAudioPlanning: thinking, lmModel: 'acestep-5Hz-lm-4B',
     instrumentRealismEnabled: Boolean(realism),
@@ -129,9 +129,12 @@ export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody 
   const effectiveBatchSize = profile === 'fast' ? 1 : requestedBatchSize;
   const durationSeconds = Number(payload.audio_duration);
   const directVaeDecode = profile !== 'fast' && (!Number.isFinite(durationSeconds) || durationSeconds <= 240);
+  const abPerformanceContract = effectiveBatchSize > 1 && profile !== 'fast'
+    ? 'SONARA A/B PERFORMANCE CONTRACT: both candidates keep the same requested genre, tempo, key, instrument palette and production quality; each is an independently performed take with phrase-level differences in fills, voicings, dynamics and articulation; neither candidate may collapse into placeholder drums, repetitive one-note percussion, reduced instrumentation, generic synthetic pulses or a lower-detail arrangement.'
+    : '';
   const next = {
     ...payload,
-    prompt: caption(payload, resolvedBody, sourceBody, lyrics),
+    prompt: unique([caption(payload, resolvedBody, sourceBody, lyrics), abPerformanceContract]).join('. '),
     lyrics,
     batch_size: effectiveBatchSize,
     inference_steps: steps,
@@ -153,7 +156,7 @@ export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody 
     lm_repetition_penalty: 1.0,
     lm_negative_prompt: profile === 'fast'
       ? 'NO USER INPUT'
-      : 'robotic quantization, static velocity, identical repeated bars, MIDI-like note triggering, machine-gun drums, cheap one-note drum pulse, repetitive synthetic thud, toy percussion, identical kick snare or tom transient on every beat, flat drum envelopes, genre-inappropriate drum substitution, plastic acoustic timbre, phase-locked acoustic doubles, sample-library sameness, impossible instrument fingering, impossible drummer limb patterns, endless breathless wind or brass sustain, frozen vibrato, organ-like brass, synth-like acoustic bass, identical guitar strums, identical piano attacks, room-tail resets, metallic artifacts, brittle cymbals, fake room resets, overcompression, clipped transients',
+      : 'robotic quantization, static velocity, identical repeated bars, MIDI-like note triggering, machine-gun drums, cheap one-note drum pulse, repetitive synthetic thud, placeholder drums, reduced instrumentation, candidate B degradation, empty arrangement, generic synthetic pulse, toy percussion, identical kick snare or tom transient on every beat, flat drum envelopes, genre-inappropriate drum substitution, plastic acoustic timbre, phase-locked acoustic doubles, sample-library sameness, impossible instrument fingering, impossible drummer limb patterns, endless breathless wind or brass sustain, frozen vibrato, organ-like brass, synth-like acoustic bass, identical guitar strums, identical piano attacks, room-tail resets, metallic artifacts, brittle cymbals, fake room resets, overcompression, clipped transients',
     allow_lm_batch: thinking && effectiveBatchSize > 1,
     dcw_enabled: profile === 'fast' ? payload.dcw_enabled : true,
     dcw_mode: profile === 'fast' ? payload.dcw_mode : 'double',
