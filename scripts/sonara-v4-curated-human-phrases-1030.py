@@ -9,12 +9,15 @@ import re
 import shutil
 import subprocess
 import tempfile
+import urllib.error
 import urllib.parse
 import urllib.request
+import time
 
 ROOT=pathlib.Path("/marimo/SONARA-LORA-DATASET")
 DATASET=ROOT/"dataset.json"
 OUT=ROOT/"phrase-human-v4-curated"
+CACHE=OUT/"_source_cache"
 COMMONS_API="https://commons.wikimedia.org/w/api.php"
 UA="SONARA-Physical-Realism-V4-Curated/1.0"
 
@@ -22,35 +25,28 @@ COMMONS_SOURCES=[
     {
         "family":"acoustic-drums",
         "title":"File:Drums.ogg",
-        "clips":[12,50,90,130,170,210,250,290],
+        "clips":[5,35,65,95,125,155,185,215,245,275,305],
         "prompt":"Real human drum-kit performance phrase with natural groove, changing stick velocity, ghost-note and accent variation, non-identical transients, cymbal/skin decay and continuous room response."
     },
     {
         "family":"acoustic-drums",
-        "title":"File:Andy Russell Drum Solo from The Stork Club 1945.ogv",
-        "clips":[5,30,55],
-        "prompt":"Real human acoustic drum solo phrase with drummer-led timing, dynamic accents, limb-plausible coordination, natural fills, non-identical attacks and continuous cymbal and room decay."
-    },
-    {
-        "family":"acoustic-drums",
         "title":"File:Drum - Cadence B.ogg",
-        "clips":[5,35,65],
+        "clips":[2,33,64],
         "prompt":"Real human drum cadence phrase with physical stick articulation, changing accents, realistic rebound, non-identical repeated hits, phrase-level dynamics and natural drum resonance."
     },
     {
         "family":"piano-keys",
-        "title":"File:George Gershwin's \"Rhapsody in Blue\" piano solo.ogg",
+        "title":"File:George Gershwin's \"Rhapsody in Blue\" piano solo.mp3",
         "clips":[30,150,270,390,510,630,750],
         "prompt":"Real human piano performance phrase with expressive microtiming, velocity-shaped hammer attacks, physically playable voicings, pedal continuity, natural key releases and register-dependent resonance."
     },
     {
         "family":"piano-keys",
         "title":"File:Rimsky-Korsakov - Scheherazade - 1. Largo e maestoso for Piano solo.ogg",
-        "clips":[30,100,170,240,310,380,450],
+        "clips":[20,90,160,230,300,370,440],
         "prompt":"Real human piano performance phrase with phrase-shaped dynamics, varied attack weight, pedal and release continuity, natural resonance, playable voicings and connected musical phrasing."
     },
-]
-CLIP_SECONDS=24.0
+]CLIP_SECONDS=24.0
 URMP_EXTRA_PER_FAMILY={"bass":4,"bowed-strings":4,"brass-woodwinds":4}
 ALLOWED_LICENSE_MARKERS=("cc0","public domain","public-domain","pd-","pdm")
 
@@ -101,8 +97,10 @@ def commons_source(title):
     url=str(info.get("url") or "")
     if not url:
         raise RuntimeError("COMMONS_MEDIA_URL_MISSING="+title)
+    redirect="https://commons.wikimedia.org/wiki/Special:Redirect/file/"+urllib.parse.quote(title.removeprefix("File:").replace(" ","_"),safe="()_-'%22")
     return {
         "url":url,
+        "fallback_url":redirect,
         "license":license_short or license_name or "Public domain / CC0",
         "license_url":license_url,
         "artist":meta_text(meta,"Artist"),
@@ -111,16 +109,69 @@ def commons_source(title):
         "page":"https://commons.wikimedia.org/wiki/"+urllib.parse.quote(title.replace(" ","_"),safe=":/_'\""),
     }
 
-def download(url,path):
-    req=urllib.request.Request(url,headers={"User-Agent":UA,"Accept":"audio/*,video/*,application/octet-stream,*/*;q=0.1"})
-    with urllib.request.urlopen(req,timeout=240) as r, path.open("wb") as out:
-        while True:
-            b=r.read(2*1024*1024)
-            if not b:
+def download(url,path,fallback_url=None,attempts=10):
+    path.parent.mkdir(parents=True,exist_ok=True)
+    if path.is_file() and path.stat().st_size>=100000:
+        print("COMMONS_SOURCE_CACHE_HIT="+path.name,flush=True)
+        return
+
+    urls=[url]
+    if fallback_url and fallback_url not in urls:
+        urls.append(fallback_url)
+    last=None
+    for attempt in range(1,attempts+1):
+        candidate=urls[(attempt-1)%len(urls)]
+        part=path.with_suffix(path.suffix+".part")
+        part.unlink(missing_ok=True)
+        try:
+            req=urllib.request.Request(
+                candidate,
+                headers={
+                    "User-Agent":UA,
+                    "Accept":"audio/*,video/*,application/octet-stream,*/*;q=0.1",
+                    "Accept-Encoding":"identity",
+                    "Cache-Control":"no-cache",
+                    "Referer":"https://commons.wikimedia.org/",
+                },
+            )
+            with urllib.request.urlopen(req,timeout=300) as r, part.open("wb") as out:
+                while True:
+                    b=r.read(2*1024*1024)
+                    if not b:
+                        break
+                    out.write(b)
+            if part.stat().st_size<100000:
+                raise RuntimeError("SOURCE_TOO_SMALL="+str(part))
+            part.replace(path)
+            print("COMMONS_DOWNLOAD_OK="+path.name+" ATTEMPT="+str(attempt),flush=True)
+            return
+        except urllib.error.HTTPError as exc:
+            last=exc
+            part.unlink(missing_ok=True)
+            if exc.code==429:
+                raw=str(exc.headers.get("Retry-After") or "").strip()
+                try:
+                    delay=max(5,min(120,int(raw)))
+                except Exception:
+                    delay=min(120,10*attempt)
+                print("COMMONS_HTTP_429_RETRY="+str(attempt)+"/"+str(attempts)+" DELAY_SECONDS="+str(delay),flush=True)
+                time.sleep(delay)
+                continue
+            if exc.code in (500,502,503,504):
+                delay=min(60,5*attempt)
+                print("COMMONS_HTTP_RETRY="+str(exc.code)+" ATTEMPT="+str(attempt)+" DELAY_SECONDS="+str(delay),flush=True)
+                time.sleep(delay)
+                continue
+            raise
+        except Exception as exc:
+            last=exc
+            part.unlink(missing_ok=True)
+            if attempt>=attempts:
                 break
-            out.write(b)
-    if path.stat().st_size<100000:
-        raise RuntimeError("SOURCE_TOO_SMALL="+str(path))
+            delay=min(60,5*attempt)
+            print("COMMONS_DOWNLOAD_RETRY="+str(attempt)+"/"+str(attempts)+" ERROR="+type(exc).__name__+" DELAY_SECONDS="+str(delay),flush=True)
+            time.sleep(delay)
+    raise RuntimeError("COMMONS_DOWNLOAD_FAILED_AFTER_RETRIES="+type(last).__name__)
 
 def probe_duration(path):
     r=subprocess.run([
@@ -143,16 +194,16 @@ def make_clip(src,dest,start,duration=CLIP_SECONDS):
 
 def add_commons(rows):
     rows=[r for r in rows if str(r.get("dataset_stage") or "")!="phrase-human-v4-curated-commons"]
-    if OUT.joinpath("commons").exists():
-        shutil.rmtree(OUT/"commons")
+    (OUT/"commons").mkdir(parents=True,exist_ok=True)
     added=[]
     for source_index,spec in enumerate(COMMONS_SOURCES,1):
         meta=commons_source(spec["title"])
         suffix=pathlib.Path(urllib.parse.urlparse(meta["url"]).path).suffix or ".bin"
-        with tempfile.NamedTemporaryFile(prefix="sonara_v4_commons_",suffix=suffix,delete=False) as tmp:
-            src=pathlib.Path(tmp.name)
+        cache_name=hashlib.sha256(spec["title"].encode("utf-8")).hexdigest()[:16]+suffix
+        src=CACHE/cache_name
+        CACHE.mkdir(parents=True,exist_ok=True)
         try:
-            download(meta["url"],src)
+            download(meta["url"],src,meta.get("fallback_url"))
             total=probe_duration(src)
             print(f"V4_COMMONS_SOURCE_OK={spec['family']}:{spec['title']} DURATION={total:.2f} LICENSE={meta['license']}",flush=True)
             for local_idx,start in enumerate(spec["clips"],1):
@@ -191,7 +242,7 @@ def add_commons(rows):
                 added.append(row)
                 print(f"V4_COMMONS_PHRASE_ADDED={spec['family']}:{len([x for x in added if x['instrument_family']==spec['family']])}",flush=True)
         finally:
-            src.unlink(missing_ok=True)
+            pass
     return rows,added
 
 def intervals_overlap(a,b):
