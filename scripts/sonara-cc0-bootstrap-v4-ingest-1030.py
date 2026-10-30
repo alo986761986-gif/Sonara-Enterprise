@@ -16,7 +16,7 @@ COLLECTIONS=[
         "release":"https://github.com/facebookincubator/Meta-open-sound/releases/download/meta-piano-v1.0.0/meta-open-sound-meta-piano-wav.zip",
         "sha256":"ee9023dbde849ecab393a098aa0cfbd6f2ef48d4a096b9c08808b72fc913f70e",
         "manifest":"systems/instruments/meta-piano/manifest.json",
-        "count":48,
+        "count":52,
         "prompt":"Real upright piano performance source, 24-bit/48 kHz, with genuine hammer attack, register-specific string/body resonance, natural decay and four recorded velocity layers.",
     },
     {
@@ -25,7 +25,7 @@ COLLECTIONS=[
         "release":"https://github.com/facebookincubator/Meta-open-sound/releases/download/meta-nylon-guitar-v1.0.0/meta-open-sound-meta-nylon-guitar-wav.zip",
         "sha256":"e7fa168b97a72ecc1257917f85cb524fe7c2e1f098dfdcaf8f5c0e29cabe768e",
         "manifest":"systems/instruments/meta-nylon-guitar/manifest.json",
-        "count":40,
+        "count":42,
         "prompt":"Real nylon-string guitar source, 24-bit/48 kHz, with genuine finger/pick dynamics, string resonance, position-dependent tone and natural decay.",
     },
     {
@@ -34,7 +34,7 @@ COLLECTIONS=[
         "release":"https://github.com/facebookincubator/Meta-open-sound/releases/download/meta-steel-guitar-v1.0.0/meta-open-sound-meta-steel-guitar-wav.zip",
         "sha256":"caaa8a9c07217f4a82d1dfd9f5657c286155464b66bf4dd27797811c2558a909",
         "manifest":"systems/instruments/meta-steel-guitar/manifest.json",
-        "count":40,
+        "count":42,
         "prompt":"Real steel-string acoustic guitar source, 24-bit/48 kHz, with authentic pick attack, string/fret resonance, dynamic layers and natural body decay.",
     },
 ]
