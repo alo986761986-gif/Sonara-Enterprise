@@ -178,7 +178,7 @@ def main():
     print("AUDIO_SAMPLING_DURING_TRAINING=False",flush=True)
     gpu_snapshot()
 
-    if V4_FIXED.is_file():
+    if V3_FIXED.is_file():
         v3_sha=sha256(V3_FIXED)
         print("V3_FIXED_REFERENCE_SHA256="+v3_sha,flush=True)
     else:
