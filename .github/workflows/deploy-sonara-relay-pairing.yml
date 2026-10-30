@@ -1,5 +1,5 @@
 name: Deploy SONARA Relay Pairing
-# trigger: 2026-10-28 relay pairing activation
+# trigger: 2026-10-30 relay pairing activation
 
 on:
   workflow_dispatch:
