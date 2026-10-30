@@ -13,11 +13,12 @@ ACE=ROOT/"SONARA-ACE-Step-CLEAN"
 REPO_RAW="https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/main"
 
 STEPS=[
+    ("cc0-bootstrap-v4","scripts/sonara-cc0-bootstrap-v4-ingest-1030.py"),
+    ("cc0-balanced-v4","scripts/sonara-cc0-balanced-v4-ingest-1030.py"),
     ("dataset-intake-initial","scripts/sonara-lora-dataset-intake-1029.py"),
     ("egset12-human-guitar","scripts/sonara-egset12-human-phrase-ingest-1029.py"),
-    ("urmp-human-phrases","scripts/sonara-urmp-human-phrase-ingest-1029.py"),
+    ("urmp-human-phrases","scripts/sonara-urmp-hf-human-phrase-ingest-1029.py"),
     ("commons-v4-human-phrases","scripts/sonara-commons-phrase-v4-ingest-1030.py"),
-    ("jaz-drum-augmentation","scripts/sonara-jaz-drum-phrase-seed-1029.py"),
     ("dataset-intake-final","scripts/sonara-lora-dataset-intake-1029.py"),
     ("v4-preprocess","scripts/sonara-v4-fixed-preprocess-1030.py"),
     ("v4-train","scripts/sonara-lora-v4-fixed-train-1030.py"),
@@ -79,8 +80,8 @@ def main():
     print("BASE_MODEL=acestep-v15-xl-turbo",flush=True)
     print("LM_MODEL=acestep-5Hz-lm-4B",flush=True)
 
-    if not DATASET.is_dir():
-        raise SystemExit("SONARA_LORA_DATASET_MISSING")
+    DATASET.mkdir(parents=True,exist_ok=True)
+    print("SONARA_LORA_DATASET="+str(DATASET),flush=True)
     if not ACE.is_dir():
         raise SystemExit("SONARA_ACE_STEP_ROOT_MISSING")
 
@@ -90,12 +91,12 @@ def main():
         backup.write_bytes(source.read_bytes())
         print("V4_DATASET_BACKUP="+str(backup),flush=True)
 
-    for label,path in STEPS[:6]:
+    for label,path in STEPS[:7]:
         run(label,path)
 
     dataset_gate()
 
-    for label,path in STEPS[6:]:
+    for label,path in STEPS[7:]:
         run(label,path)
 
     adapter=ACE/"sonara_training"/"physical_realism_v4_fixed"/"output"/"final"/"adapter_model.safetensors"
