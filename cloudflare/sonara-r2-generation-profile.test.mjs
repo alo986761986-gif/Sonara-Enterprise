@@ -23,7 +23,7 @@ const payload = {
 };
 
 for (const [profile, steps, shift, thinking] of [
-  ['fast', 1, 1, false], ['quality', 4, 3, false], ['ultra', 8, 3, true]
+  ['fast', 1, 1, false], ['quality', 8, 3, true], ['ultra', 8, 3, true]
 ]) {
   test(`${profile} selects native XL parameters and preserves the creator's job`, () => {
     const before = JSON.stringify(payload);
@@ -32,7 +32,7 @@ for (const [profile, steps, shift, thinking] of [
     assert.equal(result.inference_steps, steps);
     assert.equal(result.shift, shift);
     assert.equal(result.thinking, thinking);
-    assert.equal(result.allow_lm_batch, thinking && profile === 'ultra');
+    assert.equal(result.allow_lm_batch, thinking && result.batch_size > 1);
     assert.equal(result.batch_size, profile === 'ultra' ? 2 : 1);
     assert.equal(result.sonara_r2_generation_policy, R2_GENERATION_POLICY);
     assert.equal(result.sonara_r2_generation_profile, profile);
@@ -246,9 +246,9 @@ test('missing profile defaults to REALISTIC FAST single-track execution', () => 
   const result = applyR2GenerationProfile(payload, body, body);
   const metadata = r2GenerationMetadata(body);
   assert.equal(result.sonara_r2_generation_profile, 'quality');
-  assert.equal(result.inference_steps, 4);
+  assert.equal(result.inference_steps, 8);
   assert.equal(result.shift, 3);
-  assert.equal(result.thinking, false);
+  assert.equal(result.thinking, true);
   assert.equal(result.batch_size, 1);
   assert.equal(result.sonara_instant_mode, false);
   assert.equal(result.dcw_enabled, true);
@@ -257,7 +257,7 @@ test('missing profile defaults to REALISTIC FAST single-track execution', () => 
   assert.equal(result.dcw_high_scaler, 0.02);
   assert.equal(result.use_tiled_decode, false);
   assert.equal(metadata.candidateCount, 1);
-  assert.equal(metadata.executionProfile, 'xl-turbo-realistic-fast-single-track');
+  assert.equal(metadata.executionProfile, 'xl-turbo-quality-human-realism-lm8-batch');
 });
 
 
@@ -300,4 +300,19 @@ test('Tech House keeps tight club timing without degrading into repetitive synth
   assert.match(result.prompt, /club clock remains stable/);
   assert.match(result.lm_negative_prompt, /repetitive synthetic thud/);
   assert.equal(result.sonara_natural_instrument_ab_required, true);
+});
+
+
+test('QUALITY A/B contract prevents degraded second takes', () => {
+  const result = applyR2GenerationProfile(
+    { ...payload, batch_size: 2 },
+    { ...source, generationProfileV3: 'quality', candidateCount: 2, dualFast: true },
+    source
+  );
+  assert.equal(result.inference_steps, 8);
+  assert.equal(result.thinking, true);
+  assert.equal(result.allow_lm_batch, true);
+  assert.match(result.prompt, /SONARA A\/B PERFORMANCE CONTRACT/);
+  assert.match(result.prompt, /neither candidate may collapse into placeholder drums/);
+  assert.match(result.lm_negative_prompt, /candidate B degradation/);
 });
