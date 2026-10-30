@@ -105,7 +105,14 @@ def main():
     print("\n=== SONARA V4 BUILD COMPLETE ===",flush=True)
     print("V4_ADAPTER_READY=True",flush=True)
     print("V4_PRODUCTION_ACTIVE=False",flush=True)
-    print("NEXT_ACTION=RUN_V3_V4_AUDIO_BENCHMARK",flush=True)
+
+    run("v3-v4-audio-benchmark","scripts/sonara-v4-audio-benchmark-runner-1030.py")
+
+    print("\n=== SONARA V4 FULL PIPELINE COMPLETE ===",flush=True)
+    print("V4_TRAINING_COMPLETE=True",flush=True)
+    print("V3_V4_BENCHMARK_COMPLETE=True",flush=True)
+    print("V4_PRODUCTION_ACTIVE=False",flush=True)
+    print("NEXT_ACTION=REVIEW_V3_V4_SUMMARY_AND_BLIND_AUDIO",flush=True)
 
 if __name__=="__main__":
     main()
