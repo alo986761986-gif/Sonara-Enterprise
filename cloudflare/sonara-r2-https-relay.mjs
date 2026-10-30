@@ -34,7 +34,7 @@ const getRecord = async (b,id) => { const o=await b.get(key(id));return o?o.json
 const saveRecord = (b,id,record,options={}) => b.put(key(id), JSON.stringify(record), {httpMetadata:{contentType:'application/json'},...options});
 const audioKey=(id,index)=>PREFIX+'audio/'+id+'/'+index+'.wav';
 const AGENT_HEARTBEAT_KEY=PREFIX+'agent/heartbeat.json';
-const AGENT_ONLINE_MS=8000;
+const AGENT_ONLINE_MS=30000;
 const writeAgentHeartbeat=async(b,request)=>{
   if(!b)return;
   const revision=String(request.headers.get('X-Sonara-Agent-Revision')||'').slice(0,80);
