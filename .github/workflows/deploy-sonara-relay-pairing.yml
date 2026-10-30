@@ -1,5 +1,5 @@
 name: Deploy SONARA Relay Pairing
-# trigger: 2026-10-30 heartbeat stability deploy
+# trigger: 2026-10-30 ACE-Step LM8 realism production deploy
 
 on:
   workflow_dispatch:
