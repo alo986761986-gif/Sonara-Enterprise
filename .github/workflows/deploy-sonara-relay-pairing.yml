@@ -1,5 +1,5 @@
 name: Deploy SONARA Relay Pairing
-# trigger: 2026-10-30 relay pairing retry after HTTP 403
+# trigger: 2026-10-30 heartbeat stability deploy
 
 on:
   workflow_dispatch:
