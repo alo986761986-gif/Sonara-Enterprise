@@ -41,8 +41,8 @@ class AgentStagingTests(unittest.TestCase):
             root = Path(tmp)
             current = root / "current.py"
             candidate = root / "candidate.py"
-            current.write_bytes(HEADER + b"CURRENT = True\\n")
-            candidate.write_bytes(HEADER + b"CANDIDATE = True\\n")
+            current.write_bytes(HEADER + b"CURRENT = True\n")
+            candidate.write_bytes(HEADER + b"CANDIDATE = True\n")
             real_directory = root / "real-staging"
             real_directory.mkdir()
             link = root / "staging-link"
