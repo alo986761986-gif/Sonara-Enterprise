@@ -1,0 +1,46 @@
+name: SONARA Professional Quality CI
+
+on:
+  pull_request:
+    paths:
+      - 'cloudflare/sonara-r2-generation-profile.mjs'
+      - 'cloudflare/sonara-professional-profiles.test.mjs'
+      - 'cloudflare/sonara-professional-router-integration.test.mjs'
+      - 'cloudflare/sonara-molab-xl-router.mjs'
+      - 'cloudflare/sonara-instrument-realism-v3.mjs'
+      - 'cloudflare/sonara-mix-master-v1.mjs'
+      - 'molab/sonara_ab_wav_audit.py'
+      - 'molab/test_sonara_ab_wav_audit.py'
+      - 'molab/sonara_candidate_delivery_guard.py'
+      - 'molab/test_sonara_candidate_delivery_guard.py'
+      - 'molab/sonara_professional_stage.py'
+      - 'molab/test_sonara_professional_stage.py'
+      - 'molab/sonara_r2_pull_agent.py'
+      - '.github/workflows/sonara-professional-quality-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  professional-profiles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out reviewed sources
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      - name: Install project dependencies for TypeScript router imports
+        run: npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund
+      - name: Test professional audio profile and A/B policy
+        run: node --import tsx --test cloudflare/sonara-professional-profiles.test.mjs cloudflare/sonara-professional-router-integration.test.mjs
+      - name: Validate stereo-aware WAV A/B signal auditor
+        run: |
+          python3 -m unittest discover -s molab -p 'test_sonara_ab_wav_audit.py' -v
+          python3 -m unittest discover -s molab -p 'test_sonara_candidate_delivery_guard.py' -v
+          python3 -m unittest discover -s molab -p 'test_sonara_professional_stage.py' -v
