@@ -105,15 +105,31 @@ def audit_wav(path: str | Path, sample_limit: int = 250_000) -> dict:
 
 def audit_pair(path_a: str | Path, path_b: str | Path) -> dict:
     a, b = audit_wav(path_a), audit_wav(path_b)
+    duration_delta = abs(a["duration_seconds"] - b["duration_seconds"])
+    average_rms_a = sum(a["channel_rms_dbfs"]) / a["channels"]
+    average_rms_b = sum(b["channel_rms_dbfs"]) / b["channels"]
+    rms_delta = abs(average_rms_a - average_rms_b)
+
+    # Flag measurable inconsistencies; do not infer subjective musical quality.
+    pair_warnings = []
+    if a["sample_rate_hz"] != b["sample_rate_hz"]:
+        pair_warnings.append("ab_sample_rate_mismatch")
+    if a["channels"] != b["channels"]:
+        pair_warnings.append("ab_channel_count_mismatch")
+    if duration_delta > max(3.0, 0.05 * max(a["duration_seconds"], b["duration_seconds"])):
+        pair_warnings.append("ab_duration_mismatch")
+    if rms_delta > 6.0:
+        pair_warnings.append("ab_large_level_difference")
+
     return {
-        "standard": "SONARA_AB_SIGNAL_INTEGRITY_V1",
+        "standard": "SONARA_AB_SIGNAL_INTEGRITY_V2",
         "note": "Signal-integrity metrics cannot establish instrument realism, lyrics accuracy, or Suno/Udio parity.",
         "A": a,
         "B": b,
-        "duration_delta_seconds": round(abs(a["duration_seconds"] - b["duration_seconds"]), 3),
-        "rms_delta_db": round(abs(sum(a["channel_rms_dbfs"]) / a["channels"]
-                               - sum(b["channel_rms_dbfs"]) / b["channels"]), 2),
-        "review_required": bool(a["warnings"] or b["warnings"]),
+        "duration_delta_seconds": round(duration_delta, 3),
+        "rms_delta_db": round(rms_delta, 2),
+        "pair_warnings": pair_warnings,
+        "review_required": bool(a["warnings"] or b["warnings"] or pair_warnings),
     }
 
 
