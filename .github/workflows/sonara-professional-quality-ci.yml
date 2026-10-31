@@ -13,6 +13,8 @@ on:
       - 'molab/test_sonara_ab_wav_audit.py'
       - 'molab/sonara_candidate_delivery_guard.py'
       - 'molab/test_sonara_candidate_delivery_guard.py'
+      - 'molab/sonara_professional_stage.py'
+      - 'molab/test_sonara_professional_stage.py'
       - 'molab/sonara_r2_pull_agent.py'
       - '.github/workflows/sonara-professional-quality-ci.yml'
   workflow_dispatch:
@@ -41,3 +43,4 @@ jobs:
         run: |
           python3 -m unittest discover -s molab -p 'test_sonara_ab_wav_audit.py' -v
           python3 -m unittest discover -s molab -p 'test_sonara_candidate_delivery_guard.py' -v
+          python3 -m unittest discover -s molab -p 'test_sonara_professional_stage.py' -v
