@@ -36,6 +36,21 @@ class AgentStagingTests(unittest.TestCase):
                 stage_agent(current, candidate, stage)
             self.assertFalse(stage.exists())
 
+    def test_symlink_staging_directory_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            current = root / "current.py"
+            candidate = root / "candidate.py"
+            current.write_bytes(HEADER + b"CURRENT = True\\n")
+            candidate.write_bytes(HEADER + b"CANDIDATE = True\\n")
+            real_directory = root / "real-staging"
+            real_directory.mkdir()
+            link = root / "staging-link"
+            link.symlink_to(real_directory, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "symlink"):
+                stage_agent(current, candidate, link)
+            self.assertEqual(list(real_directory.iterdir()), [])
+
     def test_active_agent_cannot_be_staged_as_its_own_candidate(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
