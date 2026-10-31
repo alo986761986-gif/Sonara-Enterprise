@@ -11,6 +11,9 @@ on:
       - 'cloudflare/sonara-mix-master-v1.mjs'
       - 'molab/sonara_ab_wav_audit.py'
       - 'molab/test_sonara_ab_wav_audit.py'
+      - 'molab/sonara_candidate_delivery_guard.py'
+      - 'molab/test_sonara_candidate_delivery_guard.py'
+      - 'molab/sonara_r2_pull_agent.py'
       - '.github/workflows/sonara-professional-quality-ci.yml'
   workflow_dispatch:
 
@@ -35,4 +38,6 @@ jobs:
       - name: Test professional audio profile and A/B policy
         run: node --import tsx --test cloudflare/sonara-professional-profiles.test.mjs cloudflare/sonara-professional-router-integration.test.mjs
       - name: Validate stereo-aware WAV A/B signal auditor
-        run: python3 -m unittest discover -s molab -p 'test_sonara_ab_wav_audit.py' -v
+        run: |
+          python3 -m unittest discover -s molab -p 'test_sonara_ab_wav_audit.py' -v
+          python3 -m unittest discover -s molab -p 'test_sonara_candidate_delivery_guard.py' -v
