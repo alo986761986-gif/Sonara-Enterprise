@@ -5,6 +5,8 @@ on:
     paths:
       - 'cloudflare/sonara-r2-generation-profile.mjs'
       - 'cloudflare/sonara-professional-profiles.test.mjs'
+      - 'cloudflare/sonara-professional-router-integration.test.mjs'
+      - 'cloudflare/sonara-molab-xl-router.mjs'
       - 'cloudflare/sonara-instrument-realism-v3.mjs'
       - 'cloudflare/sonara-mix-master-v1.mjs'
       - 'molab/sonara_ab_wav_audit.py'
@@ -29,6 +31,6 @@ jobs:
         with:
           node-version: '24'
       - name: Test professional audio profile and A/B policy
-        run: node --test cloudflare/sonara-professional-profiles.test.mjs
+        run: node --test cloudflare/sonara-professional-profiles.test.mjs cloudflare/sonara-professional-router-integration.test.mjs
       - name: Validate stereo-aware WAV A/B signal auditor
         run: python3 -m unittest discover -s molab -p 'test_sonara_ab_wav_audit.py' -v
