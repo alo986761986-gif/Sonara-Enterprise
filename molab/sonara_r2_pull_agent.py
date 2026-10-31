@@ -221,7 +221,8 @@ def wav_quality_report(path, physical_fidelity=False):
 
         for frame_index in range(0, available_frames, stride):
             frame_start = frame_index * frame_size
-            mono_ratio = 0.0
+            frame_peak = 0.0
+            frame_absolute_sum = 0.0
             valid_channels = 0
             for channel in range(channels):
                 start = frame_start + channel * width
@@ -229,25 +230,28 @@ def wav_quality_report(path, physical_fidelity=False):
                 if len(chunk) != width:
                     continue
                 value, scale = _pcm_sample(chunk, width)
-                mono_ratio += value / scale if scale else 0.0
+                ratio = value / scale if scale else 0.0
+                absolute = abs(ratio)
+                frame_peak = max(frame_peak, absolute)
+                frame_absolute_sum += absolute
+                peak_ratio = max(peak_ratio, absolute)
+                square_sum += ratio * ratio
+                dc_sum += ratio
+                seen += 1
                 valid_channels += 1
+                if absolute >= 0.999:
+                    clipped += 1
             if valid_channels <= 0:
                 continue
-            mono_ratio /= valid_channels
-            absolute = abs(mono_ratio)
-            peak_ratio = max(peak_ratio, absolute)
-            square_sum += mono_ratio * mono_ratio
-            dc_sum += mono_ratio
-            seen += 1
-            envelope_acc += absolute
+            # Signal energy must be measured per-channel. Mono averaging can
+            # cancel perfectly audible out-of-phase stereo content.
+            envelope_acc += frame_absolute_sum / valid_channels
             envelope_count += 1
             if envelope_count >= envelope_bucket:
                 envelope.append(envelope_acc / envelope_count)
                 envelope_acc = 0.0
                 envelope_count = 0
-            if absolute >= 0.999:
-                clipped += 1
-            if absolute <= 0.001:
+            if frame_peak <= 0.001:
                 silent += 1
 
         if seen <= 0:
@@ -257,7 +261,7 @@ def wav_quality_report(path, physical_fidelity=False):
         peak_db = 20.0 * math.log10(max(peak_ratio, 1e-9))
         rms_db = 20.0 * math.log10(max(rms_ratio, 1e-9))
         clipping = clipped / seen
-        silence = silent / seen
+        silence = silent / max(1, (available_frames + stride - 1) // stride)
         dc = dc_sum / seen
         duration = frames / float(rate)
 
