@@ -29,6 +29,33 @@ class CandidateGuardTests(unittest.TestCase):
             [91, 88],
         )
 
+    def test_relay_quality_metrics_do_not_cancel_antiphase_stereo(self):
+        import math
+        import struct
+        import tempfile
+        import wave
+
+        agent_path = Path(__file__).with_name("sonara_r2_pull_agent.py")
+        spec = importlib.util.spec_from_file_location("sonara_relay_audio_check", agent_path)
+        agent = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(agent)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "opposite_phase.wav"
+            with wave.open(str(path), "wb") as wav:
+                wav.setnchannels(2)
+                wav.setsampwidth(2)
+                wav.setframerate(48000)
+                frames = bytearray()
+                for i in range(4800):
+                    sample = round(0.65 * 32767 * math.sin(2 * math.pi * 440 * i / 48000))
+                    frames.extend(struct.pack("<hh", sample, -sample))
+                wav.writeframes(frames)
+            report = agent.wav_quality_report(path)
+            self.assertTrue(report["ok"])
+            self.assertGreater(report["peakDb"], -5)
+            self.assertGreater(report["rmsDb"], -10)
+            self.assertLess(report["silenceRatio"], 0.02)
+
     def test_delivers_two_valid_candidates_in_score_order(self):
         result = select_deliverable_candidates(
             [candidate(82), candidate(96), candidate(89)], 2
