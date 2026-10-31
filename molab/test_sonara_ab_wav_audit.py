@@ -42,11 +42,31 @@ class ABWavAuditTests(unittest.TestCase):
             make_wav(b, [0.8 * x for x in samples], [0.8 * x for x in samples])
             before = (a.read_bytes(), b.read_bytes())
             result = audit_pair(a, b)
-            self.assertEqual(result["standard"], "SONARA_AB_SIGNAL_INTEGRITY_V1")
+            self.assertEqual(result["standard"], "SONARA_AB_SIGNAL_INTEGRITY_V2")
             self.assertEqual(result["A"]["channels"], 2)
             self.assertFalse(result["review_required"])
             self.assertGreater(result["rms_delta_db"], 1)
             self.assertEqual(before, (a.read_bytes(), b.read_bytes()))
+
+    def test_ab_large_level_difference_requires_review(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a, b = Path(tmp) / "a.wav", Path(tmp) / "b.wav"
+            samples = [0.45 * math.sin(2 * math.pi * 440 * i / 48000) for i in range(4800)]
+            make_wav(a, samples)
+            make_wav(b, [0.1 * x for x in samples])
+            report = audit_pair(a, b)
+            self.assertIn("ab_large_level_difference", report["pair_warnings"])
+            self.assertTrue(report["review_required"])
+
+    def test_ab_mismatched_sample_rates_requires_review(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a, b = Path(tmp) / "a.wav", Path(tmp) / "b.wav"
+            samples = [0.3 * math.sin(2 * math.pi * 440 * i / 48000) for i in range(4800)]
+            make_wav(a, samples, rate=48000)
+            make_wav(b, samples, rate=44100)
+            report = audit_pair(a, b)
+            self.assertIn("ab_sample_rate_mismatch", report["pair_warnings"])
+            self.assertTrue(report["review_required"])
 
     def test_nearly_full_scale_constant_audio_detects_clipping_and_dc(self):
         with tempfile.TemporaryDirectory() as tmp:
