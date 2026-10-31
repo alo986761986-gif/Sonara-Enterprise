@@ -31,7 +31,7 @@ jobs:
         with:
           node-version: '24'
       - name: Install project dependencies for TypeScript router imports
-        run: npm ci --ignore-scripts --no-audit --no-fund
+        run: npm install --no-save --package-lock=false --ignore-scripts --no-audit --no-fund
       - name: Test professional audio profile and A/B policy
         run: node --import tsx --test cloudflare/sonara-professional-profiles.test.mjs cloudflare/sonara-professional-router-integration.test.mjs
       - name: Validate stereo-aware WAV A/B signal auditor
