@@ -27,7 +27,11 @@ def stage_agent(current_path: str | Path, candidate_path: str | Path,
                 staging_dir: str | Path) -> dict:
     current = Path(current_path).expanduser().resolve(strict=True)
     candidate = Path(candidate_path).expanduser().resolve(strict=True)
-    directory = Path(staging_dir).expanduser().resolve()
+    requested_directory = Path(staging_dir).expanduser().absolute()
+    # Check the unresolved path: resolve() follows symlinks and would hide one.
+    if requested_directory.is_symlink():
+        raise ValueError("Staging directory must not be a symlink")
+    directory = requested_directory.resolve()
 
     if not current.is_file() or not candidate.is_file():
         raise ValueError("Both agent inputs must be regular files")
