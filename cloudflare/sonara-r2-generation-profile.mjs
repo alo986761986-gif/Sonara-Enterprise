@@ -17,7 +17,7 @@ function profileOf(body = {}) {
   // Keep existing jobs unchanged unless their caller opts into this policy.
   if (body.sonaraQualityFirst === true || body.qualityFirst === true) return 'quality';
   const raw = firstText(body.generationProfileV3, body.renderProfile, body.generationProfile, body.qualityProfile)
-    .toLowerCase().replace(/[\\s_]+/g, '-');
+    .toLowerCase().replace(/[\s_]+/g, '-');
   if (['fast', 'speed', 'preview', 'instant'].includes(raw)) return 'fast';
   if (['ultra', 'maximum', 'max', 'studio', 'master', 'studio-ultra', 'studio-max'].includes(raw)) return 'ultra';
   if (['quality', 'professional', 'pro', 'realistic', 'high-quality', 'studio-professional'].includes(raw)) return 'quality';
