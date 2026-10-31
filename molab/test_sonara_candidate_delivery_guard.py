@@ -1,4 +1,6 @@
 import unittest
+import importlib.util
+from pathlib import Path
 
 from sonara_candidate_delivery_guard import select_deliverable_candidates
 
@@ -16,6 +18,17 @@ def candidate(score, ok=True, duration=30.0):
 
 
 class CandidateGuardTests(unittest.TestCase):
+    def test_single_file_agent_embeds_delivery_guard(self):
+        agent_path = Path(__file__).with_name("sonara_r2_pull_agent.py")
+        spec = importlib.util.spec_from_file_location("sonara_relay_agent_guard_check", agent_path)
+        agent = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(agent)
+        candidates = [candidate(91), candidate(80, ok=False), candidate(88)]
+        self.assertEqual(
+            [item["score"] for item in agent.select_deliverable_candidates(candidates, 2)],
+            [91, 88],
+        )
+
     def test_delivers_two_valid_candidates_in_score_order(self):
         result = select_deliverable_candidates(
             [candidate(82), candidate(96), candidate(89)], 2
