@@ -39,6 +39,19 @@ def select_deliverable_candidates(evaluated, requested_count):
         except (TypeError, ValueError, OverflowError):
             valid = False
         if valid:
+            # Reject truly empty digital output only. A quiet intro, fade-out,
+            # or deliberately soft musical passage must remain deliverable.
+            peak_db = report.get("peakDb")
+            rms_db = report.get("rmsDb")
+            if peak_db is not None and rms_db is not None:
+                try:
+                    effectively_muted = (
+                        float(peak_db) <= -65.0 and float(rms_db) <= -75.0
+                    )
+                except (TypeError, ValueError, OverflowError):
+                    effectively_muted = False
+                if effectively_muted:
+                    continue
             deliverable.append(item)
 
     deliverable.sort(key=lambda item: item["score"], reverse=True)
