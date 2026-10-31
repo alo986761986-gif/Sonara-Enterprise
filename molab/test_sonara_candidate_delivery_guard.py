@@ -56,6 +56,30 @@ class CandidateGuardTests(unittest.TestCase):
             self.assertGreater(report["rmsDb"], -10)
             self.assertLess(report["silenceRatio"], 0.02)
 
+    def test_effectively_muted_audio_does_not_replace_song_b(self):
+        muted = candidate(98)
+        muted["audio"].update({"peakDb": -90.0, "rmsDb": -100.0})
+        normal_a = candidate(82)
+        normal_b = candidate(79)
+        selected = select_deliverable_candidates([muted, normal_a, normal_b], 2)
+        self.assertEqual([item["score"] for item in selected], [82, 79])
+
+    def test_quiet_music_remains_deliverable(self):
+        soft = candidate(66)
+        soft["audio"].update({"peakDb": -35.0, "rmsDb": -44.0})
+        selected = select_deliverable_candidates([soft], 1)
+        self.assertEqual(len(selected), 1)
+
+    def test_standalone_agent_also_rejects_muted_audio(self):
+        agent_path = Path(__file__).with_name("sonara_r2_pull_agent.py")
+        spec = importlib.util.spec_from_file_location("sonara_relay_muted_check", agent_path)
+        agent = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(agent)
+        muted = candidate(100)
+        muted["audio"].update({"peakDb": -95.0, "rmsDb": -105.0})
+        with self.assertRaises(RuntimeError):
+            agent.select_deliverable_candidates([muted], 1)
+
     def test_delivers_two_valid_candidates_in_score_order(self):
         result = select_deliverable_candidates(
             [candidate(82), candidate(96), candidate(89)], 2
