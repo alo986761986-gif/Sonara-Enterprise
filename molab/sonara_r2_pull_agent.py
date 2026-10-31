@@ -15,6 +15,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
+from sonara_candidate_delivery_guard import select_deliverable_candidates
 
 ROOT = pathlib.Path.home() / '.sonara'
 ENDPOINT = 'https://api.sonaraenterprise.com/api/sonara-relay'
@@ -531,7 +532,10 @@ def process(job):
                         'autoRepaired': repaired,
                         'score': combined_candidate_score(audio_report, vocal),
                     })
-                evaluated.sort(key=lambda item: item['score'], reverse=True)
+                # Reject invalid PCM before any upload; do not silently deliver a broken Song B.
+                # Keeping this check before upload avoids publishing a partial A/B pair.
+                expected = max(1, min(2, int(payload.get('batch_size', 1))))
+                evaluated = select_deliverable_candidates(evaluated, expected)
                 quality_summary = [
                     {
                         'rank': rank + 1,
@@ -549,8 +553,6 @@ def process(job):
                     for rank, item in enumerate(evaluated)
                 ]
 
-                evaluated = evaluated[:2]
-                expected = min(2, len(evaluated))
                 for index, item in enumerate(evaluated):
                     path = item['path']
                     progress('uploading', track=index + 1, trackCount=expected, qualityScore=item['score'])
