@@ -699,9 +699,22 @@ async function studioJob(request, env, jobId) {
         bestScore: ranked[0]?.qualityScore ?? null,
         bestDetectedBpm: ranked[0]?.detectedBpm ?? null,
         bpmVerified: ranked[0]?.bpmPassed ?? null,
+        bpmStatus: ranked[0]?.bpmStatus || 'unverified',
+        tempoOctaveAmbiguous: ranked[0]?.tempoOctaveCorrected === true,
+        // There is no ASR proof in this Studio quality-report path.
+        vocalLyricsVerified: null,
         keyVerified: ranked[0]?.keyComparable ? ranked[0]?.keyPassed === true : null,
         reports: ranked,
-        repairRecommended: state.operation !== 'stems' && (Number(ranked[0]?.qualityScore || 0) < 70 || ranked[0]?.bpmPassed === false)
+        repairRecommended: state.operation !== 'stems' && (
+          Number(ranked[0]?.qualityScore || 0) < 70 ||
+          ranked[0]?.bpmPassed === false ||
+          ranked[0]?.tempoOctaveCorrected === true
+        ),
+        humanReviewRequired: state.operation !== 'stems' && (
+          ranked[0]?.measuredFromRealWav !== true ||
+          ranked[0]?.tempoOctaveCorrected === true ||
+          (state.requested?.bpm != null && ranked[0]?.bpmPassed !== true)
+        )
       }
     };
     state.completedResult = result;

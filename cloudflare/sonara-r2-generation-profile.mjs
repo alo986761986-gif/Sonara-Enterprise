@@ -66,7 +66,7 @@ export function r2GenerationMetadata(body = {}, count = null) {
     automaticSecondBatch: false, automaticCandidateRanking: profile !== 'fast',
     automaticQualityRepair: profile === 'ultra', realMusicV3: profile !== 'fast', trackGenome: profile !== 'fast',
     humanizer: profile !== 'fast', vocalRefinement: profile !== 'fast', stemPostProductionReady: profile !== 'fast',
-    lyricVerificationMode: profile === 'ultra' ? 'local-asr-v3' : 'non-blocking', lyricVerificationPending: profile === 'ultra'
+    lyricVerificationMode: profile === 'fast' ? 'not-requested' : 'local-asr-v3', lyricVerificationPending: profile !== 'fast'
   };
 }
 

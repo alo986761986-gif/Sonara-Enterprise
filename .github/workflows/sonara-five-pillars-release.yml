@@ -1,0 +1,53 @@
+name: SONARA Five Pillars Release Gate
+on:
+  pull_request:
+    paths:
+      - "src/components/generator/DualTrackGenerationControl.tsx"
+      - "src/components/generator/GenerationProfileControl.tsx"
+      - "cloudflare/sonara-audio-quality-engine.mjs"
+      - "cloudflare/sonara-r2-generation-profile.mjs"
+      - "cloudflare/sonara-studio-ai-router.mjs"
+      - "cloudflare/sonara-five-pillars.test.mjs"
+      - "molab/sonara_r2_pull_agent.py"
+      - "molab/sonara_tempo_evidence.py"
+      - "molab/sonara_r2_install.py"
+      - "molab/sonara_training_preflight.py"
+      - "molab/test_sonara_training_preflight.py"
+      - "molab/test_sonara_tempo_evidence.py"
+      - "molab/test_sonara_r2_installer_pins.py"
+      - ".github/workflows/sonara-five-pillars-release.yml"
+
+permissions:
+  contents: read
+jobs:
+  node-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify Studio BPM and A/B generation contracts
+        run: node --test cloudflare/sonara-five-pillars.test.mjs cloudflare/sonara-r2-bpm-lock.test.mjs
+      - name: Install frontend dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Build frontend and relay application
+        run: npm run build
+  python-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record exact reviewed installer agent source hashes
+        run: sha256sum molab/sonara_r2_pull_agent.py molab/sonara_bpm_verification.py molab/sonara_tempo_evidence.py
+      - name: Python syntax
+        run: python3 -m py_compile molab/sonara_r2_pull_agent.py molab/sonara_training_preflight.py molab/sonara_tempo_evidence.py molab/sonara_r2_install.py
+      - name: Install NumPy for WAV tempo regressions
+        run: python3 -m pip install 'numpy>=1.26,<3'
+      - name: Tempo ranking and instrument naturalness
+        run: python3 -m unittest discover -s molab -p 'test_sonara_tempo_evidence.py' -v
+      - name: Licensed real-audio dataset preflight
+        run: python3 -m unittest discover -s molab -p 'test_sonara_training_preflight.py' -v
+      - name: Source integrity checks
+        run: python3 -m unittest discover -s molab -p 'test_sonara_r2_installer_pins.py' -v

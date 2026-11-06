@@ -319,6 +319,12 @@ def wav_quality_report(path, physical_fidelity=False):
             'physicalFidelityEvaluated': bool(physical_fidelity),
             'transientVariation': round(transient_variation, 4) if transient_variation is not None else None,
             'repeatedTransientRatio': round(repeated_transient_ratio, 4) if repeated_transient_ratio is not None else None,
+            # Conservative waveform cue only: cannot isolate or certify real drums.
+            'rhythmicRepetitionRisk': bool(
+                physical_fidelity and
+                transient_variation is not None and repeated_transient_ratio is not None and
+                transient_variation < 0.07 and repeated_transient_ratio > 0.50
+            ),
             'score': round(max(0.0, min(100.0, score)), 1),
         }
     except Exception:
@@ -329,8 +335,10 @@ def vocal_report(path, payload):
     lyrics = str(payload.get('lyrics') or '').strip()
     vocal_mode = str(payload.get('vocal_mode') or payload.get('vocalMode') or '').strip().lower()
     profile = str(payload.get('sonara_r2_generation_profile') or payload.get('generationProfileV3') or '').strip().lower()
-    if profile != 'ultra':
-        return {'performed': False, 'lyricAccuracy': None, 'mismatchRanges': [], 'mode': 'non-blocking-quality'}
+    # REALISTIC and ULTRA both audit lyric accuracy on genuine vocal takes.
+    # Instant stays fast; failed/unavailable ASR never becomes a fake pass.
+    if profile not in ('quality', 'ultra'):
+        return {'performed': False, 'lyricAccuracy': None, 'mismatchRanges': [], 'mode': 'not-requested-fast'}
     if not lyrics or vocal_mode in ('instrumental', 'none', 'off', 'no vocals'):
         return {'performed': False, 'lyricAccuracy': None, 'mismatchRanges': []}
     try:
@@ -339,7 +347,7 @@ def vocal_report(path, payload):
             'language': str(payload.get('vocal_language') or 'auto'),
             'expected_lyrics': lyrics,
             'word_timestamps': True,
-        }, timeout=240)
+        }, timeout=240 if profile == 'ultra' else 90)
         data = answer.get('data', answer)
         accuracy = data.get('lyric_accuracy') if isinstance(data, dict) else None
         ranges = data.get('mismatch_ranges', []) if isinstance(data, dict) else []

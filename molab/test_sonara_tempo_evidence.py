@@ -34,12 +34,28 @@ class TempoRankingTests(unittest.TestCase):
         a, b = item(50, support=1.0), item(90, verified=True)
         self.assertGreater(candidate_sort_key(b), candidate_sort_key(a))
 
+    def test_repetitive_audio_cannot_outrank_natural_audio_only_by_bpm(self):
+        from sonara_tempo_evidence import rank_candidates
+        repeated = item(90, support=1.0)
+        repeated['audio'] = {'ok': True, 'rhythmicRepetitionRisk': True}
+        natural = item(85, support=0.55)
+        natural['audio'] = {'ok': True, 'rhythmicRepetitionRisk': False}
+        self.assertIs(rank_candidates([repeated, natural])[0], natural)
+
+    def test_clipped_audio_never_wins_on_tempo_support_alone(self):
+        from sonara_tempo_evidence import rank_candidates
+        clipped = item(95, support=1.0)
+        clipped['audio'] = {'ok': True, 'clippingRatio': 0.02}
+        clean = item(85, support=0.4)
+        clean['audio'] = {'ok': True, 'clippingRatio': 0}
+        self.assertIs(rank_candidates([clipped, clean])[0], clean)
+
     def test_unverified_85_bpm_is_not_a_verified_170_bpm(self):
         a = item(99, support=0.9)
         a['tempo'] = {'requestedBpm': 170, 'detectedBpm': 85,
                       'bpmStatus': 'octave-ambiguous', 'bpmVerified': False}
         self.assertFalse(a['tempo']['bpmVerified'])
-        self.assertFalse(candidate_sort_key(a)[0])
+        self.assertFalse(candidate_sort_key(a)[1])
 
     def test_real_synthetic_clicks_support_requested_170_over_140(self):
         import tempfile

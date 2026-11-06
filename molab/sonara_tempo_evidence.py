@@ -100,7 +100,17 @@ def candidate_sort_key(candidate):
     support = evidence.get("support") if evidence.get("available") is True else None
     if not isinstance(support, (int, float)) or not math.isfinite(support):
         support = -1.0
-    return (verified, float(support), float(candidate.get("score") or 0))
+    audio = candidate.get("audio") or {}
+    acceptable_audio = (
+        audio.get("ok") is not False and
+        audio.get("rhythmicRepetitionRisk") is not True and
+        float(audio.get("clippingRatio") or 0) <= 0.001 and
+        float(audio.get("silenceRatio") or 0) <= 0.25 and
+        float(candidate.get("score") or 0) >= 65
+    )
+    # A tempo match cannot compensate for severe clipping, dead audio, or
+    # a highly repetitive attack profile. No signal certifies instruments.
+    return (acceptable_audio, verified, float(support), float(candidate.get("score") or 0))
 
 
 def rank_candidates(candidates):

@@ -119,7 +119,13 @@ function installNativeFetchBridge() {
         }
 
         if (body && typeof body === 'object' && !Array.isArray(body)) {
-          const profile = readProfile();
+          const selectedProfile = readProfile();
+          // The dedicated A/B action is explicitly a two-track quality render.
+          // Do not let the global Instant selector silently turn it into a
+          // single-track 1-step job after the user has paid for two tracks.
+          const profile = body.sonaraForcePairQuality === true
+            ? (selectedProfile === 'ultra' ? 'ultra' : 'quality')
+            : selectedProfile;
           body.generationProfileV3 = profile;
           body.renderProfile = profile;
           body.sonaraMusicDirectorV3 = 'sonara-music-director-v3';

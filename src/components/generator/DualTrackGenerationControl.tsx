@@ -17,6 +17,11 @@ type CandidateState = {
   audioFormat: string;
   jobId: string;
   error: string;
+  tempoStatus: string;
+  detectedBpm: number | null;
+  rhythmicSupport: number | null;
+  repetitiveTransientRisk: boolean;
+  lyricAccuracy: number | null;
 };
 
 type GeneratorContext = {
@@ -43,7 +48,16 @@ type JobResponse = {
   progress?: number;
   audioUrl?: string;
   audioUrls?: string[];
-  candidates?: Array<{ id?: string; audioUrl?: string; audioFormat?: string }>;
+  candidates?: Array<{
+    id?: string; audioUrl?: string; audioFormat?: string;
+    sonaraTempo?: { bpmStatus?: string; detectedBpm?: number };
+    sonaraQuality?: {
+      tempo?: { bpmStatus?: string; detectedBpm?: number };
+      tempoEvidence?: { support?: number };
+      audio?: { rhythmicRepetitionRisk?: boolean };
+      vocal?: { lyricAccuracy?: number };
+    };
+  }>;
   error?: string | { message?: string };
   message?: string;
   metadata?: Record<string, any>;
@@ -60,11 +74,21 @@ const EMPTY_CANDIDATE = (id: CandidateId): CandidateState => ({
   audioUrl: '',
   audioFormat: 'wav',
   jobId: '',
-  error: ''
+  error: '',
+  tempoStatus: 'pending',
+  detectedBpm: null,
+  rhythmicSupport: null,
+  repetitiveTransientRisk: false,
+  lyricAccuracy: null
 });
 const INITIAL: CandidateState[] = [EMPTY_CANDIDATE('A'), EMPTY_CANDIDATE('B')];
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+// The dedicated A/B button is a quality-pair operation, not an Instant preview.
+const readPairProfile = (): 'quality' | 'ultra' => {
+  try { return window.localStorage.getItem('sonara.generation.profile.v6') === 'ultra' ? 'ultra' : 'quality'; }
+  catch { return 'quality'; }
+};
 const JOB_POLL_INTERVAL_MS = 1_000;
 const MIN_JOB_TIMEOUT_MS = 30 * 60 * 1_000;
 
@@ -129,7 +153,7 @@ function safeFileName(value: string): string {
   return value.normalize('NFKD').replace(/[^a-zA-Z0-9-_ ]+/g, '').trim().replace(/\s+/g, '-') || 'sonara-track';
 }
 
-function readCandidates(current: JobResponse): Array<{ id?: string; audioUrl?: string; audioFormat?: string }> {
+function readCandidates(current: JobResponse): NonNullable<JobResponse['candidates']> {
   if (Array.isArray(current.candidates) && current.candidates.length) return current.candidates.slice(0, 2);
   const urls = current.audioUrls || current.metadata?.audioUrls || (current.audioUrl ? [current.audioUrl] : []);
   return urls.slice(0, 2).map((audioUrl: string, index: number) => ({ id: index === 0 ? 'A' : 'B', audioUrl, audioFormat: 'wav' }));
@@ -190,7 +214,12 @@ export default function DualTrackGenerationControl() {
         audioUrl: String(output.audioUrl),
         audioFormat: String(output.audioFormat || 'wav').toLowerCase(),
         jobId,
-        error: ''
+        error: '',
+        tempoStatus: output.sonaraTempo?.bpmStatus || output.sonaraQuality?.tempo?.bpmStatus || 'unverified',
+        detectedBpm: output.sonaraTempo?.detectedBpm ?? output.sonaraQuality?.tempo?.detectedBpm ?? null,
+        rhythmicSupport: output.sonaraQuality?.tempoEvidence?.support ?? null,
+        repetitiveTransientRisk: output.sonaraQuality?.audio?.rhythmicRepetitionRisk === true,
+        lyricAccuracy: output.sonaraQuality?.vocal?.lyricAccuracy ?? null
       };
     }));
   };
@@ -235,6 +264,7 @@ export default function DualTrackGenerationControl() {
         title: context.title
       });
 
+      const pairProfile = readPairProfile();
       const token = await getFirebaseIdToken(true);
       const generationId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `generation-${Date.now()}`;
       setAllProcessing('', 5, 'SONARA RTX 6000: avvio batch unico dei 2 brani');
@@ -267,9 +297,14 @@ export default function DualTrackGenerationControl() {
           outputFormat: 'wav',
           audioQuality: 'lossless',
           engineId: 'sonara_rtx6000_v14_single_batch',
-          qualityProfile: 'fast',
-          generationProfile: 'fast',
-          yueProfile: 'fast',
+          // Two real quality candidates are required by this specific button.
+          // Instant remains available through its separate one-track workflow.
+          sonaraForcePairQuality: true,
+          generationProfileV3: pairProfile,
+          renderProfile: pairProfile,
+          qualityProfile: pairProfile,
+          generationProfile: pairProfile,
+          yueProfile: pairProfile,
           dualFast: true,
           candidateCount: 2,
           candidate_count: 2,
@@ -322,7 +357,12 @@ export default function DualTrackGenerationControl() {
           audioUrl: String(candidate.audioUrl),
           audioFormat: String(candidate.audioFormat || 'wav').toLowerCase(),
           jobId,
-          error: ''
+          error: '',
+          tempoStatus: candidate.sonaraTempo?.bpmStatus || candidate.sonaraQuality?.tempo?.bpmStatus || 'unverified',
+          detectedBpm: candidate.sonaraTempo?.detectedBpm ?? candidate.sonaraQuality?.tempo?.detectedBpm ?? null,
+          rhythmicSupport: candidate.sonaraQuality?.tempoEvidence?.support ?? null,
+          repetitiveTransientRisk: candidate.sonaraQuality?.audio?.rhythmicRepetitionRisk === true,
+          lyricAccuracy: candidate.sonaraQuality?.vocal?.lyricAccuracy ?? null
         }));
         setCandidates(completed);
 
@@ -395,7 +435,7 @@ export default function DualTrackGenerationControl() {
         {busy ? <><RefreshCw className="h-5 w-5 animate-spin" />GENERAZIONE 2 BRANI SONARA...</> : <><Sparkles className="h-5 w-5" />GENERA 2 BRANI SONARA</>}
       </button>
       <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-4 py-3 text-[11px] leading-5 text-slate-400">
-        <strong className="text-cyan-200">SONARA RTX 6000 Single Batch</strong>: i 2 brani completi vengono creati insieme in un solo batch GPU. Prompt, BPM, lingua e durata selezionata restano vincoli della generazione.
+        <strong className="text-cyan-200">SONARA RTX 6000 A/B Quality</strong>: genera 2 brani reali in un batch con profilo REALISTIC (o ULTRA se selezionato). La coppia non usa Instant a 1 step. BPM e realismo sono controllati sui WAV, non garantiti dal solo prompt.
       </div>
       {globalError && <div className="rounded-xl border border-rose-500/25 bg-rose-500/10 p-4 text-xs text-rose-300">{globalError}</div>}
       {candidates.some(candidate => candidate.status !== 'IDLE') && (
@@ -411,6 +451,12 @@ export default function DualTrackGenerationControl() {
                 </div>
                 {candidate.status === 'PROCESSING' && <div className="mt-4"><div className="mb-1 flex justify-between text-[10px] text-slate-500"><span>Generazione</span><span>{candidate.progress}%</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-900"><div className="h-full rounded-full bg-gradient-to-r from-purple-500 to-cyan-400 transition-all" style={{ width: `${candidate.progress}%` }} /></div></div>}
                 {candidate.error && <div className="mt-4 rounded-lg border border-rose-500/20 bg-rose-500/10 p-3 text-[11px] text-rose-300">{candidate.error}</div>}
+                {completed && <div className="mt-3 space-y-1 text-[11px] text-slate-300">
+                  <div>BPM misurati: {candidate.detectedBpm === null ? 'non disponibili' : candidate.detectedBpm} · Stato: <strong>{candidate.tempoStatus === 'verified' ? 'verificato' : candidate.tempoStatus === 'octave-ambiguous' ? 'ritmo ambiguo (metà/doppio tempo)' : candidate.tempoStatus === 'mismatch' ? 'non corrispondente' : 'non verificato'}</strong></div>
+                  {candidate.rhythmicSupport !== null && <div>Indizio ritmico (non certificazione): {Math.round(candidate.rhythmicSupport * 100)}%</div>}
+                  {candidate.repetitiveTransientRisk && <div className="text-amber-300">Possibile ripetitività dei transienti: controlla la naturalezza della batteria.</div>}
+                  {candidate.lyricAccuracy !== null && <div>Corrispondenza testo stimata: {Math.round(candidate.lyricAccuracy * 100)}% (analisi automatica)</div>}
+                </div>}
                 {completed && <div className="mt-4 space-y-3"><audio controls preload="metadata" src={candidate.audioUrl} className="w-full" /><div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => chooseCandidate(candidate)} className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-[11px] font-black text-emerald-200"><Music2 className="h-4 w-4" />{chosen ? 'BRANO SCELTO' : 'SCEGLI BRANO'}</button><button type="button" onClick={() => void downloadCandidate(candidate)} className="inline-flex items-center justify-center gap-2 rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-2.5 text-[11px] font-black text-purple-200"><Download className="h-4 w-4" />SCARICA {candidate.audioFormat.toUpperCase()}</button></div></div>}
               </article>
             );
