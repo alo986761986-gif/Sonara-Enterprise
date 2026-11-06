@@ -133,7 +133,11 @@ def files(directory):
         if not folders:
             raise FileNotFoundError("No SONARA LM comparison output folder")
         root = folders[0]
-    names = ("LM_ON_A.wav", "LM_ON_B.wav", "LM_OFF_A.wav", "LM_OFF_B.wav")
+    modes = (
+        ("LM_ON_A.wav", "LM_ON_B.wav", "LM_OFF_A.wav", "LM_OFF_B.wav"),
+        ("PROMPT_BPM_A.wav", "PROMPT_BPM_B.wav", "METADATA_ONLY_A.wav", "METADATA_ONLY_B.wav"),
+    )
+    names = next((variant for variant in modes if all((root / name).is_file() for name in variant)), modes[0])
     return root, [(name, root / name) for name in names]
 
 
