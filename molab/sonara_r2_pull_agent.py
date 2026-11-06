@@ -579,7 +579,14 @@ def process(job):
                 # Prefer independent BPM verified takes, but do not mistake
                 # a half/double-time pulse for a matching master clock.
                 # Uncertain tracks are still reported, never silently verified.
-                if rank_candidates is not None:
+                # Only compare pulse support when every take has a valid
+                # measurement. Missing NumPy or an unsupported PCM file must
+                # not cause accidental rank promotion of another candidate.
+                use_pulse_ranking = (
+                    rank_candidates is not None and
+                    all(item['tempoEvidence'].get('available') is True for item in evaluated)
+                )
+                if use_pulse_ranking:
                     evaluated = rank_candidates(evaluated)
                 else:
                     evaluated.sort(key=lambda item: (
