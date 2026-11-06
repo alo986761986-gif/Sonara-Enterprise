@@ -1,11 +1,19 @@
 import json
 import tempfile
 import unittest
+import wave
 from pathlib import Path
 from sonara_training_preflight import audit_dataset
 
 
 class TrainingGateTests(unittest.TestCase):
+    def wav(self, path, value):
+        with wave.open(str(path), "wb") as audio:
+            audio.setnchannels(1)
+            audio.setsampwidth(2)
+            audio.setframerate(16000)
+            audio.writeframes(bytes([value, 0]) * 16000 * 6)
+
     def make(self, tmp, rows):
         root = Path(tmp)
         (root / 'dataset.json').write_text(json.dumps(rows), encoding='utf-8')
@@ -26,7 +34,7 @@ class TrainingGateTests(unittest.TestCase):
     def test_unlicensed_training_never_passes(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            (root / 'clip.wav').write_bytes(b'x' * 2048)
+            self.wav(root / 'clip.wav', 16)
             rows = [{
                 'audio_path': 'clip.wav', 'license_type': 'EXPLICITLY_LICENSED',
                 'rights_to_train': True, 'synthetic': False,
@@ -39,7 +47,7 @@ class TrainingGateTests(unittest.TestCase):
     def test_duplicate_and_traversal_blocked(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
-            (root / 'clip.wav').write_bytes(b'x' * 2048)
+            self.wav(root / 'clip.wav', 16)
             rows = []
             for i in range(8):
                 rows.append({
@@ -58,7 +66,7 @@ class TrainingGateTests(unittest.TestCase):
             rows = []
             for i in range(8):
                 name = f'clip_{i}.wav'
-                (root / name).write_bytes(bytes([i + 1]) * 2048)
+                self.wav(root / name, i + 1)
                 rows.append({
                     'audio_path': name, 'license_type': 'OWNED',
                     'rights_to_train': True, 'synthetic': False,
