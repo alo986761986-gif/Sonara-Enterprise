@@ -42,6 +42,8 @@ export function r2GenerationMetadata(body = {}, count = null) {
     generationProfile: profile,
     requestedGenerationProfile: profile,
     executionProfile: profile === 'fast' ? 'xl-turbo-instant-single-track' : profile === 'quality' ? 'xl-turbo-quality-human-realism-lm8-batch' : 'xl-turbo-ultra-human-realism-heun8-batch',
+    requestedBpm: requestedR2Bpm({}, body, body), // requested metadata, NOT a measured audio BPM
+    bpmVerification: 'pending-real-wav-analysis',
     inferenceSteps: steps, shift, samplerMode: profile === 'ultra' ? 'heun' : 'euler', lmThinking: thinking,
     lmAudioPlanning: thinking, lmModel: 'acestep-5Hz-lm-4B',
     instrumentRealismEnabled: Boolean(realism),
@@ -66,6 +68,26 @@ export function r2GenerationMetadata(body = {}, count = null) {
     humanizer: profile !== 'fast', vocalRefinement: profile !== 'fast', stemPostProductionReady: profile !== 'fast',
     lyricVerificationMode: profile === 'ultra' ? 'local-asr-v3' : 'non-blocking', lyricVerificationPending: profile === 'ultra'
   };
+}
+
+// Canonical manual tempo: resolve from the creator's ORIGINAL controls before
+// a director-generated payload, whose default may be stale (e.g. 124 BPM).
+// These values are requested BPM, never an analysis of the rendered WAV.
+export function requestedR2Bpm(payload = {}, body = {}, source = body) {
+  const candidates = [
+    source?.sonaraExactRequestedBpm, body?.sonaraExactRequestedBpm,
+    source?.requestedBpm, body?.requestedBpm,
+    source?.targetBpm, body?.targetBpm,
+    source?.bpm, body?.bpm,
+    payload?.sonaraExactRequestedBpm, payload?.requestedBpm, payload?.bpm,
+    payload?.metas?.bpm, payload?.metadata?.bpm
+  ];
+  for (const candidate of candidates) {
+    if (candidate === null || candidate === undefined || String(candidate).trim() === '') continue;
+    const bpm = Number(candidate);
+    if (Number.isFinite(bpm) && bpm >= 40 && bpm <= 220) return Math.round(bpm);
+  }
+  return null;
 }
 
 function originalLyrics(payload, source) {
@@ -119,6 +141,7 @@ function caption(payload, body, source, lyrics) {
 
 export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody = resolvedBody) {
   const { profile, steps, shift, thinking, physicalFidelity } = r2GenerationSettings(resolvedBody);
+  const requestedBpm = requestedR2Bpm(payload, resolvedBody, sourceBody);
   const lyrics = originalLyrics(payload, sourceBody);
   const mixMaster = profile === 'fast' ? null : mixMasterPlan({ ...resolvedBody, ...sourceBody, lyrics }, { depth: profile });
   const normalizationEnabled = payload.enable_normalization !== false;
@@ -134,7 +157,10 @@ export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody 
     : '';
   const next = {
     ...payload,
-    prompt: unique([caption(payload, resolvedBody, sourceBody, lyrics), abPerformanceContract]).join('. '),
+    ...(requestedBpm === null ? {} : { bpm: requestedBpm, sonara_requested_bpm: requestedBpm }),
+    prompt: unique([caption(payload, resolvedBody, sourceBody, lyrics),
+      requestedBpm === null ? '' : `SONARA EXACT MANUAL TEMPO: ${requestedBpm} BPM is the quarter-note pulse throughout, not half-time or double-time; maintain a stable ${requestedBpm} BPM master clock for drums, bass, accompaniment and fills; preserve human microtiming without changing the beat period.`,
+      abPerformanceContract]).join('. '),
     lyrics,
     batch_size: effectiveBatchSize,
     inference_steps: steps,

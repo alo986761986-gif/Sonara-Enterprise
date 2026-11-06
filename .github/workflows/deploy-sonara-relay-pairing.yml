@@ -33,6 +33,15 @@ jobs:
         with:
           node-version: "24"
 
+      - name: Verify exact BPM request contracts
+        run: node --test cloudflare/sonara-r2-bpm-lock.test.mjs
+
+      - name: Verify measured WAV pulse independently
+        run: python3 -m unittest discover -s molab -p 'test_sonara_bpm_verification.py' -v
+
+      - name: Verify relay Python syntax
+        run: python3 -m py_compile molab/sonara_r2_pull_agent.py molab/sonara_r2_install.py molab/sonara_bpm_verification.py
+
       - name: Install dependencies
         run: npm install
 
