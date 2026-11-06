@@ -8,6 +8,8 @@ on:
       - main
     paths:
       - ".github/workflows/deploy-sonara-relay-pairing.yml"
+      - "cloudflare/sonara-r2-https-relay.mjs"
+      - "cloudflare/sonara-r2-tempo-report.test.mjs"
 
 permissions:
   contents: read
@@ -35,6 +37,9 @@ jobs:
 
       - name: Verify exact BPM request contracts
         run: node --test cloudflare/sonara-r2-bpm-lock.test.mjs
+
+      - name: Verify R2 per-track BPM status before production deployment
+        run: node --test cloudflare/sonara-r2-tempo-report.test.mjs
 
       - name: Verify measured WAV pulse independently
         run: python3 -m unittest discover -s molab -p 'test_sonara_bpm_verification.py' -v

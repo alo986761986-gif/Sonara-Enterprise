@@ -1,6 +1,23 @@
 // SONARA R2 HTTPS relay: all MoLab traffic is outbound on TCP/443.
 // Deployed inside the existing sonara-enterprise Worker; gated by SONARA_R2_RELAY_ENABLED.
 // R2 objects remain private. Do not place credentials in code or notebook cells.
+// Tempo is verified only from generated WAVs; request metadata is not proof.
+export function r2TempoVerification(quality = [], trackCount = 0) {
+  const count = Number.isInteger(trackCount) && trackCount >= 0 ? Math.min(trackCount, 2) : 0;
+  const reports = (Array.isArray(quality) ? quality.slice(0, count) : [])
+    .map(item => item?.tempo).filter(item => item && typeof item === 'object');
+  const requested = [...new Set(reports.map(item => item.requestedBpm).filter(item => Number.isFinite(item)))];
+  const verifiedCount = reports.filter(item => item.bpmVerified === true && item.bpmStatus === 'verified').length;
+  const requestedBpm = requested.length === 1 ? requested[0] : null;
+  let status = 'pending';
+  if (count > 0 && reports.length === count && reports.every(item => item.requestedBpm === null)) status = 'not-requested';
+  else if (count > 0 && reports.length === count && verifiedCount === count) status = 'verified';
+  else if (reports.some(item => item.bpmStatus === 'mismatch')) status = 'mismatch';
+  else if (reports.some(item => item.bpmStatus === 'octave-ambiguous' || item.bpmStatus === 'measured-ambiguous')) status = 'ambiguous';
+  else if (reports.length > 0) status = 'unverified';
+  return { status, requestedBpm, verifiedCount, trackCount: count };
+}
+
 const PREFIX = 'relay-v1/';
 const REQUIRED_AGENT_REVISION = 'sonara-https-agent-guard-v4';
 const REFERENCE_AGENT_REVISION = 'sonara-https-agent-guard-v5';
@@ -276,7 +293,8 @@ export default {
         :'MoLab RTX PRO 6000: relay non raggiungibile';
       const progress=j.status==='COMPLETE'?100:j.status==='LEASED'?50:heartbeat.online?18:8;
       const quality=Array.isArray(j.quality)?j.quality:[];
-      return json({jobId:id,status:j.status==='COMPLETE'?'COMPLETED':j.status==='FAILED'?'FAILED':'PROCESSING',progress,error:j.error,provider:'molab',model:'acestep-v15-xl-turbo',metadata:{audioFormat:'wav',currentStage,relayOnline:heartbeat.online,relayRevision:heartbeat.revision,relayAgeMs:heartbeat.ageMs,queueState:j.status,queuedAt:j.createdAt||null,updatedAt:j.updatedAt||null,automaticCandidateRanking:quality.length>0,automaticQualityRepair:quality.some(item=>item?.autoRepaired===true),rankingVersion:j.rankingVersion||null,qualityReports:quality},audioUrl:urls[0]||null,audioUrls:urls,candidates:urls.map((u,i)=>({id:i===0?'A':'B',audioUrl:u,audioFormat:'wav',provider:'molab',model:'acestep-v15-xl-turbo',sonaraQuality:quality[i]||null,sonaraRecommended:i===0&&quality.length>0,directorRank:i+1}))});
+      const tempoVerification=r2TempoVerification(quality,urls.length);
+      return json({jobId:id,status:j.status==='COMPLETE'?'COMPLETED':j.status==='FAILED'?'FAILED':'PROCESSING',progress,error:j.error,provider:'molab',model:'acestep-v15-xl-turbo',metadata:{audioFormat:'wav',currentStage,relayOnline:heartbeat.online,relayRevision:heartbeat.revision,relayAgeMs:heartbeat.ageMs,queueState:j.status,queuedAt:j.createdAt||null,updatedAt:j.updatedAt||null,automaticCandidateRanking:quality.length>0,automaticQualityRepair:quality.some(item=>item?.autoRepaired===true),rankingVersion:j.rankingVersion||null,qualityReports:quality,bpmVerification:tempoVerification.status,bpmVerifiedTracks:tempoVerification.verifiedCount,bpmTrackCount:tempoVerification.trackCount,requestedBpm:tempoVerification.requestedBpm},audioUrl:urls[0]||null,audioUrls:urls,candidates:urls.map((u,i)=>({id:i===0?'A':'B',audioUrl:u,audioFormat:'wav',provider:'molab',model:'acestep-v15-xl-turbo',sonaraQuality:quality[i]||null,sonaraTempo:quality[i]?.tempo||null,sonaraRecommended:i===0&&quality.length>0&&(quality[i]?.tempo?.bpmStatus==='verified'&&quality[i]?.tempo?.bpmVerified===true||quality[i]?.tempo?.bpmStatus==='not-requested'),directorRank:i+1}))});
     }
     if(action==='audio'&&(request.method==='GET'||request.method==='HEAD')) {
       const idx=Number(parts[2]);
