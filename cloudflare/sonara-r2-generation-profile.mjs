@@ -5,7 +5,7 @@ import { mixMasterPlan, safePeakTarget, MIX_MASTER_VERSION } from './sonara-mix-
 // Official API/INFERENCE/Tutorial at ca1e85fe recommend 8 steps and shift 3
 // for Turbo. Native `thinking` generates LM audio codes; it does not require
 // SONARA's optional, custom realism API. REALISTIC and ULTRA use native LM planning; INSTANT remains the speed preview.
-export const R2_GENERATION_POLICY = 'sonara-xl-turbo-human-realism-v6-lm8';
+export const R2_GENERATION_POLICY = 'sonara-xl-turbo-human-realism-v7-balanced6';
 export const NATURAL_INSTRUMENT_AB_PROFILE = 'sonara-natural-instruments-ab-v1';
 
 const text = value => typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
@@ -26,7 +26,9 @@ export function r2GenerationSettings(body = {}) {
   return {
     profile,
     physicalFidelity,
-    steps: profile === 'fast' ? 1 : 8,
+    // Balanced quality is an opt-in trade-off relative to the official 8-step Turbo preset.
+    // Keep Ultra at the recommended 8 steps for the highest-fidelity renders.
+    steps: profile === 'fast' ? 1 : profile === 'quality' ? 6 : 8,
     shift: profile === 'fast' ? 1.0 : 3.0,
     thinking: profile !== 'fast'
   };
@@ -41,7 +43,7 @@ export function r2GenerationMetadata(body = {}, count = null) {
     generationPolicy: R2_GENERATION_POLICY,
     generationProfile: profile,
     requestedGenerationProfile: profile,
-    executionProfile: profile === 'fast' ? 'xl-turbo-instant-single-track' : profile === 'quality' ? 'xl-turbo-quality-human-realism-lm8-batch' : 'xl-turbo-ultra-human-realism-heun8-batch',
+    executionProfile: profile === 'fast' ? 'xl-turbo-instant-single-track' : profile === 'quality' ? 'xl-turbo-quality-human-realism-lm6-batch' : 'xl-turbo-ultra-human-realism-heun8-batch',
     inferenceSteps: steps, shift, samplerMode: profile === 'ultra' ? 'heun' : 'euler', lmThinking: thinking,
     lmAudioPlanning: thinking, lmModel: 'acestep-5Hz-lm-4B',
     instrumentRealismEnabled: Boolean(realism),
