@@ -47,6 +47,26 @@ class TempoRegression(unittest.TestCase):
     def test_85_with_hats_must_not_be_relabelled_as_170(self):
         self.check_tempo(85, 170, False, hats=True)
 
+    def test_exact_half_time_reports_ambiguity_not_false_mismatch(self):
+        for hats in (False, True):
+            with self.subTest(hats=hats):
+                with tempfile.TemporaryDirectory() as folder:
+                    path = Path(folder) / 'half-time.wav'
+                    write_click(path, 85, with_hats=hats)
+                    report = verify_wav_tempo(path, 170)
+                    self.assertAlmostEqual(report['detectedBpm'], 85, delta=2)
+                    self.assertEqual(report['bpmStatus'], 'octave-ambiguous')
+                    self.assertTrue(report['tempoOctaveAmbiguous'])
+                    self.assertFalse(report['bpmVerified'])
+
+    def test_unrelated_tempos_remain_mismatches(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'wrong.wav'
+            write_click(path, 120)
+            report = verify_wav_tempo(path, 170)
+            self.assertEqual(report['bpmStatus'], 'mismatch')
+            self.assertFalse(report['bpmVerified'])
+
     def test_120_matches_120(self):
         self.check_tempo(120, 120, True)
 
