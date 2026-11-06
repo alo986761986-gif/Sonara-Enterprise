@@ -46,7 +46,9 @@ def audit_dataset(manifest, root):
     root = Path(root).resolve()
     manifest = Path(manifest)
     result = {
-        "readyForTraining": False, "readyForPromotion": False,
+        "readyForTraining": False, "datasetEligibleForPromotion": False,
+        "readyForPromotion": False, "requiresModelBenchmark": True,
+        "humanProvenanceExternallyVerified": False,
         "totalRows": 0, "verifiedRealFiles": 0, "phraseLevelPerformances": 0,
         "families": {}, "issues": []
     }
@@ -118,8 +120,13 @@ def audit_dataset(manifest, root):
         promotion_issues.append("promotion-requires-six-instrument-families")
     if len(rows) and max(result["families"].values(), default=0) / len(rows) > .40:
         promotion_issues.append("single-family-exceeds-40-percent")
-    result["readyForPromotion"] = eligible and not promotion_issues
+    result["datasetEligibleForPromotion"] = eligible and not promotion_issues
+    # Dataset inspection cannot prove human provenance, a trained adapter,
+    # or listening-benchmark quality. No artifact is promoted by this audit.
+    result["readyForPromotion"] = False
     result["issues"].extend(promotion_issues)
+    if result["datasetEligibleForPromotion"]:
+        result["issues"].append("trained-adapter-and-benchmark-not-verified")
     return result
 
 
