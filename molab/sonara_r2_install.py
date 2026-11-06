@@ -26,7 +26,9 @@ ROOT = pathlib.Path.home() / '.sonara'
 TOKEN_FILE = ROOT / 'relay.token'
 ACE_KEY_FILE = pathlib.Path('/home/marimo/ACE-STEP/.sonara-api-key')
 TARGET = ROOT / 'sonara_r2_pull_agent.py'
-EXPECTED_AGENT_SHA256 = '31911d223b1314230af0fc313954e85d575f4533ce2aa4f61bc7dfcf9087f4b6'
+EXPECTED_AGENT_SHA256 = '5a3fa2df7a047d2dfe8062c78d31ff37e7e3a8bae0515e5991887e4aac7cefbe'
+EXPECTED_BPM_SHA256 = 'e7246082405e0d2afd523d25db5763141ef5aab50ab9aa5101b25e12b6981870'
+BPM_TARGET = ROOT / 'sonara_bpm_verification.py'
 USER_AGENT = 'SONARA-MoLab-Relay/1.0'
 AGENT_REVISION = 'sonara-https-agent-guard-v5'
 PREVIOUS_REVISION = 'sonara-https-agent-guard-v4'
@@ -85,6 +87,22 @@ def reviewed_source():
     if len(source) > 1_000_000 or hashlib.sha256(source).hexdigest() != EXPECTED_AGENT_SHA256:
         raise SystemExit('SONARA: agent source differs from the reviewed revision; installation stopped')
     ast.parse(source, filename=str(TARGET))
+    return source
+
+
+def reviewed_bpm_source():
+    # Stage the matching tempo analyser BEFORE touching the active agent.
+    commit = os.environ.get('SONARA_RELAY_AGENT_COMMIT', '').strip()
+    if not re.fullmatch(r'[0-9a-f]{40}', commit):
+        raise SystemExit('SONARA: immutable agent commit required for BPM verification')
+    url = ('https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/'
+           + commit + '/molab/sonara_bpm_verification.py')
+    req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT, 'Accept': 'text/plain'})
+    with urllib.request.build_opener(NoRedirect()).open(req, timeout=30) as response:
+        source = response.read(200_001)
+    if len(source) > 200_000 or hashlib.sha256(source).hexdigest() != EXPECTED_BPM_SHA256:
+        raise SystemExit('SONARA: BPM verifier source hash mismatch; live agent untouched')
+    ast.parse(source, filename=str(BPM_TARGET))
     return source
 
 
@@ -193,9 +211,14 @@ def main():
 
     # Verify and stage the exact source before requesting any process handoff.
     source = reviewed_source()
+    bpm_source = reviewed_bpm_source()
     ast.parse(source, filename=str(TARGET))
     temporary = ROOT / 'sonara_r2_pull_agent.installing'
     private_write(temporary, source)
+    bpm_temporary = ROOT / 'sonara_bpm_verification.installing'
+    private_write(bpm_temporary, bpm_source)
+    if BPM_TARGET.is_symlink():
+        raise SystemExit('Refusing a symlink for the BPM verifier')
     if TARGET.is_symlink():
         raise SystemExit('Refusing a symlink for the relay executable')
     log_path = ROOT / 'relay-agent.log'
@@ -208,6 +231,7 @@ def main():
     with lock_path.open('a') as lock:
         lock_path.chmod(0o600)
         acquire_for_update(lock)
+        os.replace(bpm_temporary, BPM_TARGET)
         os.replace(temporary, TARGET)
         fcntl.flock(lock, fcntl.LOCK_UN)
     child_env = os.environ.copy()
