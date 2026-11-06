@@ -158,7 +158,9 @@ export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody 
   const next = {
     ...payload,
     ...(requestedBpm === null ? {} : { bpm: requestedBpm, sonara_requested_bpm: requestedBpm }),
-    prompt: unique([caption(payload, resolvedBody, sourceBody, lyrics), abPerformanceContract]).join('. '),
+    prompt: unique([caption(payload, resolvedBody, sourceBody, lyrics),
+      requestedBpm === null ? '' : `SONARA EXACT MANUAL TEMPO: ${requestedBpm} BPM is the quarter-note pulse throughout, not half-time or double-time; maintain a stable ${requestedBpm} BPM master clock for drums, bass, accompaniment and fills; preserve human microtiming without changing the beat period.`,
+      abPerformanceContract]).join('. '),
     lyrics,
     batch_size: effectiveBatchSize,
     inference_steps: steps,
