@@ -1,0 +1,23 @@
+name: Test SONARA Tempo Evidence Ranking
+
+on:
+  pull_request:
+    paths:
+      - "molab/sonara_tempo_evidence.py"
+      - "molab/test_sonara_tempo_evidence.py"
+      - "molab/sonara_r2_pull_agent.py"
+      - ".github/workflows/test-sonara-tempo-evidence.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Python syntax
+        run: python3 -m py_compile molab/sonara_tempo_evidence.py molab/sonara_r2_pull_agent.py molab/test_sonara_tempo_evidence.py
+      - name: Verify safe BPM evidence ranking
+        run: python3 -m unittest discover -s molab -p 'test_sonara_tempo_evidence.py' -v
