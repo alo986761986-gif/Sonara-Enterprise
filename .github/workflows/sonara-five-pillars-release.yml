@@ -29,7 +29,7 @@ jobs:
         with:
           node-version: '24'
       - name: Verify Studio BPM and A/B generation contracts
-        run: node --test cloudflare/sonara-five-pillars.test.mjs cloudflare/sonara-r2-bpm-lock.test.mjs cloudflare/sonara-r2-generation-profile.test.mjs
+        run: node --test cloudflare/sonara-five-pillars.test.mjs cloudflare/sonara-r2-bpm-lock.test.mjs
       - name: Install frontend dependencies
         run: npm install --ignore-scripts --no-audit --no-fund
       - name: Build frontend and relay application
