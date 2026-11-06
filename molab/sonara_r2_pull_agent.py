@@ -16,6 +16,11 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+try:
+    from sonara_bpm_verification import verify_wav_tempo
+except ImportError:
+    verify_wav_tempo = None  # Preserve generation; never claim an unmeasured BPM.
+
 ROOT = pathlib.Path.home() / '.sonara'
 ENDPOINT = 'https://api.sonaraenterprise.com/api/sonara-relay'
 LOCAL = 'http://127.0.0.1:8001'
@@ -343,6 +348,31 @@ def vocal_report(path, payload):
         return {'performed': True, 'lyricAccuracy': None, 'mismatchRanges': [], 'error': 'ASRUnavailable'}
 
 
+def independent_bpm_report(audio_path, payload):
+    """Verify real WAV rhythm independently; missing analyser never means pass."""
+    raw = payload.get('sonara_requested_bpm', payload.get('bpm'))
+    try:
+        target = int(round(float(raw)))
+        if not 40 <= target <= 220:
+            raise ValueError('BPM outside supported range')
+    except (TypeError, ValueError):
+        target = None
+    if target is None:
+        return {'requestedBpm': None, 'detectedBpm': None,
+                'bpmVerified': False, 'bpmStatus': 'not-requested'}
+    if verify_wav_tempo is None:
+        return {'requestedBpm': target, 'detectedBpm': None,
+                'bpmVerified': False, 'bpmStatus': 'analyser-unavailable'}
+    try:
+        report = verify_wav_tempo(audio_path, target)
+        if not isinstance(report, dict):
+            raise TypeError('Unexpected tempo report')
+        return report
+    except Exception:
+        return {'requestedBpm': target, 'detectedBpm': None,
+                'bpmVerified': False, 'bpmStatus': 'unverified'}
+
+
 def combined_candidate_score(audio_report, vocal):
     score = float(audio_report.get('score') or 0.0)
     accuracy = vocal.get('lyricAccuracy')
@@ -523,21 +553,30 @@ def process(job):
                         candidate_path = repaired_path
                         audio_report = wav_quality_report(candidate_path, bool(payload.get('sonara_physical_fidelity_required')))
                         vocal = vocal_report(candidate_path, payload)
+                    bpm_report = independent_bpm_report(candidate_path, payload)
                     evaluated.append({
                         'path': candidate_path,
+                        'tempo': bpm_report,
                         'originalIndex': original_index,
                         'audio': audio_report,
                         'vocal': vocal,
                         'autoRepaired': repaired,
                         'score': combined_candidate_score(audio_report, vocal),
                     })
-                evaluated.sort(key=lambda item: item['score'], reverse=True)
+                # Prefer independent BPM verified takes, but do not mistake
+                # a half/double-time pulse for a matching master clock.
+                # Uncertain tracks are still reported, never silently verified.
+                evaluated.sort(key=lambda item: (
+                    item['tempo'].get('bpmVerified') is True,
+                    item['score']
+                ), reverse=True)
                 quality_summary = [
                     {
                         'rank': rank + 1,
                         'originalIndex': item['originalIndex'],
                         'score': item['score'],
                         'audio': item['audio'],
+                        'tempo': item['tempo'],
                         'vocal': {
                             'performed': item['vocal'].get('performed'),
                             'lyricAccuracy': item['vocal'].get('lyricAccuracy'),
@@ -570,7 +609,11 @@ def process(job):
                 request('POST', base + '/complete', {'quality': quality_summary, 'rankingVersion': 'sonara-local-critic-v2-physical'}, head, 30)
                 timings['completeSeconds'] = round(time.monotonic() - completed, 2)
                 timings['totalSeconds'] = round(time.monotonic() - started, 2)
-                publish_status('completed', jobId=job_id, trackCount=expected, timings=timings)
+                bpm_verified_count = sum(1 for item in evaluated
+                                         if item['tempo'].get('bpmVerified') is True)
+                publish_status('completed', jobId=job_id, trackCount=expected,
+                               timings=timings, bpmVerifiedCount=bpm_verified_count,
+                               bpmVerificationComplete=(bpm_verified_count == expected))
                 print('SONARA: completed authorized job', job_id, flush=True)
                 print('SONARA job timings:', json.dumps({'jobId': job_id, **timings}), flush=True)
                 return
