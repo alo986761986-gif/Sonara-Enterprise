@@ -13,7 +13,10 @@ import wave
 from pathlib import Path
 
 # Optional: add exact WAV paths here only if automatic discovery misses them.
-MANUAL_WAV_PATHS = []
+MANUAL_WAV_PATHS = [
+    '/marimo/SONARA_BPM_TEST_REALE/TRACK_A.wav',
+    '/marimo/SONARA_BPM_TEST_REALE/TRACK_B.wav',
+]
 LOOKBACK_HOURS = 12
 
 
@@ -141,7 +144,19 @@ def child_main(paths):
 
 def main():
     print('=== SONARA BPM - ANALISI INDIPENDENTE A/B ===', flush=True)
-    hits = recent_wavs()
+    # Prefer the exact A/B WAV files saved by the most recent live benchmark.
+    # Their known identity is more reliable than a generic recent-files search.
+    manual = [Path(value) for value in MANUAL_WAV_PATHS]
+    if len(manual) == 2 and all(path.is_file() and not path.is_symlink() for path in manual):
+        hits = []
+        for path in manual:
+            with wave.open(str(path), 'rb') as wav:
+                duration = wav.getnframes() / float(wav.getframerate())
+            hits.append((path.stat().st_mtime, path, duration))
+        print('SORGENTE_WAV=percorso-esatto-A-B', flush=True)
+    else:
+        hits = recent_wavs()
+        print('SORGENTE_WAV=ricerca-file-recenti', flush=True)
     print('WAV_RECENTI_TROVATI=' + str(len(hits)), flush=True)
     for index, (_, path, duration) in enumerate(hits[:6], 1):
         print('WAV_' + str(index) + '=' + str(path) + ' DURATION=' + str(round(duration, 1)), flush=True)
