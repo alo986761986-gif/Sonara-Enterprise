@@ -319,6 +319,12 @@ def wav_quality_report(path, physical_fidelity=False):
             'physicalFidelityEvaluated': bool(physical_fidelity),
             'transientVariation': round(transient_variation, 4) if transient_variation is not None else None,
             'repeatedTransientRatio': round(repeated_transient_ratio, 4) if repeated_transient_ratio is not None else None,
+            # Conservative waveform cue only: cannot isolate or certify real drums.
+            'rhythmicRepetitionRisk': bool(
+                physical_fidelity and
+                transient_variation is not None and repeated_transient_ratio is not None and
+                transient_variation < 0.07 and repeated_transient_ratio > 0.50
+            ),
             'score': round(max(0.0, min(100.0, score)), 1),
         }
     except Exception:
