@@ -10,6 +10,10 @@ on:
       - ".github/workflows/deploy-sonara-relay-pairing.yml"
       - "cloudflare/sonara-r2-https-relay.mjs"
       - "cloudflare/sonara-r2-tempo-report.test.mjs"
+      - "cloudflare/sonara-audio-quality-engine.mjs"
+      - "cloudflare/sonara-r2-generation-profile.mjs"
+      - "cloudflare/sonara-studio-ai-router.mjs"
+      - "cloudflare/sonara-five-pillars.test.mjs"
 
 permissions:
   contents: read
@@ -40,6 +44,9 @@ jobs:
 
       - name: Verify R2 per-track BPM status before production deployment
         run: node --test cloudflare/sonara-r2-tempo-report.test.mjs
+
+      - name: Verify new A/B quality and Studio BPM truth before Worker deployment
+        run: node --test cloudflare/sonara-five-pillars.test.mjs
 
       - name: Verify measured WAV pulse independently
         run: python3 -m unittest discover -s molab -p 'test_sonara_bpm_verification.py' -v
