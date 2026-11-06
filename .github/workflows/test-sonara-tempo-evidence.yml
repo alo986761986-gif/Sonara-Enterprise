@@ -19,5 +19,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify Python syntax
         run: python3 -m py_compile molab/sonara_tempo_evidence.py molab/sonara_r2_pull_agent.py molab/test_sonara_tempo_evidence.py
+      - name: Install NumPy for synthetic WAV regression
+        run: python3 -m pip install 'numpy>=1.26,<3'
       - name: Verify safe BPM evidence ranking
         run: python3 -m unittest discover -s molab -p 'test_sonara_tempo_evidence.py' -v
