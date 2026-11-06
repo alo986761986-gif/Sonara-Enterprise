@@ -41,6 +41,57 @@ class TempoRankingTests(unittest.TestCase):
         self.assertFalse(a['tempo']['bpmVerified'])
         self.assertFalse(candidate_sort_key(a)[0])
 
+    def test_real_synthetic_clicks_support_requested_170_over_140(self):
+        import tempfile
+        import wave
+        import numpy as np
+        from pathlib import Path
+        from sonara_tempo_evidence import tempo_evidence
+
+        def write_click(path, bpm):
+            rate, seconds = 12000, 30
+            samples = np.zeros(rate * seconds, dtype=np.float32)
+            ticks = np.arange(0, len(samples), rate * 60.0 / bpm).astype(int)
+            for tick in ticks:
+                tail = min(220, len(samples) - tick)
+                samples[tick:tick + tail] += (
+                    np.exp(-np.arange(tail) / 40.0) * 0.8
+                ).astype(np.float32)
+            pcm = np.clip(samples * 32767, -32768, 32767).astype("<i2")
+            with wave.open(str(path), "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(rate)
+                wav.writeframes(pcm.tobytes())
+
+        with tempfile.TemporaryDirectory() as tmp:
+            p170 = Path(tmp) / "170.wav"
+            p140 = Path(tmp) / "140.wav"
+            write_click(p170, 170)
+            write_click(p140, 140)
+            good = tempo_evidence(p170, 170)
+            wrong = tempo_evidence(p140, 170)
+            self.assertTrue(good["available"])
+            self.assertTrue(wrong["available"])
+            self.assertGreater(good["support"], wrong["support"] + 0.2)
+            self.assertFalse(good["verified"])
+            self.assertFalse(wrong["verified"])
+            self.assertEqual(len(good["windowStrengths"]), 3)
+
+    def test_silence_never_provides_ranking_evidence(self):
+        import tempfile
+        import wave
+        from pathlib import Path
+        from sonara_tempo_evidence import tempo_evidence
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "silence.wav"
+            with wave.open(str(path), "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(12000)
+                wav.writeframes(bytes(12000 * 22 * 2))
+            self.assertFalse(tempo_evidence(path, 170)["available"])
+
 
 if __name__ == "__main__":
     unittest.main()
