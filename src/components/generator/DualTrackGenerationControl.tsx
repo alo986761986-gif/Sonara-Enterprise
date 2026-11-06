@@ -17,6 +17,11 @@ type CandidateState = {
   audioFormat: string;
   jobId: string;
   error: string;
+  tempoStatus: string;
+  detectedBpm: number | null;
+  rhythmicSupport: number | null;
+  repetitiveTransientRisk: boolean;
+  lyricAccuracy: number | null;
 };
 
 type GeneratorContext = {
@@ -43,7 +48,16 @@ type JobResponse = {
   progress?: number;
   audioUrl?: string;
   audioUrls?: string[];
-  candidates?: Array<{ id?: string; audioUrl?: string; audioFormat?: string }>;
+  candidates?: Array<{
+    id?: string; audioUrl?: string; audioFormat?: string;
+    sonaraTempo?: { bpmStatus?: string; detectedBpm?: number };
+    sonaraQuality?: {
+      tempo?: { bpmStatus?: string; detectedBpm?: number };
+      tempoEvidence?: { support?: number };
+      audio?: { rhythmicRepetitionRisk?: boolean };
+      vocal?: { lyricAccuracy?: number };
+    };
+  }>;
   error?: string | { message?: string };
   message?: string;
   metadata?: Record<string, any>;
@@ -60,7 +74,12 @@ const EMPTY_CANDIDATE = (id: CandidateId): CandidateState => ({
   audioUrl: '',
   audioFormat: 'wav',
   jobId: '',
-  error: ''
+  error: '',
+  tempoStatus: 'pending',
+  detectedBpm: null,
+  rhythmicSupport: null,
+  repetitiveTransientRisk: false,
+  lyricAccuracy: null
 });
 const INITIAL: CandidateState[] = [EMPTY_CANDIDATE('A'), EMPTY_CANDIDATE('B')];
 
@@ -134,7 +153,7 @@ function safeFileName(value: string): string {
   return value.normalize('NFKD').replace(/[^a-zA-Z0-9-_ ]+/g, '').trim().replace(/\s+/g, '-') || 'sonara-track';
 }
 
-function readCandidates(current: JobResponse): Array<{ id?: string; audioUrl?: string; audioFormat?: string }> {
+function readCandidates(current: JobResponse): NonNullable<JobResponse['candidates']> {
   if (Array.isArray(current.candidates) && current.candidates.length) return current.candidates.slice(0, 2);
   const urls = current.audioUrls || current.metadata?.audioUrls || (current.audioUrl ? [current.audioUrl] : []);
   return urls.slice(0, 2).map((audioUrl: string, index: number) => ({ id: index === 0 ? 'A' : 'B', audioUrl, audioFormat: 'wav' }));
@@ -195,7 +214,12 @@ export default function DualTrackGenerationControl() {
         audioUrl: String(output.audioUrl),
         audioFormat: String(output.audioFormat || 'wav').toLowerCase(),
         jobId,
-        error: ''
+        error: '',
+        tempoStatus: output.sonaraTempo?.bpmStatus || output.sonaraQuality?.tempo?.bpmStatus || 'unverified',
+        detectedBpm: output.sonaraTempo?.detectedBpm ?? output.sonaraQuality?.tempo?.detectedBpm ?? null,
+        rhythmicSupport: output.sonaraQuality?.tempoEvidence?.support ?? null,
+        repetitiveTransientRisk: output.sonaraQuality?.audio?.rhythmicRepetitionRisk === true,
+        lyricAccuracy: output.sonaraQuality?.vocal?.lyricAccuracy ?? null
       };
     }));
   };
@@ -333,7 +357,12 @@ export default function DualTrackGenerationControl() {
           audioUrl: String(candidate.audioUrl),
           audioFormat: String(candidate.audioFormat || 'wav').toLowerCase(),
           jobId,
-          error: ''
+          error: '',
+          tempoStatus: candidate.sonaraTempo?.bpmStatus || candidate.sonaraQuality?.tempo?.bpmStatus || 'unverified',
+          detectedBpm: candidate.sonaraTempo?.detectedBpm ?? candidate.sonaraQuality?.tempo?.detectedBpm ?? null,
+          rhythmicSupport: candidate.sonaraQuality?.tempoEvidence?.support ?? null,
+          repetitiveTransientRisk: candidate.sonaraQuality?.audio?.rhythmicRepetitionRisk === true,
+          lyricAccuracy: candidate.sonaraQuality?.vocal?.lyricAccuracy ?? null
         }));
         setCandidates(completed);
 
@@ -422,6 +451,12 @@ export default function DualTrackGenerationControl() {
                 </div>
                 {candidate.status === 'PROCESSING' && <div className="mt-4"><div className="mb-1 flex justify-between text-[10px] text-slate-500"><span>Generazione</span><span>{candidate.progress}%</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-900"><div className="h-full rounded-full bg-gradient-to-r from-purple-500 to-cyan-400 transition-all" style={{ width: `${candidate.progress}%` }} /></div></div>}
                 {candidate.error && <div className="mt-4 rounded-lg border border-rose-500/20 bg-rose-500/10 p-3 text-[11px] text-rose-300">{candidate.error}</div>}
+                {completed && <div className="mt-3 space-y-1 text-[11px] text-slate-300">
+                  <div>BPM misurati: {candidate.detectedBpm === null ? 'non disponibili' : candidate.detectedBpm} · Stato: <strong>{candidate.tempoStatus === 'verified' ? 'verificato' : candidate.tempoStatus === 'octave-ambiguous' ? 'ritmo ambiguo (metà/doppio tempo)' : candidate.tempoStatus === 'mismatch' ? 'non corrispondente' : 'non verificato'}</strong></div>
+                  {candidate.rhythmicSupport !== null && <div>Indizio ritmico (non certificazione): {Math.round(candidate.rhythmicSupport * 100)}%</div>}
+                  {candidate.repetitiveTransientRisk && <div className="text-amber-300">Possibile ripetitività dei transienti: controlla la naturalezza della batteria.</div>}
+                  {candidate.lyricAccuracy !== null && <div>Corrispondenza testo stimata: {Math.round(candidate.lyricAccuracy * 100)}% (analisi automatica)</div>}
+                </div>}
                 {completed && <div className="mt-4 space-y-3"><audio controls preload="metadata" src={candidate.audioUrl} className="w-full" /><div className="grid grid-cols-2 gap-2"><button type="button" onClick={() => chooseCandidate(candidate)} className="inline-flex items-center justify-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2.5 text-[11px] font-black text-emerald-200"><Music2 className="h-4 w-4" />{chosen ? 'BRANO SCELTO' : 'SCEGLI BRANO'}</button><button type="button" onClick={() => void downloadCandidate(candidate)} className="inline-flex items-center justify-center gap-2 rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-2.5 text-[11px] font-black text-purple-200"><Download className="h-4 w-4" />SCARICA {candidate.audioFormat.toUpperCase()}</button></div></div>}
               </article>
             );
