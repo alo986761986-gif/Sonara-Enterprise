@@ -316,3 +316,38 @@ test('QUALITY A/B contract prevents degraded second takes', () => {
   assert.match(result.prompt, /neither candidate may collapse into placeholder drums/);
   assert.match(result.lm_negative_prompt, /candidate B degradation/);
 });
+
+test('R2 uses the actual manual tempo rather than a stale generated/default BPM', () => {
+  const selection = { ...source, bpmMode: 'manual', bpm: 170, generationProfileV3: 'quality' };
+  const stale = { ...payload, bpm: 124, metas: { bpm: 124 } };
+  const result = applyR2GenerationProfile(stale, selection, selection);
+  assert.equal(result.bpm, 170);
+  assert.equal(result.sonara_requested_bpm, 170);
+  assert.equal(result.thinking, true);
+  assert.equal(result.model, payload.model);
+  assert.equal(result.batch_size, 2);
+  const metadata = r2GenerationMetadata(selection, 2);
+  assert.equal(metadata.requestedBpm, 170);
+  assert.equal(metadata.bpmVerification, 'pending-real-wav-analysis');
+  assert.equal(metadata.batchSize, 2);
+});
+
+test('source exact BPM is authoritative over model/director defaults', () => {
+  const selection = { ...source, sonaraExactRequestedBpm: 171, bpm: 124, generationProfileV3: 'ultra' };
+  const generated = { ...selection, bpm: 124, requestedBpm: 130 };
+  const result = applyR2GenerationProfile({ ...payload, bpm: 120 }, generated, selection);
+  assert.equal(result.bpm, 171);
+  assert.equal(result.sonara_requested_bpm, 171);
+});
+
+test('R2 preserves a valid requested tempo and never invents a measured BPM', () => {
+  const result = applyR2GenerationProfile(payload, { ...source, generationProfileV3: 'quality' }, source);
+  assert.equal(result.bpm, 76);
+  assert.equal(result.sonara_requested_bpm, 76);
+  const unselected = { rawPrompt: 'An instrumental groove', generationProfileV3: 'quality' };
+  const noBpm = applyR2GenerationProfile({ ...payload, bpm: undefined }, unselected, unselected);
+  assert.equal(noBpm.bpm, undefined);
+  assert.equal('sonara_requested_bpm' in noBpm, false);
+  assert.equal(r2GenerationMetadata(unselected).requestedBpm, null);
+});
+
