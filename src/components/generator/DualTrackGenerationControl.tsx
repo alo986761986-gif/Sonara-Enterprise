@@ -65,6 +65,11 @@ const EMPTY_CANDIDATE = (id: CandidateId): CandidateState => ({
 const INITIAL: CandidateState[] = [EMPTY_CANDIDATE('A'), EMPTY_CANDIDATE('B')];
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+// The dedicated A/B button is a quality-pair operation, not an Instant preview.
+const readPairProfile = (): 'quality' | 'ultra' => {
+  try { return window.localStorage.getItem('sonara.generation.profile.v6') === 'ultra' ? 'ultra' : 'quality'; }
+  catch { return 'quality'; }
+};
 const JOB_POLL_INTERVAL_MS = 1_000;
 const MIN_JOB_TIMEOUT_MS = 30 * 60 * 1_000;
 
@@ -235,6 +240,7 @@ export default function DualTrackGenerationControl() {
         title: context.title
       });
 
+      const pairProfile = readPairProfile();
       const token = await getFirebaseIdToken(true);
       const generationId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `generation-${Date.now()}`;
       setAllProcessing('', 5, 'SONARA RTX 6000: avvio batch unico dei 2 brani');
@@ -267,9 +273,14 @@ export default function DualTrackGenerationControl() {
           outputFormat: 'wav',
           audioQuality: 'lossless',
           engineId: 'sonara_rtx6000_v14_single_batch',
-          qualityProfile: 'fast',
-          generationProfile: 'fast',
-          yueProfile: 'fast',
+          // Two real quality candidates are required by this specific button.
+          // Instant remains available through its separate one-track workflow.
+          sonaraForcePairQuality: true,
+          generationProfileV3: pairProfile,
+          renderProfile: pairProfile,
+          qualityProfile: pairProfile,
+          generationProfile: pairProfile,
+          yueProfile: pairProfile,
           dualFast: true,
           candidateCount: 2,
           candidate_count: 2,
@@ -395,7 +406,7 @@ export default function DualTrackGenerationControl() {
         {busy ? <><RefreshCw className="h-5 w-5 animate-spin" />GENERAZIONE 2 BRANI SONARA...</> : <><Sparkles className="h-5 w-5" />GENERA 2 BRANI SONARA</>}
       </button>
       <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 px-4 py-3 text-[11px] leading-5 text-slate-400">
-        <strong className="text-cyan-200">SONARA RTX 6000 Single Batch</strong>: i 2 brani completi vengono creati insieme in un solo batch GPU. Prompt, BPM, lingua e durata selezionata restano vincoli della generazione.
+        <strong className="text-cyan-200">SONARA RTX 6000 A/B Quality</strong>: genera 2 brani reali in un batch con profilo REALISTIC (o ULTRA se selezionato). La coppia non usa Instant a 1 step. BPM e realismo sono controllati sui WAV, non garantiti dal solo prompt.
       </div>
       {globalError && <div className="rounded-xl border border-rose-500/25 bg-rose-500/10 p-4 text-xs text-rose-300">{globalError}</div>}
       {candidates.some(candidate => candidate.status !== 'IDLE') && (
