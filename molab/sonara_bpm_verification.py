@@ -170,6 +170,19 @@ def verify_wav_tempo(path, requested_bpm=None):
         difference = round(abs(best_bpm - requested), 1)
         base['bpmError'] = difference
         tolerance = max(2.0, requested * 0.015)
+
+        # A detected 85 BPM pulse in a 170 BPM request may be the
+        # half-time beat of a genuine 170 BPM performance. The strongest
+        # peak alone cannot identify the musical beat level, even when
+        # the double-time rival's score is below the 0.82 threshold.
+        # Never force the detected value to 170, and never mark a
+        # target-related octave candidate as independently verified.
+        octave_near_requested = (
+            abs(best_bpm * 2.0 - requested) <= tolerance
+            or abs(best_bpm / 2.0 - requested) <= tolerance
+        )
+        octave = octave or octave_near_requested
+        base['tempoOctaveAmbiguous'] = octave
         if octave:
             base['bpmStatus'] = 'octave-ambiguous'
         elif difference <= tolerance:
