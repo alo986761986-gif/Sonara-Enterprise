@@ -7,12 +7,39 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
+import subprocess
+import wave
 from pathlib import Path
 
 FAMILIES = {"acoustic-drums", "piano-keys", "guitars-fretted", "bass",
             "bowed-strings", "brass-woodwinds"}
 LICENSES = {"OWNED", "EXPLICITLY_LICENSED", "CC0_PUBLIC_DOMAIN", "CC_BY_4_0"}
 EXTENSIONS = {".wav", ".flac", ".mp3", ".ogg", ".opus", ".m4a"}
+
+
+def audio_duration(path):
+    """Reject fake/audio-less files. Compressed formats require real ffprobe."""
+    if path.suffix.lower() == ".wav":
+        with wave.open(str(path), "rb") as audio:
+            if audio.getnchannels() not in (1, 2) or audio.getframerate() < 16000:
+                raise ValueError("Unsupported or low-quality WAV")
+            if audio.getsampwidth() not in (2, 3, 4):
+                raise ValueError("Unsupported PCM format")
+            duration = audio.getnframes() / audio.getframerate()
+    else:
+        probe = shutil.which("ffprobe")
+        if not probe:
+            raise ValueError("ffprobe required for non-WAV audio validation")
+        result = subprocess.run(
+            [probe, "-v", "error", "-select_streams", "a:0",
+             "-show_entries", "format=duration", "-of", "default=nokey=1:noprint_wrappers=1",
+             str(path)], text=True, capture_output=True, timeout=20, check=True
+        )
+        duration = float(result.stdout.strip())
+    if not 5 <= duration <= 900:
+        raise ValueError("Invalid real audio duration")
+    return duration
 
 
 def audit_dataset(manifest, root):
@@ -66,6 +93,7 @@ def audit_dataset(manifest, root):
                 raise ValueError("Unsafe or unsupported path")
             if resolved.stat().st_size < 1024:
                 raise ValueError("Recording too short or empty")
+            audio_duration(resolved)
             digest = hashlib.sha256()
             with resolved.open("rb") as audio:
                 for chunk in iter(lambda: audio.read(1024 * 1024), b""):
@@ -75,7 +103,7 @@ def audit_dataset(manifest, root):
                 raise ValueError("Duplicate recording")
             seen_hashes.add(checksum)
             result["verifiedRealFiles"] += int(row.get("synthetic") is False)
-        except (OSError, ValueError):
+        except (OSError, ValueError, subprocess.CalledProcessError, subprocess.TimeoutExpired, wave.Error):
             result["issues"].append(f"row-{index}:missing-unsafe-or-duplicate-audio")
     if len(rows) < 8:
         result["issues"].append("development-requires-at-least-8-tracks")
