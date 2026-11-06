@@ -55,7 +55,7 @@ class TempoRankingTests(unittest.TestCase):
         a['tempo'] = {'requestedBpm': 170, 'detectedBpm': 85,
                       'bpmStatus': 'octave-ambiguous', 'bpmVerified': False}
         self.assertFalse(a['tempo']['bpmVerified'])
-        self.assertFalse(candidate_sort_key(a)[0])
+        self.assertFalse(candidate_sort_key(a)[1])
 
     def test_real_synthetic_clicks_support_requested_170_over_140(self):
         import tempfile
