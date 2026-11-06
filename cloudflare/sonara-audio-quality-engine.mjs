@@ -319,7 +319,12 @@ function qualityScore(metrics, bpmReport, keyReport, requested = {}) {
     ? Math.abs(bpmReport.detectedBpm - requestedBpm)
     : null;
   const bpmTolerance = hasRequestedBpm ? Math.max(2, requestedBpm * 0.015) : null;
-  const bpmPassed = !hasRequestedBpm ? null : (bpmError !== null && bpmError <= bpmTolerance);
+  // A half-time/double-time pulse is not proof of the requested master BPM.
+  // The analyzer may offer an octave-corrected candidate for comparison, but
+  // it cannot certify a quarter-note grid on that basis alone.
+  const octaveAmbiguous = bpmReport.tempoOctaveCorrected === true;
+  const bpmPassed = !hasRequestedBpm ? null :
+    (bpmError !== null && bpmError <= bpmTolerance && !octaveAmbiguous);
 
   let bpmPoints = !hasRequestedBpm ? 35 : bpmError === null ? 8 : clamp(35 - bpmError * 3.5, 0, 35);
   if (bpmPassed === true) bpmPoints = Math.max(bpmPoints, 32);
@@ -344,6 +349,10 @@ function qualityScore(metrics, bpmReport, keyReport, requested = {}) {
     score: total,
     passed: hardGate && total >= 70,
     bpmPassed,
+    bpmStatus: !hasRequestedBpm ? 'not-requested' :
+      octaveAmbiguous ? 'octave-ambiguous' :
+      bpmError === null ? 'unverified' :
+      bpmPassed ? 'verified' : 'mismatch',
     bpmError: bpmError === null ? null : round(bpmError, 1),
     bpmTolerance: bpmTolerance === null ? null : round(bpmTolerance, 1),
     requestedKey: requestedKey || null,
@@ -396,6 +405,7 @@ export async function analyzeAudioCandidate(audioUrl, requested = {}, fetchImpl 
     bpmError: verdict.bpmError,
     bpmTolerance: verdict.bpmTolerance,
     bpmPassed: verdict.bpmPassed,
+    bpmStatus: verdict.bpmStatus,
     requestedKey: verdict.requestedKey,
     detectedKey: keyReport.detectedKey,
     keyConfidence: keyReport.confidence,
