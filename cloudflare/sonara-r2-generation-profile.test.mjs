@@ -316,3 +316,33 @@ test('QUALITY A/B contract prevents degraded second takes', () => {
   assert.match(result.prompt, /neither candidate may collapse into placeholder drums/);
   assert.match(result.lm_negative_prompt, /candidate B degradation/);
 });
+
+test('professional aliases use native high-quality XL Turbo generation, not instant preview', () => {
+  for (const name of ['professional', 'pro', 'realistic', 'high-quality', 'studio-professional']) {
+    const result = applyR2GenerationProfile(payload, { ...source, generationProfileV3: name }, source);
+    assert.equal(result.sonara_r2_generation_profile, 'quality', name);
+    assert.equal(result.inference_steps, 8, name);
+    assert.equal(result.shift, 3, name);
+    assert.equal(result.thinking, true, name);
+  }
+});
+
+test('studio ultra alias retains existing ultra generation route without replacing the model', () => {
+  for (const name of ['studio ultra', 'studio_ultra', 'studio-max']) {
+    const result = applyR2GenerationProfile(payload, { ...source, generationProfileV3: name }, source);
+    assert.equal(result.sonara_r2_generation_profile, 'ultra', name);
+    assert.equal(result.model, 'acestep-v15-xl-turbo');
+    assert.equal(result.inference_steps, 8);
+  }
+});
+
+test('quality-first opt-in overrides an inherited fast alias while ordinary fast jobs remain unchanged', () => {
+  const preview = applyR2GenerationProfile(payload, { ...source, generationProfileV3: 'instant' }, source);
+  assert.equal(preview.inference_steps, 1);
+  assert.equal(preview.thinking, false);
+  const professional = applyR2GenerationProfile(payload, { ...source, generationProfileV3: 'instant', sonaraQualityFirst: true }, source);
+  assert.equal(professional.inference_steps, 8);
+  assert.equal(professional.thinking, true);
+  assert.equal(professional.sonara_instant_mode, false);
+  assert.equal(professional.lyrics, lyrics);
+});

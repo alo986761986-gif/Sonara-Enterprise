@@ -221,7 +221,8 @@ def wav_quality_report(path, physical_fidelity=False):
 
         for frame_index in range(0, available_frames, stride):
             frame_start = frame_index * frame_size
-            mono_ratio = 0.0
+            frame_peak = 0.0
+            frame_absolute_sum = 0.0
             valid_channels = 0
             for channel in range(channels):
                 start = frame_start + channel * width
@@ -229,25 +230,28 @@ def wav_quality_report(path, physical_fidelity=False):
                 if len(chunk) != width:
                     continue
                 value, scale = _pcm_sample(chunk, width)
-                mono_ratio += value / scale if scale else 0.0
+                ratio = value / scale if scale else 0.0
+                absolute = abs(ratio)
+                frame_peak = max(frame_peak, absolute)
+                frame_absolute_sum += absolute
+                peak_ratio = max(peak_ratio, absolute)
+                square_sum += ratio * ratio
+                dc_sum += ratio
+                seen += 1
                 valid_channels += 1
+                if absolute >= 0.999:
+                    clipped += 1
             if valid_channels <= 0:
                 continue
-            mono_ratio /= valid_channels
-            absolute = abs(mono_ratio)
-            peak_ratio = max(peak_ratio, absolute)
-            square_sum += mono_ratio * mono_ratio
-            dc_sum += mono_ratio
-            seen += 1
-            envelope_acc += absolute
+            # Signal energy must be measured per-channel. Mono averaging can
+            # cancel perfectly audible out-of-phase stereo content.
+            envelope_acc += frame_absolute_sum / valid_channels
             envelope_count += 1
             if envelope_count >= envelope_bucket:
                 envelope.append(envelope_acc / envelope_count)
                 envelope_acc = 0.0
                 envelope_count = 0
-            if absolute >= 0.999:
-                clipped += 1
-            if absolute <= 0.001:
+            if frame_peak <= 0.001:
                 silent += 1
 
         if seen <= 0:
@@ -257,7 +261,7 @@ def wav_quality_report(path, physical_fidelity=False):
         peak_db = 20.0 * math.log10(max(peak_ratio, 1e-9))
         rms_db = 20.0 * math.log10(max(rms_ratio, 1e-9))
         clipping = clipped / seen
-        silence = silent / seen
+        silence = silent / max(1, (available_frames + stride - 1) // stride)
         dc = dc_sum / seen
         duration = frames / float(rate)
 
@@ -341,6 +345,59 @@ def vocal_report(path, payload):
         }
     except Exception:
         return {'performed': True, 'lyricAccuracy': None, 'mismatchRanges': [], 'error': 'ASRUnavailable'}
+
+
+def select_deliverable_candidates(evaluated, requested_count):
+    """Return best valid candidates, preserving requested A/B count.
+
+    An invalid WAV must not be uploaded as track B merely because its score
+    was lower than track A. Fail closed before uploading either track if there
+    are insufficient valid candidates.
+    """
+    try:
+        wanted = int(requested_count)
+    except (ValueError, TypeError) as error:
+        raise ValueError("Invalid requested candidate count") from error
+    if wanted not in (1, 2):
+        raise ValueError("Requested candidate count must be one or two")
+
+    deliverable = []
+    for item in evaluated:
+        if not isinstance(item, dict):
+            continue
+        report = item.get("audio")
+        if not isinstance(report, dict) or report.get("ok") is not True:
+            continue
+        duration = report.get("durationSeconds", 0)
+        rate = report.get("sampleRate", 0)
+        channels = report.get("channels", 0)
+        score = item.get("score", 0)
+        try:
+            valid = (math.isfinite(float(duration)) and float(duration) > 0
+                     and math.isfinite(float(score))
+                     and int(rate) > 0 and int(channels) in (1, 2))
+        except (TypeError, ValueError, OverflowError):
+            valid = False
+        if valid:
+            # Reject truly empty digital output only. A quiet intro, fade-out,
+            # or deliberately soft musical passage must remain deliverable.
+            peak_db = report.get("peakDb")
+            rms_db = report.get("rmsDb")
+            if peak_db is not None and rms_db is not None:
+                try:
+                    effectively_muted = (
+                        float(peak_db) <= -65.0 and float(rms_db) <= -75.0
+                    )
+                except (TypeError, ValueError, OverflowError):
+                    effectively_muted = False
+                if effectively_muted:
+                    continue
+            deliverable.append(item)
+
+    deliverable.sort(key=lambda item: item["score"], reverse=True)
+    if len(deliverable) < wanted:
+        raise RuntimeError("Insufficient valid PCM WAV candidates for requested delivery")
+    return deliverable[:wanted]
 
 
 def combined_candidate_score(audio_report, vocal):
@@ -531,7 +588,10 @@ def process(job):
                         'autoRepaired': repaired,
                         'score': combined_candidate_score(audio_report, vocal),
                     })
-                evaluated.sort(key=lambda item: item['score'], reverse=True)
+                # Reject invalid PCM before any upload; do not silently deliver a broken Song B.
+                # Keeping this check before upload avoids publishing a partial A/B pair.
+                expected = max(1, min(2, int(payload.get('batch_size', 1))))
+                evaluated = select_deliverable_candidates(evaluated, expected)
                 quality_summary = [
                     {
                         'rank': rank + 1,
@@ -549,8 +609,6 @@ def process(job):
                     for rank, item in enumerate(evaluated)
                 ]
 
-                evaluated = evaluated[:2]
-                expected = min(2, len(evaluated))
                 for index, item in enumerate(evaluated):
                     path = item['path']
                     progress('uploading', track=index + 1, trackCount=expected, qualityScore=item['score'])
