@@ -21,6 +21,12 @@ try:
 except ImportError:
     verify_wav_tempo = None  # Preserve generation; never claim an unmeasured BPM.
 
+try:
+    from sonara_tempo_evidence import tempo_evidence, rank_candidates
+except ImportError:
+    tempo_evidence = None
+    rank_candidates = None
+
 ROOT = pathlib.Path.home() / '.sonara'
 ENDPOINT = 'https://api.sonaraenterprise.com/api/sonara-relay'
 LOCAL = 'http://127.0.0.1:8001'
@@ -554,9 +560,16 @@ def process(job):
                         audio_report = wav_quality_report(candidate_path, bool(payload.get('sonara_physical_fidelity_required')))
                         vocal = vocal_report(candidate_path, payload)
                     bpm_report = independent_bpm_report(candidate_path, payload)
+                    # Pulse support is comparative evidence only. Never equate it
+                    # with verification or modify a candidate's WAV.
+                    try:
+                        pulse_evidence = tempo_evidence(candidate_path, bpm_report.get('requestedBpm')) if tempo_evidence else {'available': False}
+                    except Exception:
+                        pulse_evidence = {'available': False}
                     evaluated.append({
                         'path': candidate_path,
                         'tempo': bpm_report,
+                        'tempoEvidence': pulse_evidence,
                         'originalIndex': original_index,
                         'audio': audio_report,
                         'vocal': vocal,
@@ -566,10 +579,20 @@ def process(job):
                 # Prefer independent BPM verified takes, but do not mistake
                 # a half/double-time pulse for a matching master clock.
                 # Uncertain tracks are still reported, never silently verified.
-                evaluated.sort(key=lambda item: (
-                    item['tempo'].get('bpmVerified') is True,
-                    item['score']
-                ), reverse=True)
+                # Only compare pulse support when every take has a valid
+                # measurement. Missing NumPy or an unsupported PCM file must
+                # not cause accidental rank promotion of another candidate.
+                use_pulse_ranking = (
+                    rank_candidates is not None and
+                    all(item['tempoEvidence'].get('available') is True for item in evaluated)
+                )
+                if use_pulse_ranking:
+                    evaluated = rank_candidates(evaluated)
+                else:
+                    evaluated.sort(key=lambda item: (
+                        item['tempo'].get('bpmVerified') is True,
+                        item['score']
+                    ), reverse=True)
                 quality_summary = [
                     {
                         'rank': rank + 1,
@@ -577,6 +600,7 @@ def process(job):
                         'score': item['score'],
                         'audio': item['audio'],
                         'tempo': item['tempo'],
+                        'tempoEvidence': item.get('tempoEvidence'),
                         'vocal': {
                             'performed': item['vocal'].get('performed'),
                             'lyricAccuracy': item['vocal'].get('lyricAccuracy'),

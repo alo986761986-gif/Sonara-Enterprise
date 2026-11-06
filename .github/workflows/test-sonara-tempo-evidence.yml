@@ -1,0 +1,31 @@
+name: Test SONARA Tempo Evidence Ranking
+
+on:
+  pull_request:
+    paths:
+      - "molab/sonara_tempo_evidence.py"
+      - "molab/test_sonara_tempo_evidence.py"
+      - "molab/sonara_r2_pull_agent.py"
+      - "molab/sonara_r2_install.py"
+      - "molab/test_sonara_r2_installer_pins.py"
+      - ".github/workflows/test-sonara-tempo-evidence.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record exact reviewed Python SHA256 hashes
+        run: sha256sum molab/sonara_r2_pull_agent.py molab/sonara_bpm_verification.py molab/sonara_tempo_evidence.py
+      - name: Verify Python syntax
+        run: python3 -m py_compile molab/sonara_tempo_evidence.py molab/sonara_r2_pull_agent.py molab/sonara_r2_install.py molab/test_sonara_tempo_evidence.py molab/test_sonara_r2_installer_pins.py
+      - name: Install NumPy for synthetic WAV regression
+        run: python3 -m pip install 'numpy>=1.26,<3'
+      - name: Verify safe BPM evidence ranking
+        run: python3 -m unittest discover -s molab -p 'test_sonara_tempo_evidence.py' -v
+      - name: Verify immutable installer source pins
+        run: python3 -m unittest discover -s molab -p 'test_sonara_r2_installer_pins.py' -v

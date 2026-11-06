@@ -26,8 +26,10 @@ ROOT = pathlib.Path.home() / '.sonara'
 TOKEN_FILE = ROOT / 'relay.token'
 ACE_KEY_FILE = pathlib.Path('/home/marimo/ACE-STEP/.sonara-api-key')
 TARGET = ROOT / 'sonara_r2_pull_agent.py'
-EXPECTED_AGENT_SHA256 = '5a3fa2df7a047d2dfe8062c78d31ff37e7e3a8bae0515e5991887e4aac7cefbe'
-EXPECTED_BPM_SHA256 = 'e7246082405e0d2afd523d25db5763141ef5aab50ab9aa5101b25e12b6981870'
+EXPECTED_AGENT_SHA256 = '71627c1e2803a712b98545bdacccffec931af296fb54148ffdc7f2513c9182f9'
+EXPECTED_BPM_SHA256 = 'cdb96b7b2a3f615e1be91a25796eca8f9880baf5d46ccaa35123e4d7d666f99c'
+EXPECTED_EVIDENCE_SHA256 = '79a08e4a3b069d4bea49124aa3bdfb20c78834b0eb4671947fcd1526e6f4b859'
+EVIDENCE_TARGET = ROOT / 'sonara_tempo_evidence.py'
 BPM_TARGET = ROOT / 'sonara_bpm_verification.py'
 USER_AGENT = 'SONARA-MoLab-Relay/1.0'
 AGENT_REVISION = 'sonara-https-agent-guard-v5'
@@ -103,6 +105,22 @@ def reviewed_bpm_source():
     if len(source) > 200_000 or hashlib.sha256(source).hexdigest() != EXPECTED_BPM_SHA256:
         raise SystemExit('SONARA: BPM verifier source hash mismatch; live agent untouched')
     ast.parse(source, filename=str(BPM_TARGET))
+    return source
+
+
+def reviewed_evidence_source():
+    # Pin exact pulse-evidence source to the same immutable GitHub commit.
+    commit = os.environ.get('SONARA_RELAY_AGENT_COMMIT', '').strip()
+    if not re.fullmatch(r'[0-9a-f]{40}', commit):
+        raise SystemExit('SONARA: immutable agent commit required for tempo evidence')
+    url = ('https://raw.githubusercontent.com/alo986761986-gif/Sonara-Enterprise/'
+           + commit + '/molab/sonara_tempo_evidence.py')
+    req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT, 'Accept': 'text/plain'})
+    with urllib.request.build_opener(NoRedirect()).open(req, timeout=30) as response:
+        source = response.read(200_001)
+    if len(source) > 200_000 or hashlib.sha256(source).hexdigest() != EXPECTED_EVIDENCE_SHA256:
+        raise SystemExit('SONARA: tempo evidence source hash mismatch; live agent untouched')
+    ast.parse(source, filename=str(EVIDENCE_TARGET))
     return source
 
 
@@ -212,11 +230,16 @@ def main():
     # Verify and stage the exact source before requesting any process handoff.
     source = reviewed_source()
     bpm_source = reviewed_bpm_source()
+    evidence_source = reviewed_evidence_source()
     ast.parse(source, filename=str(TARGET))
     temporary = ROOT / 'sonara_r2_pull_agent.installing'
     private_write(temporary, source)
     bpm_temporary = ROOT / 'sonara_bpm_verification.installing'
     private_write(bpm_temporary, bpm_source)
+    evidence_temporary = ROOT / 'sonara_tempo_evidence.installing'
+    private_write(evidence_temporary, evidence_source)
+    if EVIDENCE_TARGET.is_symlink():
+        raise SystemExit('Refusing a symlink for the tempo evidence module')
     if BPM_TARGET.is_symlink():
         raise SystemExit('Refusing a symlink for the BPM verifier')
     if TARGET.is_symlink():
@@ -232,6 +255,7 @@ def main():
         lock_path.chmod(0o600)
         acquire_for_update(lock)
         os.replace(bpm_temporary, BPM_TARGET)
+        os.replace(evidence_temporary, EVIDENCE_TARGET)
         os.replace(temporary, TARGET)
         fcntl.flock(lock, fcntl.LOCK_UN)
     child_env = os.environ.copy()
