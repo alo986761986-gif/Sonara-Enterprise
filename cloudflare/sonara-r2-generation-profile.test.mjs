@@ -323,6 +323,8 @@ test('R2 uses the actual manual tempo rather than a stale generated/default BPM'
   const result = applyR2GenerationProfile(stale, selection, selection);
   assert.equal(result.bpm, 170);
   assert.equal(result.sonara_requested_bpm, 170);
+  assert.match(result.prompt, /SONARA EXACT MANUAL TEMPO: 170 BPM/);
+  assert.match(result.prompt, /not half-time or double-time/);
   assert.equal(result.thinking, true);
   assert.equal(result.model, payload.model);
   assert.equal(result.batch_size, 2);
