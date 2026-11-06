@@ -1,0 +1,19 @@
+name: Test SONARA BPM LM Comparison
+
+on:
+  pull_request:
+    paths:
+      - "molab/sonara_bpm_lm_comparison.py"
+      - ".github/workflows/test-sonara-bpm-lm-comparison.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  python-syntax:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile controlled BPM test without running generation
+        run: python3 -m py_compile molab/sonara_bpm_lm_comparison.py
