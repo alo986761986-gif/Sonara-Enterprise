@@ -1,0 +1,30 @@
+name: Test SONARA R2 Tempo Reporting
+
+on:
+  pull_request:
+    paths:
+      - "cloudflare/sonara-r2-https-relay.mjs"
+      - "cloudflare/sonara-r2-tempo-report.test.mjs"
+      - ".github/workflows/test-sonara-r2-tempo.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "cloudflare/sonara-r2-https-relay.mjs"
+      - "cloudflare/sonara-r2-tempo-report.test.mjs"
+      - ".github/workflows/test-sonara-r2-tempo.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-tempo-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Verify R2 per-track BPM status reporting
+        run: node --test cloudflare/sonara-r2-tempo-report.test.mjs
