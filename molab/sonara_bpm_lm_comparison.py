@@ -90,7 +90,7 @@ def run_case(thinking, destination, verify):
         "batch_size": 2, "inference_steps": 8, "shift": 3,
         "thinking": thinking, "allow_lm_batch": thinking,
         "sampler_mode": "euler", "audio_format": "wav",
-        "use_random_seed": True, "seed": -1
+        "use_random_seed": False, "seed": 170606
     }
     started = time.monotonic()
     result = api("POST", "/release_task", payload)
@@ -133,8 +133,8 @@ def main():
     ensure_idle()
     sys.path.insert(0, str(ROOT))
     from sonara_bpm_verification import verify_wav_tempo
-    output = Path("/marimo/SONARA_BPM_LM_COMPARISON")
-    output.mkdir(mode=0o700, exist_ok=True)
+    output = Path("/marimo/SONARA_BPM_LM_COMPARISON") / time.strftime("%Y%m%dT%H%M%S")
+    output.mkdir(mode=0o700, parents=True, exist_ok=False)
     print("SONARA_BPM_CONTROLLED_LM_TEST=True")
     print("BPM_REQUESTED=170")
     print("ENGINE_RESTART=False")
