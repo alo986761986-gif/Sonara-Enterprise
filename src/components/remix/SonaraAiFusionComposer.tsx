@@ -114,7 +114,7 @@ export default function SonaraAiFusionComposer() {
     <label>Direzione artistica <textarea style={{display:'block',width:'100%',minHeight:95,background:'#211c30',color:'#fff'}} value={prompt} disabled={busy} onChange={e => setPrompt(e.target.value)}/></label>
     <small>Versione sperimentale: doppio condizionamento ACE-Step; non garantisce la presenza riconoscibile di entrambe le melodie. Separazione stems e sincronizzazione armonica non sono ancora incluse. Carica solo audio di cui possiedi i diritti necessari.</small>
     {!enabled && <p style={{color:'#fcd34d'}}>Motore AI Fusion non ancora abilitato sul server. Nessun file verrà caricato finché il backend non sarà pronto.</p>}
-    <button type="button" disabled={!enabled || !songA || !songB || busy || !prompt.trim()} onClick={() => void generate()} style={{padding:14,background:'#6d39bb',border:0,borderRadius:9,color:'#fff',fontWeight:800,opacity:!enabled||busy?.5:1}}>
+    <button type="button" disabled={!enabled || !songA || !songB || busy || !prompt.trim()} onClick={() => void generate()} style={{padding:14,background:'#6d39bb',border:0,borderRadius:9,color:'#fff',fontWeight:800,opacity:(!enabled || busy) ? 0.5 : 1}}>
       {busy ? <LoaderCircle size={15}/> : <AudioWaveform size={15}/>} {busy?'AI Fusion in corso…':'Genera un nuovo brano con AI Fusion'}
     </button>
     {busy && <div role="status">{message} {Math.round(progress)}%</div>}
