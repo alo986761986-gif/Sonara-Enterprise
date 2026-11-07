@@ -189,7 +189,11 @@ export default {
     }
     return json({service:'sonara-relay-queue-status',sampled:list.objects.length,limit:100,truncated:Boolean(list.truncated),agentOnline:heartbeat.online,agentRevision:heartbeat.revision,agentAgeMs:heartbeat.ageMs,counts});
   }
-  if(p==='/api/sonara-relay/fusion-capabilities'&&request.method==='GET')return json({engine:'sonara-ai-fusion-v1',available:env.SONARA_AI_FUSION_ENABLED==='true'&&env.SONARA_R2_RELAY_ENABLED==='true'&&Boolean(b),mode:'dual-audio-generative-conditioning',stemSeparation:false,beatMatching:false});
+  if(p==='/api/sonara-relay/fusion-capabilities'&&request.method==='GET'){
+    const heartbeat=await readAgentHeartbeat(b);
+    const v6Ready=heartbeat.online===true&&heartbeat.revision===FUSION_AGENT_REVISION;
+    return json({engine:'sonara-ai-fusion-v1',available:env.SONARA_AI_FUSION_ENABLED==='true'&&env.SONARA_R2_RELAY_ENABLED==='true'&&Boolean(b)&&v6Ready,mode:'dual-audio-generative-conditioning',stemSeparation:false,beatMatching:false,requiredAgentRevision:FUSION_AGENT_REVISION,gpuReady:v6Ready});
+  }
   if(env.SONARA_R2_RELAY_ENABLED!=='true'||!b) return json({error:'SONARA relay not configured'},503);
   // Authenticated browser upload only. The reference stays private in R2 and
   // cannot trigger generation on its own; billing still authorizes/enqueues the job.
