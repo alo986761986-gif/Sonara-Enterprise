@@ -72,8 +72,9 @@ function setYoutubeMode(sourcePanel: HTMLElement, active: boolean) {
   const library = sourcePanel.querySelector<HTMLElement>('.sonara-remix-library');
   const upload = sourcePanel.querySelector<HTMLElement>('.sonara-remix-upload');
   const editor = sourcePanel.querySelector<HTMLElement>('.sonara-remix-editor');
+  const multitrack = sourcePanel.querySelector<HTMLElement>('.sonara-remix-multitrack');
   const panel = sourcePanel.querySelector<HTMLElement>(`[${YOUTUBE_PANEL}]`);
-  [library, upload, editor].forEach(node => { if (node) node.style.display = active ? 'none' : ''; });
+  [library, upload, editor, multitrack].forEach(node => { if (node) node.style.display = active ? 'none' : ''; });
   if (panel) panel.style.display = active ? 'block' : 'none';
 
   sourcePanel.querySelectorAll<HTMLButtonElement>('.sonara-remix-source-tabs button').forEach(button => {
