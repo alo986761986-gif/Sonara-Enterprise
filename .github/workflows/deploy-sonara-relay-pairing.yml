@@ -39,6 +39,9 @@ jobs:
         with:
           node-version: "24"
 
+      - name: Validate old and new notebook relay pairing before deployment
+        run: node --test cloudflare/sonara-r2-https-relay.test.mjs
+
       - name: Verify exact BPM request contracts
         run: node --test cloudflare/sonara-r2-bpm-lock.test.mjs
 
