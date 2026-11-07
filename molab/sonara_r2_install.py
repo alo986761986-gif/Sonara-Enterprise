@@ -26,14 +26,14 @@ ROOT = pathlib.Path.home() / '.sonara'
 TOKEN_FILE = ROOT / 'relay.token'
 ACE_KEY_FILE = pathlib.Path('/home/marimo/ACE-STEP/.sonara-api-key')
 TARGET = ROOT / 'sonara_r2_pull_agent.py'
-EXPECTED_AGENT_SHA256 = '91136c3e1a988bc78589a9894a53e68f81074b82ab51fb3ba84e34ad8936d2c9'
+EXPECTED_AGENT_SHA256 = '77261b8981a3e22b31ae8956384085262bdce2a9800a22cd624436c634fcc78d'
 EXPECTED_BPM_SHA256 = 'cdb96b7b2a3f615e1be91a25796eca8f9880baf5d46ccaa35123e4d7d666f99c'
 EXPECTED_EVIDENCE_SHA256 = '0b68db91df21cba7efabd01b70d1e384b1ebdc18a53b01c757689887b9c56886'
 EVIDENCE_TARGET = ROOT / 'sonara_tempo_evidence.py'
 BPM_TARGET = ROOT / 'sonara_bpm_verification.py'
 USER_AGENT = 'SONARA-MoLab-Relay/1.0'
-AGENT_REVISION = 'sonara-https-agent-guard-v5'
-PREVIOUS_REVISION = 'sonara-https-agent-guard-v4'
+AGENT_REVISION = 'sonara-remix-r2-agent-v6'
+PREVIOUS_REVISION = 'sonara-https-agent-guard-v5'
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -146,7 +146,7 @@ def verify_claim_gate():
         auth = json.load(response)
     if not (isinstance(auth, dict) and auth.get('service') == 'sonara-r2-relay'
             and auth.get('authenticated') is True
-            and auth.get('referenceAgentRevision') == AGENT_REVISION):
+            and auth.get('remixAgentRevision') == AGENT_REVISION):
         raise SystemExit('SONARA: reference claim gate is not live; active agent left running')
 
 
