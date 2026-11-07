@@ -179,7 +179,7 @@ export default function SonaraRemixSection() {
   const [lyrics, setLyrics] = useState('');
   const [bpm, setBpm] = useState(124);
   const [musicalKey, setMusicalKey] = useState('');
-  const [outputCount, setOutputCount] = useState<1 | 2>(2);
+  const [outputCount, setOutputCount] = useState<1 | 2>(1);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [progress, setProgress] = useState<number[]>([]);
@@ -530,7 +530,7 @@ export default function SonaraRemixSection() {
     const jobId = created.jobId as string;
     // Preserve the identifier through transient network failures: never enqueue a
     // second billed job simply because the result polling temporarily disconnected.
-    sessionStorage.setItem('sonara.remix.activeJob',jobId);
+    try { sessionStorage.setItem('sonara.remix.activeJob',jobId); } catch { /* optional resilience state */ }
     setNotice('Remix affidato alla GPU. Job '+jobId.slice(0,12)+'…; la connessione può ripristinarsi senza ricreare il lavoro.');
     let consecutiveNetworkErrors=0;
     for(let attempt=0;attempt<320;attempt++){
@@ -558,12 +558,12 @@ export default function SonaraRemixSection() {
         if(!audioUrl)throw new Error('La GPU ha completato il job, ma non è disponibile un WAV valido. Job: '+jobId);
         const output:RemixOutput={id:jobId,label:'Remix AI',audioUrl};
         setOutputs([output]);
-        sessionStorage.removeItem('sonara.remix.activeJob');
+        try { sessionStorage.removeItem('sonara.remix.activeJob'); } catch { /* optional */ }
         setNotice('Remix AI completo: ascolta il nuovo brano!');
         return;
       }
       if(data.status==='FAILED'||data.status==='NOT_FOUND'){
-        sessionStorage.removeItem('sonara.remix.activeJob');
+        try { sessionStorage.removeItem('sonara.remix.activeJob'); } catch { /* optional */ }
         throw new Error(data.error||'Il motore ha segnalato un errore nel Remix.');
       }
       await sleep(2500);
