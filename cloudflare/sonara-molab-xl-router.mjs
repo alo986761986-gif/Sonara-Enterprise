@@ -542,7 +542,21 @@ export async function prepareMolabR2RelayPayload(body) {
     realismApiV1: false,
     loadedModel: MODEL
   });
-  return applyR2GenerationProfile(payload, corrected, body);
+  const configured = applyR2GenerationProfile(payload, corrected, body);
+  // Keep both verified SONARA reference IDs intact until the authenticated R2
+  // enqueue gate resolves their ownership. Never fall back to text-only output.
+  if (body?.sonaraAiFusion) {
+    if (body.sonaraAiFusion?.version !== 1) throw new Error('Invalid SONARA AI Fusion version');
+    return {
+      ...configured,
+      sonaraAiFusion: body.sonaraAiFusion,
+      prompt: String(body.prompt || body.rawPrompt || corrected.prompt || '').slice(0, 7600),
+      instruction: String(body.prompt || body.rawPrompt || corrected.prompt || '').slice(0, 7600),
+      task_type: 'cover',
+      batch_size: 1
+    };
+  }
+  return configured;
 }
 
 async function startMolab(request, env) {
