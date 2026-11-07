@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { AudioWaveform, LoaderCircle, Sparkles } from 'lucide-react';
 
 type Job = { jobId?: string; status?: string; error?: string; progress?: number; audioUrl?: string; audioUrls?: string[]; candidates?: Array<{ audioUrl?: string }> };
-const API = 'https://api.sonaraenterprise.com';
+// Use same-origin Worker route to include the site's HttpOnly session cookie.
+const API = '';
 const MAX_BYTES = 32 * 1024 * 1024;
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
