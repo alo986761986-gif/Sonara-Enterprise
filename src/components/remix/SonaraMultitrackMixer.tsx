@@ -258,7 +258,7 @@ export default function SonaraMultitrackMixer({ onMixReady, onMixInvalidated }: 
         <audio controls src={readyUrl} />
         <a href={readyUrl} download="SONARA-MULTITRACK-MIX.wav"><Download /> Scarica mix WAV</a>
       </div>}
-      <style>{\`
+      <style>{`
         .sonara-remix-multitrack{margin:12px 16px 16px;padding:14px;border:1px solid rgba(167,139,250,.19);border-radius:13px;background:#0b0b11;color:#e8e8ed}
         .sonara-remix-multitrack button,.sonara-remix-multitrack input{font:inherit}
         .sonara-multitrack-heading{display:flex;align-items:center;gap:10px;margin-bottom:13px}
@@ -298,7 +298,7 @@ export default function SonaraMultitrackMixer({ onMixReady, onMixInvalidated }: 
         .sonara-multitrack-spinner{animation:sonara-multitrack-spin .8s linear infinite}
         @keyframes sonara-multitrack-spin{to{transform:rotate(360deg)}}
         @media(max-width:640px){.sonara-multitrack-controls{grid-template-columns:minmax(0,1fr) 95px}.sonara-multitrack-controls>button{grid-column:1/-1}}
-      \`}</style>
+      `}</style>
     </div>
   );
 }
