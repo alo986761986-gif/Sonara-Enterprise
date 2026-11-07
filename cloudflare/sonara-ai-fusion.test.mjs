@@ -48,3 +48,12 @@ test('fusion agent revision advertised by authorized probe', async () => {
   const data=await res.json();
   assert.equal(data.fusionAgentRevision,'sonara-fusion-agent-v6');
 });
+
+test('fusion remains closed with feature flag on but no live v6 GPU heartbeat', async () => {
+  const caps = await runtime.fetch(new Request('https://api.sonaraenterprise.com/api/sonara-relay/fusion-capabilities'),
+    { ...env, SONARA_AI_FUSION_ENABLED:'true' }, {});
+  assert.equal(caps.status, 200);
+  const body = await caps.json();
+  assert.equal(body.available, false);
+  assert.equal(body.gpuReady, false);
+});
