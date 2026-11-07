@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
-import { fetchAllowedAudio } from './sonara-studio-ai-router.mjs';
+import { fetchAllowedAudio } from './sonara-studio-audio-resolver.mjs';
 
 globalThis.crypto ||= webcrypto;
 
