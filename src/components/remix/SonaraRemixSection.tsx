@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import SonaraMultitrackMixer from './SonaraMultitrackMixer';
 import {
   AudioWaveform,
   Check,
@@ -164,7 +165,7 @@ export default function SonaraRemixSection() {
   const [open, setOpen] = useState(false);
   const [libraryTracks, setLibraryTracks] = useState<SourceTrack[]>([]);
   const [source, setSource] = useState<SourceTrack | null>(readSelectedTrack);
-  const [sourceTab, setSourceTab] = useState<'library' | 'upload'>('library');
+  const [sourceTab, setSourceTab] = useState<'library' | 'upload' | 'multitrack'>('library');
   const [duration, setDuration] = useState(0);
   const [segmentStart, setSegmentStart] = useState(0);
   const [segmentEnd, setSegmentEnd] = useState(30);
@@ -186,6 +187,7 @@ export default function SonaraRemixSection() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const uploadRef = useRef<HTMLInputElement | null>(null);
+  const mixedSourceIdRef = useRef<string>('');
   const playerRef = useRef<HTMLAudioElement | null>(null);
   const decodedBufferRef = useRef<AudioBuffer | null>(null);
   const localObjectUrlRef = useRef<string>('');
@@ -323,7 +325,7 @@ export default function SonaraRemixSection() {
         setDuration(nextDuration);
         setWaveform(buildWaveform(buffer));
         setSegmentStart(0);
-        setSegmentEnd(Math.min(nextDuration, Math.max(MIN_SEGMENT_SECONDS, source.durationSec && source.durationSec <= 120 ? source.durationSec : 30)));
+        setSegmentEnd(source.id === mixedSourceIdRef.current ? nextDuration : Math.min(nextDuration, Math.max(MIN_SEGMENT_SECONDS, source.durationSec && source.durationSec <= 120 ? source.durationSec : 30)));
         if (source.bpm) setBpm(source.bpm);
         if (source.key) setMusicalKey(source.key);
       } catch {
@@ -371,6 +373,21 @@ export default function SonaraRemixSection() {
     setOutputs([]);
     setError('');
     setNotice('');
+  };
+
+  const onMultitrackMixReady = (file: File) => {
+    chooseUpload(file);
+    mixedSourceIdRef.current = `upload-${file.name}-${file.lastModified}`;
+    setNotice('Mix multitraccia pronto: premi Create Remix per trasformarlo con ACE-Step.');
+  };
+
+  const onMultitrackMixInvalidated = () => {
+    if (source?.id && source.id === mixedSourceIdRef.current) {
+      setSource(null);
+      decodedBufferRef.current = null;
+      mixedSourceIdRef.current = '';
+      setOutputs([]);
+    }
   };
 
   const previewSelection = async () => {
@@ -576,6 +593,7 @@ export default function SonaraRemixSection() {
           <div className="sonara-remix-source-tabs">
             <button type="button" data-active={sourceTab === 'library'} onClick={() => setSourceTab('library')}><Library />Your songs</button>
             <button type="button" data-active={sourceTab === 'upload'} onClick={() => setSourceTab('upload')}><UploadCloud />Upload audio</button>
+            <button type="button" data-active={sourceTab === 'multitrack'} onClick={() => setSourceTab('multitrack')}><AudioWaveform />Multi-track</button>
           </div>
 
           {sourceTab === 'library' ? (
@@ -588,11 +606,13 @@ export default function SonaraRemixSection() {
                 </button>
               )) : <div className="sonara-remix-empty-library"><Music2 /><strong>Nessun brano in Library</strong><small>Genera un brano oppure usa Upload audio.</small></div>}
             </div>
-          ) : (
+          ) : sourceTab === 'upload' ? (
             <div className="sonara-remix-upload" onClick={() => uploadRef.current?.click()}>
               <input ref={uploadRef} type="file" accept="audio/*,.wav,.mp3,.flac,.ogg,.m4a,.aac,.webm" onChange={event => chooseUpload(event.currentTarget.files?.[0])} />
               <UploadCloud /><strong>{source?.file ? source.name : 'Drop or choose an audio file'}</strong><small>WAV, MP3, FLAC, M4A, OGG · max 160 MB</small><button type="button">Choose file</button>
             </div>
+          ) : (
+            <SonaraMultitrackMixer onMixReady={onMultitrackMixReady} onMixInvalidated={onMultitrackMixInvalidated} />
           )}
 
           {source && (
@@ -712,7 +732,7 @@ export default function SonaraRemixSection() {
         .sonara-remix-main{width:min(1420px,calc(100% - 44px));margin:0 auto;padding:28px 0 76px;display:grid;grid-template-columns:minmax(0,1.18fr) minmax(380px,.82fr);gap:18px;align-items:start}
         .sonara-remix-source-panel,.sonara-remix-controls-panel,.sonara-remix-results-panel{border:1px solid rgba(255,255,255,.065);border-radius:18px;background:rgba(15,15,20,.86);box-shadow:0 20px 60px rgba(0,0,0,.2);overflow:hidden}.sonara-remix-source-panel{grid-column:1}.sonara-remix-controls-panel{grid-column:2;grid-row:1/span 2}.sonara-remix-results-panel{grid-column:1}
         .sonara-remix-section-head{min-height:68px;padding:15px 17px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.055);background:rgba(255,255,255,.012)}.sonara-remix-section-head>div{display:flex;align-items:center;gap:11px}.sonara-remix-section-head>div>span{width:31px;height:31px;display:grid;place-items:center;border:1px solid rgba(167,139,250,.16);border-radius:9px;background:rgba(124,58,237,.07);color:#a78bfa;font-size:9px;font-weight:950}.sonara-remix-section-head strong{display:block;font-size:12px;font-weight:950}.sonara-remix-section-head small{display:block;margin-top:3px;color:#656570;font-size:9px}.sonara-remix-section-head>em{display:flex;align-items:center;gap:5px;color:#6ee7b7;font-size:8px;font-style:normal;font-weight:900;letter-spacing:.12em}.sonara-remix-section-head>em svg,.sonara-remix-section-head>svg{width:14px}.sonara-remix-section-head>svg{color:#7c3aed}
-        .sonara-remix-source-tabs{display:flex;gap:5px;padding:14px 16px 0}.sonara-remix-source-tabs button{display:flex;align-items:center;gap:7px;padding:9px 12px;border:1px solid transparent;border-radius:10px;background:transparent;color:#777782;font-size:9px;font-weight:900;cursor:pointer}.sonara-remix-source-tabs button svg{width:13px}.sonara-remix-source-tabs button[data-active="true"]{border-color:rgba(255,255,255,.075);background:#18181e;color:#fff}
+        .sonara-remix-source-tabs{display:flex;gap:5px;padding:14px 16px 0;flex-wrap:wrap}.sonara-remix-source-tabs button{display:flex;align-items:center;gap:7px;padding:9px 12px;border:1px solid transparent;border-radius:10px;background:transparent;color:#777782;font-size:9px;font-weight:900;cursor:pointer}.sonara-remix-source-tabs button svg{width:13px}.sonara-remix-source-tabs button[data-active="true"]{border-color:rgba(255,255,255,.075);background:#18181e;color:#fff}
         .sonara-remix-library{padding:10px 16px 16px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;max-height:206px;overflow:auto}.sonara-remix-library>button{min-width:0;padding:9px 10px;display:grid;grid-template-columns:32px minmax(0,1fr) auto;align-items:center;gap:9px;text-align:left;border:1px solid rgba(255,255,255,.055);border-radius:11px;background:#111116;color:#b7b7c0;cursor:pointer}.sonara-remix-library>button:hover,.sonara-remix-library>button[data-active="true"]{border-color:rgba(167,139,250,.28);background:linear-gradient(135deg,rgba(76,29,149,.15),#121218)}.sonara-remix-library>button>span:nth-child(2){min-width:0}.sonara-remix-library strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px}.sonara-remix-library small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px;color:#62626d;font-size:8px}.sonara-remix-library>button>svg{width:13px;color:#a78bfa}.sonara-remix-track-icon{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;background:#1b1b22;color:#71717f}.sonara-remix-track-icon svg{width:14px}.sonara-remix-empty-library{grid-column:1/-1;min-height:105px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:1px dashed rgba(255,255,255,.065);border-radius:12px;color:#5f5f69}.sonara-remix-empty-library svg{width:20px}.sonara-remix-empty-library strong{margin-top:7px;color:#9a9aa5;font-size:10px}.sonara-remix-empty-library small{margin-top:4px;font-size:8px}
         .sonara-remix-upload{margin:10px 16px 16px;min-height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;border:1px dashed rgba(167,139,250,.23);border-radius:13px;background:linear-gradient(135deg,rgba(76,29,149,.08),rgba(37,99,235,.035));cursor:pointer}.sonara-remix-upload input{display:none}.sonara-remix-upload>svg{width:23px;color:#8b5cf6}.sonara-remix-upload strong{margin-top:9px;font-size:10px}.sonara-remix-upload small{margin-top:4px;color:#666672;font-size:8px}.sonara-remix-upload button{margin-top:10px;padding:7px 10px;border:1px solid rgba(255,255,255,.08);border-radius:8px;background:#17171d;color:#c4c4cc;font-size:8px;font-weight:900}
         .sonara-remix-editor{margin:0 16px 16px;padding:13px;border:1px solid rgba(255,255,255,.065);border-radius:14px;background:#0c0c10}.sonara-remix-editor audio{display:none}.sonara-remix-track-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.sonara-remix-track-head>div{display:flex;align-items:center;gap:9px;min-width:0}.sonara-remix-track-head>div>div{min-width:0}.sonara-remix-track-head strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px}.sonara-remix-track-head small{display:block;margin-top:3px;color:#5f5f69;font-size:8px}.sonara-remix-disc{width:34px;height:34px;display:grid;place-items:center;border-radius:9px;background:linear-gradient(135deg,#24242d,#15151b);color:#787886}.sonara-remix-disc svg{width:14px}.sonara-remix-track-head>button{display:flex;align-items:center;gap:6px;padding:7px 9px;border:1px solid rgba(255,255,255,.07);border-radius:8px;background:#15151b;color:#bcbcc5;font-size:8px;font-weight:900;cursor:pointer}.sonara-remix-track-head>button svg{width:11px}
