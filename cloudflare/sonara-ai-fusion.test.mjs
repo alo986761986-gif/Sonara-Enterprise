@@ -10,7 +10,7 @@ const json = value => new Request('https://api.sonaraenterprise.com/api/sonara-r
 const env = {
   SONARA_R2_RELAY_ENABLED:'true',
   SONARA_INTERNAL_PROXY_SECRET:'private-server-key',
-  SONARA_AUDIO_BUCKET: {},
+  SONARA_AUDIO_BUCKET: { put: async () => null },
 };
 
 test('AI Fusion is disabled unless GPU fusion backend explicitly enabled', async () => {
