@@ -542,7 +542,22 @@ export async function prepareMolabR2RelayPayload(body) {
     realismApiV1: false,
     loadedModel: MODEL
   });
-  return applyR2GenerationProfile(payload, corrected, body);
+  const configured = applyR2GenerationProfile(payload, corrected, body);
+  if(body?.sonaraRemixSourceId) {
+    return {
+      ...configured,
+      sonaraRemixSourceId: body.sonaraRemixSourceId,
+      task_type: 'cover',
+      batch_size: 1,
+      candidateCount: 1,
+      audio_cover_strength: Number(body.audio_cover_strength) || .68,
+      cover_noise_strength: Number(body.cover_noise_strength) || .15,
+      audio_duration: Number(body.durationSec) || 45,
+      prompt: String(body.prompt || configured.prompt || '').slice(0,9000),
+      instruction: String(body.prompt || configured.instruction || '').slice(0,9000)
+    };
+  }
+  return configured;
 }
 
 async function startMolab(request, env) {
