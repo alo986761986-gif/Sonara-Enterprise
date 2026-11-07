@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Layers3, LoaderCircle, Plus, Trash2, Volume2 } from 'lucide-react';
+import { Download, Layers3, LoaderCircle, Plus, Trash2, Volume2, ArrowUp, ArrowDown } from 'lucide-react';
+import { planDjArrangement } from './djArrangement';
 
 const MAX_TRACKS = 8;
 const MAX_BYTES = 160 * 1024 * 1024;
@@ -14,6 +15,8 @@ type Track = {
   audio: AudioBuffer;
   volume: number;
   start: number;
+  cue: number;
+  take: number;
   muted: boolean;
 };
 
@@ -68,33 +71,86 @@ function encodeWav(buffer: AudioBuffer): File {
   return new File([array], 'SONARA-MULTITRACK-' + Date.now() + '.wav', { type: 'audio/wav' });
 }
 
-async function renderMix(tracks: Track[]) {
+async function renderMix(tracks: Track[], mode: 'dj' | 'layers', transitionSeconds: number) {
   const active = tracks.filter(track => !track.muted && track.volume > 0);
   if (!active.length) throw new Error('Attiva almeno una traccia audio.');
+  if (mode === 'dj') {
+    const plan = planDjArrangement(active.map(track => ({
+      id: track.id, duration: track.audio.duration, cue: track.cue,
+      take: track.take, volume: track.volume, muted: track.muted
+    })), transitionSeconds, MAX_SECONDS);
+    const offline = new OfflineAudioContext(2, Math.ceil(plan.totalSeconds * SAMPLE_RATE), SAMPLE_RATE);
+    for (const segment of plan.segments) {
+      const track = active.find(item => item.id === segment.id);
+      if (!track) continue;
+      const source = offline.createBufferSource();
+      source.buffer = track.audio;
+      const volume = offline.createGain();
+      const filter = offline.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 20000;
+      const gain = track.volume / 100;
+      const at = segment.timelineStart;
+      const end = segment.timelineEnd;
+      // Equal-power crossfades with short, softened edge for a musical blend.
+      // Equal-power endpoints prevent level collapse; no whole-track overlap.
+      volume.gain.setValueAtTime(segment.fadeIn ? 0.0001 : gain, at);
+      if (segment.fadeIn) {
+        const frames = 24;
+        for (let i = 1; i <= frames; i++) {
+          const f = i / frames;
+          volume.gain.linearRampToValueAtTime(gain * Math.sin(f * Math.PI / 2), at + f * segment.fadeIn);
+          // Progressive high-end entry reduces simultaneous hi-hat clashes.
+          filter.frequency.setValueAtTime(900 + 19100 * f * f, at + f * segment.fadeIn);
+        }
+      }
+      if (segment.fadeOut) {
+        const fadeStart = end - segment.fadeOut;
+        volume.gain.setValueAtTime(gain, fadeStart);
+        const frames = 24;
+        for (let i = 1; i <= frames; i++) {
+          const f = i / frames;
+          volume.gain.linearRampToValueAtTime(Math.max(0.0001, gain * Math.cos(f * Math.PI / 2)), fadeStart + f * segment.fadeOut);
+          filter.frequency.setValueAtTime(20000 - 19100 * f * f, fadeStart + f * segment.fadeOut);
+        }
+      } else {
+        volume.gain.setValueAtTime(gain, Math.max(at, end - 0.02));
+        volume.gain.linearRampToValueAtTime(0, end);
+      }
+      source.connect(filter);
+      filter.connect(volume);
+      volume.connect(offline.destination);
+      source.start(at, segment.sourceStart, segment.sourceDuration);
+    }
+    return encodeWav(await offline.startRendering());
+  }
+
+  // Legacy layering remains opt-in for stems, drums and instrument tracks.
   const seconds = Math.max(...active.map(track => track.start + track.audio.duration));
-  if (seconds < 4) throw new Error('Il mix deve durare almeno 4 secondi.');
-  if (seconds > MAX_SECONDS) throw new Error('Il mix supera 10 minuti. Riduci la durata o gli offset.');
+  if (seconds < 4 || seconds > MAX_SECONDS) throw new Error('Durata mix non valida (4-600 secondi).');
   const offline = new OfflineAudioContext(2, Math.ceil(seconds * SAMPLE_RATE), SAMPLE_RATE);
   for (const track of active) {
     const source = offline.createBufferSource();
     const volume = offline.createGain();
-    const start = track.start;
+    const at = track.start;
     const fade = Math.min(0.015, track.audio.duration / 4);
     const level = track.volume / 100;
     source.buffer = track.audio;
-    volume.gain.setValueAtTime(0, start);
-    volume.gain.linearRampToValueAtTime(level, start + fade);
-    volume.gain.setValueAtTime(level, start + track.audio.duration - fade);
-    volume.gain.linearRampToValueAtTime(0, start + track.audio.duration);
+    volume.gain.setValueAtTime(0, at);
+    volume.gain.linearRampToValueAtTime(level, at + fade);
+    volume.gain.setValueAtTime(level, at + track.audio.duration - fade);
+    volume.gain.linearRampToValueAtTime(0, at + track.audio.duration);
     source.connect(volume);
     volume.connect(offline.destination);
-    source.start(start);
+    source.start(at);
   }
   return encodeWav(await offline.startRendering());
 }
 
 export default function SonaraMultitrackMixer({ onMixReady, onMixInvalidated }: Props) {
   const [tracks, setTracks] = useState<Track[]>([]);
+  const [mode, setMode] = useState<'dj' | 'layers'>('dj');
+  const [transitionSeconds, setTransitionSeconds] = useState(8);
   const [busy, setBusy] = useState<'decode' | 'render' | null>(null);
   const [error, setError] = useState('');
   const [readyUrl, setReadyUrl] = useState('');
@@ -114,7 +170,12 @@ export default function SonaraMultitrackMixer({ onMixReady, onMixInvalidated }: 
   }, []);
 
   const bytes = useMemo(() => tracks.reduce((sum, track) => sum + track.file.size, 0), [tracks]);
-  const duration = useMemo(() => tracks.length ? Math.max(...tracks.map(track => track.start + track.audio.duration)) : 0, [tracks]);
+  const duration = useMemo(() => {
+    if (!tracks.length) return 0;
+    if (mode === 'layers') return Math.max(...tracks.map(track => track.start + track.audio.duration));
+    try { return planDjArrangement(tracks.map(track => ({ id: track.id, duration: track.audio.duration, cue: track.cue, take: track.take, volume: track.volume, muted: track.muted })), transitionSeconds).totalSeconds; }
+    catch { return 0; }
+  }, [tracks, mode, transitionSeconds]);
 
   const invalidate = () => {
     if (renderedUrl.current) URL.revokeObjectURL(renderedUrl.current);
@@ -152,7 +213,7 @@ export default function SonaraMultitrackMixer({ onMixReady, onMixInvalidated }: 
           urls.current.add(url);
           accepted.push({
             id: Date.now() + '-' + Math.random(), file, url, audio: decoded,
-            volume: 100, start: 0, muted: false
+            volume: 100, start: 0, cue: 0, take: Math.min(decoded.duration, 64), muted: false
           });
           currentBytes += file.size;
         } catch {
@@ -173,7 +234,7 @@ export default function SonaraMultitrackMixer({ onMixReady, onMixInvalidated }: 
     if (problems.length) setError(problems.join(' '));
   };
 
-  const change = (id: string, update: Partial<Pick<Track, 'volume' | 'start' | 'muted'>>) => {
+  const change = (id: string, update: Partial<Pick<Track, 'volume' | 'start' | 'cue' | 'take' | 'muted'>>) => {
     invalidate();
     setTracks(previous => previous.map(track => track.id === id ? { ...track, ...update } : track));
   };
@@ -185,13 +246,24 @@ export default function SonaraMultitrackMixer({ onMixReady, onMixInvalidated }: 
     setTracks(previous => previous.filter(item => item.id !== id));
   };
 
+  const move = (id: string, direction: number) => {
+    invalidate();
+    setTracks(previous => {
+      const next = [...previous];
+      const index = next.findIndex(track => track.id === id);
+      const target = index + direction;
+      if (index >= 0 && target >= 0 && target < next.length) [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  };
+
   const create = async () => {
     if (busy || !tracks.length) return;
     invalidate();
     setError('');
     setBusy('render');
     try {
-      const file = await renderMix(tracks);
+      const file = await renderMix(tracks, mode, transitionSeconds);
       if (!mounted.current) return;
       const url = URL.createObjectURL(file);
       renderedUrl.current = url;
@@ -208,7 +280,7 @@ export default function SonaraMultitrackMixer({ onMixReady, onMixInvalidated }: 
     <div className="sonara-remix-multitrack">
       <div className="sonara-multitrack-heading">
         <Layers3 />
-        <div><strong>Multitrack Mixer</strong><small>Unisci fino a 8 brani in un vero mix stereo, poi crea il Remix AI.</small></div>
+        <div><strong>SONARA DJ Mix & Remix</strong><small>Modalità DJ: brani in sequenza e transizioni musicali, non sovrapposti integralmente.</small></div>
       </div>
       <div className="sonara-multitrack-drop"
         onDragOver={event => event.preventDefault()}
@@ -220,12 +292,20 @@ export default function SonaraMultitrackMixer({ onMixReady, onMixInvalidated }: 
           onClick={() => fileInput.current?.click()}><Plus /> Aggiungi file audio</button>
         <small>Trascina più file qui · {tracks.length} di 8 tracce · WAV, MP3, FLAC, M4A, OGG</small>
       </div>
+      <div className="sonara-multitrack-modes">
+        <button type="button" data-active={mode === 'dj'} disabled={busy !== null} onClick={() => { invalidate(); setMode('dj'); }}>DJ Mix automatico</button>
+        <button type="button" data-active={mode === 'layers'} disabled={busy !== null} onClick={() => { invalidate(); setMode('layers'); }}>Sovrapponi tracce / stems</button>
+      </div>
+      {mode === 'dj' && <label className="sonara-multitrack-transition">Durata transizione: <strong>{transitionSeconds} secondi</strong>
+        <input type="range" min="2" max="24" step="1" value={transitionSeconds} disabled={busy !== null} onChange={event => { invalidate(); setTransitionSeconds(Number(event.target.value)); }} />
+      </label>}
       <div className="sonara-multitrack-tracks">
         {tracks.map((track, index) => (
           <div className="sonara-multitrack-track" key={track.id}>
             <div className="sonara-multitrack-track-head">
               <strong>{index + 1}. {track.file.name}</strong>
               <span>{stamp(track.audio.duration)}</span>
+              {mode === 'dj' && <><button type="button" disabled={busy !== null || index === 0} title="Sposta prima" onClick={() => move(track.id, -1)}><ArrowUp /></button><button type="button" disabled={busy !== null || index === tracks.length - 1} title="Sposta dopo" onClick={() => move(track.id, 1)}><ArrowDown /></button></>}
               <button type="button" disabled={busy !== null} title="Rimuovi"
                 aria-label={'Rimuovi ' + track.file.name} onClick={() => remove(track.id)}><Trash2 /></button>
             </div>
@@ -235,10 +315,16 @@ export default function SonaraMultitrackMixer({ onMixReady, onMixInvalidated }: 
                 <input type="range" min="0" max="150" step="1" value={track.volume}
                   disabled={busy !== null} onChange={event => change(track.id, { volume: Number(event.target.value) })} />
               </label>
-              <label>Inizio (secondi)
+              {mode === 'layers' ? <label>Inizio (secondi)
                 <input type="number" min="0" max="599" step="0.1" value={track.start}
                   disabled={busy !== null} onChange={event => change(track.id, { start: Math.min(599, Math.max(0, Number(event.target.value) || 0)) })} />
-              </label>
+              </label> : <><label>Punto ingresso (s)
+                <input type="number" min="0" max={Math.max(0, track.audio.duration - 4)} step="0.5" value={track.cue}
+                  disabled={busy !== null} onChange={event => { const cue = Math.max(0, Math.min(track.audio.duration - 4, Number(event.target.value) || 0)); change(track.id, { cue, take: Math.min(track.take, track.audio.duration - cue) }); }} />
+              </label><label>Segmento (s)
+                <input type="number" min="4" max={Math.max(4, Math.min(180, track.audio.duration - track.cue))} step="1" value={Math.round(track.take)}
+                  disabled={busy !== null} onChange={event => change(track.id, { take: Math.max(4, Math.min(180, track.audio.duration - track.cue, Number(event.target.value) || 4)) })} />
+              </label></>}
               <button type="button" data-muted={track.muted} disabled={busy !== null}
                 onClick={() => change(track.id, { muted: !track.muted })}>{track.muted ? 'Riattiva' : 'Mute'}</button>
             </div>
@@ -246,12 +332,12 @@ export default function SonaraMultitrackMixer({ onMixReady, onMixInvalidated }: 
         ))}
       </div>
       <div className="sonara-multitrack-summary"><span>Durata: <strong>{stamp(duration)}</strong></span><span>Dimensioni: <strong>{Math.round(bytes / 1024 / 1024)} MB</strong></span></div>
-      <p className="sonara-multitrack-hint">Regola volume e posizione di ogni file sulla timeline. L'allineamento BPM è manuale. Per includere l'audio di un video YouTube devi caricare un file originale/autorizzato: il link YouTube è solo una reference.</p>
+      <p className="sonara-multitrack-hint">In modalità DJ i brani suonano in sequenza, con incroci brevi e dissolvenze equal-power. Non avviene ancora una sincronizzazione BPM o una separazione delle voci: per brani a tempi molto diversi possono restare stacchi ritmici. Usa solo file che puoi utilizzare legittimamente; i link YouTube sono reference.</p>
       {error && <p className="sonara-multitrack-error" role="alert">{error}</p>}
       <button type="button" className="sonara-multitrack-render" disabled={busy !== null || !tracks.length}
         onClick={() => void create()}>
         {busy ? <LoaderCircle className="sonara-multitrack-spinner" /> : <Layers3 />}
-        {busy === 'decode' ? 'Analisi file…' : busy === 'render' ? 'Creazione del mix reale…' : 'Crea mix WAV e prepara Remix AI'}
+        {busy === 'decode' ? 'Analisi file…' : busy === 'render' ? 'Creazione del mix reale…' : 'Crea DJ Mix completo e prepara Remix AI'}
       </button>
       {readyUrl && <div className="sonara-multitrack-ready">
         <strong>Mix pronto. Ascoltalo, scaricalo o premi Create Remix per generare con ACE-Step.</strong>
@@ -265,6 +351,7 @@ export default function SonaraMultitrackMixer({ onMixReady, onMixInvalidated }: 
         .sonara-multitrack-heading>svg{width:22px;height:22px;color:#a78bfa}
         .sonara-multitrack-heading strong{display:block;font-size:12px;font-weight:800}
         .sonara-multitrack-heading small{display:block;margin-top:3px;color:#9999a7;font-size:10px;line-height:1.4}
+        .sonara-multitrack-modes{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.sonara-multitrack-modes button{min-height:39px;padding:7px;border:1px solid rgba(167,139,250,.18);border-radius:8px;background:#14141d;color:#b8b5c5;font-size:10px;cursor:pointer}.sonara-multitrack-modes button[data-active=true]{background:#4c1d95;color:#fff;border-color:#a78bfa}.sonara-multitrack-transition{display:grid;gap:8px;margin-top:12px;font-size:10px;color:#c4b5fd}.sonara-multitrack-transition input{width:100%;accent-color:#8b5cf6}
         .sonara-multitrack-drop{padding:15px 10px;display:flex;flex-direction:column;align-items:center;gap:8px;border:1px dashed rgba(167,139,250,.3);border-radius:11px;background:#12111b}
         .sonara-multitrack-drop input{display:none}
         .sonara-multitrack-drop>button{min-height:36px;padding:7px 12px;display:flex;align-items:center;gap:7px;border:1px solid rgba(167,139,250,.25);border-radius:8px;background:#272038;color:#e9dcff;font-size:11px;font-weight:800;cursor:pointer}
@@ -278,7 +365,7 @@ export default function SonaraMultitrackMixer({ onMixReady, onMixInvalidated }: 
         .sonara-multitrack-track-head button{height:27px;width:27px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.08);border-radius:7px;background:#24202a;color:#e8bdcd;cursor:pointer}
         .sonara-multitrack-track-head button svg{width:13px}
         .sonara-multitrack-track audio{width:100%;height:30px;margin:8px 0}
-        .sonara-multitrack-controls{display:grid;grid-template-columns:minmax(0,1fr) 105px 60px;align-items:end;gap:9px}
+        .sonara-multitrack-controls{display:flex;flex-wrap:wrap;align-items:end;gap:9px}.sonara-multitrack-controls .sonara-multitrack-volume{flex:1 1 125px}.sonara-multitrack-controls>label:not(.sonara-multitrack-volume){flex:0 1 105px}.sonara-multitrack-controls>button{min-width:60px}
         .sonara-multitrack-controls label{display:flex;flex-direction:column;gap:6px;color:#9999a7;font-size:9px;min-width:0}
         .sonara-multitrack-controls label svg{width:12px;height:12px;display:inline}
         .sonara-multitrack-controls input[type=range]{width:100%;accent-color:#a78bfa}
