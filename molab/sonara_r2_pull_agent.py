@@ -35,7 +35,7 @@ ACE_KEY_FILE = pathlib.Path('/home/marimo/ACE-STEP/.sonara-api-key')
 STATUS_FILE = ROOT / 'relay-agent-status.json'
 REFERENCE_DIR = ROOT / 'references'
 LOCAL_API_AUTH_MODE = os.environ.get('SONARA_LOCAL_API_AUTH_MODE', 'required').strip().lower()
-REVISION = 'sonara-https-agent-guard-v5'
+REVISION = 'sonara-fusion-agent-v6'
 IDLE_POLL_SECONDS = 1
 RESULT_POLL_SECONDS = 1
 GENERATION_TIMEOUT_SECONDS = 1600
@@ -496,6 +496,7 @@ def process(job):
     started = time.monotonic()
     timings = {}
     reference_path = None
+    fusion_paths = []
 
     def progress(stage, **fields):
         publish_status('processing', jobId=job_id, stage=stage,
@@ -503,8 +504,32 @@ def process(job):
 
     try:
         payload = dict(job['payload'])
+        fusion = job.get('fusion') if isinstance(job.get('fusion'), dict) else None
+        if fusion and fusion.get('available') is True:
+            progress('downloading_two_source_audio_files')
+            source_info = fusion.get('source') or {}
+            reference_info = fusion.get('reference') or {}
+            for role, item in (('source', source_info), ('reference', reference_info)):
+                if not isinstance(item, dict):
+                    raise RuntimeError('Invalid fusion input metadata')
+                audio_bytes = request('GET', base + '/fusion/' + role, headers=head, timeout=120)
+                if len(audio_bytes) > 32 * 1024 * 1024:
+                    raise RuntimeError('Fusion source too large')
+                info = {**item, 'filename': role + pathlib.Path(str(item.get('filename') or '.wav')).suffix.lower()}
+                path = store_reference(job_id + '_' + role, audio_bytes, info)
+                fusion_paths.append(path)
+                if role == 'source':
+                    payload['src_audio_path'] = str(path)
+                else:
+                    payload['reference_audio_path'] = str(path)
+            strength = float(fusion.get('strength', .55))
+            payload['audio_cover_strength'] = max(.35, min(.8, strength))
+            payload['task_type'] = 'cover'
+            payload['batch_size'] = 1
+            payload.pop('sonaraAiFusion', None)
+            progress('generative_fusion_ace_step')
         reference = job.get('reference') if isinstance(job.get('reference'), dict) else None
-        if reference and reference.get('available') is True:
+        if reference and not fusion and reference.get('available') is True:
             progress('downloading_reference')
             reference_data = request('GET', base + '/reference', headers=head, timeout=90)
             reference_path = store_reference(job_id, reference_data, reference)
@@ -658,9 +683,9 @@ def process(job):
         except Exception:
             pass
     finally:
-        if reference_path is not None:
+        for source_file in ([reference_path] if reference_path is not None else []) + fusion_paths:
             try:
-                reference_path.unlink(missing_ok=True)
+                source_file.unlink(missing_ok=True)
             except Exception:
                 pass
 
