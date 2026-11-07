@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import SonaraMultitrackMixer from './SonaraMultitrackMixer';
+import SonaraAiFusionComposer from './SonaraAiFusionComposer';
 import {
   AudioWaveform,
   Check,
@@ -165,7 +166,7 @@ export default function SonaraRemixSection() {
   const [open, setOpen] = useState(false);
   const [libraryTracks, setLibraryTracks] = useState<SourceTrack[]>([]);
   const [source, setSource] = useState<SourceTrack | null>(readSelectedTrack);
-  const [sourceTab, setSourceTab] = useState<'library' | 'upload' | 'multitrack'>('library');
+  const [sourceTab, setSourceTab] = useState<'library' | 'upload' | 'multitrack' | 'fusion'>('library');
   const [duration, setDuration] = useState(0);
   const [segmentStart, setSegmentStart] = useState(0);
   const [segmentEnd, setSegmentEnd] = useState(30);
@@ -593,7 +594,8 @@ export default function SonaraRemixSection() {
           <div className="sonara-remix-source-tabs">
             <button type="button" data-active={sourceTab === 'library'} onClick={() => setSourceTab('library')}><Library />Your songs</button>
             <button type="button" data-active={sourceTab === 'upload'} onClick={() => setSourceTab('upload')}><UploadCloud />Upload audio</button>
-            <button type="button" data-active={sourceTab === 'multitrack'} onClick={() => setSourceTab('multitrack')}><AudioWaveform />Multi-track</button>
+            <button type="button" data-active={sourceTab === 'multitrack'} onClick={() => setSourceTab('multitrack')}><AudioWaveform />DJ Mix</button>
+            <button type="button" data-active={sourceTab === 'fusion'} onClick={() => setSourceTab('fusion')}><Sparkles />AI Fusion · 2 songs</button>
           </div>
 
           {sourceTab === 'library' ? (
@@ -611,8 +613,10 @@ export default function SonaraRemixSection() {
               <input ref={uploadRef} type="file" accept="audio/*,.wav,.mp3,.flac,.ogg,.m4a,.aac,.webm" onChange={event => chooseUpload(event.currentTarget.files?.[0])} />
               <UploadCloud /><strong>{source?.file ? source.name : 'Drop or choose an audio file'}</strong><small>WAV, MP3, FLAC, M4A, OGG · max 160 MB</small><button type="button">Choose file</button>
             </div>
-          ) : (
+          ) : sourceTab === 'multitrack' ? (
             <SonaraMultitrackMixer onMixReady={onMultitrackMixReady} onMixInvalidated={onMultitrackMixInvalidated} />
+          ) : (
+            <SonaraAiFusionComposer />
           )}
 
           {source && (

@@ -21,6 +21,8 @@ export function r2TempoVerification(quality = [], trackCount = 0) {
 const PREFIX = 'relay-v1/';
 const REQUIRED_AGENT_REVISION = 'sonara-https-agent-guard-v4';
 const REFERENCE_AGENT_REVISION = 'sonara-https-agent-guard-v5';
+const FUSION_AGENT_REVISION = 'sonara-fusion-agent-v6';
+const MAX_FUSION_SOURCE_BYTES = 32*1024*1024;
 const json = (body, status=200) => new Response(JSON.stringify(body), {status,headers:{'content-type':'application/json','cache-control':'no-store','access-control-allow-origin':'https://sonaraenterprise.com'}});
 const bearer = (r) => r.headers.get('X-Sonara-Relay-Token') || (r.headers.get('Authorization')||'').replace(/^Bearer /i,'');
 // Authorize the notebook's high-entropy machine token by its public fingerprint.
@@ -143,7 +145,7 @@ export default {
  async fetch(request,env,ctx) {
   const url=new URL(request.url),p=url.pathname,b=env.SONARA_AUDIO_BUCKET;
   if(!isService(p)) return null;
-  if(request.method==='OPTIONS') return new Response(null,{status:204,headers:{'access-control-allow-origin':'https://sonaraenterprise.com','access-control-allow-methods':'GET,HEAD,POST,PUT,OPTIONS','access-control-allow-headers':'Content-Type,Range,If-Range,X-Sonara-Internal-Secret,X-Sonara-Relay-Token,Authorization'}});
+  if(request.method==='OPTIONS') return new Response(null,{status:204,headers:{'access-control-allow-origin':'https://sonaraenterprise.com','access-control-allow-methods':'GET,HEAD,POST,PUT,OPTIONS','access-control-allow-headers':'Content-Type,Range,If-Range,X-Sonara-Internal-Secret,X-Sonara-Relay-Token,X-Sonara-Reference-Name,Authorization'}});
   // Read-only authentication probe. No queue claims, storage writes or generation.
   // It works while the public relay switch is off, permitting safe provisioning.
   if(p==='/api/sonara-relay/auth'&&request.method==='GET') {
@@ -154,6 +156,7 @@ export default {
       authenticated:true,
       requiredAgentRevision:REQUIRED_AGENT_REVISION,
       referenceAgentRevision:REFERENCE_AGENT_REVISION,
+      fusionAgentRevision:FUSION_AGENT_REVISION,
       relayEnabled:env.SONARA_R2_RELAY_ENABLED==='true',
       storageConfigured:Boolean(b),
       gatewayConfigured:Boolean(env.SONARA_INTERNAL_PROXY_SECRET)
@@ -186,6 +189,11 @@ export default {
     }
     return json({service:'sonara-relay-queue-status',sampled:list.objects.length,limit:100,truncated:Boolean(list.truncated),agentOnline:heartbeat.online,agentRevision:heartbeat.revision,agentAgeMs:heartbeat.ageMs,counts});
   }
+  if(p==='/api/sonara-relay/fusion-capabilities'&&request.method==='GET'){
+    const heartbeat=await readAgentHeartbeat(b);
+    const v6Ready=heartbeat.online===true&&heartbeat.revision===FUSION_AGENT_REVISION;
+    return json({engine:'sonara-ai-fusion-v1',available:env.SONARA_AI_FUSION_ENABLED==='true'&&env.SONARA_R2_RELAY_ENABLED==='true'&&Boolean(b)&&v6Ready,mode:'dual-audio-generative-conditioning',stemSeparation:false,beatMatching:false,requiredAgentRevision:FUSION_AGENT_REVISION,gpuReady:v6Ready});
+  }
   if(env.SONARA_R2_RELAY_ENABLED!=='true'||!b) return json({error:'SONARA relay not configured'},503);
   // Authenticated browser upload only. The reference stays private in R2 and
   // cannot trigger generation on its own; billing still authorizes/enqueues the job.
@@ -216,8 +224,34 @@ export default {
     let payload;try{payload=JSON.parse(raw);}catch{return json({error:'Invalid JSON'},400);}
     if(!payload||typeof payload!=='object'||Array.isArray(payload))return json({error:'Invalid payload'},400);
     let reference=null;
+    let fusion=null;
+    const fusionSpec=payload.sonaraAiFusion;
+    if(fusionSpec!==undefined){
+      if(env.SONARA_AI_FUSION_ENABLED!=='true')return json({error:'SONARA AI Fusion non ancora attivo sul relay.'},503);
+      if(!fusionSpec||typeof fusionSpec!=='object'||Array.isArray(fusionSpec)||fusionSpec.version!==1)return json({error:'Fusion spec non valida'},400);
+      const sourceId=String(fusionSpec.sourceReferenceId||'').trim();
+      const styleId=String(fusionSpec.styleReferenceId||'').trim();
+      if(!validReference(sourceId)||!validReference(styleId)||sourceId===styleId)return json({error:'Seleziona due sorgenti audio differenti'},400);
+      const resolveOwned=async id=>{
+        const stored=await b.get(referenceMetaKey(id));
+        let meta=null;try{meta=stored?await stored.json():null;}catch{}
+        if(!meta||meta.ownerUid!==owner||Number(meta.expiresAt||0)<Date.now())return null;
+        const obj=await b.head(String(meta.objectKey||''));
+        if(!obj||obj.size<=0||obj.size>MAX_FUSION_SOURCE_BYTES)return null;
+        return {id,objectKey:meta.objectKey,filename:meta.filename||'source.wav',contentType:meta.contentType||'audio/wav'};
+      };
+      const [primary,secondary]=await Promise.all([resolveOwned(sourceId),resolveOwned(styleId)]);
+      if(!primary||!secondary)return json({error:'Sorgenti AI Fusion scadute, troppo grandi o non autorizzate'},404);
+      const strength=Number(fusionSpec.structureStrength);
+      fusion={source:primary,reference:secondary,strength:Number.isFinite(strength)?Math.min(.8,Math.max(.35,strength)):.55};
+      payload.batch_size=1;
+      payload.candidateCount=1;
+      payload.task_type='cover';
+      payload.audio_cover_strength=fusion.strength;
+      payload.sonaraAiFusionMode='dual-audio-cover-v1';
+    }
     const referenceId=String(payload.sonaraInstrumentReferenceId||'').trim();
-    if(referenceId) {
+    if(referenceId&&!fusion) {
       if(!validReference(referenceId))return json({error:'Invalid reference ID'},400);
       const metaObject=await b.get(referenceMetaKey(referenceId));
       let meta=null;try{meta=metaObject?await metaObject.json():null;}catch{}
@@ -229,7 +263,7 @@ export default {
       reference={id:referenceId,objectKey:meta.objectKey,contentType:meta.contentType||'audio/wav',filename:meta.filename||'sonara-instrument-reference.wav',influence};
     }
     const id='sr2_'+crypto.randomUUID(),now=Date.now();
-    const record={id,ownerUid:owner,status:'QUEUED',createdAt:now,updatedAt:now,leaseUntil:0,attempts:0,payload,reference,files:[],error:null};
+    const record={id,ownerUid:owner,status:'QUEUED',createdAt:now,updatedAt:now,leaseUntil:0,attempts:0,payload,reference,fusion,files:[],error:null};
     await saveRecord(b,id,record);
     await b.put(relayQueueKey(now,id),id,{httpMetadata:{contentType:'text/plain'}});
     return json({jobId:id,status:'PROCESSING',progress:0,provider:'molab',model:'acestep-v15-xl-turbo'},202);
@@ -239,7 +273,7 @@ export default {
     if(!(await hasWorkerAuth(request,env)))return json({error:'Unauthorized'},401);
     if(b)await writeAgentHeartbeat(b,request);
     const agentRevision=request.headers.get('X-Sonara-Agent-Revision')||'';
-    if(agentRevision!==REQUIRED_AGENT_REVISION&&agentRevision!==REFERENCE_AGENT_REVISION)
+    if(agentRevision!==REQUIRED_AGENT_REVISION&&agentRevision!==REFERENCE_AGENT_REVISION&&agentRevision!==FUSION_AGENT_REVISION)
       return json({jobId:null,agentUpdateRequired:true,requiredAgentRevision:REQUIRED_AGENT_REVISION,referenceAgentRevision:REFERENCE_AGENT_REVISION});
     const now=Date.now();
     let referenceUpdateRequired=false;
@@ -249,12 +283,13 @@ export default {
       const expired=j.status==='LEASED'&&j.leaseUntil<now;
       if(j.status!=='QUEUED'&&!expired)return {state:'discard'};
       if(j.attempts>=3)return {state:'discard'};
-      if(j.reference&&agentRevision!==REFERENCE_AGENT_REVISION)return {state:'reference'};
+      if(j.fusion&&agentRevision!==FUSION_AGENT_REVISION)return {state:'reference'};
+      if(j.reference&&agentRevision!==REFERENCE_AGENT_REVISION&&agentRevision!==FUSION_AGENT_REVISION)return {state:'reference'};
       const lease=crypto.randomUUID();
       const next={...j,status:'LEASED',leaseUntil:now+15*60*1000,leaseId:lease,attempts:j.attempts+1,updatedAt:now};
       const saved=await b.put(key(j.id),JSON.stringify(next),{onlyIf:{etagMatches:obj.etag},httpMetadata:{contentType:'application/json'}});
       if(!saved)return {state:'race'};
-      return {state:'claimed',response:{jobId:j.id,payload:j.payload,leaseId:lease,reference:j.reference?{available:true,contentType:j.reference.contentType,filename:j.reference.filename,influence:j.reference.influence}:null}};
+      return {state:'claimed',response:{jobId:j.id,payload:j.payload,leaseId:lease,reference:j.reference?{available:true,contentType:j.reference.contentType,filename:j.reference.filename,influence:j.reference.influence}:null,fusion:j.fusion?{available:true,source:{filename:j.fusion.source.filename,contentType:j.fusion.source.contentType},reference:{filename:j.fusion.reference.filename,contentType:j.fusion.reference.contentType},strength:j.fusion.strength}:null}};
     };
 
     // New jobs use a tiny timestamp-ordered queue index, so claim time does not
@@ -350,6 +385,13 @@ export default {
     const j=await getRecord(b,id);if(!j)return json({error:'Not found'},404);
     const lease=request.headers.get('X-Sonara-Lease');
     if(j.status!=='LEASED'||!lease||lease!==j.leaseId)return json({error:'Lease mismatch'},409);
+    if(action==='fusion'&&request.method==='GET'&&(parts[2]==='source'||parts[2]==='reference')){
+      const selected=parts[2]==='source'?j.fusion?.source:j.fusion?.reference;
+      if(!selected?.objectKey)return json({error:'Fusion audio not found'},404);
+      const obj=await b.get(selected.objectKey);
+      if(!obj)return json({error:'Fusion audio not found'},404);
+      return new Response(obj.body,{status:200,headers:{'content-type':selected.contentType||'application/octet-stream','content-length':String(obj.size),'cache-control':'private, no-store'}});
+    }
     if(action==='reference'&&request.method==='GET') {
       if(!j.reference?.objectKey)return json({error:'Reference not found'},404);
       const obj=await b.get(j.reference.objectKey);
@@ -376,16 +418,20 @@ export default {
       if(Array.isArray(completion?.quality))j.quality=completion.quality.slice(0,2);
       if(typeof completion?.rankingVersion==='string')j.rankingVersion=completion.rankingVersion.slice(0,80);
       const reference=j.reference;
-      j.status='COMPLETE';j.leaseUntil=0;j.updatedAt=Date.now();delete j.payload;delete j.leaseId;delete j.reference;
+      const fusion=j.fusion;
+      j.status='COMPLETE';j.leaseUntil=0;j.updatedAt=Date.now();delete j.payload;delete j.leaseId;delete j.reference;delete j.fusion;
       await saveRecord(b,id,j);
       if(reference?.objectKey)await Promise.all([b.delete(reference.objectKey),b.delete(referenceMetaKey(reference.id))]).catch(()=>undefined);
+      if(fusion)await Promise.all([fusion.source,fusion.reference].flatMap(item=>[b.delete(item.objectKey),b.delete(referenceMetaKey(item.id))])).catch(()=>undefined);
       return json({ok:true});
     }
     if(action==='fail'&&request.method==='POST') {
       const reference=j.reference;
-      j.status='FAILED';j.error='Generazione MoLab non riuscita';j.leaseUntil=0;j.updatedAt=Date.now();delete j.payload;delete j.leaseId;delete j.reference;
+      const fusion=j.fusion;
+      j.status='FAILED';j.error='Generazione MoLab non riuscita';j.leaseUntil=0;j.updatedAt=Date.now();delete j.payload;delete j.leaseId;delete j.reference;delete j.fusion;
       await saveRecord(b,id,j);
       if(reference?.objectKey)await Promise.all([b.delete(reference.objectKey),b.delete(referenceMetaKey(reference.id))]).catch(()=>undefined);
+      if(fusion)await Promise.all([fusion.source,fusion.reference].flatMap(item=>[b.delete(item.objectKey),b.delete(referenceMetaKey(item.id))])).catch(()=>undefined);
       return json({ok:true});
     }
   }
