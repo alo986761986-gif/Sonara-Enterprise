@@ -156,6 +156,7 @@ export default {
       authenticated:true,
       requiredAgentRevision:REQUIRED_AGENT_REVISION,
       referenceAgentRevision:REFERENCE_AGENT_REVISION,
+      fusionAgentRevision:FUSION_AGENT_REVISION,
       relayEnabled:env.SONARA_R2_RELAY_ENABLED==='true',
       storageConfigured:Boolean(b),
       gatewayConfigured:Boolean(env.SONARA_INTERNAL_PROXY_SECRET)
