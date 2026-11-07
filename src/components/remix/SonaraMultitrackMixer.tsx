@@ -258,6 +258,47 @@ export default function SonaraMultitrackMixer({ onMixReady, onMixInvalidated }: 
         <audio controls src={readyUrl} />
         <a href={readyUrl} download="SONARA-MULTITRACK-MIX.wav"><Download /> Scarica mix WAV</a>
       </div>}
+      <style>{\`
+        .sonara-remix-multitrack{margin:12px 16px 16px;padding:14px;border:1px solid rgba(167,139,250,.19);border-radius:13px;background:#0b0b11;color:#e8e8ed}
+        .sonara-remix-multitrack button,.sonara-remix-multitrack input{font:inherit}
+        .sonara-multitrack-heading{display:flex;align-items:center;gap:10px;margin-bottom:13px}
+        .sonara-multitrack-heading>svg{width:22px;height:22px;color:#a78bfa}
+        .sonara-multitrack-heading strong{display:block;font-size:12px;font-weight:800}
+        .sonara-multitrack-heading small{display:block;margin-top:3px;color:#9999a7;font-size:10px;line-height:1.4}
+        .sonara-multitrack-drop{padding:15px 10px;display:flex;flex-direction:column;align-items:center;gap:8px;border:1px dashed rgba(167,139,250,.3);border-radius:11px;background:#12111b}
+        .sonara-multitrack-drop input{display:none}
+        .sonara-multitrack-drop>button{min-height:36px;padding:7px 12px;display:flex;align-items:center;gap:7px;border:1px solid rgba(167,139,250,.25);border-radius:8px;background:#272038;color:#e9dcff;font-size:11px;font-weight:800;cursor:pointer}
+        .sonara-multitrack-drop>button svg,.sonara-multitrack-render svg,.sonara-multitrack-ready a svg{width:15px;height:15px}
+        .sonara-multitrack-drop>small{color:#9999a7;font-size:9px;text-align:center}
+        .sonara-multitrack-tracks{display:grid;gap:10px;margin-top:12px;max-height:490px;overflow:auto}
+        .sonara-multitrack-track{padding:10px;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:#14141c}
+        .sonara-multitrack-track-head{display:flex;align-items:center;gap:9px;min-width:0}
+        .sonara-multitrack-track-head strong{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px}
+        .sonara-multitrack-track-head span{color:#a7a7b2;font-size:9px}
+        .sonara-multitrack-track-head button{height:27px;width:27px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.08);border-radius:7px;background:#24202a;color:#e8bdcd;cursor:pointer}
+        .sonara-multitrack-track-head button svg{width:13px}
+        .sonara-multitrack-track audio{width:100%;height:30px;margin:8px 0}
+        .sonara-multitrack-controls{display:grid;grid-template-columns:minmax(0,1fr) 105px 60px;align-items:end;gap:9px}
+        .sonara-multitrack-controls label{display:flex;flex-direction:column;gap:6px;color:#9999a7;font-size:9px;min-width:0}
+        .sonara-multitrack-controls label svg{width:12px;height:12px;display:inline}
+        .sonara-multitrack-controls input[type=range]{width:100%;accent-color:#a78bfa}
+        .sonara-multitrack-controls input[type=number]{width:100%;height:30px;padding:4px 6px;border:1px solid rgba(255,255,255,.1);border-radius:6px;background:#0b0b12;color:#fff;font-size:10px}
+        .sonara-multitrack-controls>button{height:30px;border:1px solid rgba(255,255,255,.12);border-radius:7px;background:#24232f;color:#ccc8e3;font-size:9px;cursor:pointer}
+        .sonara-multitrack-controls>button[data-muted=true]{background:#5f293a;color:#fff}
+        .sonara-multitrack-summary{display:flex;justify-content:space-between;gap:10px;margin-top:13px;color:#9999a7;font-size:10px}
+        .sonara-multitrack-summary strong{color:#e8e8ef}
+        .sonara-multitrack-hint{color:#9292a0;font-size:10px;line-height:1.55;margin:10px 0}
+        .sonara-multitrack-error{color:#fca5a5;font-size:10px;line-height:1.55}
+        .sonara-multitrack-render{width:100%;min-height:44px;display:flex;align-items:center;justify-content:center;gap:8px;border:1px solid rgba(196,181,253,.27);border-radius:9px;background:linear-gradient(100deg,#6d28d9,#4338ca);color:#fff;font-size:11px;font-weight:800;cursor:pointer}
+        .sonara-multitrack-render:disabled,.sonara-multitrack-drop>button:disabled{opacity:.45;cursor:not-allowed}
+        .sonara-multitrack-ready{display:grid;gap:9px;margin-top:12px;padding:11px;border:1px solid rgba(52,211,153,.24);border-radius:10px;background:rgba(5,150,105,.05)}
+        .sonara-multitrack-ready strong{font-size:10px;line-height:1.45}
+        .sonara-multitrack-ready audio{width:100%}
+        .sonara-multitrack-ready a{display:flex;align-items:center;justify-content:center;gap:7px;padding:9px;border:1px solid rgba(52,211,153,.17);border-radius:7px;background:rgba(5,150,105,.12);color:#b8f7d9;text-decoration:none;font-size:10px;font-weight:800}
+        .sonara-multitrack-spinner{animation:sonara-multitrack-spin .8s linear infinite}
+        @keyframes sonara-multitrack-spin{to{transform:rotate(360deg)}}
+        @media(max-width:640px){.sonara-multitrack-controls{grid-template-columns:minmax(0,1fr) 95px}.sonara-multitrack-controls>button{grid-column:1/-1}}
+      \`}</style>
     </div>
   );
 }
