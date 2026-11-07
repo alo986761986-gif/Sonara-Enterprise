@@ -23,7 +23,6 @@ import {
   type StoredGeneratedAsset
 } from '../../services/generatedAssetVault';
 
-const API_ORIGIN = 'https://api.sonaraenterprise.com';
 const MIN_SEGMENT_SECONDS = 4;
 const MAX_REMIX_SECONDS = 600;
 const WAVE_BARS = 148;
@@ -468,61 +467,6 @@ export default function SonaraRemixSection() {
     return { file: null, url: source.url };
   };
 
-  const pollJob = async (jobId: string, slot: number, token: number): Promise<RemixOutput[]> => {
-    for (let attempt = 0; attempt < 240; attempt += 1) {
-      if (generationTokenRef.current !== token) throw new Error('Generazione annullata.');
-      const response = await fetch(`${API_ORIGIN}/api/studio/job/${encodeURIComponent(jobId)}`, { cache: 'no-store' });
-      let data: StudioJob = {};
-      try { data = await response.json(); } catch { /* handled below */ }
-      setProgress(current => {
-        const next = [...current];
-        next[slot] = clamp(Number(data.progress || 0), 0, 100);
-        return next;
-      });
-      if (data.status === 'COMPLETED' && data.outputs?.length) return data.outputs;
-      if (!response.ok || data.status === 'FAILED' || data.status === 'NOT_FOUND') {
-        throw new Error(data.error || `Remix ${slot + 1} non riuscito.`);
-      }
-      await sleep(1800);
-    }
-    throw new Error(`Timeout Remix ${slot + 1}.`);
-  };
-
-  const submitRemix = async (slot: number, prepared: { file: File | null; url: string }, token: number) => {
-    const form = new FormData();
-    if (prepared.file) form.set('src_audio', prepared.file, prepared.file.name || 'sonara-remix-source.wav');
-    else if (prepared.url) form.set('sourceAudioUrl', prepared.url);
-    else throw new Error('Sorgente audio non disponibile.');
-
-    const lyricInstruction = lyricsMode === 'instrumental'
-      ? 'Instrumental only. Do not generate vocals.'
-      : lyricsMode === 'custom' && lyrics.trim()
-        ? `Use these lyrics faithfully while adapting phrasing naturally: ${lyrics.trim()}`
-        : 'Preserve or intelligently reinterpret vocal phrasing only when musically appropriate.';
-    const composedPrompt = `${prompt.trim()} ${lyricInstruction} Prompt influence ${styleInfluence}%. Variation ${slot + 1}: create a distinct, release-ready interpretation while retaining the source musical DNA according to the selected variance.`;
-
-    form.set('prompt', composedPrompt);
-    if (lyricsMode === 'custom') form.set('lyrics', lyrics);
-    form.set('bpm', String(bpm));
-    if (musicalKey.trim()) form.set('key', musicalKey.trim());
-    form.set('durationSec', String(clamp(segmentLength || duration || 30, MIN_SEGMENT_SECONDS, MAX_REMIX_SECONDS)));
-    form.set('influence', preserveStrength.toFixed(3));
-    form.set('audio_cover_strength', preserveStrength.toFixed(3));
-    form.set('coverNoiseStrength', remixNoise.toFixed(3));
-    form.set('cover_noise_strength', remixNoise.toFixed(3));
-
-    const response = await fetch(`${API_ORIGIN}/api/studio/cover`, { method: 'POST', body: form });
-    let data: StudioJob = {};
-    try { data = await response.json(); } catch { /* handled below */ }
-    if (!response.ok || !data.jobId) throw new Error(data.error || `Impossibile avviare Remix ${slot + 1}.`);
-    setProgress(current => {
-      const next = [...current];
-      next[slot] = 2;
-      return next;
-    });
-    return pollJob(data.jobId, slot, token);
-  };
-
   const generateThroughR2 = async (token: number) => {
     const prepared = await makeSourceForGeneration();
     let uploadFile = prepared.file;
@@ -641,7 +585,7 @@ export default function SonaraRemixSection() {
     const token = generationTokenRef.current + 1;
     generationTokenRef.current = token;
     setGenerating(true);
-    setProgress(Array.from({ length: outputCount }, () => 0));
+    setProgress([0]);
     setOutputs([]);
     setError('');
     setNotice('SONARA sta creando il Remix con il motore audio reale.');
@@ -652,16 +596,7 @@ export default function SonaraRemixSection() {
         return;
       }
       throw new Error('Il Remix tramite Cloudflare R2 non è ancora attivo sulla GPU. Aggiorna l’agente MoLab alla revisione Remix v6. Evito il vecchio collegamento che genera "Network connection lost".');
-      const prepared = await makeSourceForGeneration();
-      const tasks = Array.from({ length: outputCount }, (_, index) => submitRemix(index, prepared, token));
-      const settled = await Promise.allSettled(tasks);
-      if (generationTokenRef.current !== token) return;
-      const successful = settled.flatMap(result => result.status === 'fulfilled' ? result.value : []);
-      const failures = settled.filter(result => result.status === 'rejected') as PromiseRejectedResult[];
-      setOutputs(successful.map((output, index) => ({ ...output, label: outputCount > 1 ? `Remix ${index + 1}` : output.label || 'Remix' })));
-      if (!successful.length) throw new Error(failures[0]?.reason instanceof Error ? failures[0].reason.message : 'La generazione Remix non è riuscita.');
-      setNotice(successful.length === outputCount ? `${successful.length} Remix completati.` : `${successful.length} Remix completati; una variante non è riuscita.`);
-      if (failures.length && successful.length) setError(failures[0]?.reason instanceof Error ? failures[0].reason.message : 'Una variante non è riuscita.');
+
     } catch (generationError) {
       if (generationTokenRef.current === token) setError(generationError instanceof Error ? generationError.message : String(generationError));
     } finally {
@@ -809,18 +744,19 @@ export default function SonaraRemixSection() {
             <div className="sonara-remix-advanced-grid">
               <label>BPM<input type="number" min={40} max={220} value={bpm} onChange={event => setBpm(clamp(Number(event.target.value) || 124, 40, 220))} /></label>
               <label>KEY<input type="text" value={musicalKey} onChange={event => setMusicalKey(event.target.value)} placeholder="Auto / Am / F#" /></label>
-              <label>VERSIONS<div className="sonara-remix-count"><button type="button" data-active={outputCount === 1} onClick={() => setOutputCount(1)}>1</button><button type="button" data-active={outputCount === 2} onClick={() => setOutputCount(2)}>2</button></div></label>
+              <label>VERSIONS<div className="sonara-remix-count"><button type="button" data-active={outputCount === 1} onClick={() => setOutputCount(1)}>1</button><button type="button" disabled title="La modalità GPU R2 crea un nuovo brano alla volta" data-active={false}>2</button></div></label>
               <label>ENGINE<div className="sonara-remix-readonly">XL TURBO</div></label>
             </div>
           )}
 
+          {remixR2Ready !== true && <div className="sonara-remix-message is-error">{remixR2Ready === null ? 'Verifica collegamento Remix R2 in corso…' : 'Remix AI non attivo: il relay richiede l’agente GPU v6. La generazione musicale normale resta indipendente.'}</div>}
           {(notice || error) && <div className={`sonara-remix-message ${error ? 'is-error' : ''}`}>{error || notice}</div>}
 
           <div className="sonara-remix-generate-wrap">
             {generating && <div className="sonara-remix-progress-list">{progress.map((value, index) => <div key={index}><span>REMIX {index + 1}</span><i><b style={{ width: `${value}%` }} /></i><strong>{Math.round(value)}%</strong></div>)}</div>}
-            <button type="button" className="sonara-remix-generate" disabled={!source || generating || segmentLength < MIN_SEGMENT_SECONDS} onClick={() => void generate()}>
+            <button type="button" className="sonara-remix-generate" disabled={!source || generating || segmentLength < MIN_SEGMENT_SECONDS || remixR2Ready !== true} onClick={() => void generate()}>
               {generating ? <LoaderCircle className="sonara-spin" /> : <WandSparkles />}
-              <span><strong>{generating ? 'Creating remix…' : `Create ${outputCount === 2 ? '2 remixes' : 'remix'}`}</strong><small>{source ? `${formatTime(segmentLength)} selected · ${Math.round(preserveStrength * 100)}% source DNA` : 'Choose a source track first'}</small></span>
+              <span><strong>{generating ? 'Creating remix…' : 'Create remix'}</strong><small>{source ? `${formatTime(segmentLength)} selected · ${Math.round(preserveStrength * 100)}% source DNA` : 'Choose a source track first'}</small></span>
             </button>
           </div>
         </section>
