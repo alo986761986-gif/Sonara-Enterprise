@@ -13,6 +13,10 @@ on:
       - "cloudflare/sonara-audio-quality-engine.mjs"
       - "cloudflare/sonara-r2-generation-profile.mjs"
       - "cloudflare/sonara-studio-ai-router.mjs"
+      - "cloudflare/sonara-remix-r2.test.mjs"
+      - "cloudflare/sonara-molab-xl-router.mjs"
+      - "molab/sonara_r2_pull_agent.py"
+      - "molab/sonara_r2_install.py"
       - "cloudflare/sonara-five-pillars.test.mjs"
 
 permissions:
@@ -41,6 +45,9 @@ jobs:
 
       - name: Validate old and new notebook relay pairing before deployment
         run: node --test cloudflare/sonara-r2-https-relay.test.mjs
+
+      - name: Validate Remix R2 owner, v6 GPU heartbeat and secure source download
+        run: node --test cloudflare/sonara-remix-r2.test.mjs
 
       - name: Verify exact BPM request contracts
         run: node --test cloudflare/sonara-r2-bpm-lock.test.mjs
