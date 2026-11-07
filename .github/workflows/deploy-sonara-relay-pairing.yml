@@ -42,6 +42,9 @@ jobs:
       - name: Validate old and new notebook relay pairing before deployment
         run: node --test cloudflare/sonara-r2-https-relay.test.mjs
 
+      - name: Validate dual-source AI Fusion gate and agent v6 handshake
+        run: node --test cloudflare/sonara-ai-fusion.test.mjs
+
       - name: Verify exact BPM request contracts
         run: node --test cloudflare/sonara-r2-bpm-lock.test.mjs
 
