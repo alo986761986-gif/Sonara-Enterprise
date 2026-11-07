@@ -209,16 +209,25 @@ export default function SonaraRemixSection() {
       for (const project of projects.slice(0, 30)) {
         const asset = audioAsset(project);
         if (!asset) continue;
+        // Prefer the permanently stored local Blob over potentially dead,
+        // expiring MoLab-origin URLs. Keep the file available for multipart
+        // upload to Studio AI even if the origin later returns HTTP 523.
+        const cachedBlob = asset.blob && asset.blob.size > 0 && asset.blob.size <= 160 * 1024 * 1024 ? asset.blob : null;
         let url = asset.remoteUrl || '';
-        if (!url && asset.blob) {
-          url = URL.createObjectURL(asset.blob);
+        let localFile: File | undefined;
+        if (cachedBlob) {
+          url = URL.createObjectURL(cachedBlob);
           libraryObjectUrlsRef.current.push(url);
+          localFile = new File([cachedBlob], asset.name || 'sonara-archived-audio.wav', {
+            type: cachedBlob.type || asset.mimeType || 'audio/wav'
+          });
         }
         if (!url) continue;
         tracks.push({
           id: `${project.id}-${asset.id}`,
           name: project.title || asset.name || asset.label || 'SONARA track',
           url,
+          file: localFile,
           bpm: project.bpm,
           key: project.keySignature,
           durationSec: project.durationSec

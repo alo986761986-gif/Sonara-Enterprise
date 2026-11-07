@@ -1,4 +1,5 @@
 import runtime from './sonara-quality-gated-router.mjs';
+import { fetchAllowedAudio } from './sonara-studio-audio-resolver.mjs';
 import { analyzeAudioCandidate, rankQualityReports } from './sonara-audio-quality-engine.mjs';
 export { SonaraJobState } from './sonara-quality-gated-router.mjs';
 
@@ -175,26 +176,6 @@ function proxyPathFromUrl(value) {
   return '';
 }
 
-async function fetchAllowedAudio(value) {
-  const text = clean(value);
-  if (!text) return null;
-  let url;
-  try { url = new URL(text, PUBLIC_API_ORIGIN); }
-  catch { throw new Error('URL audio non valido.'); }
-  if (!ALLOWED_AUDIO_HOSTS.has(url.hostname)) throw new Error('Per sicurezza SONARA Studio accetta URL audio solo dai domini SONARA/MoLab. Carica il file per altre sorgenti.');
-  const response = await fetch(url.toString(), {
-    headers: { Accept: 'audio/wav,audio/*;q=0.9,*/*;q=0.1' },
-    signal: AbortSignal.timeout(AUDIO_TIMEOUT)
-  });
-  if (!response.ok) throw new Error(`Impossibile leggere l'audio sorgente (HTTP ${response.status}).`);
-  const declared = Number(response.headers.get('content-length') || 0);
-  if (declared > MAX_UPLOAD_BYTES) throw new Error('Audio troppo grande per SONARA Studio.');
-  const blob = await response.blob();
-  if (!blob.size) throw new Error('Audio sorgente vuoto.');
-  if (blob.size > MAX_UPLOAD_BYTES) throw new Error('Audio troppo grande per SONARA Studio.');
-  const extension = /mpeg|mp3/i.test(blob.type) ? 'mp3' : /flac/i.test(blob.type) ? 'flac' : /ogg/i.test(blob.type) ? 'ogg' : 'wav';
-  return { blob, filename: `sonara-source.${extension}`, type: blob.type || 'audio/wav' };
-}
 
 async function readStudioRequest(request) {
   const contentType = clean(request.headers.get('content-type')).toLowerCase();
@@ -224,7 +205,7 @@ function pickFile(files, names) {
   return null;
 }
 
-async function resolveInput(body, files, kind) {
+async function resolveInput(body, files, kind, env, ctx) {
   const isReference = kind === 'reference';
   const file = pickFile(files, isReference
     ? ['reference_audio', 'referenceAudio', 'reference', 'voice_reference']
@@ -242,7 +223,7 @@ async function resolveInput(body, files, kind) {
   if (!urlValue) return null;
   const proxyPath = proxyPathFromUrl(urlValue);
   if (proxyPath) return { path: proxyPath };
-  return fetchAllowedAudio(urlValue);
+  return fetchAllowedAudio(urlValue, env, ctx);
 }
 
 function commonPayload(body = {}, model = PRIMARY_MODEL) {
@@ -461,15 +442,15 @@ async function padWavInputToDuration(input, targetDurationSec) {
   return { ...input, blob: new Blob([output], { type: 'audio/wav' }), filename: 'sonara-extend-source.wav', type: 'audio/wav' };
 }
 
-async function createStudioJob(request, env, operation) {
+async function createStudioJob(request, env, operation, ctx) {
   if (!allowedStudioRequest(request)) return json(request, { error: 'Origin non autorizzata per SONARA Studio.' }, 403);
   const baseUrl = molabUrl(env);
   if (!baseUrl) return json(request, { error: 'MoLab non configurato.' }, 503);
 
   try {
     const { body, files } = await readStudioRequest(request);
-    const sourceInput = await resolveInput(body, files, 'source');
-    const referenceInput = await resolveInput(body, files, 'reference');
+    const sourceInput = await resolveInput(body, files, 'source', env, ctx);
+    const referenceInput = await resolveInput(body, files, 'reference', env, ctx);
     const bpm = Math.round(clamp(body.bpm ?? body.requestedBpm, 124, BPM_MIN, BPM_MAX));
     const key = clean(body.key || body.key_scale || body.keySignature);
     const tasks = [];
@@ -986,7 +967,7 @@ export default {
       '/api/studio/repair': 'repair'
     };
     if (request.method === 'POST' && operations[url.pathname]) {
-      return createStudioJob(request, env, operations[url.pathname]);
+      return createStudioJob(request, env, operations[url.pathname], ctx);
     }
 
     let response = await runtime.fetch(request, env, ctx);
