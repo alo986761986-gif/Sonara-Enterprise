@@ -1,0 +1,30 @@
+name: Test SONARA Two-Song AI Fusion
+
+on:
+  pull_request:
+    paths:
+      - 'cloudflare/sonara-r2-https-relay.mjs'
+      - 'cloudflare/sonara-ai-fusion.test.mjs'
+      - 'cloudflare/sonara-molab-xl-router.mjs'
+      - 'molab/sonara_r2_pull_agent.py'
+      - 'molab/sonara_r2_install.py'
+      - 'src/components/remix/**'
+      - '.github/workflows/test-sonara-ai-fusion.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify dual audio gate, authorization and private source flow
+        run: node --test cloudflare/sonara-ai-fusion.test.mjs cloudflare/sonara-r2-https-relay.test.mjs
+      - name: Verify new GPU agent and installer syntax
+        run: python3 -m py_compile molab/sonara_r2_pull_agent.py molab/sonara_r2_install.py
