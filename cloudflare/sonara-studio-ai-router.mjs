@@ -176,7 +176,7 @@ function proxyPathFromUrl(value) {
   return '';
 }
 
-async function fetchAllowedAudio(value, env, ctx) {
+export async function fetchAllowedAudio(value, env, ctx) {
   const text = clean(value);
   if (!text) return null;
   let url;
