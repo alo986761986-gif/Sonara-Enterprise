@@ -35,7 +35,7 @@ ACE_KEY_FILE = pathlib.Path('/home/marimo/ACE-STEP/.sonara-api-key')
 STATUS_FILE = ROOT / 'relay-agent-status.json'
 REFERENCE_DIR = ROOT / 'references'
 LOCAL_API_AUTH_MODE = os.environ.get('SONARA_LOCAL_API_AUTH_MODE', 'required').strip().lower()
-REVISION = 'sonara-https-agent-guard-v5'
+REVISION = 'sonara-remix-r2-agent-v6'
 IDLE_POLL_SECONDS = 1
 RESULT_POLL_SECONDS = 1
 GENERATION_TIMEOUT_SECONDS = 1600
@@ -496,6 +496,7 @@ def process(job):
     started = time.monotonic()
     timings = {}
     reference_path = None
+    remix_source_path = None
 
     def progress(stage, **fields):
         publish_status('processing', jobId=job_id, stage=stage,
@@ -503,8 +504,19 @@ def process(job):
 
     try:
         payload = dict(job['payload'])
+        remix_source = job.get('remixSource') if isinstance(job.get('remixSource'), dict) else None
+        if remix_source and remix_source.get('available') is True:
+            progress('downloading_remix_source')
+            data = request('GET', base + '/remix-source', headers=head, timeout=120)
+            if len(data) > 80 * 1024 * 1024:
+                raise RuntimeError('Remix source exceeds 80MiB')
+            remix_source_path = store_reference(job_id + '_remix', data, remix_source)
+            payload['src_audio_path'] = str(remix_source_path)
+            payload['task_type'] = 'cover'
+            payload['batch_size'] = 1
+            payload.pop('sonaraRemixSourceId', None)
         reference = job.get('reference') if isinstance(job.get('reference'), dict) else None
-        if reference and reference.get('available') is True:
+        if reference and not remix_source and reference.get('available') is True:
             progress('downloading_reference')
             reference_data = request('GET', base + '/reference', headers=head, timeout=90)
             reference_path = store_reference(job_id, reference_data, reference)
@@ -658,11 +670,12 @@ def process(job):
         except Exception:
             pass
     finally:
-        if reference_path is not None:
-            try:
-                reference_path.unlink(missing_ok=True)
-            except Exception:
-                pass
+        for source_file in (reference_path, remix_source_path):
+            if source_file is not None:
+                try:
+                    source_file.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
 def cycle():
     ready = inspect_readiness()

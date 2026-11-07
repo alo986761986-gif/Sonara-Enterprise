@@ -23,7 +23,6 @@ import {
   type StoredGeneratedAsset
 } from '../../services/generatedAssetVault';
 
-const API_ORIGIN = 'https://api.sonaraenterprise.com';
 const MIN_SEGMENT_SECONDS = 4;
 const MAX_REMIX_SECONDS = 600;
 const WAVE_BARS = 148;
@@ -166,6 +165,7 @@ export default function SonaraRemixSection() {
   const [libraryTracks, setLibraryTracks] = useState<SourceTrack[]>([]);
   const [source, setSource] = useState<SourceTrack | null>(readSelectedTrack);
   const [sourceTab, setSourceTab] = useState<'library' | 'upload' | 'multitrack'>('library');
+  const [remixR2Ready, setRemixR2Ready] = useState<boolean | null>(null);
   const [duration, setDuration] = useState(0);
   const [segmentStart, setSegmentStart] = useState(0);
   const [segmentEnd, setSegmentEnd] = useState(30);
@@ -179,7 +179,7 @@ export default function SonaraRemixSection() {
   const [lyrics, setLyrics] = useState('');
   const [bpm, setBpm] = useState(124);
   const [musicalKey, setMusicalKey] = useState('');
-  const [outputCount, setOutputCount] = useState<1 | 2>(2);
+  const [outputCount, setOutputCount] = useState<1 | 2>(1);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [progress, setProgress] = useState<number[]>([]);
@@ -291,6 +291,17 @@ export default function SonaraRemixSection() {
       document.querySelectorAll('[data-sonara-remix-entry]').forEach(node => node.remove());
     };
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    setRemixR2Ready(null);
+    fetch('/api/sonara-relay/remix-capabilities', {cache:'no-store'})
+      .then(response => response.ok ? response.json() : {available:false})
+      .then(data => { if(active) setRemixR2Ready(data.available === true); })
+      .catch(() => { if(active) setRemixR2Ready(false); });
+    return () => { active = false; };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -456,59 +467,108 @@ export default function SonaraRemixSection() {
     return { file: null, url: source.url };
   };
 
-  const pollJob = async (jobId: string, slot: number, token: number): Promise<RemixOutput[]> => {
-    for (let attempt = 0; attempt < 240; attempt += 1) {
-      if (generationTokenRef.current !== token) throw new Error('Generazione annullata.');
-      const response = await fetch(`${API_ORIGIN}/api/studio/job/${encodeURIComponent(jobId)}`, { cache: 'no-store' });
-      let data: StudioJob = {};
-      try { data = await response.json(); } catch { /* handled below */ }
-      setProgress(current => {
-        const next = [...current];
-        next[slot] = clamp(Number(data.progress || 0), 0, 100);
-        return next;
-      });
-      if (data.status === 'COMPLETED' && data.outputs?.length) return data.outputs;
-      if (!response.ok || data.status === 'FAILED' || data.status === 'NOT_FOUND') {
-        throw new Error(data.error || `Remix ${slot + 1} non riuscito.`);
+  const generateThroughR2 = async (token: number) => {
+    const prepared = await makeSourceForGeneration();
+    let uploadFile = prepared.file;
+    if (!uploadFile) {
+      if (!decodedBufferRef.current) {
+        throw new Error('Il vecchio collegamento audio non è raggiungibile. Seleziona una copia audio locale nella Libreria oppure carica il file WAV/MP3.');
       }
-      await sleep(1800);
+      uploadFile = segmentToWav(decodedBufferRef.current, segmentStart, segmentEnd, 'SONARA-REMIX-SOURCE.wav');
     }
-    throw new Error(`Timeout Remix ${slot + 1}.`);
-  };
-
-  const submitRemix = async (slot: number, prepared: { file: File | null; url: string }, token: number) => {
-    const form = new FormData();
-    if (prepared.file) form.set('src_audio', prepared.file, prepared.file.name || 'sonara-remix-source.wav');
-    else if (prepared.url) form.set('sourceAudioUrl', prepared.url);
-    else throw new Error('Sorgente audio non disponibile.');
-
-    const lyricInstruction = lyricsMode === 'instrumental'
-      ? 'Instrumental only. Do not generate vocals.'
-      : lyricsMode === 'custom' && lyrics.trim()
-        ? `Use these lyrics faithfully while adapting phrasing naturally: ${lyrics.trim()}`
-        : 'Preserve or intelligently reinterpret vocal phrasing only when musically appropriate.';
-    const composedPrompt = `${prompt.trim()} ${lyricInstruction} Prompt influence ${styleInfluence}%. Variation ${slot + 1}: create a distinct, release-ready interpretation while retaining the source musical DNA according to the selected variance.`;
-
-    form.set('prompt', composedPrompt);
-    if (lyricsMode === 'custom') form.set('lyrics', lyrics);
-    form.set('bpm', String(bpm));
-    if (musicalKey.trim()) form.set('key', musicalKey.trim());
-    form.set('durationSec', String(clamp(segmentLength || duration || 30, MIN_SEGMENT_SECONDS, MAX_REMIX_SECONDS)));
-    form.set('influence', preserveStrength.toFixed(3));
-    form.set('audio_cover_strength', preserveStrength.toFixed(3));
-    form.set('coverNoiseStrength', remixNoise.toFixed(3));
-    form.set('cover_noise_strength', remixNoise.toFixed(3));
-
-    const response = await fetch(`${API_ORIGIN}/api/studio/cover`, { method: 'POST', body: form });
-    let data: StudioJob = {};
-    try { data = await response.json(); } catch { /* handled below */ }
-    if (!response.ok || !data.jobId) throw new Error(data.error || `Impossibile avviare Remix ${slot + 1}.`);
-    setProgress(current => {
-      const next = [...current];
-      next[slot] = 2;
-      return next;
-    });
-    return pollJob(data.jobId, slot, token);
+    if (uploadFile.size > 80 * 1024 * 1024) {
+      throw new Error('Il file sorgente supera 80 MB. Seleziona un estratto più breve (fino a 120 secondi) oppure un MP3.');
+    }
+    setNotice('Upload privato della sorgente a Cloudflare R2…');
+    let uploadResponse;
+    try {
+      uploadResponse = await fetch('/api/sonara-relay/reference', {
+        method:'POST', credentials:'include',
+        headers:{
+          'Content-Type': uploadFile.type.startsWith('audio/') ? uploadFile.type : 'audio/wav',
+          'X-Sonara-Reference-Name': uploadFile.name.slice(0,140)
+        },
+        body:uploadFile
+      });
+    } catch {
+      throw new Error('Connessione a Cloudflare interrotta durante il caricamento. Il Remix non è stato avviato: verifica la rete e riprova.');
+    }
+    const uploaded = await uploadResponse.json().catch(() => ({}));
+    if (!uploadResponse.ok || !/^sref_[0-9a-f-]{36}$/.test(String(uploaded.referenceId||''))) {
+      throw new Error(uploaded.error || 'Impossibile caricare la sorgente audio su R2. Verifica il tuo accesso a SONARA.');
+    }
+    if (generationTokenRef.current !== token) return;
+    const composedPrompt = [
+      prompt.trim(),
+      lyricsMode==='instrumental' ? 'Instrumental only. No vocals.' :
+        lyricsMode==='custom' && lyrics.trim() ? 'Respect these lyrics: '+lyrics.trim() :
+        'Use natural vocals only when appropriate.',
+      'Create one coherent newly generated remix, not an overlay of different full songs.',
+      'BPM '+bpm, musicalKey ? 'Key '+musicalKey : ''
+    ].filter(Boolean).join(' ').slice(0,8000);
+    setNotice('La GPU RTX PRO 6000 sta ricevendo la richiesta Remix tramite relay R2…');
+    let createResponse;
+    try {
+      createResponse = await fetch('/api/billing/generate',{
+        method:'POST', credentials:'include',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          prompt:composedPrompt,rawPrompt:composedPrompt,bpm,
+          key:musicalKey,durationSec:Math.max(30,Math.round(segmentLength || duration || 30)),
+          candidateCount:1,generationProfile:'quality',
+          sonaraRemixSourceId:uploaded.referenceId,
+          audio_cover_strength:preserveStrength,cover_noise_strength:remixNoise
+        })
+      });
+    } catch {
+      throw new Error('Connessione al gateway SONARA interrotta. La sorgente è su R2, ma non è stato possibile confermare l’avvio. Non ripetere subito la richiesta.');
+    }
+    const created = await createResponse.json().catch(()=>({}));
+    if (!createResponse.ok || !/^sr2_[0-9a-f-]{36}$/.test(String(created.jobId||''))) {
+      throw new Error((typeof created.error==='string'?created.error:created.error?.message) || 'Il gateway ha rifiutato il job Remix.');
+    }
+    const jobId = created.jobId as string;
+    // Preserve the identifier through transient network failures: never enqueue a
+    // second billed job simply because the result polling temporarily disconnected.
+    try { sessionStorage.setItem('sonara.remix.activeJob',jobId); } catch { /* optional resilience state */ }
+    setNotice('Remix affidato alla GPU. Job '+jobId.slice(0,12)+'…; la connessione può ripristinarsi senza ricreare il lavoro.');
+    let consecutiveNetworkErrors=0;
+    for(let attempt=0;attempt<320;attempt++){
+      if(generationTokenRef.current!==token)return;
+      let response;
+      try {
+        response=await fetch('/api/billing/job?jobId='+encodeURIComponent(jobId),{credentials:'include',cache:'no-store'});
+        if(response.status===502||response.status===503||response.status===504)throw new Error('Temporary server unavailable');
+      } catch {
+        consecutiveNetworkErrors++;
+        if(consecutiveNetworkErrors>=12) {
+          throw new Error('Connessione temporaneamente persa, ma il Remix potrebbe continuare sulla GPU. Job salvato: '+jobId+'. Riapri Remix per controllare il risultato; non avviare duplicati.');
+        }
+        setNotice('Connessione temporanea interrotta: ripristino del monitoraggio ('+consecutiveNetworkErrors+'/12). Il job è conservato.');
+        await sleep(Math.min(12000,1800*consecutiveNetworkErrors));
+        continue;
+      }
+      const data=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(data?.error?.message||data?.error||'Monitoraggio Remix non disponibile (HTTP '+response.status+'). Job: '+jobId);
+      consecutiveNetworkErrors=0;
+      const progressValue=clamp(Number(data.progress||0),0,100);
+      setProgress([progressValue]);
+      if(data.status==='COMPLETED'){
+        const audioUrl=String(data.audioUrl||data.audioUrls?.[0]||data.candidates?.[0]?.audioUrl||'');
+        if(!audioUrl)throw new Error('La GPU ha completato il job, ma non è disponibile un WAV valido. Job: '+jobId);
+        const output:RemixOutput={id:jobId,label:'Remix AI',audioUrl};
+        setOutputs([output]);
+        try { sessionStorage.removeItem('sonara.remix.activeJob'); } catch { /* optional */ }
+        setNotice('Remix AI completo: ascolta il nuovo brano!');
+        return;
+      }
+      if(data.status==='FAILED'||data.status==='NOT_FOUND'){
+        try { sessionStorage.removeItem('sonara.remix.activeJob'); } catch { /* optional */ }
+        throw new Error(data.error||'Il motore ha segnalato un errore nel Remix.');
+      }
+      await sleep(2500);
+    }
+    throw new Error('Il Remix non ha ancora un risultato. Job salvato: '+jobId+'. Controlla la sessione MoLab e riprova a leggere lo stato.');
   };
 
   const generate = async () => {
@@ -525,22 +585,18 @@ export default function SonaraRemixSection() {
     const token = generationTokenRef.current + 1;
     generationTokenRef.current = token;
     setGenerating(true);
-    setProgress(Array.from({ length: outputCount }, () => 0));
+    setProgress([0]);
     setOutputs([]);
     setError('');
     setNotice('SONARA sta creando il Remix con il motore audio reale.');
 
     try {
-      const prepared = await makeSourceForGeneration();
-      const tasks = Array.from({ length: outputCount }, (_, index) => submitRemix(index, prepared, token));
-      const settled = await Promise.allSettled(tasks);
-      if (generationTokenRef.current !== token) return;
-      const successful = settled.flatMap(result => result.status === 'fulfilled' ? result.value : []);
-      const failures = settled.filter(result => result.status === 'rejected') as PromiseRejectedResult[];
-      setOutputs(successful.map((output, index) => ({ ...output, label: outputCount > 1 ? `Remix ${index + 1}` : output.label || 'Remix' })));
-      if (!successful.length) throw new Error(failures[0]?.reason instanceof Error ? failures[0].reason.message : 'La generazione Remix non è riuscita.');
-      setNotice(successful.length === outputCount ? `${successful.length} Remix completati.` : `${successful.length} Remix completati; una variante non è riuscita.`);
-      if (failures.length && successful.length) setError(failures[0]?.reason instanceof Error ? failures[0].reason.message : 'Una variante non è riuscita.');
+      if (remixR2Ready === true) {
+        await generateThroughR2(token);
+        return;
+      }
+      throw new Error('Il Remix tramite Cloudflare R2 non è ancora attivo sulla GPU. Aggiorna l’agente MoLab alla revisione Remix v6. Evito il vecchio collegamento che genera "Network connection lost".');
+
     } catch (generationError) {
       if (generationTokenRef.current === token) setError(generationError instanceof Error ? generationError.message : String(generationError));
     } finally {
@@ -688,18 +744,19 @@ export default function SonaraRemixSection() {
             <div className="sonara-remix-advanced-grid">
               <label>BPM<input type="number" min={40} max={220} value={bpm} onChange={event => setBpm(clamp(Number(event.target.value) || 124, 40, 220))} /></label>
               <label>KEY<input type="text" value={musicalKey} onChange={event => setMusicalKey(event.target.value)} placeholder="Auto / Am / F#" /></label>
-              <label>VERSIONS<div className="sonara-remix-count"><button type="button" data-active={outputCount === 1} onClick={() => setOutputCount(1)}>1</button><button type="button" data-active={outputCount === 2} onClick={() => setOutputCount(2)}>2</button></div></label>
+              <label>VERSIONS<div className="sonara-remix-count"><button type="button" data-active={outputCount === 1} onClick={() => setOutputCount(1)}>1</button><button type="button" disabled title="La modalità GPU R2 crea un nuovo brano alla volta" data-active={false}>2</button></div></label>
               <label>ENGINE<div className="sonara-remix-readonly">XL TURBO</div></label>
             </div>
           )}
 
+          {remixR2Ready !== true && <div className="sonara-remix-message is-error">{remixR2Ready === null ? 'Verifica collegamento Remix R2 in corso…' : 'Remix AI non attivo: il relay richiede l’agente GPU v6. La generazione musicale normale resta indipendente.'}</div>}
           {(notice || error) && <div className={`sonara-remix-message ${error ? 'is-error' : ''}`}>{error || notice}</div>}
 
           <div className="sonara-remix-generate-wrap">
             {generating && <div className="sonara-remix-progress-list">{progress.map((value, index) => <div key={index}><span>REMIX {index + 1}</span><i><b style={{ width: `${value}%` }} /></i><strong>{Math.round(value)}%</strong></div>)}</div>}
-            <button type="button" className="sonara-remix-generate" disabled={!source || generating || segmentLength < MIN_SEGMENT_SECONDS} onClick={() => void generate()}>
+            <button type="button" className="sonara-remix-generate" disabled={!source || generating || segmentLength < MIN_SEGMENT_SECONDS || remixR2Ready !== true} onClick={() => void generate()}>
               {generating ? <LoaderCircle className="sonara-spin" /> : <WandSparkles />}
-              <span><strong>{generating ? 'Creating remix…' : `Create ${outputCount === 2 ? '2 remixes' : 'remix'}`}</strong><small>{source ? `${formatTime(segmentLength)} selected · ${Math.round(preserveStrength * 100)}% source DNA` : 'Choose a source track first'}</small></span>
+              <span><strong>{generating ? 'Creating remix…' : 'Create remix'}</strong><small>{source ? `${formatTime(segmentLength)} selected · ${Math.round(preserveStrength * 100)}% source DNA` : 'Choose a source track first'}</small></span>
             </button>
           </div>
         </section>

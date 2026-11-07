@@ -1,0 +1,28 @@
+name: Test SONARA Remix R2 Network Recovery
+on:
+  pull_request:
+    paths:
+      - 'cloudflare/sonara-r2-https-relay.mjs'
+      - 'cloudflare/sonara-remix-r2.test.mjs'
+      - 'cloudflare/sonara-molab-xl-router.mjs'
+      - 'molab/sonara_r2_pull_agent.py'
+      - 'molab/sonara_r2_install.py'
+      - 'src/components/remix/SonaraRemixSection.tsx'
+      - 'wrangler.jsonc'
+      - '.github/workflows/test-sonara-remix-r2.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: R2 ownership, revision and lease security
+        run: node --test cloudflare/sonara-remix-r2.test.mjs cloudflare/sonara-r2-https-relay.test.mjs
+      - name: Verify guarded MoLab scripts
+        run: python3 -m py_compile molab/sonara_r2_pull_agent.py molab/sonara_r2_install.py
