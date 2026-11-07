@@ -1,0 +1,22 @@
+name: Test SONARA Remix Audio Origin Recovery
+on:
+  pull_request:
+    paths:
+      - 'cloudflare/sonara-studio-ai-router.mjs'
+      - 'cloudflare/sonara-remix-audio-origin.test.mjs'
+      - 'src/components/remix/SonaraRemixSection.tsx'
+      - '.github/workflows/test-sonara-remix-audio-origin.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify 523 fallback and private signed R2 audio resolution
+        run: node --test cloudflare/sonara-remix-audio-origin.test.mjs
