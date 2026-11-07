@@ -30,13 +30,23 @@ const hasWorkerAuth = async (r,e) => {
   const supplied=bearer(r);
   if(supplied.length<32||supplied.length>512||/[^\x21-\x7e]/.test(supplied))return false;
   if(Boolean(e.SONARA_RELAY_TOKEN)&&supplied===e.SONARA_RELAY_TOKEN)return true;
-  const expected=String(e.SONARA_RELAY_TOKEN_SHA256||'').trim().toLowerCase();
-  if(!/^[0-9a-f]{64}$/.test(expected))return false;
+  // Keep the previous notebook pairing valid during a controlled GPU handoff.
+  // These are only SHA-256 fingerprints of independently generated, high-entropy
+  // local machine credentials. Never put the real relay tokens in source.
+  const authorized=[
+    String(e.SONARA_RELAY_TOKEN_SHA256||'').trim().toLowerCase(),
+    String(e.SONARA_RELAY_TOKEN_SHA256_SECONDARY||'').trim().toLowerCase(),
+  ].filter(value=>/^[0-9a-f]{64}$/.test(value));
+  if(!authorized.length)return false;
   const bytes=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(supplied)));
   const actual=Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
-  let mismatch=0;
-  for(let i=0;i<64;i++)mismatch|=actual.charCodeAt(i)^expected.charCodeAt(i);
-  return mismatch===0;
+  let accepted=0;
+  for(const expected of authorized){
+    let mismatch=0;
+    for(let i=0;i<64;i++)mismatch|=actual.charCodeAt(i)^expected.charCodeAt(i);
+    accepted|=Number(mismatch===0);
+  }
+  return accepted!==0;
 };
 const hasSubmitAuth = (r,e) => Boolean(e.SONARA_INTERNAL_PROXY_SECRET) && r.headers.get('X-Sonara-Internal-Secret')===e.SONARA_INTERNAL_PROXY_SECRET;
 // This metadata is accepted only with the server-side gateway credential.
