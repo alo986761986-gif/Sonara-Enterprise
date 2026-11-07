@@ -21,6 +21,7 @@ export function r2TempoVerification(quality = [], trackCount = 0) {
 const PREFIX = 'relay-v1/';
 const REQUIRED_AGENT_REVISION = 'sonara-https-agent-guard-v4';
 const REFERENCE_AGENT_REVISION = 'sonara-https-agent-guard-v5';
+const REMIX_AGENT_REVISION = 'sonara-remix-r2-agent-v6';
 const json = (body, status=200) => new Response(JSON.stringify(body), {status,headers:{'content-type':'application/json','cache-control':'no-store','access-control-allow-origin':'https://sonaraenterprise.com'}});
 const bearer = (r) => r.headers.get('X-Sonara-Relay-Token') || (r.headers.get('Authorization')||'').replace(/^Bearer /i,'');
 // Authorize the notebook's high-entropy machine token by its public fingerprint.
@@ -154,6 +155,7 @@ export default {
       authenticated:true,
       requiredAgentRevision:REQUIRED_AGENT_REVISION,
       referenceAgentRevision:REFERENCE_AGENT_REVISION,
+      remixAgentRevision:REMIX_AGENT_REVISION,
       relayEnabled:env.SONARA_R2_RELAY_ENABLED==='true',
       storageConfigured:Boolean(b),
       gatewayConfigured:Boolean(env.SONARA_INTERNAL_PROXY_SECRET)
@@ -186,6 +188,11 @@ export default {
     }
     return json({service:'sonara-relay-queue-status',sampled:list.objects.length,limit:100,truncated:Boolean(list.truncated),agentOnline:heartbeat.online,agentRevision:heartbeat.revision,agentAgeMs:heartbeat.ageMs,counts});
   }
+  if(p==='/api/sonara-relay/remix-capabilities'&&request.method==='GET'){
+    const heartbeat=await readAgentHeartbeat(b);
+    const compatible=heartbeat.online&&heartbeat.revision===REMIX_AGENT_REVISION;
+    return json({mode:'remix-cover-r2',available:env.SONARA_REMIX_R2_ENABLED==='true'&&env.SONARA_R2_RELAY_ENABLED==='true'&&Boolean(b)&&compatible,remixAgentRevision:REMIX_AGENT_REVISION,agentOnline:heartbeat.online,agentCompatible:compatible});
+  }
   if(env.SONARA_R2_RELAY_ENABLED!=='true'||!b) return json({error:'SONARA relay not configured'},503);
   // Authenticated browser upload only. The reference stays private in R2 and
   // cannot trigger generation on its own; billing still authorizes/enqueues the job.
@@ -216,8 +223,27 @@ export default {
     let payload;try{payload=JSON.parse(raw);}catch{return json({error:'Invalid JSON'},400);}
     if(!payload||typeof payload!=='object'||Array.isArray(payload))return json({error:'Invalid payload'},400);
     let reference=null;
+    let remixSource=null;
+    const remixSourceId=String(payload.sonaraRemixSourceId||'').trim();
+    if(remixSourceId){
+      if(env.SONARA_REMIX_R2_ENABLED!=='true')return json({error:'Il servizio Remix R2 non è ancora stato attivato.'},503);
+      const beat=await readAgentHeartbeat(b);
+      if(!beat.online||beat.revision!==REMIX_AGENT_REVISION)return json({error:'Il motore Remix sulla RTX PRO 6000 non è ancora collegato. Verifica l’agente v6.'},503);
+      if(!validReference(remixSourceId))return json({error:'ID audio sorgente non valido'},400);
+      const sourceMeta=await b.get(referenceMetaKey(remixSourceId));
+      let meta=null;try{meta=sourceMeta?await sourceMeta.json():null;}catch{}
+      if(!meta||meta.ownerUid!==owner||Number(meta.expiresAt||0)<Date.now())return json({error:'Audio sorgente non trovato, scaduto o non autorizzato'},404);
+      const stored=await b.head(String(meta.objectKey||''));
+      if(!stored||stored.size<=0||stored.size>80*1024*1024)return json({error:'File audio sorgente mancante o troppo grande'},413);
+      remixSource={id:remixSourceId,objectKey:meta.objectKey,filename:meta.filename||'sonara-remix-source.wav',contentType:meta.contentType||'audio/wav'};
+      payload.task_type='cover';
+      payload.batch_size=1;
+      payload.candidateCount=1;
+      payload.audio_cover_strength=Math.max(0.15,Math.min(0.95,Number(payload.audio_cover_strength)||0.68));
+      delete payload.sonaraRemixSourceId;
+    }
     const referenceId=String(payload.sonaraInstrumentReferenceId||'').trim();
-    if(referenceId) {
+    if(referenceId&&!remixSource) {
       if(!validReference(referenceId))return json({error:'Invalid reference ID'},400);
       const metaObject=await b.get(referenceMetaKey(referenceId));
       let meta=null;try{meta=metaObject?await metaObject.json():null;}catch{}
@@ -229,7 +255,7 @@ export default {
       reference={id:referenceId,objectKey:meta.objectKey,contentType:meta.contentType||'audio/wav',filename:meta.filename||'sonara-instrument-reference.wav',influence};
     }
     const id='sr2_'+crypto.randomUUID(),now=Date.now();
-    const record={id,ownerUid:owner,status:'QUEUED',createdAt:now,updatedAt:now,leaseUntil:0,attempts:0,payload,reference,files:[],error:null};
+    const record={id,ownerUid:owner,status:'QUEUED',createdAt:now,updatedAt:now,leaseUntil:0,attempts:0,payload,reference,remixSource,files:[],error:null};
     await saveRecord(b,id,record);
     await b.put(relayQueueKey(now,id),id,{httpMetadata:{contentType:'text/plain'}});
     return json({jobId:id,status:'PROCESSING',progress:0,provider:'molab',model:'acestep-v15-xl-turbo'},202);
@@ -239,7 +265,7 @@ export default {
     if(!(await hasWorkerAuth(request,env)))return json({error:'Unauthorized'},401);
     if(b)await writeAgentHeartbeat(b,request);
     const agentRevision=request.headers.get('X-Sonara-Agent-Revision')||'';
-    if(agentRevision!==REQUIRED_AGENT_REVISION&&agentRevision!==REFERENCE_AGENT_REVISION)
+    if(agentRevision!==REQUIRED_AGENT_REVISION&&agentRevision!==REFERENCE_AGENT_REVISION&&agentRevision!==REMIX_AGENT_REVISION)
       return json({jobId:null,agentUpdateRequired:true,requiredAgentRevision:REQUIRED_AGENT_REVISION,referenceAgentRevision:REFERENCE_AGENT_REVISION});
     const now=Date.now();
     let referenceUpdateRequired=false;
@@ -249,12 +275,13 @@ export default {
       const expired=j.status==='LEASED'&&j.leaseUntil<now;
       if(j.status!=='QUEUED'&&!expired)return {state:'discard'};
       if(j.attempts>=3)return {state:'discard'};
-      if(j.reference&&agentRevision!==REFERENCE_AGENT_REVISION)return {state:'reference'};
+      if(j.remixSource&&agentRevision!==REMIX_AGENT_REVISION)return {state:'reference'};
+      if(j.reference&&agentRevision!==REFERENCE_AGENT_REVISION&&agentRevision!==REMIX_AGENT_REVISION)return {state:'reference'};
       const lease=crypto.randomUUID();
       const next={...j,status:'LEASED',leaseUntil:now+15*60*1000,leaseId:lease,attempts:j.attempts+1,updatedAt:now};
       const saved=await b.put(key(j.id),JSON.stringify(next),{onlyIf:{etagMatches:obj.etag},httpMetadata:{contentType:'application/json'}});
       if(!saved)return {state:'race'};
-      return {state:'claimed',response:{jobId:j.id,payload:j.payload,leaseId:lease,reference:j.reference?{available:true,contentType:j.reference.contentType,filename:j.reference.filename,influence:j.reference.influence}:null}};
+      return {state:'claimed',response:{jobId:j.id,payload:j.payload,leaseId:lease,reference:j.reference?{available:true,contentType:j.reference.contentType,filename:j.reference.filename,influence:j.reference.influence}:null,remixSource:j.remixSource?{available:true,filename:j.remixSource.filename,contentType:j.remixSource.contentType}:null}};
     };
 
     // New jobs use a tiny timestamp-ordered queue index, so claim time does not
@@ -350,6 +377,12 @@ export default {
     const j=await getRecord(b,id);if(!j)return json({error:'Not found'},404);
     const lease=request.headers.get('X-Sonara-Lease');
     if(j.status!=='LEASED'||!lease||lease!==j.leaseId)return json({error:'Lease mismatch'},409);
+    if(action==='remix-source'&&request.method==='GET') {
+      if(!j.remixSource?.objectKey)return json({error:'Remix source not found'},404);
+      const obj=await b.get(j.remixSource.objectKey);
+      if(!obj)return json({error:'Remix source not found'},404);
+      return new Response(obj.body,{status:200,headers:{'content-type':j.remixSource.contentType||'application/octet-stream','content-length':String(obj.size),'cache-control':'private, no-store'}});
+    }
     if(action==='reference'&&request.method==='GET') {
       if(!j.reference?.objectKey)return json({error:'Reference not found'},404);
       const obj=await b.get(j.reference.objectKey);
@@ -376,16 +409,20 @@ export default {
       if(Array.isArray(completion?.quality))j.quality=completion.quality.slice(0,2);
       if(typeof completion?.rankingVersion==='string')j.rankingVersion=completion.rankingVersion.slice(0,80);
       const reference=j.reference;
-      j.status='COMPLETE';j.leaseUntil=0;j.updatedAt=Date.now();delete j.payload;delete j.leaseId;delete j.reference;
+      const remixSource=j.remixSource;
+      j.status='COMPLETE';j.leaseUntil=0;j.updatedAt=Date.now();delete j.payload;delete j.leaseId;delete j.reference;delete j.remixSource;
       await saveRecord(b,id,j);
       if(reference?.objectKey)await Promise.all([b.delete(reference.objectKey),b.delete(referenceMetaKey(reference.id))]).catch(()=>undefined);
+      if(remixSource?.objectKey)await Promise.all([b.delete(remixSource.objectKey),b.delete(referenceMetaKey(remixSource.id))]).catch(()=>undefined);
       return json({ok:true});
     }
     if(action==='fail'&&request.method==='POST') {
       const reference=j.reference;
-      j.status='FAILED';j.error='Generazione MoLab non riuscita';j.leaseUntil=0;j.updatedAt=Date.now();delete j.payload;delete j.leaseId;delete j.reference;
+      const remixSource=j.remixSource;
+      j.status='FAILED';j.error='Generazione MoLab non riuscita';j.leaseUntil=0;j.updatedAt=Date.now();delete j.payload;delete j.leaseId;delete j.reference;delete j.remixSource;
       await saveRecord(b,id,j);
       if(reference?.objectKey)await Promise.all([b.delete(reference.objectKey),b.delete(referenceMetaKey(reference.id))]).catch(()=>undefined);
+      if(remixSource?.objectKey)await Promise.all([b.delete(remixSource.objectKey),b.delete(referenceMetaKey(remixSource.id))]).catch(()=>undefined);
       return json({ok:true});
     }
   }
