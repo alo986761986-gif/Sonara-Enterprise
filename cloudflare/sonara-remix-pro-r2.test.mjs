@@ -220,7 +220,7 @@ test('Remix Pro refuses jobs without a matching durable quota reservation',async
   assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',
     {...spec,jobId:missing},gate)).status,409);
   assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',
-    {...spec,durationSec:120},gate)).status,409);
+    {...spec,durationSec:120,usageSecondsAccepted:360},gate)).status,409);
   assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',
     {...spec,jobId:'bad-id'},gate)).status,400);
 });
