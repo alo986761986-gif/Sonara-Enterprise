@@ -506,7 +506,7 @@ def run_job(item, auth_mode):
             progress(job, lease, "arranging", renewal)
             arranged = folder / "arranged.wav"
             requested_seconds = int(params.get("durationSec") or 60)
-            if requested_seconds not in range(30, 481, 30):
+            if requested_seconds not in range(120, 301, 30):
                 raise SourceTransferError("REMIX_INVALID_DURATION")
             plan = combine_two_songs(
                 a,b,source_a,source_b,arranged,bpm_a=float(bpm_a),bpm_b=float(bpm_b),
