@@ -483,10 +483,16 @@ export class SonaraAuthStore {
     const now = Date.now();
     const prefix = REMIX_PRO_ACTIVE_PREFIX;
     try {
-      const outstanding = await this.ctx.storage.list({prefix,limit:100});
-      // R2 outages are never interpreted as a missing job.
+      // Bounded pagination avoids starving reservations beyond the first 100.
+      // Each alarm scans up to 500 keys; further keys are handled next alarm.
       const bucket = this.env?.SONARA_AUDIO_BUCKET;
       if (!bucket) return;
+      let cursor = '';
+      for (let page = 0; page < 5; page++) {
+      const outstanding = await this.ctx.storage.list({
+        prefix, limit:100, ...(cursor?{startAfter:cursor}:{})
+      });
+      if (!outstanding.size) break;
       for (const [activeKey, marker] of outstanding) {
         const id = String(marker?.jobId || activeKey.slice(prefix.length));
         if (!/^srpro_[0-9a-f-]{36}$/.test(id)) continue;
@@ -536,6 +542,9 @@ export class SonaraAuthStore {
         if (changed) {
           try { await this.settleRemixProAlarm(id,'refund'); } catch {}
         }
+      }
+      cursor = [...outstanding.keys()].at(-1);
+      if (outstanding.size < 100) break;
       }
     } finally {
       // One alarm per object; keep retrying until every reservation is settled.
