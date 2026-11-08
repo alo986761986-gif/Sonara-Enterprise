@@ -1,0 +1,44 @@
+name: SONARA Remix Pro - Identify Actual Production API Host
+on:
+  push:
+    branches: [fix/remix-pro-duration-preserve-20261108]
+    paths: ['.github/workflows/diagnose-sonara-host-routing.yml']
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Compare public and API host GET responses only (no jobs)
+        run: |
+          node --input-type=module <<'NODE'
+          for(const origin of ['https://sonaraenterprise.com','https://www.sonaraenterprise.com',
+            'https://api.sonaraenterprise.com']){
+            for(const path of ['/', '/api/health','/api/sonara-relay/pro-capabilities',
+              '/api/billing/generate']){
+              const url=origin+path;
+              try{
+                const response=await fetch(url,{method:'GET',redirect:'manual',signal:AbortSignal.timeout(12000),
+                  headers:{'accept':'application/json, text/html','cache-control':'no-store'}});
+                const body=await response.text();
+                let p={};
+                try{p=JSON.parse(body)}catch{}
+                console.log('SONARA_HOST_ROUTING',JSON.stringify({
+                  origin,path,status:response.status,
+                  contentType:response.headers.get('content-type')||'',
+                  location:response.headers.get('location')||null,
+                  gate:response.headers.get('x-sonara-gateway-verifier')||null,
+                  shell:response.headers.get('x-sonara-duration-shell')||null,
+                  server:response.headers.get('server')||null,
+                  expectedAgentRevision:p.expectedAgentRevision||null,
+                  fusionAvailable:p.fusionAvailable??null,
+                  available:p.available??null,
+                  gpuReady:p.gpuReady??null,
+                  isHtml:body.startsWith('<!doctype')||body.startsWith('<!DOCTYPE'),
+                  bytes:body.length
+                }));
+              }catch(e){console.log('SONARA_HOST_ROUTING',JSON.stringify({origin,path,error:e?.name||'Error'}))}
+            }
+          }
+          NODE

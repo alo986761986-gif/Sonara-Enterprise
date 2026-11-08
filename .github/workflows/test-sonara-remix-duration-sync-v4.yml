@@ -1,0 +1,19 @@
+name: SONARA Remix Duration Sync V4 Unit Test
+on:
+  push:
+    branches: [fix/remix-pro-duration-preserve-20261108]
+    paths:
+      - 'cloudflare/sonara-remix-pro-duration-sync-v4.mjs'
+      - 'cloudflare/sonara-remix-pro-duration-sync-v4.test.mjs'
+      - '.github/workflows/test-sonara-remix-duration-sync-v4.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v4
+        with: {node-version: '24'}
+      - run: node --test cloudflare/sonara-remix-pro-duration-sync-v4.test.mjs

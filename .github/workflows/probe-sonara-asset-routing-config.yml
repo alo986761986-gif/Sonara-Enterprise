@@ -1,0 +1,60 @@
+name: SONARA Inspect Worker Asset Routing (read-only)
+on:
+  push:
+    branches: [fix/remix-pro-duration-preserve-20261108]
+    paths: ['.github/workflows/probe-sonara-asset-routing-config.yml']
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+    steps:
+      - name: Inspect live + staged asset routing metadata, no mutations
+        run: |
+          node --input-type=module <<'NODE'
+          const token=process.env.CLOUDFLARE_API_TOKEN;
+          if(!token){console.log('SONARA_ASSET_ROUTING',{token:false});process.exit(0);}
+          const root='https://api.cloudflare.com/client/v4';
+          const h={Authorization:'Bearer '+token};
+          async function get(url){
+            const r=await fetch(root+url,{headers:h,signal:AbortSignal.timeout(15000)});
+            const j=await r.json().catch(()=>({}));
+            return {http:r.status,result:j.result||{},success:j.success,errors:(j.errors||[]).map(e=>e.code).slice(0,3)};
+          }
+          let id=process.env.CLOUDFLARE_ACCOUNT_ID;
+          if(!id){
+            const zones=await get('/zones?name=sonaraenterprise.com');
+            id=zones.result?.find?.(x=>x.name==='sonaraenterprise.com')?.account?.id;
+          }
+          if(!id)throw Error('No Cloudflare account');
+          const base='/accounts/'+id+'/workers/scripts/sonara-enterprise';
+          const deployments=await get(base+'/deployments');
+          const active=deployments.result?.deployments?.[0]?.versions?.[0]?.version_id;
+          const versions=[active,'a5137e8b-b4e8-4298-8892-c4d75bdb18de','bb81a8de-8147-492f-b95b-0597b6378130'];
+          for(const version of versions){
+            if(!version)continue;
+            const v=await get(base+'/versions/'+version);
+            const obj=v.result;
+            const resources=obj.resources||{};
+            const asset=resources.assets||obj.assets||null;
+            console.log('SONARA_ASSET_ROUTE_PROBE',JSON.stringify({
+              kind:'version',id:version,live:version===active,http:v.http,
+              topKeys:Object.keys(obj),resourceKeys:Object.keys(resources),
+              assetKeys:asset?Object.keys(asset):[],
+              assetConfig:asset?.config||null,
+              metadataKeys:Object.keys(obj.metadata||{}),
+              usageModel:obj.usage_model||null
+            }));
+          }
+          const s=await get(base+'/settings');
+          console.log('SONARA_ASSET_ROUTE_PROBE',JSON.stringify({
+            kind:'settings',http:s.http,topKeys:Object.keys(s.result||{}),
+            assetKeys:s.result?.assets?Object.keys(s.result.assets):[],
+            assetConfig:s.result?.assets?.config||null,
+            assetBindingType:s.result?.bindings?.find(x=>x.name==='ASSETS')?.type||null
+          }));
+          NODE

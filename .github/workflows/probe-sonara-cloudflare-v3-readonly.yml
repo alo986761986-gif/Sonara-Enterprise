@@ -1,0 +1,92 @@
+name: SONARA Cloudflare V3 Inspection - Read Only
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/probe-sonara-cloudflare-v3-readonly.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+    steps:
+      - name: Inspect deployed Worker shape, settings and route (no mutations)
+        run: |
+          node --input-type=module <<'NODE'
+          import { createHash } from 'node:crypto';
+          const token=process.env.CLOUDFLARE_API_TOKEN;
+          if(!token){console.log('V3_INSPECTION',JSON.stringify({tokenConfigured:false}));process.exit(0);}
+          const headers={Authorization:'Bearer '+token,Accept:'application/json'};
+          const api='https://api.cloudflare.com/client/v4';
+          const get=async path=>{
+            try {
+              const r=await fetch(api+path,{headers,signal:AbortSignal.timeout(20000)});
+              const body=await r.json().catch(()=>({}));
+              return {status:r.status,body};
+            }catch(e){return {status:0,errorClass:e?.name||'Error',body:{}};}
+          };
+          const zones=await get('/zones?name=sonaraenterprise.com&per_page=20');
+          const zone=zones.body.result?.find(z=>z.name==='sonaraenterprise.com');
+          const account=process.env.CLOUDFLARE_ACCOUNT_ID||zone?.account?.id||'';
+          console.log('V3_INSPECTION',JSON.stringify({kind:'account',zoneAccessible:!!zone,accountResolved:!!account}));
+          if(zone){
+            const routes=await get('/zones/'+zone.id+'/workers/routes');
+            const entries=(Array.isArray(routes.body.result)?routes.body.result:[])
+              .filter(x=>String(x.pattern||'').includes('sonaraenterprise.com'))
+              .map(x=>({pattern:String(x.pattern||'').slice(0,120),script:String(x.script||'').slice(0,110)}));
+            console.log('V3_INSPECTION',JSON.stringify({kind:'zone_routes',status:routes.status,success:routes.body.success===true,routes:entries.slice(0,20)}));
+          }
+          if(!account)process.exit(0);
+          const settings=await get('/accounts/'+account+'/workers/scripts/sonara-enterprise/settings');
+          const s=settings.body.result||{};
+          console.log('V3_INSPECTION',JSON.stringify({
+            kind:'worker_settings',status:settings.status,success:settings.body.success===true,
+            compatibilityDate:s.compatibility_date||null,
+            mainModule:s.main_module||null,
+            bindings:Array.isArray(s.bindings)?s.bindings.map(b=>({name:String(b.name||'').slice(0,100),type:String(b.type||'')})):[],
+            hasAssets:Boolean(s.assets),assetsFields:Object.keys(s.assets||{})
+          }));
+          const deployments=await get('/accounts/'+account+'/workers/scripts/sonara-enterprise/deployments');
+          const deployed=(Array.isArray(deployments.body.result?.deployments)?deployments.body.result.deployments:[]);
+          console.log('V3_INSPECTION',JSON.stringify({kind:'deployments',status:deployments.status,
+            count:deployed.length,latest:deployed.slice(0,2).map(x=>({id:String(x.id||'').slice(0,40),versions:x.versions?.map(y=>({id:y.version_id,percentage:y.percentage}))}))}));
+          const target=api+'/accounts/'+account+'/workers/scripts/sonara-enterprise/content/v2';
+          const res=await fetch(target,{headers,signal:AbortSignal.timeout(30000)});
+          console.log('V3_INSPECTION',JSON.stringify({kind:'content',status:res.status,type:res.headers.get('content-type')?.slice(0,120)}));
+          if(!res.ok)process.exit(0);
+          const form=await res.formData();
+          for(const [name,v] of form.entries()){
+            const raw=typeof v==='string'?v:await v.text();
+            const hash=createHash('sha256').update(raw).digest('hex');
+            const markers=['sonara-remix-pro-r2-agent-v3-dual-reference-fusion','sonara-remix-pro-r2-agent-v2-longwav',
+              'sonara-remix-pro-duration-edge-v1','/api/billing/generate','export default','HTMLRewriter',
+              'cloudflare/sonara-ab-player-visibility-edge.mjs'];
+            const counts=Object.fromEntries(markers.map(k=>[k,raw.split(k).length-1]));
+            if(name==='sonara-relay-gateway-entry.js'){
+              const tail=raw.slice(-2000);
+              const e=/export\\s*\\{([^{}]+)\\}\\s*;?\\s*$/.exec(raw);
+              const parts=e?e[1].split(',').map(v=>v.trim()):[];
+              const defaultPart=parts.find(v=>/\\bas default$/.test(v))||null;
+              console.log('V3_INSPECTION',JSON.stringify({
+                kind:'entrypoint_export',
+                isEsmTerminalExport:!!e,
+                namedExportCount:parts.length,
+                defaultIdentifier:defaultPart?defaultPart.replace(/\\s+as default$/,'').slice(0,60):null,
+                hasDefaultObject:!!defaultPart,
+                hasWorkersHandler:tail.includes('default'),
+                bundledModuleBytes:raw.length
+              }));
+            }
+            console.log('V3_INSPECTION',JSON.stringify({
+              kind:'module',name:String(name).slice(0,150),
+              fileName:typeof v==='string'?null:String(v.name||'').slice(0,150),
+              mime:typeof v==='string'?'string':String(v.type||''),
+              length:raw.length,sha256:hash,counts,
+              isText:typeof v==='string'||String(v.type||'').includes('javascript')
+            }));
+          }
+          NODE

@@ -31,15 +31,17 @@ export default function SonaraRemixProPanel() {
   const [rights,setRights]=useState(false);
   const [submitting,setSubmitting]=useState(false);
   const [job,setJob]=useState<ProJob|null>(null);
-  const [submittedDuration,setSubmittedDuration]=useState<number|null>(null);
+  const [confirmedDurationLock,setConfirmedDurationLock]=useState<{jobId:string;seconds:number}|null>(null);
   const [error,setError]=useState('');
   const [info,setInfo]=useState('');
   const mounted=useRef(true);
   const activeJob=useRef('');
+  const selectedDurationRef=useRef(duration);
   const sourceAInput=useRef<HTMLInputElement>(null);
   const sourceBInput=useRef<HTMLInputElement>(null);
   const changeDuration=(seconds:number)=>{
     if (!validDuration(seconds)) return;
+    selectedDurationRef.current=seconds;
     setDuration(seconds);
     try { sessionStorage.setItem(DURATION_KEY,String(seconds)); } catch {}
   };
@@ -94,10 +96,10 @@ export default function SonaraRemixProPanel() {
           if(cancelled||!mounted.current)return;
           errors=0;
           setJob(data);
-          if (submittedDuration!==null && data.requestedDurationSeconds!==undefined &&
-              Number(data.requestedDurationSeconds)!==submittedDuration) {
+          if (confirmedDurationLock?.jobId===id && data.requestedDurationSeconds!==undefined &&
+              Number(data.requestedDurationSeconds)!==confirmedDurationLock.seconds) {
             setError('ERRORE DURATA: il server ha registrato '+durationLabel(Number(data.requestedDurationSeconds))+
-              ' invece di '+durationLabel(submittedDuration)+'. Il job non corrisponde alla richiesta; non inviarne un altro prima che termini.');
+              ' invece di '+durationLabel(confirmedDurationLock.seconds)+'. Il job non corrisponde alla richiesta; non inviarne un altro prima che termini.');
           }
           if(data.status==='COMPLETED'||data.status==='FAILED'){
             try{sessionStorage.removeItem(KEY);}catch{}
@@ -113,7 +115,7 @@ export default function SonaraRemixProPanel() {
       }
     })();
     return()=>{cancelled=true;};
-  },[job?.jobId,job?.status,submittedDuration]);
+  },[job?.jobId,job?.status,confirmedDurationLock]);
 
   const upload=async(file:File,sourceLabel:string)=>{
     const maxSourceBytes=512*1024*1024;
@@ -190,9 +192,11 @@ export default function SonaraRemixProPanel() {
     if(sourceA===sourceB){setError('Le sorgenti A e B devono essere diverse.');return;}
     if(!rights){setError('Conferma di avere il diritto di utilizzare entrambi i brani.');return;}
     if(!prompt.trim()){setError('Inserisci le indicazioni musicali per il nuovo brano.');return;}
-    const requestedDuration=duration;
+    // Freeze the latest direct user selection synchronously; React state may be one render behind.
+    const requestedDuration=selectedDurationRef.current;
     if(!validDuration(requestedDuration)){setError('Scegli una durata valida fra 0:30 e 8:00.');return;}
-    setSubmittedDuration(requestedDuration);
+    // Never compare the new duration against a previous job while uploads are pending.
+    setConfirmedDurationLock(null);
     setSubmitting(true);setError('');setInfo('Caricamento privato del brano A…');
     try{
       const a=await upload(sourceA,'A');
@@ -224,6 +228,7 @@ export default function SonaraRemixProPanel() {
           // job record remains pending until its R2 state is reconciled.
           activeJob.current=recoverId;
           try{sessionStorage.setItem(KEY,recoverId);}catch{}
+          setConfirmedDurationLock({jobId:recoverId,seconds:requestedDuration});
           setJob({jobId:recoverId,status:'PROCESSING',stage:'reconciling',progress:0,requestedDurationSeconds:requestedDuration});
           setInfo('Accodamento non confermato. ID '+recoverId+' conservato; verifica dello stato del job in corso.');
           return;
@@ -234,6 +239,7 @@ export default function SonaraRemixProPanel() {
         throw new Error('Risposta job non valida: controlla lo stato prima di riprovare.');
       }
       const id=String(payload.jobId);
+      setConfirmedDurationLock({jobId:id,seconds:requestedDuration});
       const queuedDuration=Number(payload.requestedDurationSeconds);
       if(!validDuration(queuedDuration)||queuedDuration!==requestedDuration){
         // This job may already exist in the private queue: retain its ID and

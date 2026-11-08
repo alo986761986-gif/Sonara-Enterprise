@@ -1,0 +1,59 @@
+name: SONARA Diagnose Live Worker Duration Check (Read Only)
+on:
+  push:
+    branches: [fix/remix-pro-duration-preserve-20261108]
+    paths: ['.github/workflows/diagnose-remix-server-duration.yml']
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  analyze:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+    steps:
+      - name: Inspect request duration validators from live Worker only
+        run: |
+          node --input-type=module <<'NODE'
+          const h={Authorization:'Bearer '+process.env.CLOUDFLARE_API_TOKEN};
+          const root='https://api.cloudflare.com/client/v4';
+          const zoneRes=await fetch(root+'/zones?name=sonaraenterprise.com',{headers:h});
+          const zones=await zoneRes.json();
+          const id=process.env.CLOUDFLARE_ACCOUNT_ID||zones.result?.find(z=>z.name==='sonaraenterprise.com')?.account?.id;
+          if(!id)throw Error('Cannot access SONARA account');
+          const rootWorker=root+'/accounts/'+id+'/workers/scripts/sonara-enterprise';
+          const d=await (await fetch(rootWorker+'/deployments',{headers:h})).json();
+          const active=d.result?.deployments?.[0]?.versions?.[0]?.version_id;
+          const b=await fetch(rootWorker+'/content/v2',{headers:h});
+          if(!b.ok)throw Error('Unable to read live Worker');
+          const form=await b.formData();
+          const src=await form.get('sonara-relay-gateway-entry.js').text();
+          const terms=[
+            'La durata scelta non coincide con quella inviata',
+            'Nessun nuovo job è stato creato',
+            'expectedDurationSec',
+            'X-Sonara-Remix-Expected-Duration',
+            'REMIX_DURATION_MISMATCH',
+            'REMIX_INVALID_DURATION',
+            'durationSec',
+            '/api/billing/generate',
+            'sonaraRemixPro'
+          ];
+          for(const term of terms){
+            const positions=[];let cursor=0;
+            while(positions.length<6){
+              const pos=src.indexOf(term,cursor);
+              if(pos<0)break;
+              positions.push(pos);cursor=pos+term.length;
+            }
+            console.log('SONARA_WORKER_DURATION',JSON.stringify({
+              term,countAtLeast:positions.length,
+              windows:positions.slice(0,4).map(p=>({
+                position:p,source:src.slice(Math.max(0,p-350),Math.min(src.length,p+550))
+              }))
+            }));
+          }
+          console.log('SONARA_WORKER_DURATION',JSON.stringify({kind:'version',
+            version:active,moduleBytes:src.length}));
+          NODE
