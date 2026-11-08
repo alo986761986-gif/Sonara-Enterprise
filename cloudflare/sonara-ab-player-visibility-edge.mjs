@@ -171,6 +171,28 @@ async function relayAgentAvailable(env) {
   }
 }
 
+// Pro quota mutations must go through the single native-auth Durable Object.
+// The signed internal route is never exposed by the public auth router.
+async function mutateRemixProUsage(request, env, action, jobId, seconds, ownerUid) {
+  if (!env.SONARA_AUTH) return nativeGenerationError('AUTH_STORE_UNAVAILABLE', 'Archivio quote non disponibile.', 503);
+  const secret = await deriveRelayGatewayInternalKey(env);
+  const headers = new Headers({
+    'content-type': 'application/json',
+    'X-Sonara-Internal-Secret': secret
+  });
+  const cookie = request.headers.get('cookie');
+  if (cookie && action === 'reserve') headers.set('cookie', cookie);
+  const stub = env.SONARA_AUTH.get(env.SONARA_AUTH.idFromName('sonara-auth-global-v1'));
+  try {
+    return await stub.fetch(new Request(
+      'https://sonara.internal/__sonara_internal/remix-pro-usage',
+      { method: 'POST', headers, body: JSON.stringify({action,jobId,seconds,ownerUid}) }
+    ));
+  } catch {
+    return nativeGenerationError('PRO_USAGE_UNAVAILABLE', 'Contabilizzazione Remix Pro temporaneamente non disponibile.', 503);
+  }
+}
+
 async function forwardVerifiedRelayGeneration(request, env, ctx) {
   if (!(await relayAgentAvailable(env))) {
     return nativeGenerationError(
@@ -235,13 +257,34 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
       'X-Sonara-Internal-Secret': internalSecret,
       'X-Sonara-User-Uid': uid
     });
+    let proJobId = null;
+    if (isPro) {
+      const seconds = Number(source.durationSec);
+      if (!Number.isInteger(seconds) || seconds < 10 || seconds > 120) {
+        return nativeGenerationError('INVALID_PRO_DURATION', 'Durata Remix Pro non valida.', 400);
+      }
+      proJobId = 'srpro_' + crypto.randomUUID();
+      const reservation = await mutateRemixProUsage(request, env, 'reserve', proJobId, seconds, uid);
+      if (!reservation.ok) return reservation;
+      payload.jobId = proJobId;
+    }
     const target = new URL(isPro ? '/api/sonara-relay/pro-enqueue' : '/api/sonara-relay/enqueue', request.url);
-    return await relayRuntime.fetch(new Request(target, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(payload),
-      redirect: 'manual'
-    }), { ...env, SONARA_INTERNAL_PROXY_SECRET: internalSecret }, ctx);
+    let response;
+    try {
+      response = await relayRuntime.fetch(new Request(target, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+        redirect: 'manual'
+      }), { ...env, SONARA_INTERNAL_PROXY_SECRET: internalSecret }, ctx);
+    } catch {
+      response = nativeGenerationError('R2_RELAY_UNAVAILABLE', 'Coda Remix Pro non disponibile.', 503);
+    }
+    if (proJobId && !response.ok) {
+      const refund = await mutateRemixProUsage(request, env, 'refund', proJobId, 0, uid);
+      if (!refund.ok) return nativeGenerationError('PRO_REFUND_REQUIRED', 'Prenotazione da recuperare: contatta supporto SONARA.', 503);
+    }
+    return response;
   } catch {
     // When the relay is enabled, fail closed; never retry through a Quick Tunnel.
     return nativeGenerationError('R2_RELAY_UNAVAILABLE', 'Collegamento MoLab R2 non disponibile.', 503);
