@@ -167,6 +167,7 @@ export default function SonaraRemixSection() {
   const [libraryTracks, setLibraryTracks] = useState<SourceTrack[]>([]);
   const [source, setSource] = useState<SourceTrack | null>(readSelectedTrack);
   const [sourceTab, setSourceTab] = useState<'library' | 'upload' | 'multitrack' | 'pro'>('library');
+  const [multitrackAiSources, setMultitrackAiSources] = useState<{ sourceA: File; sourceB: File } | null>(null);
   const [remixR2Ready, setRemixR2Ready] = useState<boolean | null>(null);
   const [duration, setDuration] = useState(0);
   const [segmentStart, setSegmentStart] = useState(0);
@@ -407,6 +408,15 @@ export default function SonaraRemixSection() {
     chooseUpload(file);
     mixedSourceIdRef.current = `upload-${file.name}-${file.lastModified}`;
     setNotice('Mix multitraccia pronto: premi Create Remix per trasformarlo con ACE-Step.');
+  };
+
+  const onMultitrackCreateAiRemix = (sourceA: File, sourceB: File) => {
+    // Preserve BOTH original sources: never send the DJ mix to the single-source
+    // Remix endpoint when the creator explicitly selected A+B fusion.
+    setMultitrackAiSources({ sourceA, sourceB });
+    setSourceTab('pro');
+    setError('');
+    setNotice('Due brani trasferiti a Remix Pro: scegli durata e direzione musicale, poi genera un unico brano A+B.');
   };
 
   const onMultitrackMixInvalidated = () => {
@@ -705,12 +715,12 @@ export default function SonaraRemixSection() {
               <UploadCloud /><strong>{source?.file ? source.name : 'Drop or choose an audio file'}</strong><small>WAV, MP3, FLAC, M4A, OGG · max 160 MB</small><button type="button">Choose file</button>
             </div>
           ) : sourceTab === 'multitrack' ? (
-            <SonaraMultitrackMixer onMixReady={onMultitrackMixReady} onMixInvalidated={onMultitrackMixInvalidated} />
+            <SonaraMultitrackMixer onMixReady={onMultitrackMixReady} onMixInvalidated={onMultitrackMixInvalidated} onCreateAiRemix={onMultitrackCreateAiRemix} />
           ) : (
-            <SonaraRemixProPanel />
+            <SonaraRemixProPanel initialSources={multitrackAiSources} />
           )}
 
-          {source && sourceTab !== 'pro' && (
+          {source && sourceTab !== 'pro' && sourceTab !== 'multitrack' && (
             <div className="sonara-remix-editor">
               <div className="sonara-remix-track-head">
                 <div><span className="sonara-remix-disc"><Music2 /></span><div><strong>{source.name}</strong><small>{duration ? `${formatTime(duration)} source` : 'Analisi sorgente…'}</small></div></div>
@@ -734,7 +744,7 @@ export default function SonaraRemixSection() {
           )}
         </section>
 
-        {sourceTab !== 'pro' && <section className="sonara-remix-controls-panel">
+        {sourceTab !== 'pro' && sourceTab !== 'multitrack' && <section className="sonara-remix-controls-panel">
           <div className="sonara-remix-section-head">
             <div><span>02</span><div><strong>Remix controls</strong><small>Descrivi come deve cambiare il brano</small></div></div>
             <WandSparkles />
@@ -817,7 +827,7 @@ export default function SonaraRemixSection() {
           </div>
         </section>}
 
-        {sourceTab !== 'pro' && <section className="sonara-remix-results-panel">
+        {sourceTab !== 'pro' && sourceTab !== 'multitrack' && <section className="sonara-remix-results-panel">
           <div className="sonara-remix-section-head">
             <div><span>03</span><div><strong>Results</strong><small>Ascolta e scegli la versione migliore</small></div></div>
             <span className="sonara-remix-result-count">{outputs.length || '—'}</span>

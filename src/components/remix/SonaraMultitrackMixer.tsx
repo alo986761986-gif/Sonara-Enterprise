@@ -23,6 +23,7 @@ type Track = {
 type Props = {
   onMixReady: (file: File) => void;
   onMixInvalidated: () => void;
+  onCreateAiRemix: (sourceA: File, sourceB: File) => void;
 };
 
 function stamp(seconds: number) {
@@ -147,7 +148,7 @@ async function renderMix(tracks: Track[], mode: 'dj' | 'layers', transitionSecon
   return encodeWav(await offline.startRendering());
 }
 
-export default function SonaraMultitrackMixer({ onMixReady, onMixInvalidated }: Props) {
+export default function SonaraMultitrackMixer({ onMixReady, onMixInvalidated, onCreateAiRemix }: Props) {
   const [tracks, setTracks] = useState<Track[]>([]);
   const [mode, setMode] = useState<'dj' | 'layers'>('dj');
   const [transitionSeconds, setTransitionSeconds] = useState(8);
@@ -170,6 +171,8 @@ export default function SonaraMultitrackMixer({ onMixReady, onMixInvalidated }: 
   }, []);
 
   const bytes = useMemo(() => tracks.reduce((sum, track) => sum + track.file.size, 0), [tracks]);
+  const aiSources = useMemo(() => tracks.filter(track => !track.muted && track.volume > 0), [tracks]);
+  const canCreateAiRemix = aiSources.length === 2 && aiSources[0].file !== aiSources[1].file;
   const duration = useMemo(() => {
     if (!tracks.length) return 0;
     if (mode === 'layers') return Math.max(...tracks.map(track => track.start + track.audio.duration));
@@ -257,6 +260,17 @@ export default function SonaraMultitrackMixer({ onMixReady, onMixInvalidated }: 
     });
   };
 
+  const createAiRemix = () => {
+    if (busy || !canCreateAiRemix) {
+      setError('Per Create Remix AI attiva esattamente due brani differenti.');
+      return;
+    }
+    setError('');
+    // Give the GPU both original files. A pre-rendered DJ mix would destroy
+    // source identity and prevent reliable independent stem separation.
+    onCreateAiRemix(aiSources[0].file, aiSources[1].file);
+  };
+
   const create = async () => {
     if (busy || !tracks.length) return;
     invalidate();
@@ -331,16 +345,27 @@ export default function SonaraMultitrackMixer({ onMixReady, onMixInvalidated }: 
           </div>
         ))}
       </div>
+      <div className="sonara-multitrack-ai-panel">
+        <div>
+          <strong>Create Remix AI · Composizione A+B</strong>
+          <small>SONARA usa i due originali come riferimenti musicali separati e genera una composizione nuova ispirata a entrambi, senza sovrapporre le registrazioni né concatenarle come DJ mix.</small>
+        </div>
+        <button type="button" data-testid="sonara-multitrack-create-ai"
+          disabled={busy !== null || !canCreateAiRemix} onClick={createAiRemix}>
+          <Layers3 /> Create Remix AI · 2 brani → 1
+        </button>
+        {!canCreateAiRemix && <small className="sonara-multitrack-ai-requirement">Attiva esattamente due brani diversi per la fusione AI. Le tracce mute o a volume zero sono escluse.</small>}
+      </div>
       <div className="sonara-multitrack-summary"><span>Durata: <strong>{stamp(duration)}</strong></span><span>Dimensioni: <strong>{Math.round(bytes / 1024 / 1024)} MB</strong></span></div>
-      <p className="sonara-multitrack-hint">In modalità DJ i brani suonano in sequenza, con incroci brevi e dissolvenze equal-power. Non avviene ancora una sincronizzazione BPM o una separazione delle voci: per brani a tempi molto diversi possono restare stacchi ritmici. Usa solo file che puoi utilizzare legittimamente; i link YouTube sono reference.</p>
+      <p className="sonara-multitrack-hint">Il DJ Mix tradizionale riproduce le tracce in sequenza e non sincronizza automaticamente i BPM. Create Remix AI, invece, usa entrambi i brani originali separati tramite il motore Remix Pro su MoLab. Utilizza soltanto audio per cui possiedi i diritti.</p>
       {error && <p className="sonara-multitrack-error" role="alert">{error}</p>}
       <button type="button" className="sonara-multitrack-render" disabled={busy !== null || !tracks.length}
         onClick={() => void create()}>
         {busy ? <LoaderCircle className="sonara-multitrack-spinner" /> : <Layers3 />}
-        {busy === 'decode' ? 'Analisi file…' : busy === 'render' ? 'Creazione del mix reale…' : 'Crea DJ Mix completo e prepara Remix AI'}
+        {busy === 'decode' ? 'Analisi file…' : busy === 'render' ? 'Creazione del mix reale…' : 'Crea DJ Mix WAV (senza AI)'}
       </button>
       {readyUrl && <div className="sonara-multitrack-ready">
-        <strong>Mix pronto. Ascoltalo, scaricalo o premi Create Remix per generare con ACE-Step.</strong>
+        <strong>DJ Mix pronto. Ascoltalo o scaricalo. Per creare un nuovo brano A+B usa Create Remix AI con due sorgenti attive, non questo WAV pre-miscelato.</strong>
         <audio controls src={readyUrl} />
         <a href={readyUrl} download="SONARA-MULTITRACK-MIX.wav"><Download /> Scarica mix WAV</a>
       </div>}
@@ -372,6 +397,13 @@ export default function SonaraMultitrackMixer({ onMixReady, onMixInvalidated }: 
         .sonara-multitrack-controls input[type=number]{width:100%;height:30px;padding:4px 6px;border:1px solid rgba(255,255,255,.1);border-radius:6px;background:#0b0b12;color:#fff;font-size:10px}
         .sonara-multitrack-controls>button{height:30px;border:1px solid rgba(255,255,255,.12);border-radius:7px;background:#24232f;color:#ccc8e3;font-size:9px;cursor:pointer}
         .sonara-multitrack-controls>button[data-muted=true]{background:#5f293a;color:#fff}
+        .sonara-multitrack-ai-panel{display:grid;gap:10px;margin-top:14px;padding:15px;border:1px solid rgba(167,139,250,.38);border-radius:11px;background:linear-gradient(130deg,#1d172a,#0e101b)}
+        .sonara-multitrack-ai-panel strong{display:block;color:#f4eeff;font-size:12px}
+        .sonara-multitrack-ai-panel small{display:block;margin-top:6px;color:#bcb5cb;font-size:10px;line-height:1.6}
+        .sonara-multitrack-ai-panel button{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:44px;border:1px solid rgba(196,181,253,.32);border-radius:9px;background:#6941c6;color:#fff;font-size:12px;font-weight:800;cursor:pointer}
+        .sonara-multitrack-ai-panel button svg{width:16px;height:16px}
+        .sonara-multitrack-ai-panel button:disabled{opacity:.4;cursor:not-allowed}
+        .sonara-multitrack-ai-panel .sonara-multitrack-ai-requirement{color:#d4bce9}
         .sonara-multitrack-summary{display:flex;justify-content:space-between;gap:10px;margin-top:13px;color:#9999a7;font-size:10px}
         .sonara-multitrack-summary strong{color:#e8e8ef}
         .sonara-multitrack-hint{color:#9292a0;font-size:10px;line-height:1.55;margin:10px 0}

@@ -36,7 +36,7 @@ function page({modern=false}={}) {
   };
   vm.runInNewContext(script,{
     window,document,location:{href:'https://sonaraenterprise.com/remix',origin:'https://sonaraenterprise.com'},
-    URL,Response,Date,Number,String,JSON,Math
+    URL,Response,Headers,Date,Number,String,JSON,Math
   });
   return {window,document,slider,option,label,listeners,calls};
 }
@@ -58,8 +58,27 @@ test('old Vercel UI must send exact 480s after user selects 8:00, even if stale 
   assert.equal(response.status,202);
   const payload=JSON.parse(p.calls[0].init.body);
   assert.equal(payload.durationSec,480);
+  assert.equal(payload.expectedDurationSec,480);
+  assert.equal(new Headers(p.calls[0].init.headers).get('X-Sonara-Remix-Expected-Duration'),'480');
   assert.equal(payload.sonaraRemixProSourceB,'ref-b');
   assert.match(p.label.note.textContent,/8:00/);
+});
+test('legacy 8:00 choice also overwrites contradictory stale intent and header',async()=>{
+  const p=page();
+  select(p,480);
+  const response=await p.window.fetch('/api/billing/generate',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','X-Sonara-Remix-Expected-Duration':'30'},
+    body:JSON.stringify({sonaraRemixPro:true,durationSec:30,expectedDurationSec:30,
+      sonaraRemixProSourceA:'ref-a',sonaraRemixProSourceB:'ref-b',sonaraRemixProRightsConfirmed:true})
+  });
+  assert.equal(response.status,202);
+  const sent=JSON.parse(p.calls[0].init.body);
+  assert.equal(sent.durationSec,480);
+  assert.equal(sent.expectedDurationSec,480);
+  const headers=new Headers(p.calls[0].init.headers);
+  assert.equal(headers.get('X-Sonara-Remix-Expected-Duration'),'480');
+  assert.equal(headers.get('Content-Type'),'application/json');
 });
 test('new React slider with data-testid bypasses Cloudflare shim',async()=>{
   const p=page({modern:true});

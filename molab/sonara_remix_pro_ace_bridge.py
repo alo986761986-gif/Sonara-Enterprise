@@ -111,8 +111,9 @@ def _result_path(task):
 
 
 def render(audio_path, output_path, prompt, *, mode="required", strength=0.76,
-           noise=0.14, timeout_seconds=1600, bpm=None, key=None):
-    """Use one real local ACE-Step task to reimagine the combined 2-song stem mix."""
+           noise=0.14, timeout_seconds=1600, bpm=None, key=None,
+           reference_audio_path=None):
+    """Regenerate one composition from separate A structure and B style references."""
     source = pathlib.Path(audio_path).expanduser().resolve(strict=True)
     output = pathlib.Path(output_path).expanduser().resolve()
     if not source.is_file() or source.suffix.lower() != ".wav" or source.stat().st_size > MAX_BYTES:
@@ -127,9 +128,17 @@ def render(audio_path, output_path, prompt, *, mode="required", strength=0.76,
         duration = wav.getnframes() / wav.getframerate()
     if not 10 <= duration <= 600:
         raise ACEBridgeError("Remix Pro cover duration outside 10-600 seconds")
-    if output == source or output.exists():
+    reference = pathlib.Path(reference_audio_path).expanduser().resolve(strict=True) if reference_audio_path else None
+    if reference is not None:
+        if reference == source or reference.suffix.lower() != ".wav" or reference.stat().st_size > MAX_BYTES:
+            raise ACEBridgeError("B must be a distinct genuine WAV style reference")
+        with wave.open(str(reference), "rb") as refwav:
+            if refwav.getnframes() < refwav.getframerate() * 10:
+                raise ACEBridgeError("B style reference is too short")
+    if output == source or output.exists() or (reference is not None and output == reference):
         raise ACEBridgeError("Output must be new; original and existing files are protected")
     fd, tmp = tempfile.mkstemp(prefix="sonara_pro_cover_", suffix=".wav")
+    ref_tmp = None
     try:
         with os.fdopen(fd, "wb") as out, source.open("rb") as inp:
             while True:
@@ -137,8 +146,20 @@ def render(audio_path, output_path, prompt, *, mode="required", strength=0.76,
                 if not block:
                     break
                 out.write(block)
+        if reference is not None:
+            # ACE-Step accepts only paths inside its trusted temporary directory.
+            # Keep B separate from A, copy it to a private 0600 temp file and
+            # retain it until the asynchronous model task has completed.
+            ref_fd, ref_tmp = tempfile.mkstemp(prefix="sonara_pro_style_", suffix=".wav")
+            with os.fdopen(ref_fd, "wb") as ref_out, reference.open("rb") as ref_in:
+                while True:
+                    block = ref_in.read(1024 * 1024)
+                    if not block:
+                        break
+                    ref_out.write(block)
         request = {
             "task_type": "cover", "src_audio_path": tmp,
+            **({"reference_audio_path": ref_tmp} if ref_tmp is not None else {}),
             "prompt": str(prompt).strip()[:9000], "instruction": str(prompt).strip()[:9000],
             "audio_duration": round(duration, 2), "batch_size": 1,
             "audio_cover_strength": float(strength), "cover_noise_strength": float(noise),
@@ -176,24 +197,28 @@ def render(audio_path, output_path, prompt, *, mode="required", strength=0.76,
                     "sourceDurationSeconds": round(duration, 2),
                     "outputPath": str(output), "bytes": len(raw),
                     "model": "existing-local-ACE-Step-cover",
-                    "noFakeAudio": True
+                    "noFakeAudio": True,
+                    "independentStyleReference": reference is not None
                 }
             time.sleep(2)
         raise ACEBridgeError("ACE-Step cover timed out; task was not duplicated")
     finally:
         pathlib.Path(tmp).unlink(missing_ok=True)
+        if ref_tmp is not None:
+            pathlib.Path(ref_tmp).unlink(missing_ok=True)
 
 
 def render_long_remix(audio_path, output_path, prompt, *, mode="required",
                       strength=0.76, noise=0.14, bpm=None, key=None,
                       segment_seconds=90, crossfade_seconds=2,
-                      timeout_seconds=3600):
+                      timeout_seconds=3600, reference_audio_path=None):
     """Render an exact-duration A+B remix as ONE stitched WAV.
 
     ACE-Step cover is applied to contiguous source segments (never to fake
     audio). Longer songs must not be silently reduced to a short single task.
     Every successful segment is real model output, audited for matching duration.
-    This preserves the coherent original A+B arrangement as source conditioning.
+    Uses an A-only structural guide and an independent B-style reference.
+    No source-A/B waveform mixing is performed by this bridge.
     """
     import math
     import shutil
@@ -224,7 +249,8 @@ def render_long_remix(audio_path, output_path, prompt, *, mode="required",
     if source_frames / sr <= segment_seconds:
         result = render(src, final, prompt, mode=mode, strength=strength,
                         noise=noise, bpm=bpm, key=key,
-                        timeout_seconds=min(timeout_seconds, 1600))
+                        timeout_seconds=min(timeout_seconds, 1600),
+                        reference_audio_path=reference_audio_path)
         with sf.SoundFile(str(final)) as got:
             if abs((got.frames / got.samplerate) - source_frames/sr) > 2:
                 final.unlink(missing_ok=True)
@@ -268,7 +294,8 @@ def render_long_remix(audio_path, output_path, prompt, *, mode="required",
             result = render(source_chunk, rendered_chunk, prompt,
                             mode=mode, strength=strength, noise=noise,
                             bpm=bpm, key=key,
-                            timeout_seconds=min(1600, int(remaining)))
+                            timeout_seconds=min(1600, int(remaining)),
+                            reference_audio_path=reference_audio_path)
             if result.get("status") != "completed":
                 raise ACEBridgeError("An ACE-Step long-form section did not complete")
             with sf.SoundFile(str(rendered_chunk)) as decoded:
@@ -340,7 +367,8 @@ def render_long_remix(audio_path, output_path, prompt, *, mode="required",
                 "bytes": final.stat().st_size, "sourceDurationSeconds": round(source_frames/sr,2),
                 "segmentCount": len(segments), "longForm": True,
                 "oneContinuousOutput": True, "durationVerified": True,
-                "model": "local-ACE-Step-cover-multi-section", "noFakeAudio": True}
+                "model": "local-ACE-Step-cover-multi-section", "noFakeAudio": True,
+                "independentStyleReference": reference_audio_path is not None}
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="SONARA Remix Pro ACE-Step local cover bridge")

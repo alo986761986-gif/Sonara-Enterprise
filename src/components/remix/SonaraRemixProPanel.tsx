@@ -10,17 +10,21 @@ const durationLabel=(seconds:number)=>`${Math.floor(seconds/60)}:${String(Math.r
 const safeError=(value:unknown,fallback:string)=>typeof value==='string'&&value.length<250?value:fallback;
 const KEY='sonara.remixPro.activeJob.v1';
 const DURATION_KEY='sonara.remixPro.requestedDuration.v2';
+const PENDING_KEY='sonara.remixPro.submittedDurationByJob.v1';
 const validDuration=(n:number)=>Number.isInteger(n)&&n>=30&&n<=480&&n%30===0;
 const AUDIO_FORMATS=/\.(wav|mp3|flac|m4a|mp4|aac|ogg|oga|opus|aif|aiff|aifc|webm|wma|caf|amr|ac3)$/i;
 const AUDIO_PICKER_ACCEPT='audio/*,.wav,.mp3,.flac,.m4a,.mp4,.aac,.ogg,.oga,.opus,.aif,.aiff,.aifc,.webm,.wma,.caf,.amr,.ac3';
 const audioSuffix=(name:string)=>name.match(AUDIO_FORMATS)?.[1]?.toLowerCase()||'';
 
-export default function SonaraRemixProPanel() {
+type InitialSources = { sourceA: File; sourceB: File } | null;
+type RemixProPanelProps = { initialSources?: InitialSources };
+
+export default function SonaraRemixProPanel({ initialSources = null }: RemixProPanelProps) {
   const [available,setAvailable]=useState<boolean|null>(null);
   const [multiformatAvailable,setMultiformatAvailable]=useState(false);
   const [sourceA,setSourceA]=useState<File|null>(null);
   const [sourceB,setSourceB]=useState<File|null>(null);
-  const [prompt,setPrompt]=useState('Create one cohesive professional new remix preserving the principal melody and A harmonies, with the rhythmic groove and drum articulation of B.');
+  const [prompt,setPrompt]=useState('Compose ONE NEW original song that creatively merges the melodic, rhythmic, harmonic and timbral character of BOTH track A and track B. Recompose their musical gestures into one seamless new composition with a distinctive original hook, fresh arrangement, connected sections and natural instrumentation. No source waveform overlay, raw stem mixing, DJ transitions or medley.');
   const [duration,setDuration]=useState<number>(()=>{
     try { const value=Number(sessionStorage.getItem(DURATION_KEY)); return validDuration(value)?value:120; }
     catch { return 120; }
@@ -31,15 +35,19 @@ export default function SonaraRemixProPanel() {
   const [rights,setRights]=useState(false);
   const [submitting,setSubmitting]=useState(false);
   const [job,setJob]=useState<ProJob|null>(null);
-  const [submittedDuration,setSubmittedDuration]=useState<number|null>(null);
+  // A submitted duration is meaningful only for the exact server-assigned job ID.
+  // Never compare a previous 0:30 job against a new 8:00 selection.
+  const [submission,setSubmission]=useState<{id:string;seconds:number}|null>(null);
   const [error,setError]=useState('');
   const [info,setInfo]=useState('');
   const mounted=useRef(true);
   const activeJob=useRef('');
+  const selectedDurationRef=useRef(duration);
   const sourceAInput=useRef<HTMLInputElement>(null);
   const sourceBInput=useRef<HTMLInputElement>(null);
   const changeDuration=(seconds:number)=>{
     if (!validDuration(seconds)) return;
+    selectedDurationRef.current=seconds;
     setDuration(seconds);
     try { sessionStorage.setItem(DURATION_KEY,String(seconds)); } catch {}
   };
@@ -55,16 +63,63 @@ export default function SonaraRemixProPanel() {
     setInfo('Brano '+role.toUpperCase()+' selezionato: '+file.name);
   };
 
+  useEffect(() => {
+    if (!initialSources) return;
+    // Direct handoff from the Multi Track mixer: keep files distinct so the
+    // worker can analyze and split each original audio source separately.
+    setSourceA(initialSources.sourceA);
+    setSourceB(initialSources.sourceB);
+    setError('');
+    setInfo('Multi Track A+B pronto: verifica i due brani, scegli la durata e crea UN SOLO nuovo remix.');
+  }, [initialSources]);
+
   useEffect(()=>{
     mounted.current=true;
     const previous=(()=>{try{return sessionStorage.getItem(KEY)||'';}catch{return '';}})();
-    if(isJob(previous)){activeJob.current=previous;setJob({jobId:previous,status:'PROCESSING',progress:0});
-      setInfo('Recupero un job precedente. La sua durata potrebbe essere diversa dalla nuova selezione.');}
-    fetch('/api/sonara-relay/pro-capabilities',{cache:'no-store',credentials:'include'})
-      .then(r=>r.ok?r.json():{available:false})
-      .then(x=>{if(mounted.current){setAvailable(x.available===true);setMultiformatAvailable(x.multiformatAvailable===true);}})
-      .catch(()=>{if(mounted.current)setAvailable(false);});
-    return()=>{mounted.current=false;};
+    if(isJob(previous)){
+      activeJob.current=previous;
+      setJob({jobId:previous,status:'PROCESSING',progress:0});
+      try {
+        const prior=JSON.parse(sessionStorage.getItem(PENDING_KEY)||'null');
+        if(prior?.id===previous&&validDuration(Number(prior?.seconds))){
+          setSubmission({id:previous,seconds:Number(prior.seconds)});
+        }
+      } catch {}
+      setInfo('Recupero il job precedente senza creare nuove richieste. La durata resta legata al suo ID.');
+    }
+    // A freshly deployed Cloudflare Worker is NOT evidence of a running V3
+    // GPU. Recheck a real, version-matched heartbeat so an already-open page
+    // becomes usable as soon as the MoLab V3 agent connects.
+    let inFlight=false;
+    let cancel=false;
+    const refresh=async()=>{
+      if(inFlight||cancel||document.hidden)return;
+      inFlight=true;
+      try {
+        const response=await fetch('/api/sonara-relay/pro-capabilities',
+          {cache:'no-store',credentials:'include'});
+        const caps=response.ok?await response.json():{};
+        if(!cancel&&mounted.current){
+          const ready=caps.available===true &&
+            caps.fusionAvailable===true &&
+            caps.expectedAgentRevision==='sonara-remix-pro-r2-agent-v3-dual-reference-fusion';
+          setAvailable(ready);
+          setMultiformatAvailable(ready&&caps.multiformatAvailable===true);
+        }
+      }catch{
+        if(!cancel&&mounted.current){setAvailable(false);setMultiformatAvailable(false);}
+      }finally{inFlight=false;}
+    };
+    void refresh();
+    const timer=window.setInterval(()=>{void refresh();},10000);
+    const onVisibility=()=>{if(!document.hidden)void refresh();};
+    document.addEventListener('visibilitychange',onVisibility);
+    return()=>{
+      cancel=true;
+      mounted.current=false;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange',onVisibility);
+    };
   },[]);
 
   useEffect(()=>{
@@ -78,12 +133,11 @@ export default function SonaraRemixProPanel() {
           const response=await fetch('/api/sonara-relay/pro-job/'+id,{credentials:'include',cache:'no-store'});
           const data:ProJob=await response.json().catch(()=>({}));
           if(response.status===404||response.status===410){
-            // Only clear a job whose private status is confirmed absent.
-            // Never silently restart a previously submitted GPU task.
-            try{sessionStorage.removeItem(KEY);}catch{}
-            activeJob.current='';
-            setJob(null);
-            setError('Il job precedente non risulta piu disponibile. Puoi avviare un nuovo remix A+B.');
+            // 404 can also reflect temporary ownership, propagation or
+            // authorization problems. Do not interpret it as proof that the
+            // remote GPU has finished, and NEVER enable a duplicate job.
+            setError('Il job '+id+' non è recuperabile al momento ('+response.status+
+              '). La richiesta resta bloccata per evitare duplicati. Verifica lo stato prima di avviare un altro remix.');
             return;
           }
           if(response.status===401||response.status===403){
@@ -94,13 +148,14 @@ export default function SonaraRemixProPanel() {
           if(cancelled||!mounted.current)return;
           errors=0;
           setJob(data);
-          if (submittedDuration!==null && data.requestedDurationSeconds!==undefined &&
-              Number(data.requestedDurationSeconds)!==submittedDuration) {
+          if (submission?.id===id && data.jobId===id && data.requestedDurationSeconds!==undefined &&
+              Number(data.requestedDurationSeconds)!==submission.seconds) {
             setError('ERRORE DURATA: il server ha registrato '+durationLabel(Number(data.requestedDurationSeconds))+
-              ' invece di '+durationLabel(submittedDuration)+'. Il job non corrisponde alla richiesta; non inviarne un altro prima che termini.');
+              ' invece di '+durationLabel(submission.seconds)+'. Il job non corrisponde alla richiesta; non inviarne un altro prima che termini.');
           }
           if(data.status==='COMPLETED'||data.status==='FAILED'){
-            try{sessionStorage.removeItem(KEY);}catch{}
+            try{sessionStorage.removeItem(KEY);sessionStorage.removeItem(PENDING_KEY);}catch{}
+            setSubmission(null);
             return;
           }
           setInfo('Fase: '+String(data.stage||'elaborazione')+' — '+Math.round(Number(data.progress||0))+'%');
@@ -113,7 +168,7 @@ export default function SonaraRemixProPanel() {
       }
     })();
     return()=>{cancelled=true;};
-  },[job?.jobId,job?.status,submittedDuration]);
+  },[job?.jobId,job?.status,submission?.id,submission?.seconds]);
 
   const upload=async(file:File,sourceLabel:string)=>{
     const maxSourceBytes=512*1024*1024;
@@ -185,14 +240,16 @@ export default function SonaraRemixProPanel() {
 
   const begin=async()=>{
     if(submitting||activeJob.current&&job?.status!=='FAILED'&&job?.status!=='COMPLETED')return;
-    if(available!==true){setError('Remix Pro GPU non ancora collegato. Usa il Remix normale.');return;}
+    if(available!==true){setError('Fusione A+B non ancora pronta: attendi che il nuovo agente MoLab V3 sia online. Nessun job è stato inviato.');return;}
     if(!sourceA||!sourceB){setError('Seleziona due file audio diversi.');return;}
     if(sourceA===sourceB){setError('Le sorgenti A e B devono essere diverse.');return;}
     if(!rights){setError('Conferma di avere il diritto di utilizzare entrambi i brani.');return;}
     if(!prompt.trim()){setError('Inserisci le indicazioni musicali per il nuovo brano.');return;}
-    const requestedDuration=duration;
+    // Capture the value synchronously at input change, not from a potentially
+    // stale React render during an immediate slider -> Create click.
+    const requestedDuration=selectedDurationRef.current;
     if(!validDuration(requestedDuration)){setError('Scegli una durata valida fra 0:30 e 8:00.');return;}
-    setSubmittedDuration(requestedDuration);
+    setSubmission(null);
     setSubmitting(true);setError('');setInfo('Caricamento privato del brano A…');
     try{
       const a=await upload(sourceA,'A');
@@ -200,9 +257,12 @@ export default function SonaraRemixProPanel() {
       const b=await upload(sourceB,'B');
       setInfo('Avvio del job autenticato…');
       const response=await fetch('/api/billing/generate',{
-        method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},
+        method:'POST',credentials:'include',
+        headers:{'Content-Type':'application/json',
+          'X-Sonara-Remix-Expected-Duration':String(requestedDuration)},
         body:JSON.stringify({
           sonaraRemixPro:true,
+          expectedDurationSec:requestedDuration,
           sonaraRemixProRightsConfirmed:true,
           sonaraRemixProSourceA:a,
           sonaraRemixProSourceB:b,
@@ -212,8 +272,8 @@ export default function SonaraRemixProPanel() {
           durationSec:requestedDuration,
           prompt:prompt.trim().slice(0,6500),
           candidateCount:1,
-          audio_cover_strength:0.76,
-          cover_noise_strength:0.14
+          audio_cover_strength:0.52,
+          cover_noise_strength:0.16
         })
       });
       const payload=await response.json().catch(()=>({}));
@@ -223,7 +283,9 @@ export default function SonaraRemixProPanel() {
           // Do not blindly resubmit an ambiguously queued job; the private
           // job record remains pending until its R2 state is reconciled.
           activeJob.current=recoverId;
-          try{sessionStorage.setItem(KEY,recoverId);}catch{}
+          setSubmission({id:recoverId,seconds:requestedDuration});
+          try{sessionStorage.setItem(KEY,recoverId);
+            sessionStorage.setItem(PENDING_KEY,JSON.stringify({id:recoverId,seconds:requestedDuration}));}catch{}
           setJob({jobId:recoverId,status:'PROCESSING',stage:'reconciling',progress:0,requestedDurationSeconds:requestedDuration});
           setInfo('Accodamento non confermato. ID '+recoverId+' conservato; verifica dello stato del job in corso.');
           return;
@@ -239,7 +301,9 @@ export default function SonaraRemixProPanel() {
         // This job may already exist in the private queue: retain its ID and
         // NEVER duplicate the request or pretend that 0:30 equals 8:00.
         activeJob.current=id;
-        try{sessionStorage.setItem(KEY,id);}catch{}
+        setSubmission({id,seconds:requestedDuration});
+        try{sessionStorage.setItem(KEY,id);
+            sessionStorage.setItem(PENDING_KEY,JSON.stringify({id:id,seconds:requestedDuration}));}catch{}
         setJob({jobId:id,status:'PROCESSING',stage:'queued',progress:0,
           requestedDurationSeconds:validDuration(queuedDuration)?queuedDuration:undefined});
         setError('Durata rifiutata: richiesta '+durationLabel(requestedDuration)+
@@ -248,7 +312,9 @@ export default function SonaraRemixProPanel() {
         return;
       }
       activeJob.current=id;
-      try{sessionStorage.setItem(KEY,id);}catch{}
+      setSubmission({id,seconds:requestedDuration});
+      try{sessionStorage.setItem(KEY,id);
+            sessionStorage.setItem(PENDING_KEY,JSON.stringify({id:id,seconds:requestedDuration}));}catch{}
       setJob({jobId:id,status:'PROCESSING',stage:'queued',progress:0,
         requestedDurationSeconds:requestedDuration});
       setInfo('Job '+id.slice(0,17)+' confermato dal server con durata '+durationLabel(requestedDuration)+'.');
@@ -270,7 +336,11 @@ export default function SonaraRemixProPanel() {
         <strong style={{display:'flex',alignItems:'center',gap:6}}><AudioWaveform size={16}/> SONARA REMIX PRO</strong>
         <span style={{fontSize:10,color:available?'#97e5b8':'#d5b6ef'}}>{available?'GPU ONLINE':available===null?'CONNESSIONE…':'NON ANCORA ATTIVO'}</span>
       </div>
-      <small>Remix di due brani: voce e armonie A + batteria B, strumenti separati con Demucs e nuovo render ACE-Step. Audio privati e accessibili solo al proprietario. Carica WAV, MP3, FLAC, M4A, AAC, OGG, OPUS, AIFF, WebM e altri formati elencati (max 15 minuti e 512 MiB per file); Remix AI da 0:30 a 8:00.</small>
+      {initialSources && <div role="status" data-testid="sonara-remix-pro-multitrack-handoff" style={{padding:12,border:'1px solid #5b4d80',borderRadius:9,background:'#1d1929',display:'grid',gap:4}}>
+        <strong>Multi Track → Nuova composizione A+B</strong>
+        <small>I due file originali sono stati trasferiti separatamente. Conferma i diritti, scegli la durata e premi Crea Remix Pro reale per produrre un solo master WAV, non una playlist o un mix DJ.</small>
+      </div>}
+      <small>Fusione creativa di due brani diversi: A guida la struttura, B ispira stile e timbro. ACE-Step rigenera il nuovo brano senza sommare gli audio originali. Audio privati e accessibili solo al proprietario. Carica WAV, MP3, FLAC, M4A, AAC, OGG, OPUS, AIFF, WebM e altri formati elencati (max 15 minuti e 512 MiB per file); Remix AI da 0:30 a 8:00.</small>
       <div data-testid="sonara-remix-pro-uploaders" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,225px),1fr))',gap:12}}>
         <div data-sonara-pro-source="a" onDragOver={e=>{e.preventDefault();e.dataTransfer.dropEffect='copy';}}
           onDrop={e=>{e.preventDefault();chooseSource(e.dataTransfer.files?.[0]||null,'a');}}
@@ -334,7 +404,7 @@ export default function SonaraRemixProPanel() {
         <input type="checkbox" checked={rights} onChange={e=>setRights(e.target.checked)} />
         <span>Confermo di possedere o avere i diritti di utilizzo di entrambi i brani.</span>
       </label>
-      <small role="status">Remix Pro crea UN SOLO WAV con la voce/armonia di A e il groove di B. La durata selezionata è quella effettiva del master (0:30–8:00), verificata sul server. Se gli audio sorgenti sono più brevi, l'arrangiamento riutilizza le frasi originali con transizioni; un render da 8:00 può richiedere più passaggi ACE-Step. Non consuma minuti Studio.</small>
+      <small role="status">Remix Pro genera UN SOLO brano nuovo usando A come guida strutturale e B come riferimento timbrico e musicale separato, senza sovrapporre le registrazioni originali. La durata selezionata è quella effettiva del master (0:30–8:00), verificata sul server. Se gli audio sorgenti sono più brevi, l'arrangiamento riutilizza le frasi originali con transizioni; un render da 8:00 può richiedere più passaggi ACE-Step. Non consuma minuti Studio.</small>
       <button type="button" disabled={!available||submitting||job?.status==='PROCESSING'||!rights}
         onClick={()=>void begin()} style={{padding:11,borderRadius:9,background:'#6c3b9d',color:'white',fontWeight:800}}>
         {submitting?<LoaderCircle size={15}/>:<ShieldCheck size={15}/>} Crea Remix Pro reale

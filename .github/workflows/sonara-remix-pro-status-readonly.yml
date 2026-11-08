@@ -1,0 +1,44 @@
+name: SONARA Remix Pro - read-only public activation diagnostics
+
+on:
+  push:
+    branches:
+      - feature/multitrack-real-ab-fusion-20261108
+    paths:
+      - .github/workflows/sonara-remix-pro-status-readonly.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-public-status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read public Remix Pro capabilities (no audio, no secrets, no deploy)
+        shell: bash
+        run: |
+          set -uo pipefail
+          for host in "https://api.sonaraenterprise.com" "https://sonaraenterprise.com"; do
+            echo "SONARA_CHECK_HOST=${host}"
+            code="$(curl --silent --show-error --location --max-time 20 -H 'Cache-Control: no-cache' -o /tmp/sonara-remix-capabilities.json -w '%{http_code}' "${host}/api/sonara-relay/pro-capabilities" || true)"
+            echo "SONARA_CAPABILITIES_HTTP=${code}"
+            if [[ "${code}" == "200" ]]; then
+              node - <<'NODE'
+          const fs=require('node:fs');
+          try {
+            const o=JSON.parse(fs.readFileSync('/tmp/sonara-remix-capabilities.json','utf8'));
+            console.log('SONARA_REMIX_GATEWAY_AVAILABLE='+Boolean(o.available));
+            console.log('SONARA_REMIX_FUSION_AVAILABLE='+Boolean(o.fusionAvailable));
+            console.log('SONARA_EXPECTED_AGENT_REVISION='+String(o.expectedAgentRevision||'missing'));
+            console.log('SONARA_REMIX_SITE_INTEGRATED='+Boolean(o.siteIntegrated));
+            console.log('SONARA_MULTIFORMAT_AVAILABLE='+Boolean(o.multiformatAvailable));
+            console.log('SONARA_DIAGNOSIS='+(o.fusionAvailable===true?'V3_GPU_READY':'V3_GPU_NOT_CONFIRMED'));
+          } catch(e) {console.log('SONARA_CAPABILITIES_RESPONSE_INVALID=true');}
+          NODE
+            fi
+          done
+          echo "SONARA_AUDIO_TEST_EXECUTED=false"
+          echo "SONARA_PRODUCTION_MODIFIED=false"
+          echo "SONARA_VERCEL_USED=false"
+          echo "SONARA_TINYFISH_USED=false"
