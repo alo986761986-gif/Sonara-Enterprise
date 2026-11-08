@@ -265,10 +265,22 @@ test('Remix Pro supports 8-minute duration and long master via multipart',async(
     parts:[{partNumber:1,etag:'part-1'},{partNumber:2,etag:'part-2'}]
   },signed);
   assert.equal(finish.status,200);
-  const complete=await call(e,'POST','/api/sonara-relay/pro-job/'+jobId+'/complete',{},signed);
+  const endpoint='/api/sonara-relay/pro-job/'+jobId;
+  const before=await call(e,'GET',endpoint,undefined,owner).then(r=>r.json());
+  assert.equal(before.requestedDurationSeconds,480);
+  // A fake 60-second result must never be accepted for an 8-minute job.
+  assert.equal((await call(e,'POST',endpoint+'/complete',
+    {actualDurationSeconds:60},signed)).status,409);
+  const still=await call(e,'GET',endpoint,undefined,owner).then(r=>r.json());
+  assert.equal(still.status,'PROCESSING');
+  const complete=await call(e,'POST',endpoint+'/complete',
+    {actualDurationSeconds:480},signed);
   assert.equal(complete.status,200);
-  const ownerStatus=await call(e,'GET','/api/sonara-relay/pro-job/'+jobId,undefined,owner);
-  assert.equal((await ownerStatus.json()).status,'COMPLETED');
+  const ownerStatus=await call(e,'GET',endpoint,undefined,owner);
+  const done=await ownerStatus.json();
+  assert.equal(done.status,'COMPLETED');
+  assert.equal(done.requestedDurationSeconds,480);
+  assert.equal(done.actualDurationSeconds,480);
 });
 
 test('compressed sources require verified decoder-ready GPU heartbeat',async()=>{
