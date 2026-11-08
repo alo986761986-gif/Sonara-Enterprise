@@ -26,7 +26,17 @@ export function inspectWavHeader(raw,totalBytes) {
   while(offset+8<=x.length) {
     const name=tag(offset),sz=v.getUint32(offset+4,true),begin=offset+8;
     if(name==='fmt '&&sz>=16&&begin+16<=x.length){
-      fmt={format:v.getUint16(begin,true),channels:v.getUint16(begin+2,true),
+      let format=v.getUint16(begin,true);
+      // A professional DAW may write WAVE_FORMAT_EXTENSIBLE for PCM24/float.
+      // Accept only its PCM (1) or IEEE float (3) subformat, not arbitrary codecs.
+      if(format===65534&&sz>=40&&begin+40<=x.length &&
+         v.getUint16(begin+16,true)>=22){
+        const sub=v.getUint32(begin+24,true);
+        const guid=Array.from(x.subarray(begin+28,begin+40));
+        const known=[0,0,16,0,128,0,0,170,0,56,155,113];
+        if((sub===1||sub===3)&&guid.every((value,i)=>value===known[i]))format=sub;
+      }
+      fmt={format,channels:v.getUint16(begin+2,true),
         sampleRate:v.getUint32(begin+4,true),byteRate:v.getUint32(begin+8,true),
         blockAlign:v.getUint16(begin+12,true)};
     }
