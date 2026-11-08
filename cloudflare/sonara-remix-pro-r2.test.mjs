@@ -142,6 +142,26 @@ test('Remix Pro fails closed until both billing approval and GPU heartbeat',asyn
   assert.equal(denied.status,503);
 });
 
+test('Legacy V2 heartbeat remains observable but cannot enable A+B fusion',async()=>{
+  const e=env();
+  const legacy={'x-sonara-relay-token':TOKEN,
+    'x-sonara-pro-agent-revision':'sonara-remix-pro-r2-agent-v2-longwav'};
+  const heartbeat=await call(e,'POST','/api/sonara-relay/pro-heartbeat',
+    {gpuReady:true,formatsReady:true},legacy);
+  assert.equal(heartbeat.status,200);
+  const caps=await proCapabilities(e);
+  assert.equal(caps.available,true);
+  assert.equal(caps.fusionAvailable,false);
+  assert.equal(caps.expectedAgentRevision,PRO_AGENT_REVISION);
+  const denied=await call(e,'POST','/api/sonara-relay/pro-enqueue',spec,gate);
+  assert.equal(denied.status,503);
+  const deniedClaim=await call(e,'POST','/api/sonara-relay/pro-claim',{},legacy);
+  assert.equal(deniedClaim.status,401);
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',
+    {gpuReady:true,formatsReady:true},agent);
+  assert.equal((await proCapabilities(e)).fusionAvailable,true);
+});
+
 test('Enqueue accepts unlimited Pro jobs without any Studio usage consent',async()=>{
   const e=env();
   await call(e,'POST','/api/sonara-relay/pro-heartbeat',{gpuReady:true},agent);
