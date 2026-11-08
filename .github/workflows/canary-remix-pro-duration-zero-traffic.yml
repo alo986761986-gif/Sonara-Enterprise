@@ -69,6 +69,7 @@ jobs:
             if(current.length!==2||current.find(x=>x.version_id===oldVersion)?.percentage!==100||
               current.find(x=>x.version_id===stagedVersion)?.percentage!==0)
               throw Error('Zero traffic split not confirmed');
+            await new Promise(resolve=>setTimeout(resolve,7000));
             const override='sonara-enterprise="'+stagedVersion+'"';
             const targets=[
               ['site','https://sonaraenterprise.com/'],
