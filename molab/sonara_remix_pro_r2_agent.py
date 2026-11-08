@@ -54,7 +54,7 @@ STATUS_FILE = HOME / "remix-pro-agent-status.json"
 LOCK_FILE = HOME / "remix-pro-agent.lock"
 BASE = "https://api.sonaraenterprise.com/api/sonara-relay"
 REVISION = "sonara-remix-pro-r2-agent-v1"
-MAX_WAV_BYTES = 80 * 1024 * 1024
+MAX_WAV_BYTES = 512 * 1024 * 1024
 STOP = False
 JOB = re.compile(r"^srpro_[0-9a-f-]{36}$")
 
@@ -269,7 +269,7 @@ def run_job(item, auth_mode):
                 raise ProAgentError("Local ACE-Step did not complete the job")
             progress(job, lease, "mastering", renewal)
             sample, sr = sf.read(str(generated), dtype="float32", always_2d=True)
-            if sr < 22050 or sr > 96000 or len(sample) / sr > 120:
+            if sr < 22050 or sr > 96000 or len(sample) / sr > 480:
                 raise ProAgentError("Unsupported generated WAV duration or sample rate")
             import numpy as np
             if sample.shape[1] == 1:
