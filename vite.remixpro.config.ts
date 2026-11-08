@@ -5,7 +5,7 @@ export default defineConfig({
   build:{
     outDir:'dist-remix-v3',
     emptyOutDir:true,
-    lib:{entry:'src/remixProStandalone.tsx',name:'SonaraRemixV3',formats:['es'],fileName:()=>'sonara-remix-v3.js'},
+    lib:{entry:'src/remixProStandalone.tsx',name:'SonaraRemixV3',formats:['es'],fileName:()=>'sonara-remix-v3.js',cssFileName:'sonara-remix-v3'},
     rollupOptions:{output:{assetFileNames:'sonara-remix-v3.css'}}
   }
 });
