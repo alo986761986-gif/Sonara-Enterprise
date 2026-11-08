@@ -206,3 +206,28 @@ batteria, armonie, transizioni e artefatti prima dell'approvazione.
 Non attivare `SONARA_REMIX_PRO_ENABLED` o
 `SONARA_REMIX_PRO_BILLING_READY` prima dell'approvazione della politica
 di consumo, del test reale e della verifica del sito.
+
+
+## Aggiornamento sorgenti lunghe e durata Remix AI (PR #76)
+
+Il modulo Remix Pro permette di **scegliere da 30 a 480 secondi**
+(con incrementi da 30 secondi) per un singolo remix A+B.
+La durata del remix NON deve essere confusa con la durata di ingresso:
+**ciascuna sorgente WAV puo durare fino a 15 minuti**, anche piu di 8 minuti.
+
+- Upload breve <= 80 MiB: endpoint reference tradizionale.
+- Upload lungo fino a 512 MiB: R2 multipart autenticato con blocchi da 8 MiB,
+  verifica della sessione proprietaria, dimensioni, struttura WAV PCM/float,
+  durata fino a 900 secondi. Tutte le parti restano in R2 privato.
+- Output e stem > 80 MiB: multipart privato con lease dedicato MoLab.
+- MoLab scarica i file sorgente su disco in streaming (senza caricare un WAV
+  da 512 MiB in RAM) e verifica la durata reale prima di elaborare.
+- Durata richiesta massima del nuovo render: 480 secondi. Il cap di piano
+  Studio rimane di 480 secondi; la quota proposta per Remix Pro rimane 3 volte
+  la durata del render e richiede approvazione commerciale.
+
+**Vincolo di rilascio:** gli unit test e la build non equivalgono a un vero
+render musicale di otto minuti sulla GPU RTX PRO 6000. Verificare due sorgenti
+lunghe con licenza, il task ACE-Step, il file finale, il consumo di VRAM,
+la stabilita dei lease R2 e il mastering. Non abilitare i flag billing o la
+generazione pubblica prima del collaudo end-to-end.
