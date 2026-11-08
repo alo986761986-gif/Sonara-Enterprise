@@ -251,6 +251,7 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
           rightsConfirmed: source.sonaraRemixProRightsConfirmed === true,
           prompt: String(source.prompt || '').slice(0, 6500),
           durationSec: source.durationSec,
+          expectedDurationSec: source.expectedDurationSec,
           bpmA: source.sonaraRemixProBpmA,
           bpmB: source.sonaraRemixProBpmB,
           bassFrom: source.sonaraRemixProBassFrom,
