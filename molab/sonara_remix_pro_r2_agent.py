@@ -241,12 +241,17 @@ def validate_wav(path):
     p = Path(path)
     if not p.is_file() or not 44 <= p.stat().st_size <= MAX_WAV_BYTES:
         raise ProAgentError("Real WAV file is missing or oversized")
-    # soundfile handles PCM16/24 and genuine 32-bit float/EXTENSIBLE WAVs
-    # produced by DAWs; Python wave.open may reject valid non-PCM WAVs.
+    # libsndfile identifies valid WAVE_FORMAT_EXTENSIBLE PCM/float as WAVEX,
+    # not WAV. The Cloudflare uploader already accepts these genuine files.
+    # Keep the codec, duration and channel limits; do not admit compressed WAV.
     try:
         with sf.SoundFile(str(p)) as f:
-            if f.format != "WAV" or not 10 <= f.frames / f.samplerate <= 900:
-                raise ProAgentError("WAV format or duration unsupported")
+            if f.format not in ("WAV", "WAVEX") or f.subtype not in (
+                "PCM_U8", "PCM_16", "PCM_24", "PCM_32", "FLOAT", "DOUBLE"
+            ):
+                raise ProAgentError("WAV must contain supported PCM or float audio")
+            if not 8000 <= f.samplerate <= 96000 or not 10 <= f.frames / f.samplerate <= 900:
+                raise ProAgentError("WAV sample rate or duration unsupported")
             if f.channels not in (1, 2):
                 raise ProAgentError("WAV channel layout unsupported")
     except (OSError, RuntimeError, ValueError) as exc:
