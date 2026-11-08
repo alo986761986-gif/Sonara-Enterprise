@@ -56,6 +56,12 @@ export async function handleLongWavUpload(request, env, nativeUser) {
   const url=new URL(request.url),p=url.pathname;
   if(!p.startsWith('/api/sonara-relay/reference-multipart/'))return null;
   if(request.method==='OPTIONS')return new Response(null,{status:204});
+  // Large uploads are available only when the separately billed Remix Pro
+  // feature is deliberately approved. Never expose an expensive 512 MiB
+  // unauthorised storage endpoint while Remix Pro is switched off.
+  if(env.SONARA_REMIX_PRO_ENABLED!=='true'||
+     env.SONARA_REMIX_PRO_BILLING_READY!=='true')
+    return bad('Remix Pro large uploads not yet enabled',503);
   const bucket=env.SONARA_AUDIO_BUCKET;
   if(!bucket||env.SONARA_R2_RELAY_ENABLED!=='true')
     return bad('Private R2 relay unavailable',503);
