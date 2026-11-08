@@ -70,7 +70,22 @@ Usa il Python isolato già verificato in
 il token privato già presente in `~/.sonara/relay.token` e può lavorare
 solo su `api.sonaraenterprise.com` in HTTPS.
 
-Dopo la revisione del commit:
+Dopo la revisione del commit, prima di avviare l'agente persistente,
+eseguire un controllo che **non legge né accoda brani degli utenti**:
+
+```sh
+/marimo/SONARA-REMIX-PRO/.venv/bin/python -u \
+  /marimo/SONARA-REMIX-PRO/sonara_remix_pro_r2_agent.py \
+  --auth-mode none --preflight
+```
+
+Il risultato deve confermare `PRO_GPU_VERIFIED=True`,
+`PRO_AGENT_AUTHENTICATED=True`, `PRO_JOBS_CLAIMED=0`. È normale
+che `PRO_SITE_GENERATION_AVAILABLE=False` finché la verifica billing
+non autorizza l'attivazione del servizio.
+
+Solo dopo la verifica dei permessi e della fatturazione:
+
 ```sh
 /marimo/SONARA-REMIX-PRO/.venv/bin/python -u \
   /marimo/SONARA-REMIX-PRO/sonara_remix_pro_r2_agent.py --auth-mode none
