@@ -357,15 +357,15 @@ export default function SonaraMultitrackMixer({ onMixReady, onMixInvalidated, on
         {!canCreateAiRemix && <small className="sonara-multitrack-ai-requirement">Attiva esattamente due brani diversi per la fusione AI. Le tracce mute o a volume zero sono escluse.</small>}
       </div>
       <div className="sonara-multitrack-summary"><span>Durata: <strong>{stamp(duration)}</strong></span><span>Dimensioni: <strong>{Math.round(bytes / 1024 / 1024)} MB</strong></span></div>
-      <p className="sonara-multitrack-hint">In modalità DJ i brani suonano in sequenza, con incroci brevi e dissolvenze equal-power. Non avviene ancora una sincronizzazione BPM o una separazione delle voci: per brani a tempi molto diversi possono restare stacchi ritmici. Usa solo file che puoi utilizzare legittimamente; i link YouTube sono reference.</p>
+      <p className="sonara-multitrack-hint">Il DJ Mix tradizionale riproduce le tracce in sequenza e non sincronizza automaticamente i BPM. Create Remix AI, invece, usa entrambi i brani originali separati tramite il motore Remix Pro su MoLab. Utilizza soltanto audio per cui possiedi i diritti.</p>
       {error && <p className="sonara-multitrack-error" role="alert">{error}</p>}
       <button type="button" className="sonara-multitrack-render" disabled={busy !== null || !tracks.length}
         onClick={() => void create()}>
         {busy ? <LoaderCircle className="sonara-multitrack-spinner" /> : <Layers3 />}
-        {busy === 'decode' ? 'Analisi file…' : busy === 'render' ? 'Creazione del mix reale…' : 'Crea DJ Mix completo e prepara Remix AI'}
+        {busy === 'decode' ? 'Analisi file…' : busy === 'render' ? 'Creazione del mix reale…' : 'Crea DJ Mix WAV (senza AI)'}
       </button>
       {readyUrl && <div className="sonara-multitrack-ready">
-        <strong>Mix pronto. Ascoltalo, scaricalo o premi Create Remix per generare con ACE-Step.</strong>
+        <strong>DJ Mix pronto. Ascoltalo o scaricalo. Per creare un nuovo brano A+B usa Create Remix AI con due sorgenti attive, non questo WAV pre-miscelato.</strong>
         <audio controls src={readyUrl} />
         <a href={readyUrl} download="SONARA-MULTITRACK-MIX.wav"><Download /> Scarica mix WAV</a>
       </div>}
