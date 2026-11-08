@@ -49,7 +49,7 @@ from sonara_remix_pro_ace_bridge import render_long_remix as ace_cover
 from sonara_remix_pro_quality import audit_wav
 from sonara_remix_pro_fusion import (
     make_structural_guide, make_independent_style_reference, build_fusion_prompt,
-    select_fusion_tempo,
+    select_fusion_tempo, ensure_distinct_sources,
 )
 import soundfile as sf
 
@@ -492,6 +492,7 @@ def run_job(item, auth_mode):
             a = normalized_audio_source(original_a, folder / "normalized-a.wav")
             failure_phase = "normalize_b"
             b = normalized_audio_source(original_b, folder / "normalized-b.wav")
+            ensure_distinct_sources(a, b)
             failure_phase = "processing"
             progress(job, lease, "analyzing", renewal)
             report_a = analyze_audio(a)
