@@ -273,15 +273,15 @@ export async function handleRemixPro(req,env,ctx,auth) {
     const sources=[j.sourceA,j.sourceB];
     const ok=await save(b,next,obj.etag);
     if(!ok)return fail('Retry completion',409);
-    // If settlement fails, Durable Object alarm will detect terminal R2
-    // status and settle the reservation asynchronously.
-    if(!(await proQuota(env,action==='complete'?'commit':'refund',id,j.ownerUid)))
-      return fail('Quota reconciliation pending; job saved',503);
-    await Promise.all(sources.map(async src=>{
+    // Once R2 records COMPLETE/FAILED, the agent must not mistake a
+    // temporarily unavailable quota ledger for a failed render. The Durable
+    // Object alarm will idempotently settle the terminal R2 state.
+    const settled=await proQuota(env,action==='complete'?'commit':'refund',id,j.ownerUid);
+    await Promise.allSettled(sources.map(async src=>{
       if(!src?.objectKey)return;
       await Promise.all([b.delete(src.objectKey),b.delete(referenceKey(src.id))]);
-    })).catch(()=>undefined);
-    return json({ok:true});
+    }));
+    return json({ok:true,settlementPending:!settled},settled?200:202);
   }
   return fail('Method not supported',405);
 }
