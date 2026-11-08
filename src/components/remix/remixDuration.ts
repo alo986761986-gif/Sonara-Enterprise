@@ -19,3 +19,23 @@ export function chooseRandomRemixDuration(randomUint32:()=>number=()=>{
     REMIX_DURATION_STEP_SECONDS+1;
   return REMIX_DURATION_MIN_SECONDS+(n%choices)*REMIX_DURATION_STEP_SECONDS;
 }
+
+// Use Request as the single immutable transport. Legacy Cloudflare HTMLRewriter
+// interceptors only rewrite fetch(url, {body: string}) and can otherwise change
+// durationSec without changing expectedDurationSec or the expected header.
+export function buildRemixProGenerationRequest(
+  origin:string,payload:Record<string,unknown>,durationSeconds:number
+):Request {
+  if(!isValidRemixDuration(durationSeconds))
+    throw new Error('Durata Remix Pro automatica non valida. Nessun job inviato.');
+  const url=new URL('/api/billing/generate',origin);
+  if(url.protocol!=='https:' && !(url.protocol==='http:'&&url.hostname==='localhost'))
+    throw new Error('Indirizzo Remix Pro non sicuro.');
+  return new Request(url.toString(),{
+    method:'POST',credentials:'include',
+    headers:{'Content-Type':'application/json',
+      'X-Sonara-Remix-Expected-Duration':String(durationSeconds)},
+    body:JSON.stringify({...payload,durationSec:durationSeconds,
+      expectedDurationSec:durationSeconds})
+  });
+}
