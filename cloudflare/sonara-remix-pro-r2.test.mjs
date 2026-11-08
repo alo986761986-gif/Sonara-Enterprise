@@ -49,7 +49,7 @@ function bucket(){
   };
 }
 function env(flags=true) {
-  const reservations=new Map([[JOB,{ownerUid:USER,seconds:25,status:'reserved'}]]);
+  const reservations=new Map([[JOB,{ownerUid:USER,seconds:30,status:'reserved'}]]);
   const environment={
     SONARA_AUDIO_BUCKET:bucket(),SONARA_R2_RELAY_ENABLED:'true',
     SONARA_REMIX_PRO_ENABLED:flags?'true':'false',
@@ -96,7 +96,7 @@ const agent={'x-sonara-relay-token':TOKEN,'x-sonara-pro-agent-revision':PRO_AGEN
 const owner={'x-mock-user':USER};
 const gate={'x-sonara-internal-secret':SECRET,'x-sonara-user-uid':USER};
 const spec={jobId:JOB,sourceA:A,sourceB:B,rightsConfirmed:true,prompt:'Compose a coherent genre-true remix',
-  durationSec:25,bpmA:120,bpmB:122,bassFrom:'a'};
+  durationSec:30,bpmA:120,bpmB:122,bassFrom:'a'};
 
 test('Remix Pro fails closed until both billing approval and GPU heartbeat',async()=>{
   const environment=env();
