@@ -49,6 +49,7 @@ from sonara_remix_pro_ace_bridge import render_long_remix as ace_cover
 from sonara_remix_pro_quality import audit_wav
 from sonara_remix_pro_fusion import (
     make_structural_guide, make_independent_style_reference, build_fusion_prompt,
+    select_fusion_tempo,
 )
 import soundfile as sf
 
@@ -495,10 +496,11 @@ def run_job(item, auth_mode):
             progress(job, lease, "analyzing", renewal)
             report_a = analyze_audio(a)
             report_b = analyze_audio(b)
-            bpm_a = params.get("bpmA") or report_a.get("tempoBpm")
-            bpm_b = params.get("bpmB") or report_b.get("tempoBpm")
-            if not bpm_a or not bpm_b:
-                raise ProAgentError("Tempo non verificabile. Imposta il BPM manualmente per entrambi i brani.")
+            bpm_a = select_fusion_tempo(params.get("bpmA"), report_a,
+                                         params.get("bpmB"), report_b)
+            # Uncertain BPM is legitimate for ambient and syncopated music.
+            # ACE-Step can derive the pulse from its two audio references.
+            # No synthesized or guessed BPM values are supplied.
             progress(job, lease, "separating", renewal)
             env_cache = ROOT / "model-cache"
             os.environ["TORCH_HOME"] = str(env_cache)
@@ -530,7 +532,7 @@ def run_job(item, auth_mode):
                 mode=auth_mode,
                 strength=float(params.get("coverStrength") or .52),
                 noise=float(params.get("coverNoise") or .16),
-                bpm=float(bpm_a),
+                bpm=bpm_a,
                 key=params.get("key") or report_a.get("key") or None,
                 reference_audio_path=style,
             )
