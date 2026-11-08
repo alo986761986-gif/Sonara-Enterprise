@@ -62,10 +62,17 @@ function setup(){
   const {bucket,objects}=fakeBucket();
   const env={SONARA_AUDIO_BUCKET:bucket,SONARA_R2_RELAY_ENABLED:'true',
     SONARA_REMIX_PRO_ENABLED:'true',SONARA_REMIX_PRO_BILLING_READY:'true'};
+  env.SONARA_AUTH={
+    idFromName:name=>name,
+    get:()=>({fetch:async req=>Response.json({
+      billing:{planId:req.headers.get('Cookie')==='sonara_session=test'?env.__plan:'free'}
+    })})
+  };
+  env.__plan='studio';
   const user=async req=>req.headers.get('x-test-user')==='owner'?{uid:'owner'}:null;
   const call=(method,path,body,who='owner')=>{
     const request=new Request('https://api.sonaraenterprise.com'+path,{
-      method,headers:{'x-test-user':who,'content-type':'application/json'},
+      method,headers:{'x-test-user':who,'content-type':'application/json',Cookie:'sonara_session=test'},
       ...(body==null?{}:{body:body instanceof Uint8Array?body:JSON.stringify(body)})
     });
     return handleLongWavUpload(request,env,user);
@@ -138,4 +145,13 @@ test('DAW WAVE_FORMAT_EXTENSIBLE PCM24 long sources remain supported',()=>{
   header.set(guid,44);
   put(60,'data');v.setUint32(64,bytes,true);
   assert.equal(inspectWavHeader(header,bytes+68)?.durationSec,540);
+});
+
+test('long upload rejects Free accounts before allocating R2 multipart storage',async()=>{
+  const {call,env}=setup();
+  env.__plan='free';
+  const response=await call('POST','/api/sonara-relay/reference-multipart/start',{
+    name:'free.wav',bytes:9*1024*1024
+  });
+  assert.equal(response.status,403);
 });
