@@ -559,7 +559,9 @@ def run_job(item, auth_mode):
                 upload(job,lease,"stem/"+remote,source)
             upload(job,lease,"audio",master_file)
             renewal.verify()
-            response = request("POST",f"/api/sonara-relay/pro-job/{job}/complete",{},lease)
+            response = request("POST",f"/api/sonara-relay/pro-job/{job}/complete",
+                               {"actualDurationSeconds": float(audit["durationSeconds"]),
+                                "singleTrack": True, "twoSources": True},lease)
             if response.get("ok") is not True:
                 raise ProAgentError("Gateway completion not acknowledged")
         status("waiting_for_authorized_job", lastCompleted=job)
