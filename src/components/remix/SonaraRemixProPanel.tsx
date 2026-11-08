@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { AudioWaveform, Check, Download, LoaderCircle, ShieldCheck, UploadCloud } from 'lucide-react';
+import { AudioWaveform, ArrowRight, ArrowUpRight, Check, ChevronDown, Clock3, Download, Layers2, LoaderCircle, LockKeyhole, ShieldCheck, SlidersHorizontal, Sparkles, UploadCloud } from 'lucide-react';
+import './sonaraRemixProV3.css';
 import { chooseRandomRemixDuration, isValidRemixDuration } from './remixDuration';
 
 type ProJob = {jobId?: string;status?: string;stage?: string;progress?: number;audioUrl?: string;
@@ -258,93 +259,218 @@ export default function SonaraRemixProPanel() {
     setInfo('Remix Pro selezionato nel player SONARA.');
   };
 
+  const busy=submitting||(job?.status==='PROCESSING');
+  const ready=available===true&&Boolean(sourceA)&&Boolean(sourceB)&&sourceA!==sourceB&&
+    rights&&Boolean(prompt.trim())&&!busy;
+  const nowDuration=Number(job?.requestedDurationSeconds)>0
+    ?Number(job?.requestedDurationSeconds):submittedDuration;
+  const suggestion=(kind:'balanced'|'groove'|'melody')=>{
+    const values={
+      balanced:'Create one cohesive professional remix combining the melody and harmony of track A with the natural groove, percussion and energy of track B. Evolve the arrangement organically.',
+      groove:'Make one dancefloor-ready remix: preserve the recognizable melody from A, weave in the drums and groove of B, and introduce natural transitions and dynamic musical development.',
+      melody:'Create a single expressive, polished track built around the lead melody and emotional phrasing of A, supported by the rhythm and percussion of B with clear natural instruments.'
+    };
+    setPrompt(values[kind]);
+  };
+
   return (
-    <div className="sonara-remix-pro" style={{padding:14,border:'1px solid #453257',borderRadius:12,background:'#121019',color:'#ddd9e8',display:'grid',gap:12}}>
-      <div style={{display:'flex',gap:8,alignItems:'center',justifyContent:'space-between'}}>
-        <strong style={{display:'flex',alignItems:'center',gap:6}}><AudioWaveform size={16}/> SONARA REMIX PRO</strong>
-        <span style={{fontSize:10,color:available?'#97e5b8':'#d5b6ef'}}>{available?'GPU ONLINE':available===null?'CONNESSIONE…':'NON ANCORA ATTIVO'}</span>
-      </div>
-      <small>Remix di due brani: voce e armonie A + batteria B, strumenti separati con Demucs e nuovo render ACE-Step. Audio privati e accessibili solo al proprietario. Carica WAV, MP3, FLAC, M4A, AAC, OGG, OPUS, AIFF, WebM e altri formati elencati (max 15 minuti e 512 MiB per file); Remix AI da 0:30 a 8:00.</small>
-      <div data-testid="sonara-remix-pro-uploaders" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,225px),1fr))',gap:12}}>
-        <div data-sonara-pro-source="a" onDragOver={e=>{e.preventDefault();e.dataTransfer.dropEffect='copy';}}
-          onDrop={e=>{e.preventDefault();chooseSource(e.dataTransfer.files?.[0]||null,'a');}}
-          style={{display:'grid',gap:10,minWidth:0,padding:16,border:'1px dashed #9869dc',borderRadius:12,background:'#20172c'}}>
-          <strong>BRANO A — Voce e armonie</strong>
-          <small>Trascina qui il primo file audio oppure selezionalo dal dispositivo.</small>
-          <input id="sonara-remix-pro-file-a" ref={sourceAInput} type="file" accept={AUDIO_PICKER_ACCEPT}
-            aria-label="Seleziona file audio brano A" data-testid="sonara-remix-pro-input-a"
-            onChange={e=>chooseSource(e.currentTarget.files?.[0]||null,'a')}
-            style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden',pointerEvents:'none'}} />
-          <button type="button" data-testid="sonara-remix-pro-choose-a"
-            onClick={()=>sourceAInput.current?.click()}
-            style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,minHeight:44,padding:'10px 14px',border:'1px solid #ab87ef',borderRadius:9,background:'#6c3b9d',color:'#fff',fontWeight:800,cursor:'pointer'}}>
-            <UploadCloud size={18}/>{sourceA?'Cambia brano A':'Carica brano A'}
-          </button>
-          <small aria-live="polite" style={{overflowWrap:'anywhere',color:sourceA?'#9ce6bb':'#c8bed7'}}>
-            {sourceA?sourceA.name+' · '+(sourceA.size/1024/1024).toFixed(1)+' MiB':'Nessun file A selezionato'}
-          </small>
+    <div className="sonara-pro-v3" data-testid="sonara-remix-pro-v3">
+      <div className="sonara-pro-v3__hero">
+        <div className="sonara-pro-v3__hero-top">
+          <span className="sonara-pro-v3__overline"><span className="sonara-pro-v3__spark"/> SONARA / CREATIVE ENGINE</span>
+          <span className={'sonara-pro-v3__connection '+(available===true?'is-online':available===false?'is-offline':'')}>
+            <span className="sonara-pro-v3__connection-dot"/>
+            {available===true?'ENGINE ONLINE':available===null?'VERIFICA MOTORE':'MOTORE NON DISPONIBILE'}
+          </span>
         </div>
-        <div data-sonara-pro-source="b" onDragOver={e=>{e.preventDefault();e.dataTransfer.dropEffect='copy';}}
-          onDrop={e=>{e.preventDefault();chooseSource(e.dataTransfer.files?.[0]||null,'b');}}
-          style={{display:'grid',gap:10,minWidth:0,padding:16,border:'1px dashed #9869dc',borderRadius:12,background:'#20172c'}}>
-          <strong>BRANO B — Batteria e groove</strong>
-          <small>Trascina qui il secondo file audio oppure selezionalo dal dispositivo.</small>
-          <input id="sonara-remix-pro-file-b" ref={sourceBInput} type="file" accept={AUDIO_PICKER_ACCEPT}
-            aria-label="Seleziona file audio brano B" data-testid="sonara-remix-pro-input-b"
-            onChange={e=>chooseSource(e.currentTarget.files?.[0]||null,'b')}
-            style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden',pointerEvents:'none'}} />
-          <button type="button" data-testid="sonara-remix-pro-choose-b"
-            onClick={()=>sourceBInput.current?.click()}
-            style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,minHeight:44,padding:'10px 14px',border:'1px solid #ab87ef',borderRadius:9,background:'#6c3b9d',color:'#fff',fontWeight:800,cursor:'pointer'}}>
-            <UploadCloud size={18}/>{sourceB?'Cambia brano B':'Carica brano B'}
-          </button>
-          <small aria-live="polite" style={{overflowWrap:'anywhere',color:sourceB?'#9ce6bb':'#c8bed7'}}>
-            {sourceB?sourceB.name+' · '+(sourceB.size/1024/1024).toFixed(1)+' MiB':'Nessun file B selezionato'}
-          </small>
+        <h2>Due brani. <span>Una nuova identità.</span></h2>
+        <p>Unisci la melodia di A e il ritmo di B in un unico remix originale. Tu scegli il carattere musicale, SONARA si occupa della durata.</p>
+        <div className="sonara-pro-v3__hero-foot">
+          <span><Layers2 size={14}/> FUSIONE A + B</span>
+          <span><AudioWaveform size={14}/> ACE-STEP XL TURBO</span>
+          <span><ShieldCheck size={14}/> AUDIO PRIVATO</span>
         </div>
       </div>
-      <small>Formati: WAV, MP3, FLAC, M4A/MP4 audio, AAC, OGG/OPUS, AIFF, WebM audio, WMA, CAF, AMR, AC3. Massimo 15 minuti e 512 MiB per file. La GPU verifica il codec e converte l'audio in WAV di lavoro privato, senza cambiare il file originale.</small>
-      {!multiformatAvailable&&<small role="status">Decodifica multiformato non ancora pronta sull'agente MoLab. I WAV continuano a funzionare.</small>}
-      <label>Direzione musicale<textarea rows={3} value={prompt} onChange={e=>setPrompt(e.target.value)} style={{width:'100%',marginTop:6,padding:8,borderRadius:6,background:'#1c1926',color:'#fff'}} /></label>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:8}}>
-        <div data-testid="sonara-remix-pro-auto-duration" style={{display:'grid',gap:5}}>
-          <strong>Durata automatica SONARA</strong>
-          <small>SONARA sceglie casualmente fra 2:00 e 5:00 per ogni nuovo remix A+B. Non devi impostare il minutaggio.</small>
-          {submittedDuration!==null&&<small role="status">Durata assegnata all'ultimo invio: {durationLabel(submittedDuration)}</small>}
+
+      <section className="sonara-pro-v3__section" aria-label="Sorgenti del remix">
+        <div className="sonara-pro-v3__section-heading">
+          <div><span className="sonara-pro-v3__step">01</span><div>
+            <h3>Le tue sorgenti</h3>
+            <p>Carica due brani diversi per costruire un unico risultato.</p>
+          </div></div>
+          <span className="sonara-pro-v3__section-tag">2 INPUT AUDIO</span>
         </div>
-        <label>Basso<select value={bassFrom} onChange={e=>setBassFrom(e.target.value==='b'?'b':'a')}><option value="a">Dal brano A</option><option value="b">Dal brano B</option></select></label>
-        <label>BPM A (facoltativo)<input type="number" min={55} max={200} placeholder="Analisi automatica" value={bpmA} onChange={e=>setBpmA(e.target.value)} /></label>
-        <label>BPM B (facoltativo)<input type="number" min={55} max={200} placeholder="Analisi automatica" value={bpmB} onChange={e=>setBpmB(e.target.value)} /></label>
-      </div>
-      <label style={{display:'flex',alignItems:'flex-start',gap:8}}>
-        <input type="checkbox" checked={rights} onChange={e=>setRights(e.target.checked)} />
-        <span>Confermo di possedere o avere i diritti di utilizzo di entrambi i brani.</span>
-      </label>
-      <small role="status">Remix Pro crea UN SOLO WAV con la voce/armonia di A e il groove di B. La durata viene scelta automaticamente dal sito all'avvio (2:00–5:00) ed è controllata dal server. Se gli audio sorgenti sono più brevi, l'arrangiamento può richiedere ulteriori passaggi ACE-Step. Non consuma minuti Studio.</small>
-      <button type="button" disabled={!available||submitting||job?.status==='PROCESSING'||!rights}
-        onClick={()=>void begin()} style={{padding:11,borderRadius:9,background:'#6c3b9d',color:'white',fontWeight:800}}>
-        {submitting?<LoaderCircle size={15}/>:<ShieldCheck size={15}/>} Crea Remix Pro reale
-      </button>
-      {info&&<small role="status">{info}</small>}
-      {error&&<small role="alert" style={{color:'#ffb3b9'}}>{error}</small>}
-      {job&&<div style={{display:'grid',gap:8}}>
-        <strong>Job {job.jobId?.slice(0,18)} · {job.status||'PROCESSING'}</strong>
-        <small data-testid="sonara-remix-pro-job-duration">Durata del JOB {job.jobId?.slice(0,12)}: {Number(job.requestedDurationSeconds)>0?durationLabel(Number(job.requestedDurationSeconds)):'da recuperare dal server'}{Number(job.actualDurationSeconds)>0?' · WAV verificato: '+durationLabel(Number(job.actualDurationSeconds)):''}. {submittedDuration!==null&&Number(job.requestedDurationSeconds)>0&&Number(job.requestedDurationSeconds)!==submittedDuration?'La durata di questo job è differente da quella dell’ultimo invio; verifica prima di riprovare.':''}</small>
-        <progress value={Math.max(0,Math.min(100,job.progress||0))} max={100} style={{width:'100%'}} />
-        {job.status==='FAILED'&&<small role="alert">{job.error||'Job non riuscito.'}</small>}
-        {output&&<>
-          <audio src={output} controls preload="metadata" style={{width:'100%'}} />
-          <div style={{display:'flex',gap:8}}>
-            <button type="button" onClick={select}><Check size={14}/> Usa nel player</button>
-            <a href={output} download="SONARA-REMIX-PRO.wav"><Download size={14}/> Scarica WAV</a>
+        <div className="sonara-pro-v3__source-grid" data-testid="sonara-remix-pro-uploaders">
+          <div className={'sonara-pro-v3__source-card is-a '+(sourceA?'has-file':'')}
+            data-sonara-pro-source="a"
+            onDragOver={e=>{e.preventDefault();e.dataTransfer.dropEffect='copy';}}
+            onDrop={e=>{e.preventDefault();chooseSource(e.dataTransfer.files?.[0]||null,'a');}}>
+            <div className="sonara-pro-v3__source-head">
+              <span className="sonara-pro-v3__source-index">A</span>
+              <span className="sonara-pro-v3__source-state">{sourceA?<><Check size={13}/> PRONTO</>:'PRIMA SORGENTE'}</span>
+            </div>
+            <div className="sonara-pro-v3__sound-mark" aria-hidden="true">
+              {[22,38,27,53,34,66,41,77,46,62,31,49,24,39,21].map((h,i)=><i key={i} style={{height:h+'%'}} />)}
+            </div>
+            <div className="sonara-pro-v3__source-content">
+              <h4>Melodia e armonie</h4>
+              <p>La voce, il tema e il carattere musicale del brano A.</p>
+            </div>
+            <input id="sonara-remix-pro-file-a" ref={sourceAInput} type="file" accept={AUDIO_PICKER_ACCEPT}
+              aria-label="Seleziona file audio brano A" data-testid="sonara-remix-pro-input-a"
+              onChange={e=>chooseSource(e.currentTarget.files?.[0]||null,'a')}
+              className="sonara-pro-v3__file-input"/>
+            <button type="button" data-testid="sonara-remix-pro-choose-a"
+              className="sonara-pro-v3__upload-button" onClick={()=>sourceAInput.current?.click()}>
+              {sourceA?<Check size={16}/>:<UploadCloud size={16}/>}
+              {sourceA?'Sostituisci brano A':'Carica brano A'}
+              <ArrowUpRight size={15}/>
+            </button>
+            <span className="sonara-pro-v3__file-name" aria-live="polite">
+              {sourceA?sourceA.name+' · '+(sourceA.size/1048576).toFixed(1)+' MB':'Trascina un file audio qui oppure scegli un file'}
+            </span>
           </div>
-          <strong>Stem reali separati</strong>
-          {(job.stems||[]).map(stem=><label key={stem.role} style={{display:'grid',gap:4}}>
-            <span>{stem.role}</span><audio controls src={stem.url} preload="none" style={{width:'100%'}}/>
-          </label>)}
-        </>}
+
+          <div className={'sonara-pro-v3__source-card is-b '+(sourceB?'has-file':'')}
+            data-sonara-pro-source="b"
+            onDragOver={e=>{e.preventDefault();e.dataTransfer.dropEffect='copy';}}
+            onDrop={e=>{e.preventDefault();chooseSource(e.dataTransfer.files?.[0]||null,'b');}}>
+            <div className="sonara-pro-v3__source-head">
+              <span className="sonara-pro-v3__source-index">B</span>
+              <span className="sonara-pro-v3__source-state">{sourceB?<><Check size={13}/> PRONTO</>:'SECONDA SORGENTE'}</span>
+            </div>
+            <div className="sonara-pro-v3__sound-mark" aria-hidden="true">
+              {[32,55,38,25,69,46,29,76,42,68,37,57,28,48,34].map((h,i)=><i key={i} style={{height:h+'%'}} />)}
+            </div>
+            <div className="sonara-pro-v3__source-content">
+              <h4>Groove e ritmo</h4>
+              <p>La batteria, il movimento e l'energia del brano B.</p>
+            </div>
+            <input id="sonara-remix-pro-file-b" ref={sourceBInput} type="file" accept={AUDIO_PICKER_ACCEPT}
+              aria-label="Seleziona file audio brano B" data-testid="sonara-remix-pro-input-b"
+              onChange={e=>chooseSource(e.currentTarget.files?.[0]||null,'b')}
+              className="sonara-pro-v3__file-input"/>
+            <button type="button" data-testid="sonara-remix-pro-choose-b"
+              className="sonara-pro-v3__upload-button" onClick={()=>sourceBInput.current?.click()}>
+              {sourceB?<Check size={16}/>:<UploadCloud size={16}/>}
+              {sourceB?'Sostituisci brano B':'Carica brano B'}
+              <ArrowUpRight size={15}/>
+            </button>
+            <span className="sonara-pro-v3__file-name" aria-live="polite">
+              {sourceB?sourceB.name+' · '+(sourceB.size/1048576).toFixed(1)+' MB':'Trascina un file audio qui oppure scegli un file'}
+            </span>
+          </div>
+        </div>
+        <div className="sonara-pro-v3__fusion-strip">
+          <span>TRACK A</span><span className="sonara-pro-v3__fusion-line"/>
+          <span className="sonara-pro-v3__fusion-core"><Sparkles size={15}/> SONARA FUSION</span>
+          <span className="sonara-pro-v3__fusion-line"/><span>TRACK B</span>
+          <strong><ArrowRight size={16}/> ONE NEW TRACK</strong>
+        </div>
+      </section>
+
+      <section className="sonara-pro-v3__section" aria-label="Direzione musicale del remix">
+        <div className="sonara-pro-v3__section-heading">
+          <div><span className="sonara-pro-v3__step">02</span><div>
+            <h3>Direzione musicale</h3>
+            <p>Guida lo stile del nuovo brano senza complicazioni.</p>
+          </div></div>
+        </div>
+        <div className="sonara-pro-v3__controls-layout">
+          <div className="sonara-pro-v3__creative-panel">
+            <label htmlFor="sonara-pro-v3-prompt">COME DEVE SUONARE IL REMIX?</label>
+            <textarea id="sonara-pro-v3-prompt" rows={5} value={prompt}
+              placeholder="Descrivi l'atmosfera, il sound, gli strumenti e la trasformazione musicale…"
+              onChange={e=>setPrompt(e.target.value)}/>
+            <div className="sonara-pro-v3__prompt-footer">
+              <span>ISPIRAZIONI RAPIDE</span>
+              <div>
+                <button type="button" onClick={()=>suggestion('balanced')}>Bilanciato</button>
+                <button type="button" onClick={()=>suggestion('groove')}>Club &amp; groove</button>
+                <button type="button" onClick={()=>suggestion('melody')}>Melodico</button>
+              </div>
+            </div>
+          </div>
+          <aside className="sonara-pro-v3__settings-panel">
+            <div className="sonara-pro-v3__auto-duration" data-testid="sonara-remix-pro-auto-duration">
+              <span className="sonara-pro-v3__setting-icon"><Clock3 size={20}/></span>
+              <div>
+                <small>DURATA DEL NUOVO BRANO</small>
+                <strong>Automatica <span>2–5 min</span></strong>
+                <p>{nowDuration?'Durata assegnata: '+durationLabel(nowDuration):'SONARA sceglie la durata al momento della creazione.'}</p>
+              </div>
+            </div>
+            <label className="sonara-pro-v3__select-label" htmlFor="sonara-pro-v3-bass">
+              SORGENTE BASSO
+              <select id="sonara-pro-v3-bass" value={bassFrom} onChange={e=>setBassFrom(e.target.value==='b'?'b':'a')}>
+                <option value="a">Dal brano A</option>
+                <option value="b">Dal brano B</option>
+              </select>
+            </label>
+            <details className="sonara-pro-v3__advanced">
+              <summary><SlidersHorizontal size={15}/> Parametri avanzati <ChevronDown size={14}/></summary>
+              <div className="sonara-pro-v3__bpm-grid">
+                <label>BPM A <input type="number" min={55} max={200} placeholder="Auto" value={bpmA} onChange={e=>setBpmA(e.target.value)} /></label>
+                <label>BPM B <input type="number" min={55} max={200} placeholder="Auto" value={bpmB} onChange={e=>setBpmB(e.target.value)} /></label>
+              </div>
+            </details>
+          </aside>
+        </div>
+      </section>
+
+      <section className="sonara-pro-v3__production" aria-label="Creazione del remix">
+        <div className="sonara-pro-v3__production-copy">
+          <span className="sonara-pro-v3__production-label"><LockKeyhole size={14}/> SESSIONE PRIVATA · R2</span>
+          <h3>Pronto a creare qualcosa di nuovo?</h3>
+          <p>Un solo master WAV, costruito dalle due sorgenti. Nessun nuovo job sarà avviato mentre quello precedente è ancora in elaborazione.</p>
+          <label className="sonara-pro-v3__rights">
+            <input type="checkbox" checked={rights} onChange={e=>setRights(e.target.checked)}/>
+            <span>Confermo di avere i diritti per utilizzare entrambi i brani.</span>
+          </label>
+        </div>
+        <div className="sonara-pro-v3__production-action">
+          <button type="button" data-testid="sonara-pro-v3-generate" disabled={!ready}
+            onClick={()=>void begin()} className="sonara-pro-v3__create-button">
+            {submitting?<LoaderCircle className="sonara-pro-v3__spin" size={19}/>:<Sparkles size={19}/>}
+            {submitting?'Preparazione in corso…':'Crea Remix Pro'}
+            <ArrowRight size={19}/>
+          </button>
+          <span>{!available?'Motore in verifica':busy?'Un job è già in corso':!sourceA||!sourceB?'Carica A e B per iniziare':!rights?'Conferma i diritti di utilizzo':'Pronto per creare un unico brano A+B'}</span>
+        </div>
+      </section>
+
+      {!multiformatAvailable&&available===true&&<p className="sonara-pro-v3__note" role="status">La decodifica multiformato non è ancora attiva sulla GPU; per ora carica due WAV.</p>}
+      {(info||error)&&<div className={'sonara-pro-v3__message '+(error?'is-error':'')} role={error?'alert':'status'}>
+        {error||info}
       </div>}
-      {available!==true&&<small>Remix tradizionale disponibile. Remix Pro sarà abilitato solo dopo autenticazione e verifica del servizio GPU dedicato.</small>}
+
+      {job&&<section className="sonara-pro-v3__job" aria-label="Stato del remix generato">
+        <div className="sonara-pro-v3__job-head">
+          <div><span>YOUR REMIX</span><h3>{job.status==='COMPLETED'?'Il tuo nuovo brano è pronto':job.status==='FAILED'?'Generazione non riuscita':'Stiamo creando il tuo remix'}</h3></div>
+          <span className="sonara-pro-v3__job-badge">{job.status||'PROCESSING'}</span>
+        </div>
+        <div className="sonara-pro-v3__job-details">
+          <span>JOB {job.jobId?.slice(0,20)}</span>
+          <span data-testid="sonara-remix-pro-job-duration">DURATA: {Number(job.requestedDurationSeconds)>0?durationLabel(Number(job.requestedDurationSeconds)):'in verifica'}</span>
+          {Number(job.actualDurationSeconds)>0&&<span>WAV: {durationLabel(Number(job.actualDurationSeconds))}</span>}
+        </div>
+        <progress className="sonara-pro-v3__progress" value={Math.max(0,Math.min(100,job.progress||0))} max={100}/>
+        <span className="sonara-pro-v3__job-stage">{String(job.stage||'elaborazione')} · {Math.round(Number(job.progress||0))}%</span>
+        {job.status==='FAILED'&&<p role="alert" className="sonara-pro-v3__job-error">{job.error||'Il job non è riuscito.'}</p>}
+        {output&&<div className="sonara-pro-v3__output">
+          <audio controls src={output} preload="metadata"/>
+          <div className="sonara-pro-v3__output-buttons">
+            <button type="button" onClick={select}><Check size={15}/> Usa nel player SONARA</button>
+            <a href={output} download="SONARA-REMIX-PRO.wav"><Download size={15}/> Scarica WAV</a>
+          </div>
+          {(job.stems||[]).length>0&&<details className="sonara-pro-v3__stems">
+            <summary>Tracce separate</summary>
+            {(job.stems||[]).map(stem=><label key={stem.role}><span>{stem.role}</span><audio controls src={stem.url} preload="none"/></label>)}
+          </details>}
+        </div>}
+      </section>}
+
+      <div className="sonara-pro-v3__footer">SONARA ENTERPRISE <span>REMIX PRO / V3 INTERFACE</span> <span>Audio supportati: WAV · MP3 · FLAC · M4A · AAC · OGG e altri</span></div>
     </div>
   );
 }
