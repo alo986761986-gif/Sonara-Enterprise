@@ -109,6 +109,17 @@ class SONARARemixProTests(unittest.TestCase):
                                       bpm_a=120, bpm_b=120)
 
 
+    def test_full_length_stem_uses_real_outro_without_early_restart(self):
+        import numpy as np
+        # 8 minutes at 200 Hz, the final measure must be the actual ending,
+        # not a repeated fragment from the start of the song.
+        source = np.zeros((480*200, 2), dtype=np.float32)
+        source[:500] = .03
+        source[-500:] = .17
+        arranged, loops = _phrase_loop_stem(source, 480*200, 120, sr=200)
+        self.assertEqual(loops, 1)
+        self.assertAlmostEqual(float(arranged[-100,0]), .17, places=4)
+
     def test_eight_minute_source_phrase_loop_has_no_padding_or_silent_tail(self):
         import numpy as np
         source = np.column_stack([
