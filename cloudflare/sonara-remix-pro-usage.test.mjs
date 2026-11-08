@@ -64,9 +64,10 @@ function setup({used=0,studio=true}={}){
   return {op,values,store,objects,storage};
 }
 
-test('Pro requires active Studio but does not check or consume remaining minutes',async()=>{
+test('Pro accepts active Free and Studio accounts without consuming minutes',async()=>{
   const free=setup({studio:false});
-  assert.equal((await free.op('reserve',job(1))).http,403);
+  assert.equal((await free.op('reserve',job(1))).http,200);
+  assert.equal(free.values.get(userKey).usageSeconds,0);
   const noQuota=setup({used:500*60});
   assert.equal((await noQuota.op('reserve',job(1))).http,200);
   assert.equal(noQuota.values.get(userKey).usageSeconds,500*60);

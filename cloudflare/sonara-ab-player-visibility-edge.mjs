@@ -126,7 +126,7 @@ async function authorizeNativeMusicGeneration(request, env) {
     const requestedSeconds = Math.max(30, Math.min(480, Math.round(Number(body?.durationSec ?? body?.duration ?? 30))));
     const maxTrackSeconds = Math.max(1, Number(billing.maxTrackSeconds || 60));
     const remainingSeconds = Math.max(0, Number(billing.remainingSeconds ?? billing.includedSeconds ?? 0));
-    if (requestedSeconds > maxTrackSeconds) {
+    if (body?.sonaraRemixPro !== true && requestedSeconds > maxTrackSeconds) {
       return new Response(JSON.stringify({
         error: { code: 'TRACK_DURATION_LIMIT', message: 'La durata richiesta supera il limite del piano attivo.' },
         planId: billing.planId,

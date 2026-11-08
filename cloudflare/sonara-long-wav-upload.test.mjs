@@ -148,13 +148,14 @@ test('DAW WAVE_FORMAT_EXTENSIBLE PCM24 long sources remain supported',()=>{
   assert.equal(inspectWavHeader(header,bytes+68)?.durationSec,540);
 });
 
-test('long upload rejects Free accounts before allocating R2 multipart storage',async()=>{
+test('authenticated Free accounts can upload Remix Pro sources without Studio plan',async()=>{
   const {call,env}=setup();
   env.__plan='free';
   const response=await call('POST','/api/sonara-relay/reference-multipart/start',{
     name:'free.wav',bytes:9*1024*1024
   });
-  assert.equal(response.status,403);
+  assert.equal(response.status,201);
+  assert.match((await response.json()).referenceId,/^sref_/);
 });
 
 test('audio format allowlist rejects arbitrary files and mislabeled content',()=>{

@@ -63,6 +63,19 @@ export default function SonaraRemixProPanel() {
         try{
           const response=await fetch('/api/sonara-relay/pro-job/'+id,{credentials:'include',cache:'no-store'});
           const data:ProJob=await response.json().catch(()=>({}));
+          if(response.status===404||response.status===410){
+            // Only clear a job whose private status is confirmed absent.
+            // Never silently restart a previously submitted GPU task.
+            try{sessionStorage.removeItem(KEY);}catch{}
+            activeJob.current='';
+            setJob(null);
+            setError('Il job precedente non risulta piu disponibile. Puoi avviare un nuovo remix A+B.');
+            return;
+          }
+          if(response.status===401||response.status===403){
+            setError('Sessione SONARA non autorizzata. Accedi nuovamente prima di avviare il remix.');
+            return;
+          }
           if(!response.ok)throw new Error(safeError(data.error,'Monitoraggio temporaneamente non disponibile'));
           if(cancelled||!mounted.current)return;
           errors=0;
@@ -75,7 +88,7 @@ export default function SonaraRemixProPanel() {
           await sleep(5000);
         }catch{
           errors++;
-          if(errors>10){if(mounted.current)setError('Monitoraggio interrotto. Il job '+id+' è conservato: riapri Remix Pro per riprenderlo.');return;}
+          if(errors>10){if(mounted.current)setError('Connessione al job interrotta. Il job '+id+' resta salvato: riapri Remix Pro per controllarlo. Non inviare un nuovo job finche lo stato non e verificato.');return;}
           await sleep(Math.min(errors*2000,12000));
         }
       }
@@ -282,7 +295,7 @@ export default function SonaraRemixProPanel() {
         <input type="checkbox" checked={rights} onChange={e=>setRights(e.target.checked)} />
         <span>Confermo di possedere o avere i diritti di utilizzo di entrambi i brani.</span>
       </label>
-      <small role="status">Remix Pro illimitato: i nuovi remix non consumano minuti dal piano Studio. Il singolo remix puo durare fino a 8 minuti. Rimangono necessari un account Studio attivo e la disponibilita della GPU.</small>
+      <small role="status">Remix Pro A+B: nessun consumo di minuti Studio e nessun piano Studio obbligatorio. Occorrono un account SONARA autenticato, due audio autorizzati e la GPU online. Ogni render dura da 30 secondi a 8 minuti.</small>
       <button type="button" disabled={!available||submitting||job?.status==='PROCESSING'||!rights}
         onClick={()=>void begin()} style={{padding:11,borderRadius:9,background:'#6c3b9d',color:'white',fontWeight:800}}>
         {submitting?<LoaderCircle size={15}/>:<ShieldCheck size={15}/>} Crea Remix Pro reale
