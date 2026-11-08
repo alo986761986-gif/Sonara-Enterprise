@@ -69,6 +69,7 @@ function env(flags=true) {
         reservation.status!=='reserved'||ownerUid!==reservation.ownerUid||
         seconds!==reservation.seconds))return Response.json({ok:false},{status:409});
       if(action==='commit'||action==='refund'){
+        if(environment.__failSettlement)return Response.json({ok:false},{status:503});
         if(reservation.status!=='reserved')return Response.json({ok:false},{status:409});
         reservation.status=action==='commit'?'committed':'refunded';
       }
@@ -76,6 +77,7 @@ function env(flags=true) {
     }})
   };
   environment.__reservations=reservations;
+  environment.__failSettlement=false;
   return environment;
 }
 const req=(method,path,body,headers={})=>new Request(END+path,{method,
@@ -182,4 +184,27 @@ test('Remix Pro refuses jobs without a matching durable quota reservation',async
     {...spec,durationSec:120},gate)).status,409);
   assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',
     {...spec,jobId:'bad-id'},gate)).status,400);
+});
+
+test('Terminal R2 job stays COMPLETE when private quota settlement is unavailable',async()=>{
+  const e=env();
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',{gpuReady:true},agent);
+  const answer=await call(e,'POST','/api/sonara-relay/pro-enqueue',spec,gate);
+  assert.equal(answer.status,202);
+  const claimed=await call(e,'POST','/api/sonara-relay/pro-claim',{},agent);
+  const {leaseId,jobId}=await claimed.json();
+  const leaseHeaders={...agent,'x-sonara-pro-lease':leaseId};
+  const endpoint='/api/sonara-relay/pro-job/'+jobId;
+  assert.equal((await call(e,'PUT',endpoint+'/audio',wav(),leaseHeaders)).status,200);
+  e.__failSettlement=true;
+  const completed=await call(e,'POST',endpoint+'/complete',{},leaseHeaders);
+  assert.equal(completed.status,202);
+  const body=await completed.json();
+  assert.equal(body.ok,true);
+  assert.equal(body.settlementPending,true);
+  const ownerStatus=await call(e,'GET',endpoint,undefined,owner);
+  assert.equal((await ownerStatus.json()).status,'COMPLETED');
+  assert.equal(e.__reservations.get(JOB).status,'reserved');
+  // A follow-up failure report cannot overwrite the completed master.
+  assert.equal((await call(e,'POST',endpoint+'/fail',{},leaseHeaders)).status,409);
 });
