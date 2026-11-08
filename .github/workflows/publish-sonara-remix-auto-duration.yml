@@ -183,7 +183,7 @@ jobs:
             await new Promise(resolve=>setTimeout(resolve,4500));
             let verified=false;
             for(let i=0;i<4;i++){
-              const check=await fetch('https://sonaraenterprise.com/?auto_release_check='+i,{
+              const check=await fetch('https://sonaraenterprise.com/',{
                 headers:{accept:'text/html','cache-control':'no-store'},
                 signal:AbortSignal.timeout(20000)});
               const body=await check.text();
