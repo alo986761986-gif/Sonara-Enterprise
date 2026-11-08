@@ -1,0 +1,69 @@
+name: SONARA Remix Pro Homepage Browser Smoke (No Jobs)
+on:
+  push:
+    branches: [fix/remix-pro-duration-preserve-20261108]
+    paths: ['.github/workflows/browser-sonara-duration-smoke.yml']
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v4
+        with: {node-version: '24'}
+      - name: Install browser locally only
+        run: |
+          npm install --no-save --ignore-scripts playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Verify real browser loads homepage and duration script without generating jobs
+        run: |
+          node --input-type=module <<'NODE'
+          import {chromium} from 'playwright';
+          const browser=await chromium.launch({headless:true});
+          const page=await browser.newPage({viewport:{width:1280,height:850}});
+          const errors=[];
+          page.on('pageerror',e=>errors.push(String(e.message||e).slice(0,160)));
+          try{
+            const response=await page.goto('https://sonaraenterprise.com/',{waitUntil:'domcontentloaded',timeout:35000});
+            await page.waitForTimeout(4500);
+            const details=await page.evaluate(()=>{
+              const sliders=[...document.querySelectorAll('input[type="range"][min="30"][max="480"]')];
+              const remix=sliders.find(x=>/Durata Remix AI/i.test(x.closest('label')?.textContent||''));
+              const root=document.querySelector('#root');
+              return {
+                title:document.title.slice(0,120),
+                shimExecuted:window.__sonaraRemixProDurationEdgeV1===true,
+                shimScriptCount:document.querySelectorAll('#sonara-remix-pro-duration-edge-v1').length,
+                rootLoaded:!!root&&root.children.length>0,
+                remixDurationVisible:!!remix,
+                durationBefore:remix?Number(remix.value):null,
+                bodyLength:document.body?.innerText?.length||0
+              };
+            });
+            if(details.remixDurationVisible){
+              const change=await page.evaluate(()=>{
+                const slider=[...document.querySelectorAll('input[type="range"][min="30"][max="480"]')]
+                  .find(x=>/Durata Remix AI/i.test(x.closest('label')?.textContent||''));
+                if(!slider)return {available:false};
+                const select=slider.closest('label')?.querySelector('select');
+                if(!select)return {available:false};
+                slider.value='480';
+                slider.dispatchEvent(new Event('input',{bubbles:true}));
+                slider.dispatchEvent(new Event('change',{bubbles:true}));
+                select.value='480';
+                select.dispatchEvent(new Event('change',{bubbles:true}));
+                return {available:true,sliderValue:slider.value,selectValue:select.value};
+              });
+              details.nonGeneratingDurationEvent=change;
+            }
+            console.log('SONARA_BROWSER_SMOKE',JSON.stringify({
+              http:response?.status()||0,...details,
+              pageErrors:errors.slice(0,10)
+            }));
+            if(!response?.ok()||!details.shimExecuted||details.shimScriptCount!==1||!details.rootLoaded)
+              throw Error('Homepage script or React runtime failed');
+          }finally{await browser.close();}
+          NODE
