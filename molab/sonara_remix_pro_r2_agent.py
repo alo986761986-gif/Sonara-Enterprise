@@ -126,11 +126,16 @@ def validate_wav(path):
     p = Path(path)
     if not p.is_file() or not 44 <= p.stat().st_size <= MAX_WAV_BYTES:
         raise ProAgentError("Real WAV file is missing or oversized")
-    with wave.open(str(p), "rb") as f:
-        if not 10 <= f.getnframes() / f.getframerate() <= 900:
-            raise ProAgentError("WAV duration unsupported")
-        if f.getnchannels() not in (1, 2):
-            raise ProAgentError("WAV channel layout unsupported")
+    # soundfile handles PCM16/24 and genuine 32-bit float/EXTENSIBLE WAVs
+    # produced by DAWs; Python wave.open may reject valid non-PCM WAVs.
+    try:
+        with sf.SoundFile(str(p)) as f:
+            if f.format != "WAV" or not 10 <= f.frames / f.samplerate <= 900:
+                raise ProAgentError("WAV format or duration unsupported")
+            if f.channels not in (1, 2):
+                raise ProAgentError("WAV channel layout unsupported")
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise ProAgentError("Invalid readable WAV") from exc
     return p
 
 
