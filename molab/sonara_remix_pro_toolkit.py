@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -119,6 +120,18 @@ def analyze_audio(path, max_analysis_seconds=120):
         "analysisMethod": "librosa:onset+beat+chroma-stft+energy-novelty",
         "warnings": warnings
     }
+
+
+def preflight():
+    modules = ("numpy", "scipy", "librosa", "soundfile", "pyloudnorm", "demucs", "torch")
+    available = {module: importlib.util.find_spec(module) is not None for module in modules}
+    # A missing module is never represented as a verified capability.
+    return {"version": VERSION, "optionalModulesInstalled": available,
+            "analysisReady": all(available.get(x, False) for x in ("numpy","scipy","librosa","soundfile")),
+            "masteringReady": all(available.get(x, False) for x in ("numpy","scipy","pyloudnorm")),
+            "demucsModulePresent": available["demucs"],
+            "demucsModelVerified": False, "gpuInferenceVerified": False,
+            "note": "A model must actually run before separation can be marked ready."}
 
 
 def separate_stems(path, output_root, *, device="cpu", timeout_seconds=3600):
@@ -252,6 +265,13 @@ def combine_two_songs(a, b, stems_a, stems_b, destination, *,
         raise RemixProError("Unverified BPM: pass explicit --bpm-a and --bpm-b before combining")
     if bass_from not in ("a", "b"):
         raise RemixProError("bass-from must be a or b")
+    for audio, folder in ((a, stems_a), (b, stems_b)):
+        manifest = Path(folder).expanduser().resolve() / "stems-manifest.json"
+        if not manifest.is_file():
+            raise RemixProError("Missing authentic Demucs manifest for a source")
+        data = json.loads(manifest.read_text())
+        if data.get("sourceSha256") != audio_hash(audio) or data.get("separationModel") != "htdemucs" or data.get("stemsVerified") is not True:
+            raise RemixProError("Stem manifest does not belong to its source audio")
     if bass_from == "b" and report_a["key"] and report_b["key"] and report_a["key"] != report_b["key"]:
         raise RemixProError("Incompatible measured tonal centers for B bass; keep A bass or edit sources first")
     ratio = tempo_a / tempo_b
@@ -313,6 +333,7 @@ def combine_two_songs(a, b, stems_a, stems_b, destination, *,
 def main(argv=None):
     parser = argparse.ArgumentParser(description="SONARA Remix Pro offline toolkit (no active-site side effects)")
     commands = parser.add_subparsers(dest="command",required=True)
+    commands.add_parser("preflight")
     a = commands.add_parser("analyze")
     a.add_argument("audio")
     a.add_argument("--output")
@@ -330,14 +351,34 @@ def main(argv=None):
     m.add_argument("--bpm-b",type=float)
     m.add_argument("--bass-from",choices=("a","b"),default="a")
     m.add_argument("--max-seconds",type=int,default=180)
+    auto = commands.add_parser("two-song-auto")
+    auto.add_argument("--a", required=True)
+    auto.add_argument("--b", required=True)
+    auto.add_argument("--cache", required=True)
+    auto.add_argument("--output", required=True)
+    auto.add_argument("--device", choices=("cpu","cuda"), default="cpu")
+    auto.add_argument("--bpm-a", type=float)
+    auto.add_argument("--bpm-b", type=float)
+    auto.add_argument("--bass-from", choices=("a","b"), default="a")
+    auto.add_argument("--max-seconds", type=int, default=180)
     args = parser.parse_args(argv)
     try:
-        if args.command == "analyze":
+        if args.command == "preflight":
+            result = preflight()
+        elif args.command == "analyze":
             result = analyze_audio(args.audio)
             if args.output:
                 Path(args.output).write_text(json.dumps(result,indent=2))
         elif args.command == "separate":
             result = separate_stems(args.audio,args.out,device=args.device)
+        elif args.command == "two-song-auto":
+            manifest_a = separate_stems(args.a, args.cache, device=args.device)
+            manifest_b = separate_stems(args.b, args.cache, device=args.device)
+            stem_a = Path(args.cache).expanduser().resolve() / manifest_a["sourceSha256"][:20]
+            stem_b = Path(args.cache).expanduser().resolve() / manifest_b["sourceSha256"][:20]
+            result = combine_two_songs(args.a,args.b,stem_a,stem_b,args.output,
+                         bpm_a=args.bpm_a,bpm_b=args.bpm_b,bass_from=args.bass_from,
+                         max_seconds=args.max_seconds)
         else:
             result = combine_two_songs(args.a,args.b,args.stems_a,args.stems_b,args.output,
                          bpm_a=args.bpm_a,bpm_b=args.bpm_b,bass_from=args.bass_from,
