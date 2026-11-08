@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import { readFileSync } from 'node:fs';
 import { REMIX_PRO_DURATION_EDGE_SCRIPT } from './sonara-remix-pro-duration-edge.mjs';
 
 const script=REMIX_PRO_DURATION_EDGE_SCRIPT.replace(/^<script[^>]*>/,'').replace(/<\/script>$/,'');
@@ -97,4 +98,22 @@ test('non-Pro generation remains untouched by 8-minute shim',async()=>{
     method:'POST',body:JSON.stringify({durationSec:30,sonaraRemixPro:false})
   });
   assert.equal(JSON.parse(p.calls[0].init.body).durationSec,30);
+});
+
+test('Wrangler entry point injects duration lock on real public HTML responses',()=>{
+  const cfg=readFileSync(new URL('../wrangler.jsonc', import.meta.url),'utf8');
+  const entry=readFileSync(new URL('./sonara-relay-gateway-entry.mjs', import.meta.url),'utf8');
+  assert.match(cfg,/"main": "cloudflare\/sonara-relay-gateway-entry\.mjs"/);
+  assert.match(entry,/import \{ REMIX_PRO_DURATION_EDGE_SCRIPT \} from '\.\/sonara-remix-pro-duration-edge\.mjs'/);
+  assert.match(entry,/element\.append\(REMIX_PRO_DURATION_EDGE_SCRIPT, \{ html: true \}\)/);
+  assert.match(entry,/request\.method !== 'GET'/);
+  assert.match(entry,/includes\('text\/html'\)/);
+});
+test('new Remix Pro duration is locked to the returned job id, never an earlier polled job',()=>{
+  const panel=readFileSync(new URL('../src/components/remix/SonaraRemixProPanel.tsx', import.meta.url),'utf8');
+  assert.match(panel,/confirmedDurationLock\?\.jobId===id/);
+  assert.match(panel,/setConfirmedDurationLock\(null\)/);
+  assert.match(panel,/setConfirmedDurationLock\(\{jobId:id,seconds:requestedDuration\}\)/);
+  assert.match(panel,/const requestedDuration=selectedDurationRef\.current/);
+  assert.doesNotMatch(panel,/setSubmittedDuration\(/);
 });
