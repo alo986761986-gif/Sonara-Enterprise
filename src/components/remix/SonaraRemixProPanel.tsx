@@ -15,12 +15,15 @@ const AUDIO_FORMATS=/\.(wav|mp3|flac|m4a|mp4|aac|ogg|oga|opus|aif|aiff|aifc|webm
 const AUDIO_PICKER_ACCEPT='audio/*,.wav,.mp3,.flac,.m4a,.mp4,.aac,.ogg,.oga,.opus,.aif,.aiff,.aifc,.webm,.wma,.caf,.amr,.ac3';
 const audioSuffix=(name:string)=>name.match(AUDIO_FORMATS)?.[1]?.toLowerCase()||'';
 
-export default function SonaraRemixProPanel() {
+type InitialSources = { sourceA: File; sourceB: File } | null;
+type RemixProPanelProps = { initialSources?: InitialSources };
+
+export default function SonaraRemixProPanel({ initialSources = null }: RemixProPanelProps) {
   const [available,setAvailable]=useState<boolean|null>(null);
   const [multiformatAvailable,setMultiformatAvailable]=useState(false);
   const [sourceA,setSourceA]=useState<File|null>(null);
   const [sourceB,setSourceB]=useState<File|null>(null);
-  const [prompt,setPrompt]=useState('Create one cohesive professional new remix preserving the principal melody and A harmonies, with the rhythmic groove and drum articulation of B.');
+  const [prompt,setPrompt]=useState('Create ONE newly arranged coherent professional remix from both uploaded songs. Retain the recognizable leading motif, harmonies and vocal phrasing of A; integrate the rhythmic fingerprint, authentic drum articulation and complementary accents of B. Align the pulse and downbeats, prevent incompatible bass notes and clashing vocals, introduce purposeful verse, buildup, hook, breakdown and finale sections, and render one continuous naturally mastered song. No back-to-back playback or two unrelated songs superimposed.');
   const [duration,setDuration]=useState<number>(()=>{
     try { const value=Number(sessionStorage.getItem(DURATION_KEY)); return validDuration(value)?value:120; }
     catch { return 120; }
@@ -54,6 +57,16 @@ export default function SonaraRemixProPanel() {
     setError('');
     setInfo('Brano '+role.toUpperCase()+' selezionato: '+file.name);
   };
+
+  useEffect(() => {
+    if (!initialSources) return;
+    // Direct handoff from the Multi Track mixer: keep files distinct so the
+    // worker can analyze and split each original audio source separately.
+    setSourceA(initialSources.sourceA);
+    setSourceB(initialSources.sourceB);
+    setError('');
+    setInfo('Multi Track A+B pronto: verifica i due brani, scegli la durata e crea UN SOLO nuovo remix.');
+  }, [initialSources]);
 
   useEffect(()=>{
     mounted.current=true;
@@ -270,6 +283,10 @@ export default function SonaraRemixProPanel() {
         <strong style={{display:'flex',alignItems:'center',gap:6}}><AudioWaveform size={16}/> SONARA REMIX PRO</strong>
         <span style={{fontSize:10,color:available?'#97e5b8':'#d5b6ef'}}>{available?'GPU ONLINE':available===null?'CONNESSIONE…':'NON ANCORA ATTIVO'}</span>
       </div>
+      {initialSources && <div role="status" data-testid="sonara-remix-pro-multitrack-handoff" style={{padding:12,border:'1px solid #5b4d80',borderRadius:9,background:'#1d1929',display:'grid',gap:4}}>
+        <strong>Multi Track → Fusione AI A+B</strong>
+        <small>I due file originali sono stati trasferiti separatamente. Conferma i diritti, scegli la durata e premi Crea Remix Pro reale per produrre un solo master WAV, non una playlist o un mix DJ.</small>
+      </div>}
       <small>Remix di due brani: voce e armonie A + batteria B, strumenti separati con Demucs e nuovo render ACE-Step. Audio privati e accessibili solo al proprietario. Carica WAV, MP3, FLAC, M4A, AAC, OGG, OPUS, AIFF, WebM e altri formati elencati (max 15 minuti e 512 MiB per file); Remix AI da 0:30 a 8:00.</small>
       <div data-testid="sonara-remix-pro-uploaders" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,225px),1fr))',gap:12}}>
         <div data-sonara-pro-source="a" onDragOver={e=>{e.preventDefault();e.dataTransfer.dropEffect='copy';}}
