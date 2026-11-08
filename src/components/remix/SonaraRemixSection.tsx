@@ -462,7 +462,7 @@ export default function SonaraRemixSection() {
     if (!source) throw new Error('Scegli prima un brano da remixare.');
     if (!decodedBufferRef.current) throw new Error('Per un Remix preciso serve analizzare realmente il WAV/MP3. Carica una copia audio locale accessibile; il collegamento remoto non è decodificabile.');
     const buffer = decodedBufferRef.current;
-    if (buffer && segmentLength >= MIN_SEGMENT_SECONDS && (segmentStart > 0.01 || segmentEnd < Math.min(buffer.duration, MAX_REMIX_SECONDS) - 0.01)) {
+    if (buffer && segmentLength >= MIN_SEGMENT_SECONDS && (segmentStart > 0.01 || segmentEnd < buffer.duration - 0.01)) {
       return {
         file: segmentToWav(buffer, segmentStart, segmentEnd, `sonara-remix-source-${Date.now()}.wav`),
         url: ''
