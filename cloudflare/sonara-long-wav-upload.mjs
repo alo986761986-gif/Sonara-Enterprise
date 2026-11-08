@@ -18,6 +18,31 @@ const objectKey = id => PREFIX+id+'/source';
 const metaKey = id => PREFIX+id+'.json';
 const safeName = x => String(x||'source.wav').replace(/[\r\n\x00]/g,' ').slice(0,120);
 
+export function inspectWavHeader(raw,totalBytes) {
+  const x=new Uint8Array(raw),v=new DataView(x.buffer,x.byteOffset,x.byteLength);
+  const tag=i=>String.fromCharCode(...x.subarray(i,i+4));
+  if(x.byteLength<44||tag(0)!=='RIFF'||tag(8)!=='WAVE')return null;
+  let offset=12,fmt=null,data=null;
+  while(offset+8<=x.length) {
+    const name=tag(offset),sz=v.getUint32(offset+4,true),begin=offset+8;
+    if(name==='fmt '&&sz>=16&&begin+16<=x.length){
+      fmt={format:v.getUint16(begin,true),channels:v.getUint16(begin+2,true),
+        sampleRate:v.getUint32(begin+4,true),byteRate:v.getUint32(begin+8,true),
+        blockAlign:v.getUint16(begin+12,true)};
+    }
+    if(name==='data'){data={start:begin,bytes:sz};break;}
+    offset=begin+sz+(sz%2);
+  }
+  if(!fmt||!data||![1,3].includes(fmt.format)||
+     fmt.channels<1||fmt.channels>2||fmt.sampleRate<8000||fmt.sampleRate>96000||
+     fmt.byteRate<=0||fmt.blockAlign<=0||data.bytes<=0||
+     data.start+data.bytes>totalBytes)return null;
+  const duration=data.bytes/fmt.byteRate;
+  if(!Number.isFinite(duration)||duration<10||duration>900)return null;
+  return {durationSec:Math.round(duration*100)/100,channels:fmt.channels,sampleRate:fmt.sampleRate};
+}
+
+
 async function manifest(bucket,id) {
   const file=await bucket.get(markerKey(id));
   if(!file)return null;
@@ -92,16 +117,16 @@ export async function handleLongWavUpload(request, env, nativeUser) {
       await bucket.delete(objectKey(id)).catch(()=>{});
       return bad('Final WAV size mismatch',503);
     }
-    const first=await bucket.get(objectKey(id),{range:{offset:0,length:12}});
-    const marker=first?new Uint8Array(await first.arrayBuffer()):new Uint8Array();
-    if(marker.length!==12||String.fromCharCode(...marker.slice(0,4))!=='RIFF'||
-       String.fromCharCode(...marker.slice(8,12))!=='WAVE') {
+    const first=await bucket.get(objectKey(id),{range:{offset:0,length:65536}});
+    const prefix=first?await first.arrayBuffer():new ArrayBuffer(0);
+    const audio=inspectWavHeader(prefix,state.size);
+    if(!audio) {
       await bucket.delete(objectKey(id)).catch(()=>{});
-      return bad('Final upload is not WAV',415);
+      return bad('Invalid PCM/float WAV or source duration exceeds 15 minutes',415);
     }
     await bucket.put(metaKey(id),JSON.stringify({
       id,ownerUid:user.uid,objectKey:objectKey(id),contentType:'audio/wav',
-      filename:state.name,size:state.size,createdAt:state.createdAt,expiresAt:state.expiresAt
+      filename:state.name,size:state.size,durationSec:audio.durationSec,createdAt:state.createdAt,expiresAt:state.expiresAt
     }),{httpMetadata:{contentType:'application/json'}});
     await bucket.delete(markerKey(id));
     return json({referenceId:id,size:state.size,expiresAt:new Date(state.expiresAt).toISOString()},201);
