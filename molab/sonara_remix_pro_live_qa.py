@@ -78,6 +78,7 @@ def run(args) -> dict:
     )
     from sonara_remix_pro_fusion import (
         make_structural_guide, make_independent_style_reference, build_fusion_prompt,
+        select_fusion_tempo,
     )
     from sonara_remix_pro_ace_bridge import render_long_remix as ace_cover
     from sonara_remix_pro_quality import audit_wav, audit_remix
@@ -101,11 +102,9 @@ def run(args) -> dict:
 
     report_a = analyze_audio(a)
     report_b = analyze_audio(b)
-    bpm_a = args.bpm_a or report_a.get("tempoBpm")
-    bpm_b = args.bpm_b or report_b.get("tempoBpm")
-    if not bpm_a or not bpm_b:
-        raise LocalQAFailure("BPM cannot be verified. Supply --bpm-a and --bpm-b")
-    print("SONARA_QA_TEMPO_VERIFIED=True", flush=True)
+    bpm_a = select_fusion_tempo(args.bpm_a, report_a, args.bpm_b, report_b)
+    print("SONARA_QA_TEMPO_VERIFIED=" + str(bpm_a is not None), flush=True)
+    print("SONARA_QA_TEMPO_INFERRED_FROM_REFERENCES=" + str(bpm_a is None), flush=True)
 
     manifest_a = separate_stems(a, cache, device="cuda")
     manifest_b = separate_stems(b, cache, device="cuda")
@@ -129,7 +128,7 @@ def run(args) -> dict:
     generated = job_dir / "generated.wav"
     cover = ace_cover(
         guide, generated, fused_prompt, mode=args.auth_mode,
-        strength=args.strength, noise=args.noise, bpm=float(bpm_a),
+        strength=args.strength, noise=args.noise, bpm=bpm_a,
         key=args.key or report_a.get("key") or None,
         reference_audio_path=reference,
     )
