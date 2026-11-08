@@ -146,13 +146,12 @@ async function claim(e,b,ctx){
     const expired=j.status==='LEASED'&&j.leaseUntil<now;
     const queueExpired=j.status==='QUEUED'&&now-Number(j.createdAt||0)>2*60*60*1000;
     if(queueExpired||(expired&&j.attempts>=3)){
-      // Exhausted or abandoned jobs must not hold a user's quota forever.
-      // Fail closed if the private refund ledger cannot be reached.
-      if(!(await proQuota(e,'refund',j.id,j.ownerUid)))return null;
+      // Mark the record FAILED with conditional R2 write before any refund.
+      // Otherwise a concurrent lease may still execute a refunded job.
       const failed={...j,status:'FAILED',stage:'failed',leaseId:null,
         leaseUntil:0,updatedAt:now,params:null,sourceA:null,sourceB:null};
       const updated=await save(b,failed,obj.etag);
-      if(updated)return null;
+      if(updated) await proQuota(e,'refund',j.id,j.ownerUid);
       return null;
     }
     if(!((j.status==='QUEUED')||expired)||j.attempts>=3)return null;
@@ -266,16 +265,18 @@ export async function handleRemixPro(req,env,ctx,auth) {
   }
   if(req.method==='POST'&&(action==='complete'||action==='fail')){
     if(action==='complete'&&(!j.audio||!await b.head(j.audio)))return fail('Final WAV required',409);
-    // The ledger must acknowledge before the job reaches a final public state.
-    // The operation is idempotent on retries with the same leased job.
-    if(!(await proQuota(env,action==='complete'?'commit':'refund',id,j.ownerUid)))
-      return fail('Remix Pro quota settlement unavailable',503);
-    j.status=action==='complete'?'COMPLETE':'FAILED';j.stage=action==='complete'?'completed':'failed';
-    j.leaseUntil=0;j.leaseId=null;j.updatedAt=Date.now();
-    // Do not retain prompts/owner's source metadata in a final job record.
-    const sources=[j.sourceA,j.sourceB];j.params=null;j.sourceA=null;j.sourceB=null;
-    const ok=await save(b,j,obj.etag);
+    // The terminal R2 state is written first, so a lease can never
+    // produce audio after its reservation has been refunded.
+    const next={...j,status:action==='complete'?'COMPLETE':'FAILED',
+      stage:action==='complete'?'completed':'failed',leaseUntil:0,
+      leaseId:null,updatedAt:Date.now(),params:null,sourceA:null,sourceB:null};
+    const sources=[j.sourceA,j.sourceB];
+    const ok=await save(b,next,obj.etag);
     if(!ok)return fail('Retry completion',409);
+    // If settlement fails, Durable Object alarm will detect terminal R2
+    // status and settle the reservation asynchronously.
+    if(!(await proQuota(env,action==='complete'?'commit':'refund',id,j.ownerUid)))
+      return fail('Quota reconciliation pending; job saved',503);
     await Promise.all(sources.map(async src=>{
       if(!src?.objectKey)return;
       await Promise.all([b.delete(src.objectKey),b.delete(referenceKey(src.id))]);
