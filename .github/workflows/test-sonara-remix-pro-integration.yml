@@ -73,3 +73,42 @@ jobs:
         run: |
           npm install
           npm run build
+      - name: Read-only live Cloudflare duration and Pro revision probe
+        continue-on-error: true
+        run: |
+          node --input-type=module <<'NODE'
+          const targets=[
+            ['site','https://sonaraenterprise.com/'],
+            ['apiHealth','https://api.sonaraenterprise.com/api/health'],
+            ['proCapabilities','https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities']
+          ];
+          for(const [label,url] of targets){
+            try {
+              const response=await fetch(url,{
+                redirect:'follow',
+                signal:AbortSignal.timeout(12000),
+                headers:{'accept':'text/html,application/json'}
+              });
+              const body=await response.text();
+              const report={
+                target:label,
+                httpStatus:response.status,
+                cloudflare:Boolean((response.headers.get('server')||'').includes('cloudflare')),
+                durationBridgeInjected:label==='site'?body.includes('sonara-remix-pro-duration-edge-v1'):undefined,
+                version:response.headers.get('x-sonara-ab-player-fix')||undefined
+              };
+              if(label==='proCapabilities'&&response.ok){
+                const data=JSON.parse(body);
+                report.available=data.available===true;
+                report.expectedAgentRevision=typeof data.expectedAgentRevision==='string'
+                  ?data.expectedAgentRevision.slice(0,100):null;
+                report.gpuReady=data.gpuReady===true;
+              }
+              console.log('SONARA_LIVE_READONLY',JSON.stringify(report));
+            } catch(err){
+              console.log('SONARA_LIVE_READONLY',JSON.stringify({
+                target:label,reachable:false,errorClass:err?.name||'UnknownError'
+              }));
+            }
+          }
+          NODE
