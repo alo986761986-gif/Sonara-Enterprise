@@ -1,0 +1,131 @@
+name: SONARA Stage Remix Pro Duration V2 Without Deployment
+on:
+  push:
+    branches:
+      - fix/remix-pro-duration-preserve-20261108
+    paths:
+      - '.github/workflows/stage-remix-pro-duration-v2.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Stage patched copy of exact running Worker, never deploy
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          const ok=(condition,reason)=>{if(!condition)throw new Error(reason)};
+          const token=process.env.CLOUDFLARE_API_TOKEN||'';
+          ok(token.length>20,'Missing Cloudflare token');
+          const h={Authorization:'Bearer '+token};
+          const api='https://api.cloudflare.com/client/v4';
+          const get=async url=>{
+            const r=await fetch(url,{headers:h,signal:AbortSignal.timeout(25000)});
+            const p=await r.json().catch(()=>({}));
+            ok(r.ok&&p.success!==false,'Cloudflare read failed HTTP '+r.status);
+            return p.result||p;
+          };
+          const zones=await get(api+'/zones?name=sonaraenterprise.com');
+          const zone=zones.find(x=>x.name==='sonaraenterprise.com');
+          ok(zone,'Zone not found');
+          const account=process.env.CLOUDFLARE_ACCOUNT_ID||zone.account?.id;
+          ok(account,'Cloudflare account not found');
+          const base=api+'/accounts/'+account+'/workers/scripts/sonara-enterprise';
+          const capsRes=await fetch('https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities',{signal:AbortSignal.timeout(20000)});
+          ok(capsRes.ok,'Live capabilities unavailable');
+          const caps=await capsRes.json();
+          ok(caps.available===true&&caps.expectedAgentRevision==='sonara-remix-pro-r2-agent-v3-dual-reference-fusion','Live V3 mismatch');
+          const before=(await get(base+'/deployments')).deployments?.[0];
+          ok(before?.versions?.length===1&&before.versions[0].percentage===100,'Live deployment ambiguous');
+          const liveVersion=before.versions[0].version_id;
+          const settings=await get(base+'/settings');
+          const bindings=settings.bindings||[];
+          ok(settings.compatibility_date==='2026-08-23','Compatibility date mismatch');
+          ok(bindings.length>=20&&['ASSETS','SONARA_AUTH','SONARA_AUDIO_BUCKET','SONARA_JOB_STATE'].every(name=>bindings.some(b=>b.name===name)),'Missing bindings');
+          const downloaded=await fetch(base+'/content/v2',{headers:h,signal:AbortSignal.timeout(30000)});
+          ok(downloaded.ok,'Cannot read live Worker code');
+          const parts=await downloaded.formData();
+          const entry=parts.get('sonara-relay-gateway-entry.js');
+          ok(entry&&typeof entry.text==='function','Main module missing');
+          const original=await entry.text();
+          const sha=createHash('sha256').update(original).digest('hex');
+          ok(sha==='aad89c99c1e97207d72ccdeb544392947572fe313639ea35011931046ac4dfac','Live code changed since inspection');
+          const exportsFound=[...original.matchAll(/\bexport\s*\{([^{}]+)\}\s*;?/g)].filter(m=>/\bas\s+default\b/.test(m[1]));
+          ok(exportsFound.length===1,'Cannot locate one default ESM export');
+          const match=exportsFound[0];
+          const elements=match[1].split(',').map(x=>x.trim()).filter(Boolean);
+          const def=elements.filter(x=>/\bas\s+default$/.test(x));
+          ok(def.length===1,'Default export ambiguous');
+          const originalName=def[0].replace(/\s+as\s+default$/,'');
+          ok(/^[\w$]+$/.test(originalName),'Invalid live default symbol');
+          const retained=elements.filter(x=>!/\bas\s+default$/.test(x));
+          ok(retained.some(x=>x.includes('SonaraAuthStore')),'Live durable object export missing');
+          const source=readFileSync('cloudflare/sonara-remix-pro-duration-edge.mjs','utf8');
+          const lit=source.match(/export const REMIX_PRO_DURATION_EDGE_SCRIPT = ("(?:[^"\\]|\\.)*");/);
+          ok(lit,'Corrective script not found');
+          let shim=JSON.parse(lit[1]);
+          shim=shim.replaceAll('sonara-remix-pro-duration-edge-v1','sonara-remix-pro-duration-edge-v2')
+            .replaceAll('__sonaraRemixProDurationEdgeV1','__sonaraRemixProDurationEdgeV2');
+          ok(shim.startsWith('<script')&&shim.endsWith('</script>'),'Bad script');
+          const wrapper=[
+            'const __sonaraLiveWorker='+originalName+';',
+            'export default {',
+            '...__sonaraLiveWorker,',
+            'async fetch(request,env,ctx){',
+            'const r=await __sonaraLiveWorker.fetch.call(__sonaraLiveWorker,request,env,ctx);',
+            'const host=new URL(request.url).hostname;',
+            "if(request.method!=='GET'||!r.ok||!['sonaraenterprise.com','www.sonaraenterprise.com'].includes(host)||",
+            "!String(r.headers.get('content-type')||'').toLowerCase().includes('text/html'))return r;",
+            "const headers=new Headers(r.headers);headers.delete('content-length');headers.delete('content-encoding');",
+            "headers.set('cache-control','no-store');headers.set('x-sonara-remix-pro-duration-lock','v2');",
+            'const body=new Response(r.body,{status:r.status,statusText:r.statusText,headers});',
+            'return new HTMLRewriter().on("head",{element(el){el.append('+JSON.stringify(shim)+',{html:true})}}).transform(body);',
+            '}};'
+          ].join('\n');
+          const patched=original.slice(0,match.index)+'export{'+retained.join(',')+'};'+
+            original.slice(match.index+match[0].length)+'\n'+wrapper;
+          ok(patched.length>original.length&&patched.includes('sonara-remix-pro-duration-edge-v2'),'Bad patch');
+          const form=new FormData();
+          const metadata={
+            main_module:'sonara-relay-gateway-entry.js',
+            compatibility_date:'2026-08-23',
+            keep_assets:true,
+            bindings:bindings.map(b=>({name:b.name,type:'inherit',version_id:liveVersion})),
+            annotations:{'workers/message':'SONARA duration-only staging; no deployment'}
+          };
+          form.set('metadata',new Blob([JSON.stringify(metadata)],{type:'application/json'}),'metadata.json');
+          for(const [name,val] of parts){
+            if(typeof val==='string')continue;
+            if(name==='sonara-relay-gateway-entry.js'){
+              form.set(name,new Blob([patched],{type:'application/javascript+module'}),name);
+            } else form.set(name,val,name);
+          }
+          const created=await fetch(base+'/versions?bindings_inherit=strict',{
+            method:'POST',headers:h,body:form,signal:AbortSignal.timeout(60000)
+          });
+          const json=await created.json().catch(()=>({}));
+          if(!created.ok||json.success===false){
+            console.log('SONARA_STAGE',JSON.stringify({
+              status:'NOT_STAGED',httpStatus:created.status,
+              errors:json.errors?.map(x=>x.code).slice(0,4)||[]
+            }));
+            process.exit(1);
+          }
+          const after=(await get(base+'/deployments')).deployments?.[0];
+          ok(after?.versions?.[0]?.version_id===liveVersion,'Live deployment changed unexpectedly');
+          console.log('SONARA_STAGE',JSON.stringify({
+            status:'STAGED_NOT_DEPLOYED',newVersionId:json.result?.id||null,
+            activeVersionId:liveVersion,productionUnchanged:true,
+            bindingsPreserved:bindings.length,originalSha256:sha
+          }));
+          NODE
