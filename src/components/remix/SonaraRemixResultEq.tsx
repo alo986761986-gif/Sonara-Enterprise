@@ -59,32 +59,6 @@ export default function SonaraRemixResultEq({ audioUrl, label, onUse }: Props) {
   }, []);
 
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    let context: AudioContext | null = null;
-    try {
-      context = new AudioContext();
-      const source = context.createMediaElementSource(audio);
-      const filters = createEqNodes(context, enabledRef.current ? bandsRef.current : REMIX_EQ_FLAT);
-      source.connect(filters.low);
-      filters.preamp.connect(context.destination);
-      contextRef.current = context;
-      liveRef.current = filters;
-    } catch {
-      // If Web Audio is blocked, still show the normal HTML audio player.
-      void context?.close().catch(() => undefined);
-      contextRef.current = null;
-      liveRef.current = null;
-      setError('Anteprima equalizzata non disponibile in questo browser.');
-    }
-    return () => {
-      liveRef.current = null;
-      contextRef.current = null;
-      void context?.close().catch(() => undefined);
-    };
-  }, [audioUrl]);
-
-  useEffect(() => {
     const filters = liveRef.current;
     const context = contextRef.current;
     if (!filters || !context) return;
