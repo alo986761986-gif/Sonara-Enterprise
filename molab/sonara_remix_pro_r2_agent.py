@@ -297,7 +297,7 @@ def download_source(job, lease, endpoint, name, folder, source_format='wav'):
                             if response.status != 206:
                                 raise SourceTransferError("SOURCE_TRANSFER_INVALID")
                             content_range = str(response.headers.get("Content-Range") or "")
-                            match = re.fullmatch(r"bytes (\\d+)-(\\d+)/(\\d+)", content_range)
+                            match = re.fullmatch(r"bytes (\d+)-(\d+)/(\d+)", content_range)
                             if not match:
                                 raise SourceTransferError("SOURCE_TRANSFER_INVALID")
                             begin, end, remote_total = (int(x) for x in match.groups())
