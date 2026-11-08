@@ -246,6 +246,10 @@ def render_long_remix(audio_path, output_path, prompt, *, mode="required",
         start_wall = time.monotonic()
         while cursor < source_frames:
             end = min(source_frames, cursor + take)
+            # Fold a final tail shorter than ten seconds into this section,
+            # rather than leaving an unrendered gap or generating fake padding.
+            if 0 < source_frames - (cursor + step) < 10 * sr:
+                end = source_frames
             with sf.SoundFile(str(src)) as input_file:
                 input_file.seek(cursor)
                 audio = input_file.read(end - cursor, dtype="float32", always_2d=True)
