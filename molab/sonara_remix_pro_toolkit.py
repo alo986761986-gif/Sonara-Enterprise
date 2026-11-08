@@ -21,7 +21,7 @@ import time
 VERSION = "sonara-remix-pro-toolkit-v1"
 AUDIO_EXTENSIONS = {".wav", ".flac", ".mp3", ".m4a", ".ogg"}
 STEM_NAMES = ("vocals", "drums", "bass", "other")
-MAX_INPUT_BYTES = 256 * 1024 * 1024
+MAX_INPUT_BYTES = 512 * 1024 * 1024
 MAX_AUDIO_SECONDS = 600
 
 
@@ -278,7 +278,7 @@ def combine_two_songs(a, b, stems_a, stems_b, destination, *,
     if bass_from == "b" and report_a["key"] and report_b["key"] and report_a["key"] != report_b["key"]:
         raise RemixProError("Incompatible measured tonal centers for B bass; keep A bass or edit sources first")
     ratio = tempo_a / tempo_b
-    seconds = min(MAX_AUDIO_SECONDS, max(10, min(max_seconds, 180)))
+    seconds = min(480, max(30, min(max_seconds, 480)))
     frames = int(seconds * 44100)
     vocals = _load_stem(stems_a, "vocals")
     harmony = _load_stem(stems_a, "other")
