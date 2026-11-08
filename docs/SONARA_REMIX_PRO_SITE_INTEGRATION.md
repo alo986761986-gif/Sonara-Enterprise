@@ -55,6 +55,11 @@ essere approvato prima del rilascio commerciale.
   precondizione ETag; solo dopo tenta il rimborso idempotente.
 - Per i job terminali in R2 (COMPLETE/FAILED) l'alarm completa il settlement
   contabile se l'agente si è interrotto tra i due salvataggi.
+- Una risposta d'errore dall'accodamento non implica che l'operazione R2
+  sia fallita: il gateway non rimborsa immediatamente, conserva l'ID del job
+  e il sito lo riprende per permettere la riconciliazione.
+- La scansione dei job usa paginazione limitata a 500 marker per allarme
+  e riprende le rimanenti prenotazioni nell'allarme successivo.
 - Il recupero è best-effort e non costituisce una transazione distribuita.
   Bucket R2 non disponibile, stati ambigui e conflitti ETag restano
   prenotati e devono essere ritentati senza rimborsi alla cieca.
