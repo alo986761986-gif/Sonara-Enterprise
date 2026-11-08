@@ -147,14 +147,64 @@ def save_bytes(data, name, folder):
     return p
 
 
+def download_source(job, lease, endpoint, name, folder):
+    """Stream long private WAVs directly to disk; never hold 512 MiB in RAM."""
+    path = f"/api/sonara-relay/pro-job/{job}/source/{endpoint}"
+    headers = {**token_headers(),
+               "User-Agent": "SONARA-Remix-Pro-Agent/1.0 (+https://sonaraenterprise.com)",
+               "Accept": "audio/wav", "X-Sonara-Pro-Lease": lease}
+    url = BASE.removesuffix("/api/sonara-relay") + path
+    req = urllib.request.Request(url, method="GET", headers=headers)
+    target = folder / name
+    total = 0
+    try:
+        with CLIENT.open(req, timeout=180) as response, target.open("xb") as handle:
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_WAV_BYTES:
+                    raise ProAgentError("Private source exceeds 512 MiB")
+                handle.write(chunk)
+        target.chmod(0o600)
+        return validate_wav(target)
+    except Exception:
+        target.unlink(missing_ok=True)
+        raise
+
+
 def upload(job, lease, endpoint, source):
+    """Short WAVs retain the legacy upload; long exports use 8 MiB R2 parts."""
     p = Path(source)
     validate_wav(p)
-    raw = p.read_bytes()
-    response = request("PUT", f"/api/sonara-relay/pro-job/{job}/{endpoint}",
-                       raw, lease, timeout=180)
-    if response.get("ok") is not True:
-        raise ProAgentError("R2 did not confirm an audio artifact")
+    size = p.stat().st_size
+    base = f"/api/sonara-relay/pro-job/{job}/{endpoint}"
+    if size <= 80 * 1024 * 1024:
+        response = request("PUT", base, p.read_bytes(), lease, timeout=180)
+        if response.get("ok") is not True:
+            raise ProAgentError("R2 did not confirm an audio artifact")
+        return
+    begin = request("POST", base + "/start", {"bytes": size}, lease)
+    part_bytes = begin.get("partBytes")
+    total = begin.get("parts")
+    if part_bytes != 8 * 1024 * 1024 or not isinstance(total, int) or not 1 <= total <= 64:
+        raise ProAgentError("Invalid private multipart upload session")
+    receipts = []
+    with p.open("rb") as handle:
+        for i in range(1, total + 1):
+            data = handle.read(part_bytes)
+            if not data:
+                raise ProAgentError("WAV truncated during upload")
+            response = request("PUT", base + f"/part/{i}", data, lease, timeout=180)
+            etag = response.get("etag")
+            if response.get("partNumber") != i or not isinstance(etag, str):
+                raise ProAgentError("R2 did not confirm WAV part")
+            receipts.append({"partNumber": i, "etag": etag})
+    result = request("POST", base + "/finish", {"parts": receipts}, lease, timeout=180)
+    if result.get("ok") is not True:
+        raise ProAgentError("R2 did not confirm final WAV")
+
 
 
 class Renewer:
@@ -229,10 +279,8 @@ def run_job(item, auth_mode):
     try:
         with Renewer(job, lease) as renewal:
             progress(job, lease, "downloading", renewal)
-            a = save_bytes(request("GET", f"/api/sonara-relay/pro-job/{job}/source/a",
-                                   lease=lease, binary=True), "source-a.wav", folder)
-            b = save_bytes(request("GET", f"/api/sonara-relay/pro-job/{job}/source/b",
-                                   lease=lease, binary=True), "source-b.wav", folder)
+            a = download_source(job, lease, "a", "source-a.wav", folder)
+            b = download_source(job, lease, "b", "source-b.wav", folder)
             progress(job, lease, "analyzing", renewal)
             report_a = analyze_audio(a)
             report_b = analyze_audio(b)
