@@ -42,7 +42,7 @@ export default function SonaraRemixProPanel() {
     let cancelled=false;
     void (async()=>{
       let errors=0;
-      for(let i=0;i<520&&!cancelled;i++){
+      for(let i=0;i<1800&&!cancelled;i++){
         try{
           const response=await fetch('/api/sonara-relay/pro-job/'+id,{credentials:'include',cache:'no-store'});
           const data:ProJob=await response.json().catch(()=>({}));
@@ -55,7 +55,7 @@ export default function SonaraRemixProPanel() {
             return;
           }
           setInfo('Fase: '+String(data.stage||'elaborazione')+' — '+Math.round(Number(data.progress||0))+'%');
-          await sleep(2500);
+          await sleep(5000);
         }catch{
           errors++;
           if(errors>10){if(mounted.current)setError('Monitoraggio interrotto. Il job '+id+' è conservato: riapri Remix Pro per riprenderlo.');return;}
