@@ -113,7 +113,7 @@ def _result_path(task):
 def render(audio_path, output_path, prompt, *, mode="required", strength=0.76,
            noise=0.14, timeout_seconds=1600, bpm=None, key=None,
            reference_audio_path=None):
-    """Use one real local ACE-Step task to reimagine the combined 2-song stem mix."""
+    """Regenerate one composition from separate A structure and B style references."""
     source = pathlib.Path(audio_path).expanduser().resolve(strict=True)
     output = pathlib.Path(output_path).expanduser().resolve()
     if not source.is_file() or source.suffix.lower() != ".wav" or source.stat().st_size > MAX_BYTES:
@@ -138,6 +138,7 @@ def render(audio_path, output_path, prompt, *, mode="required", strength=0.76,
     if output == source or output.exists() or (reference is not None and output == reference):
         raise ACEBridgeError("Output must be new; original and existing files are protected")
     fd, tmp = tempfile.mkstemp(prefix="sonara_pro_cover_", suffix=".wav")
+    ref_tmp = None
     try:
         with os.fdopen(fd, "wb") as out, source.open("rb") as inp:
             while True:
@@ -145,9 +146,20 @@ def render(audio_path, output_path, prompt, *, mode="required", strength=0.76,
                 if not block:
                     break
                 out.write(block)
+        if reference is not None:
+            # ACE-Step accepts only paths inside its trusted temporary directory.
+            # Keep B separate from A, copy it to a private 0600 temp file and
+            # retain it until the asynchronous model task has completed.
+            ref_fd, ref_tmp = tempfile.mkstemp(prefix="sonara_pro_style_", suffix=".wav")
+            with os.fdopen(ref_fd, "wb") as ref_out, reference.open("rb") as ref_in:
+                while True:
+                    block = ref_in.read(1024 * 1024)
+                    if not block:
+                        break
+                    ref_out.write(block)
         request = {
             "task_type": "cover", "src_audio_path": tmp,
-            **({"reference_audio_path": str(reference)} if reference is not None else {}),
+            **({"reference_audio_path": ref_tmp} if ref_tmp is not None else {}),
             "prompt": str(prompt).strip()[:9000], "instruction": str(prompt).strip()[:9000],
             "audio_duration": round(duration, 2), "batch_size": 1,
             "audio_cover_strength": float(strength), "cover_noise_strength": float(noise),
@@ -191,6 +203,8 @@ def render(audio_path, output_path, prompt, *, mode="required", strength=0.76,
         raise ACEBridgeError("ACE-Step cover timed out; task was not duplicated")
     finally:
         pathlib.Path(tmp).unlink(missing_ok=True)
+        if ref_tmp is not None:
+            pathlib.Path(ref_tmp).unlink(missing_ok=True)
 
 
 def render_long_remix(audio_path, output_path, prompt, *, mode="required",
@@ -202,7 +216,8 @@ def render_long_remix(audio_path, output_path, prompt, *, mode="required",
     ACE-Step cover is applied to contiguous source segments (never to fake
     audio). Longer songs must not be silently reduced to a short single task.
     Every successful segment is real model output, audited for matching duration.
-    This preserves the coherent original A+B arrangement as source conditioning.
+    Uses an A-only structural guide and an independent B-style reference.
+    No source-A/B waveform mixing is performed by this bridge.
     """
     import math
     import shutil
