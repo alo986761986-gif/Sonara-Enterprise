@@ -36,21 +36,43 @@ have been implemented and validated. The current SONARA Remix AI remains usable.
 
 ## MoLab installation (standalone; does not replace ACE-Step environment)
 
-Create a **separate venv** from the ACE-Step Python env; this prevents unintended
-torch/torchaudio upgrades or engine downtime. Perform only on the chosen MoLab
-notebook while it is idle. Check the installed CUDA, torch, torchaudio versions
-before installing Demucs: a compatible GPU stack is required for device=cuda.
+The isolated environment is **already created** at
+`/marimo/SONARA-REMIX-PRO/.venv`. No need to create a second venv or
+reinstall the analysis dependencies.
+
+For the **RTX PRO 6000 Blackwell (SM 12.0)** use the guarded installation
+helper and a reviewed CUDA PyTorch 12.8 wheel. It checks the actual device
+name, compute capability, available VRAM, Python interpreter path and disk
+capacity; it refuses to touch a different torch version rather than
+overwriting it. It never edits the running ACE-Step environment.
+
+First inspect without installing:
 
 ```sh
-python3 -m venv /marimo/sonara-remix-pro-venv
-/marimo/sonara-remix-pro-venv/bin/python -m pip install -r molab/requirements-remix-pro.txt
-/marimo/sonara-remix-pro-venv/bin/python molab/sonara_remix_pro_toolkit.py preflight
-# Optional, in this isolated environment only, after checking torch stack:
-# /marimo/sonara-remix-pro-venv/bin/python -m pip install 'demucs==4.0.1'
+/marimo/SONARA-REMIX-PRO/.venv/bin/python \
+  /marimo/SONARA-REMIX-PRO/sonara_remix_pro_gpu_setup.py
 ```
 
-If MoLab does not allow a separate venv or the package conflicts with the GPU,
-**stop**; do not alter the working ACE-Step environment.
+When the isolated GPU and disk checks pass, install Demucs **4.1.0** and
+PyTorch **2.9.1 + cu128** in that private venv, then test real GPU inference
+on a synthetic 10-second technical signal (no customer audio):
+
+```sh
+/marimo/SONARA-REMIX-PRO/.venv/bin/python \
+  /marimo/SONARA-REMIX-PRO/sonara_remix_pro_gpu_setup.py \
+  --install --smoke
+```
+
+The smoke test downloads the official `htdemucs` model weights on the
+first run, uses a private model cache and verifies four real WAV stems.
+It deletes only the private synthetic test source/output directory.
+**Never classify Demucs as GPU-ready** until this particular output says
+`DEMUCS_REAL_GPU_INFERENCE_VERIFIED=True`.
+
+If CUDA wheels, driver, VRAM, disk or networking prevent installation, the
+script exits with a safe error and leaves working SONARA untouched.
+Install dependencies only while the customer-generation GPU is otherwise
+idle. Network downloads and disk usage can be substantial.
 
 ## Offline verification commands
 
