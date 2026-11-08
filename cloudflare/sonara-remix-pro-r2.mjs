@@ -7,6 +7,7 @@ import {audioFormatForName,audioContentType} from './sonara-remix-pro-audio-form
  * are independently verified. No client credentials authorize worker actions.
  */
 export const PRO_AGENT_REVISION='sonara-remix-pro-r2-agent-v3-dual-reference-fusion';
+const LEGACY_AGENT_REVISION='sonara-remix-pro-r2-agent-v2-longwav';
 const P='relay-v1/pro/';
 const heartbeatKey=P+'agent/heartbeat.json';
 const jobKey=id=>P+'jobs/'+id+'.json';
@@ -62,23 +63,27 @@ const partMax=64;
 const uploadMarker=(id,role)=>P+'uploads/'+id+'/'+role+'.json';
 const finite=(v,def,min,max)=>v===null||v===undefined||v===''?def:Number.isFinite(Number(v))?Math.min(max,Math.max(min,Number(v))):def;
 const enabled=e=>e.SONARA_REMIX_PRO_ENABLED==='true'&&e.SONARA_REMIX_PRO_BILLING_READY==='true'&&e.SONARA_R2_RELAY_ENABLED==='true';
-const proAgentOk=r=>r.headers.get('X-Sonara-Pro-Agent-Revision')===PRO_AGENT_REVISION;
+const agentRevision=r=>String(r.headers.get('X-Sonara-Pro-Agent-Revision')||'');
+const proAgentOk=r=>[PRO_AGENT_REVISION,LEGACY_AGENT_REVISION].includes(agentRevision(r));
 const record=async(b,id)=>readJson(await b.get(jobKey(id)));
 async function gpuState(b){
   const d=b?await readJson(await b.get(heartbeatKey)):null;
   const age=Date.now()-Number(d?.lastSeen||0);
-  return {ready:Boolean(d?.gpuReady===true&&d?.revision===PRO_AGENT_REVISION&&age>=0&&age<30_000),
+  const fresh=Boolean(d?.gpuReady===true&&age>=0&&age<30_000);
+  return {ready:fresh&&d?.revision===PRO_AGENT_REVISION,
+    legacyReady:fresh&&d?.revision===LEGACY_AGENT_REVISION,
     formatsReady:d?.formatsReady===true};
 }
 async function beat(b){
   const d=b?await readJson(await b.get(heartbeatKey)):null;
   const age=Date.now()-Number(d?.lastSeen||0);
-  return Boolean(d?.gpuReady===true&&d?.revision===PRO_AGENT_REVISION&&age>=0&&age<30_000);
+  return Boolean(d?.gpuReady===true&&[PRO_AGENT_REVISION,LEGACY_AGENT_REVISION].includes(d?.revision)&&age>=0&&age<30_000);
 }
 export async function proCapabilities(env) {
   const available=Boolean(env.SONARA_AUDIO_BUCKET)&&enabled(env)&&await beat(env.SONARA_AUDIO_BUCKET);
   const gpu=await gpuState(env.SONARA_AUDIO_BUCKET);
-  return {mode:'remix-pro-private-2-source',available,engine:'Demucs 4.1 + ACE-Step XL Turbo',
+  return {mode:'remix-pro-private-2-source',available,
+    fusionAvailable:available&&gpu.ready,engine:'Demucs 4.1 + ACE-Step XL Turbo',
     model:'htdemucs',expectedAgentRevision:PRO_AGENT_REVISION,
     multiformatAvailable:available&&gpu.formatsReady,
     formats:['wav','mp3','flac','m4a','mp4','aac','ogg','oga','opus','aif','aiff','aifc','webm','wma','caf','amr','ac3'],
@@ -140,6 +145,7 @@ async function enqueue(req,e,auth,b) {
   if(!auth.gateway(req,e))return fail('Unauthorized',401);
   if(!enabled(e))return fail('Remix Pro non ancora abilitato per la fatturazione.',503);
   if(!(await beat(b)))return fail('Agente Remix Pro GPU non collegato.',503);
+  if(!(await gpuState(b)).ready)return fail('Fusione creativa A+B non ancora attiva: serve agente MoLab V3.',503);
   const uid=auth.gatewayOwner(req);
   if(!uid)return fail('Owner missing',401);
   const raw=await req.text();
@@ -266,12 +272,14 @@ export async function handleRemixPro(req,env,ctx,auth) {
     if(!(await auth.agent(req,env))||!proAgentOk(req))return fail('Unauthorized agent',401);
     const payload=await req.json().catch(()=>({}));
     if(payload?.gpuReady!==true)return fail('GPU verification required',409);
-    await b.put(heartbeatKey,JSON.stringify({revision:PRO_AGENT_REVISION,gpuReady:true,
+    // During rollout, an older agent may still heartbeat. Never label an
+    // old V2 process as fusion-ready merely because gateway code is V3.
+    await b.put(heartbeatKey,JSON.stringify({revision:agentRevision(req),gpuReady:true,
       formatsReady:payload?.formatsReady===true,lastSeen:Date.now()}));
-    return json({authenticated:true,revision:PRO_AGENT_REVISION});
+    return json({authenticated:true,revision:agentRevision(req)});
   }
   if(p==='/api/sonara-relay/pro-claim'&&req.method==='POST'){
-    if(!(await auth.agent(req,env))||!proAgentOk(req))return fail('Unauthorized agent',401);
+    if(!(await auth.agent(req,env))||agentRevision(req)!==PRO_AGENT_REVISION)return fail('V3 agent required for fusion claims',401);
     if(!enabled(env))return fail('Remix Pro disabled',503);
     return json(await claim(env,b,ctx));
   }
