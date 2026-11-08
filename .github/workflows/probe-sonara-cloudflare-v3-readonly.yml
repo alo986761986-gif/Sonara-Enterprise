@@ -40,7 +40,7 @@ jobs:
               .map(x=>({pattern:String(x.pattern||'').slice(0,120),script:String(x.script||'').slice(0,110)}));
             console.log('V3_INSPECTION',JSON.stringify({kind:'zone_routes',status:routes.status,success:routes.body.success===true,routes:entries.slice(0,20)}));
           }
-          if(!account)return;
+          if(!account)process.exit(0);
           const settings=await get('/accounts/'+account+'/workers/scripts/sonara-enterprise/settings');
           const s=settings.body.result||{};
           console.log('V3_INSPECTION',JSON.stringify({
@@ -57,7 +57,7 @@ jobs:
           const target=api+'/accounts/'+account+'/workers/scripts/sonara-enterprise/content/v2';
           const res=await fetch(target,{headers,signal:AbortSignal.timeout(30000)});
           console.log('V3_INSPECTION',JSON.stringify({kind:'content',status:res.status,type:res.headers.get('content-type')?.slice(0,120)}));
-          if(!res.ok)return;
+          if(!res.ok)process.exit(0);
           const form=await res.formData();
           for(const [name,v] of form.entries()){
             const raw=typeof v==='string'?v:await v.text();
