@@ -1,0 +1,71 @@
+name: SONARA Validate Isolated Duration Shell
+on:
+  push:
+    branches: [fix/remix-pro-duration-preserve-20261108]
+    paths: ['.github/workflows/validate-sonara-duration-shell.yml']
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+    steps:
+      - name: Enable only isolated worker dev preview and verify against live site
+        run: |
+          node --input-type=module <<'NODE'
+          const assert=(ok,msg)=>{if(!ok)throw Error(msg)};
+          const root='https://api.cloudflare.com/client/v4';
+          const auth={Authorization:'Bearer '+process.env.CLOUDFLARE_API_TOKEN,'Content-Type':'application/json'};
+          const read=async path=>{
+            const r=await fetch(root+path,{headers:auth,signal:AbortSignal.timeout(20000)});
+            const j=await r.json().catch(()=>({}));
+            assert(r.ok&&j.success!==false,'Cloudflare read failure '+r.status);
+            return j.result;
+          };
+          const z=(await read('/zones?name=sonaraenterprise.com'))?.find(x=>x.name==='sonaraenterprise.com');
+          assert(z,'No SONARA zone');
+          const account=process.env.CLOUDFLARE_ACCOUNT_ID||z.account?.id;
+          assert(account,'Missing account');
+          const main='/accounts/'+account+'/workers/scripts/sonara-enterprise';
+          const isolated='/accounts/'+account+'/workers/scripts/sonara-remix-duration-shell';
+          const before=await read(main+'/deployments');
+          const active=before.deployments?.[0]?.versions?.[0]?.version_id;
+          assert(active==='bbedc676-8792-4421-85b3-913e74270686','Main version differs from original');
+          const routes=await read('/zones/'+z.id+'/workers/routes');
+          assert(!routes.some(x=>x.script==='sonara-remix-duration-shell'),'Isolated Worker already routed to production');
+          const subdomain=await read('/accounts/'+account+'/workers/subdomain');
+          assert(/^[a-z0-9-]+$/.test(subdomain.subdomain||''),'Subdomain invalid');
+          const updated=await fetch(root+isolated+'/subdomain',{
+            method:'POST',headers:auth,
+            body:JSON.stringify({enabled:true,previews_enabled:true}),
+            signal:AbortSignal.timeout(20000)
+          });
+          const change=await updated.json().catch(()=>({}));
+          assert(updated.ok&&change.success!==false,'Cannot enable isolated workers.dev '+updated.status);
+          const url='https://sonara-remix-duration-shell.'+subdomain.subdomain+'.workers.dev/';
+          let result=null;
+          for(let attempt=0;attempt<4;attempt++){
+            await new Promise(res=>setTimeout(res,attempt?1500:4000));
+            const r=await fetch(url,{signal:AbortSignal.timeout(16000)});
+            const html=await r.text();
+            result={http:r.status,header:r.headers.get('x-sonara-duration-shell'),
+              contentType:r.headers.get('content-type'),
+              durationMarker:html.includes('sonara-remix-pro-duration-edge-v1'),
+              scriptCount:(html.match(/sonara-remix-pro-duration-edge-v1/g)||[]).length,
+              hasAssetLinks:/\/assets\//.test(html),
+              htmlBytes:html.length};
+            if(result.http===200&&result.header==='stage-v1'&&result.durationMarker)break;
+          }
+          const after=await read(main+'/deployments');
+          const current=after.deployments?.[0]?.versions?.[0]?.version_id;
+          const afterRoutes=await read('/zones/'+z.id+'/workers/routes');
+          assert(current===active&&!afterRoutes.some(x=>x.script==='sonara-remix-duration-shell'),
+            'Production changed during isolated preview test');
+          console.log('SONARA_SHELL_TEST',JSON.stringify({...result,
+            stageUrl:url,originalMainWorkerPreserved:true,noProductionRoute:true}));
+          assert(result?.http===200&&result.header==='stage-v1'&&result.durationMarker,
+            'Isolated HTML preview does not serve the duration correction');
+          NODE
