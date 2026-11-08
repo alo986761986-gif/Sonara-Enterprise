@@ -25,6 +25,19 @@ export default function SonaraRemixProPanel() {
   const [info,setInfo]=useState('');
   const mounted=useRef(true);
   const activeJob=useRef('');
+  const sourceAInput=useRef<HTMLInputElement>(null);
+  const sourceBInput=useRef<HTMLInputElement>(null);
+  const chooseSource=(file:File|null,role:'a'|'b')=>{
+    if(!file)return;
+    if(!/\.wav$/i.test(file.name)||file.size<44||file.size>512*1024*1024){
+      setError('Il brano '+role.toUpperCase()+' deve essere un file WAV valido, massimo 512 MiB.');
+      return;
+    }
+    if(role==='a')setSourceA(file);
+    else setSourceB(file);
+    setError('');
+    setInfo('Brano '+role.toUpperCase()+' selezionato: '+file.name);
+  };
 
   useEffect(()=>{
     mounted.current=true;
@@ -206,12 +219,45 @@ export default function SonaraRemixProPanel() {
         <span style={{fontSize:10,color:available?'#97e5b8':'#d5b6ef'}}>{available?'GPU ONLINE':available===null?'CONNESSIONE…':'NON ANCORA ATTIVO'}</span>
       </div>
       <small>Remix di due brani: voce e armonie A + batteria B, strumenti separati con Demucs e nuovo render ACE-Step. Audio privati e accessibili solo al proprietario. Carica due sorgenti WAV anche oltre 8 minuti (max 15 minuti, 512 MiB per file); scegli il Remix AI da 0:30 a 8:00.</small>
-      <label>Brano A (voce e armonie)
-        <input type="file" accept=".wav,audio/wav" onChange={e=>setSourceA(e.currentTarget.files?.[0]||null)} />
-      </label>
-      <label>Brano B (batteria e groove)
-        <input type="file" accept=".wav,audio/wav" onChange={e=>setSourceB(e.currentTarget.files?.[0]||null)} />
-      </label>
+      <div data-testid="sonara-remix-pro-uploaders" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,225px),1fr))',gap:12}}>
+        <div data-sonara-pro-source="a" onDragOver={e=>{e.preventDefault();e.dataTransfer.dropEffect='copy';}}
+          onDrop={e=>{e.preventDefault();chooseSource(e.dataTransfer.files?.[0]||null,'a');}}
+          style={{display:'grid',gap:10,minWidth:0,padding:16,border:'1px dashed #9869dc',borderRadius:12,background:'#20172c'}}>
+          <strong>BRANO A — Voce e armonie</strong>
+          <small>Trascina qui il primo WAV oppure selezionalo dal dispositivo.</small>
+          <input id="sonara-remix-pro-file-a" ref={sourceAInput} type="file" accept=".wav,audio/wav,audio/x-wav"
+            aria-label="Seleziona file WAV brano A" data-testid="sonara-remix-pro-input-a"
+            onChange={e=>chooseSource(e.currentTarget.files?.[0]||null,'a')}
+            style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden',pointerEvents:'none'}} />
+          <button type="button" data-testid="sonara-remix-pro-choose-a"
+            onClick={()=>sourceAInput.current?.click()}
+            style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,minHeight:44,padding:'10px 14px',border:'1px solid #ab87ef',borderRadius:9,background:'#6c3b9d',color:'#fff',fontWeight:800,cursor:'pointer'}}>
+            <UploadCloud size={18}/>{sourceA?'Cambia brano A':'Carica brano A'}
+          </button>
+          <small aria-live="polite" style={{overflowWrap:'anywhere',color:sourceA?'#9ce6bb':'#c8bed7'}}>
+            {sourceA?sourceA.name+' · '+(sourceA.size/1024/1024).toFixed(1)+' MiB':'Nessun file A selezionato'}
+          </small>
+        </div>
+        <div data-sonara-pro-source="b" onDragOver={e=>{e.preventDefault();e.dataTransfer.dropEffect='copy';}}
+          onDrop={e=>{e.preventDefault();chooseSource(e.dataTransfer.files?.[0]||null,'b');}}
+          style={{display:'grid',gap:10,minWidth:0,padding:16,border:'1px dashed #9869dc',borderRadius:12,background:'#20172c'}}>
+          <strong>BRANO B — Batteria e groove</strong>
+          <small>Trascina qui il secondo WAV oppure selezionalo dal dispositivo.</small>
+          <input id="sonara-remix-pro-file-b" ref={sourceBInput} type="file" accept=".wav,audio/wav,audio/x-wav"
+            aria-label="Seleziona file WAV brano B" data-testid="sonara-remix-pro-input-b"
+            onChange={e=>chooseSource(e.currentTarget.files?.[0]||null,'b')}
+            style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden',pointerEvents:'none'}} />
+          <button type="button" data-testid="sonara-remix-pro-choose-b"
+            onClick={()=>sourceBInput.current?.click()}
+            style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,minHeight:44,padding:'10px 14px',border:'1px solid #ab87ef',borderRadius:9,background:'#6c3b9d',color:'#fff',fontWeight:800,cursor:'pointer'}}>
+            <UploadCloud size={18}/>{sourceB?'Cambia brano B':'Carica brano B'}
+          </button>
+          <small aria-live="polite" style={{overflowWrap:'anywhere',color:sourceB?'#9ce6bb':'#c8bed7'}}>
+            {sourceB?sourceB.name+' · '+(sourceB.size/1024/1024).toFixed(1)+' MiB':'Nessun file B selezionato'}
+          </small>
+        </div>
+      </div>
+      <small>Due WAV distinti, massimo 15 minuti e 512 MiB per file. I brani sono caricati privatamente su R2 solo quando premi «Crea Remix Pro reale».</small>
       <label>Direzione musicale<textarea rows={3} value={prompt} onChange={e=>setPrompt(e.target.value)} style={{width:'100%',marginTop:6,padding:8,borderRadius:6,background:'#1c1926',color:'#fff'}} /></label>
       <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:8}}>
         <label>Durata Remix AI (30 secondi – 8 minuti)
