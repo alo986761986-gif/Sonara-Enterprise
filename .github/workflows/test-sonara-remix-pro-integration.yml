@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'cloudflare/sonara-remix-pro-r2.mjs'
+      - 'cloudflare/sonara-remix-pro-audio-formats.mjs'
       - 'cloudflare/sonara-remix-pro-r2.test.mjs'
       - 'cloudflare/sonara-long-wav-upload.mjs'
       - 'cloudflare/sonara-long-wav-upload.test.mjs'
@@ -13,6 +14,7 @@ on:
       - 'src/components/remix/SonaraRemixProPanel.tsx'
       - 'src/components/remix/SonaraRemixSection.tsx'
       - 'molab/sonara_remix_pro_r2_agent.py'
+      - 'molab/test_sonara_remix_pro_multiformat.py'
       - 'molab/test_sonara_remix_pro_import_path.py'
       - 'molab/sonara_remix_pro_live_qa.py'
       - 'molab/test_sonara_remix_pro_live_qa.py'
@@ -41,6 +43,8 @@ jobs:
         run: node --test cloudflare/sonara-remix-r2.test.mjs
       - name: MoLab Python syntax only (never downloads models)
         run: python3 -m py_compile molab/sonara_remix_pro_r2_agent.py
+      - name: Real offline MP3 decoder and video rejection tests
+        run: python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_multiformat.py' -v
       - name: Verify Marimo Python import path regression
         run: python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_import_path.py' -v
       - name: Verify isolated real two-WAV QA runner
