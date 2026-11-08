@@ -60,7 +60,8 @@ function fakeBucket(){
 }
 function setup(){
   const {bucket,objects}=fakeBucket();
-  const env={SONARA_AUDIO_BUCKET:bucket,SONARA_R2_RELAY_ENABLED:'true'};
+  const env={SONARA_AUDIO_BUCKET:bucket,SONARA_R2_RELAY_ENABLED:'true',
+    SONARA_REMIX_PRO_ENABLED:'true',SONARA_REMIX_PRO_BILLING_READY:'true'};
   const user=async req=>req.headers.get('x-test-user')==='owner'?{uid:'owner'}:null;
   const call=(method,path,body,who='owner')=>{
     const request=new Request('https://api.sonaraenterprise.com'+path,{
@@ -69,7 +70,7 @@ function setup(){
     });
     return handleLongWavUpload(request,env,user);
   };
-  return {call,objects};
+  return {call,objects,env};
 }
 test('header validator accepts 9-minute genuine WAV and refuses 16-minute source',()=>{
   const minute9=44100*2*2*540;
@@ -112,4 +113,13 @@ test('source upload rejects size above 512 MiB',async()=>{
   assert.equal((await call('POST','/api/sonara-relay/reference-multipart/start',{
     name:'too-big.wav',bytes:512*1024*1024+1
   })).status,413);
+});
+
+test('multipart source endpoint is disabled when billing has not approved Pro',async()=>{
+  const {call,env}=setup();
+  env.SONARA_REMIX_PRO_BILLING_READY='false';
+  const result=await call('POST','/api/sonara-relay/reference-multipart/start',{
+    name:'licensed.wav',bytes:9*1024*1024
+  });
+  assert.equal(result.status,503);
 });
