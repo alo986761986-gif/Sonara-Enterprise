@@ -75,7 +75,7 @@ export default function SonaraRemixProPanel({ initialSources = null }: RemixProP
       setInfo('Recupero un job precedente. La sua durata potrebbe essere diversa dalla nuova selezione.');}
     fetch('/api/sonara-relay/pro-capabilities',{cache:'no-store',credentials:'include'})
       .then(r=>r.ok?r.json():{available:false})
-      .then(x=>{if(mounted.current){setAvailable(x.available===true);setMultiformatAvailable(x.multiformatAvailable===true);}})
+      .then(x=>{if(mounted.current){setAvailable(x.available===true&&x.fusionAvailable===true);setMultiformatAvailable(x.multiformatAvailable===true);}})
       .catch(()=>{if(mounted.current)setAvailable(false);});
     return()=>{mounted.current=false;};
   },[]);
@@ -198,7 +198,7 @@ export default function SonaraRemixProPanel({ initialSources = null }: RemixProP
 
   const begin=async()=>{
     if(submitting||activeJob.current&&job?.status!=='FAILED'&&job?.status!=='COMPLETED')return;
-    if(available!==true){setError('Remix Pro GPU non ancora collegato. Usa il Remix normale.');return;}
+    if(available!==true){setError('Fusione A+B non ancora pronta: attendi che il nuovo agente MoLab V3 sia online. Nessun job è stato inviato.');return;}
     if(!sourceA||!sourceB){setError('Seleziona due file audio diversi.');return;}
     if(sourceA===sourceB){setError('Le sorgenti A e B devono essere diverse.');return;}
     if(!rights){setError('Conferma di avere il diritto di utilizzare entrambi i brani.');return;}
