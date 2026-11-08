@@ -30,7 +30,6 @@ import soundfile as sf
 
 ROOT = Path("/marimo/SONARA-REMIX-PRO")
 PRIVATE = ROOT / "private-jobs"
-STEM_CACHE = ROOT / "private-stem-cache"
 HOME = Path.home() / ".sonara"
 TOKEN_FILE = HOME / "relay.token"
 STATUS_FILE = HOME / "remix-pro-agent-status.json"
@@ -202,9 +201,11 @@ def run_job(item, auth_mode):
     if not isinstance(params, dict):
         raise ProAgentError("Invalid job parameters")
     PRIVATE.mkdir(mode=0o700, parents=True, exist_ok=True)
-    STEM_CACHE.mkdir(mode=0o700, parents=True, exist_ok=True)
     folder = PRIVATE / job
     folder.mkdir(mode=0o700, exist_ok=False)
+    # No shared audio-derived stem cache across accounts.
+    stem_cache = folder / "stem-cache"
+    stem_cache.mkdir(mode=0o700)
     print("SONARA PRO job claimed:", job, flush=True)
     try:
         with Renewer(job, lease) as renewal:
@@ -224,10 +225,10 @@ def run_job(item, auth_mode):
             env_cache = ROOT / "model-cache"
             os.environ["TORCH_HOME"] = str(env_cache)
             os.environ["XDG_CACHE_HOME"] = str(ROOT / "private-cache")
-            manifest_a = separate_stems(a, STEM_CACHE, device="cuda")
-            manifest_b = separate_stems(b, STEM_CACHE, device="cuda")
-            source_a = STEM_CACHE / manifest_a["sourceSha256"][:20]
-            source_b = STEM_CACHE / manifest_b["sourceSha256"][:20]
+            manifest_a = separate_stems(a, stem_cache, device="cuda")
+            manifest_b = separate_stems(b, stem_cache, device="cuda")
+            source_a = stem_cache / manifest_a["sourceSha256"][:20]
+            source_b = stem_cache / manifest_b["sourceSha256"][:20]
             progress(job, lease, "arranging", renewal)
             arranged = folder / "arranged.wav"
             combine_two_songs(
@@ -313,6 +314,19 @@ def main(argv=None):
         raise ProAgentError("A Remix Pro agent is already running")
     signal.signal(signal.SIGINT,stop_handler)
     signal.signal(signal.SIGTERM,stop_handler)
+    # Verify real CUDA kernels before any machine heartbeat or customer job.
+    import torch
+    import importlib.metadata
+    if importlib.metadata.version("demucs") != "4.1.0":
+        raise ProAgentError("Verified Demucs 4.1 is missing from the private environment")
+    if not torch.cuda.is_available() or tuple(torch.cuda.get_device_capability(0)) != (12,0):
+        raise ProAgentError("RTX PRO 6000 Blackwell CUDA not ready")
+    if "sm_120" not in torch.cuda.get_arch_list():
+        raise ProAgentError("PyTorch lacks sm_120 support")
+    with torch.no_grad():
+        sample = torch.ones((8,8),device="cuda:0")
+        if float((sample @ sample)[0,0]) != 8.0:
+            raise ProAgentError("CUDA kernel test failed")
     print("SONARA Remix Pro agent initialized; independent HTTPS/443 queue.",flush=True)
     while not STOP:
         try:
