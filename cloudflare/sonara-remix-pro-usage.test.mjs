@@ -28,8 +28,10 @@ function setup({used=0,studio=true}={}){
     async get(k){return structuredClone(values.get(k))},
     async put(k,v){values.set(k,structuredClone(v))},
     async delete(k){values.delete(k)},
-    async list({prefix='',limit=100}={}) {
-      return new Map([...values].filter(([k])=>String(k).startsWith(prefix)).slice(0,limit));
+    async list({prefix='',limit=100,startAfter=''}={}) {
+      return new Map([...values].filter(([k])=>String(k).startsWith(prefix)
+        && (!startAfter||String(k)>startAfter))
+        .sort(([a],[b])=>String(a).localeCompare(String(b))).slice(0,limit));
     },
     async getAlarm(){return nextAlarm},
     async setAlarm(t){nextAlarm=t},
@@ -195,4 +197,22 @@ test('Alarm never refunds an expired job if conditional R2 update loses the race
   await s.store.alarm();
   assert.equal(s.values.get('remix-pro:quota:'+id).status,'reserved');
   assert.equal(s.values.get(userKey).usageSeconds,75);
+});
+
+test('Alarm paginates beyond 100 active markers without starving a real reservation',async()=>{
+  const s=setup();
+  const id=job(99);
+  assert.equal((await s.op('reserve',id)).http,200);
+  const entry=s.values.get('remix-pro:quota:'+id);
+  entry.createdAt=Date.now()-11*60*1000;
+  s.values.set('remix-pro:quota:'+id,entry);
+  // Other metadata markers must not prevent reaching this reservation.
+  for(let i=0;i<105;i++){
+    s.values.set('remix-pro:active:prefix-'+String(i).padStart(4,'0'),{
+      jobId:'invalid-marker-'+i,createdAt:Date.now()-11*60*1000
+    });
+  }
+  await s.store.alarm();
+  assert.equal(s.values.get('remix-pro:quota:'+id).status,'refunded');
+  assert.equal(s.values.get(userKey).usageSeconds,0);
 });
