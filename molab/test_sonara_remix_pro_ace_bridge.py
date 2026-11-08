@@ -79,7 +79,7 @@ class ACEBridgeTests(unittest.TestCase):
             with sf.SoundFile(str(dst)) as output:
                 self.assertEqual(output.frames, 180*sr)
                 self.assertEqual(output.channels, 2)
-                self.assertAlmostEqual(output.duration, 180)
+                self.assertAlmostEqual(output.frames / output.samplerate, 180)
             self.assertTrue(src.is_file())
 
     def test_long_form_rejects_short_model_output_instead_of_padding_eight_minutes(self):
