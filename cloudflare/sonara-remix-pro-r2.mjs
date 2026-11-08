@@ -143,7 +143,19 @@ async function claim(e,b,ctx){
     if(!obj)return null;
     const j=await readJson(obj);
     if(!j||j.kind!=='sonara-remix-pro'||!idPattern.test(j.id))return null;
-    if(!((j.status==='QUEUED')||(j.status==='LEASED'&&j.leaseUntil<now))||j.attempts>=3)return null;
+    const expired=j.status==='LEASED'&&j.leaseUntil<now;
+    const queueExpired=j.status==='QUEUED'&&now-Number(j.createdAt||0)>2*60*60*1000;
+    if(queueExpired||(expired&&j.attempts>=3)){
+      // Exhausted or abandoned jobs must not hold a user's quota forever.
+      // Fail closed if the private refund ledger cannot be reached.
+      if(!(await proQuota(e,'refund',j.id,j.ownerUid)))return null;
+      const failed={...j,status:'FAILED',stage:'failed',leaseId:null,
+        leaseUntil:0,updatedAt:now,params:null,sourceA:null,sourceB:null};
+      const updated=await save(b,failed,obj.etag);
+      if(updated)return null;
+      return null;
+    }
+    if(!((j.status==='QUEUED')||expired)||j.attempts>=3)return null;
     const leaseId=crypto.randomUUID();
     const updated={...j,status:'LEASED',attempts:j.attempts+1,leaseId,
       leaseUntil:now+15*60*1000,updatedAt:now,stage:'downloading'};
