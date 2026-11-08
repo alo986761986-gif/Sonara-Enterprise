@@ -1,3 +1,9 @@
+import { deriveRelayGatewayInternalKey } from './sonara-gateway-verifier.mjs';
+
+// Remix Pro meters three processing passes: source A, source B and final render.
+// Feature remains disabled until owner approval of this quota policy.
+const REMIX_PRO_QUOTA_MULTIPLIER = 3;
+const REMIX_PRO_USAGE_PATH = '/__sonara_internal/remix-pro-usage';
 const VERSION = 'sonara-native-auth-v2';
 const COOKIE_NAME = 'sonara_session';
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -444,6 +450,106 @@ export class SonaraAuthStore {
     });
   }
 
+  // Internal-only, fail-closed usage ledger. This path is not forwarded by
+  // handleSonaraNativeAuth, so public sessions cannot call it directly.
+  async remixProUsage(request) {
+    let expected = '';
+    try { expected = await deriveRelayGatewayInternalKey(this.env); } catch {}
+    const supplied = String(request.headers.get('X-Sonara-Internal-Secret') || '');
+    if (!expected || !timingSafeEqual(encoder.encode(supplied), encoder.encode(expected))) {
+      return json({ ok: false, code: 'PRO_USAGE_UNAUTHORIZED' }, 401);
+    }
+    let body;
+    try { body = await request.json(); }
+    catch { return json({ ok: false, code: 'INVALID_JSON' }, 400); }
+    const action = String(body?.action || '');
+    const jobId = String(body?.jobId || '');
+    if (!['reserve', 'commit', 'refund'].includes(action) ||
+        !/^srpro_[0-9a-f-]{36}$/.test(jobId)) {
+      return json({ ok: false, code: 'INVALID_PRO_USAGE_REQUEST' }, 400);
+    }
+    const ledgerKey = 'remix-pro:quota:' + jobId;
+    const fault = (code, status) => { throw Object.assign(new Error(code), { status }); };
+    let result = null;
+    try {
+      if (action === 'reserve') {
+        const record = await this.authenticatedSession(request);
+        const ownerUid = String(body?.ownerUid || '');
+        const seconds = Number(body?.seconds);
+        if (!record || !ownerUid || record.user.uid !== ownerUid) {
+          return json({ ok: false, code: 'AUTH_REQUIRED' }, 401);
+        }
+        if (!Number.isInteger(seconds) || seconds < 10 || seconds > 120) {
+          return json({ ok: false, code: 'INVALID_PRO_DURATION' }, 400);
+        }
+        await this.ctx.storage.transaction(async txn => {
+          const prior = await txn.get(ledgerKey);
+          if (prior) {
+            if (prior.ownerUid !== ownerUid || prior.seconds !== seconds ||
+                prior.status !== 'reserved') fault('PRO_RESERVATION_CONFLICT', 409);
+            result = { ok: true, reservationStatus: 'reserved',
+              chargedSeconds: prior.chargedSeconds, reused: true };
+            return;
+          }
+          const user = await txn.get(record.userKey);
+          if (!user || user.uid !== ownerUid || user.status !== 'active') fault('AUTH_REQUIRED', 401);
+          const now = Date.now();
+          const period = monthPeriod(now);
+          if (Number(user.usagePeriodStart || 0) !== period.start ||
+              Number(user.usagePeriodEnd || 0) !== period.end) {
+            user.usagePeriodStart = period.start;
+            user.usagePeriodEnd = period.end;
+            user.usageSeconds = 0;
+            user.videoCreditsUsed = 0;
+          }
+          const bill = billingSnapshot(user, now);
+          if (bill.planId !== 'studio') fault('PRO_STUDIO_PLAN_REQUIRED', 403);
+          if (seconds > bill.maxTrackSeconds) fault('TRACK_DURATION_LIMIT', 403);
+          if (user.proActiveJobId && user.proActiveJobId !== jobId) fault('PRO_JOB_ALREADY_ACTIVE', 409);
+          const chargedSeconds = seconds * REMIX_PRO_QUOTA_MULTIPLIER;
+          if (chargedSeconds > bill.remainingSeconds) fault('USAGE_LIMIT_REACHED', 402);
+          user.usageSeconds = bill.usedSeconds + chargedSeconds;
+          user.proActiveJobId = jobId;
+          await txn.put(record.userKey, user);
+          await txn.put(ledgerKey, {
+            jobId, ownerUid, userKey: record.userKey, seconds, chargedSeconds,
+            periodStart: period.start, status: 'reserved', createdAt: now
+          });
+          result = { ok: true, reservationStatus: 'reserved',
+            chargedSeconds, reused: false };
+        });
+      } else {
+        await this.ctx.storage.transaction(async txn => {
+          const entry = await txn.get(ledgerKey);
+          if (!entry) fault('PRO_RESERVATION_NOT_FOUND', 404);
+          if (entry.status === 'refunded' && action === 'commit') fault('PRO_ALREADY_REFUNDED', 409);
+          if (entry.status === 'committed' && action === 'refund') fault('PRO_ALREADY_COMMITTED', 409);
+          if (entry.status !== 'reserved') {
+            result = { ok: true, reservationStatus: entry.status, changed: false };
+            return;
+          }
+          const user = await txn.get(entry.userKey);
+          if (!user || user.uid !== entry.ownerUid) fault('PRO_USER_NOT_FOUND', 503);
+          const nextStatus = action === 'commit' ? 'committed' : 'refunded';
+          if (nextStatus === 'refunded' &&
+              Number(user.usagePeriodStart || 0) === Number(entry.periodStart)) {
+            user.usageSeconds = Math.max(0, Number(user.usageSeconds || 0) - entry.chargedSeconds);
+          }
+          if (user.proActiveJobId === jobId) delete user.proActiveJobId;
+          await txn.put(entry.userKey, user);
+          await txn.put(ledgerKey, { ...entry, status: nextStatus, settledAt: Date.now() });
+          result = { ok: true, reservationStatus: nextStatus, changed: true };
+        });
+      }
+    } catch (error) {
+      const code = String(error?.message || 'PRO_USAGE_STORAGE_FAILED');
+      return json({ ok: false, code: /^([A-Z0-9_]+)$/.test(code) ? code :
+        'PRO_USAGE_STORAGE_FAILED' }, Number(error?.status || 503));
+    }
+    return json(result || { ok: false, code: 'PRO_USAGE_STORAGE_FAILED' },
+      result ? 200 : 503);
+  }
+
   async grantStudioGift(request) {
     let body;
     try { body = await request.json(); } catch { return json({ ok: false, code: 'INVALID_JSON', message: 'Richiesta non valida.' }, 400); }
@@ -567,6 +673,7 @@ export class SonaraAuthStore {
   async fetch(request) {
     if (!allowedOrigin(request)) return json({ ok: false, code: 'ORIGIN_DENIED', message: 'Origine non autorizzata.' }, 403);
     const url = new URL(request.url);
+    if (request.method === 'POST' && url.pathname === REMIX_PRO_USAGE_PATH) return this.remixProUsage(request);
     if (request.method === 'POST' && url.pathname.endsWith('/register')) return this.register(request);
     if (request.method === 'POST' && url.pathname.endsWith('/login')) return this.login(request);
     if (request.method === 'GET' && url.pathname.endsWith('/session')) return this.session(request);
