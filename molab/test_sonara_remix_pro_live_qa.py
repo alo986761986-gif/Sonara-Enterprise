@@ -32,7 +32,7 @@ class QaSafetyTests(unittest.TestCase):
 
     def test_refuses_invalid_duration(self):
         with self.assertRaisesRegex(qa.LocalQAFailure, "Duration"):
-            qa.run(self.arguments(rights_confirmed=True, duration=125))
+            qa.run(self.arguments(rights_confirmed=True, duration=481))
 
     def test_refuses_invalid_bpm(self):
         with self.assertRaisesRegex(qa.LocalQAFailure, "BPM A"):
