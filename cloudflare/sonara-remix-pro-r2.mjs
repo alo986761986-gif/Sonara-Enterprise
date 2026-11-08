@@ -295,15 +295,24 @@ export async function handleRemixPro(req,env,ctx,auth) {
       if(!Array.isArray(parts)||parts.length!==current.parts||
          !parts.every((p,k)=>p?.partNumber===k+1&&typeof p.etag==='string'&&p.etag.length>0&&p.etag.length<200))
         return fail('Incomplete multipart WAV',400);
-      try {await multipart.complete(parts);} catch {return fail('Multipart finalization failed',503);}
+      const existing=await b.head(output);
+      if(!existing||existing.size!==current.size){
+        try {await multipart.complete(parts);} catch {return fail('Multipart finalization failed',503);}
+      }
       const head=await b.head(output);
       if(!head||head.size!==current.size)return fail('WAV size mismatch',503);
-      const obj=await b.get(jobKey(id)),latest=await readJson(obj);
-      if(latest?.status!=='LEASED'||latest.leaseId!==j.leaseId)return fail('Lease lost',409);
-      if(role==='audio')latest.audio=output;
-      else latest.stems[role.slice(5)]=output;
-      latest.updatedAt=Date.now();
-      if(!(await save(b,latest,obj.etag)))return fail('Retry artifact confirmation',409);
+      // The lease renewer may update the same R2 job during a long upload.
+      // Retry the metadata CAS without attempting to re-complete multipart.
+      let recorded=false;
+      for(let attempt=0;attempt<6;attempt++){
+        const obj=await b.get(jobKey(id)),latest=await readJson(obj);
+        if(latest?.status!=='LEASED'||latest.leaseId!==j.leaseId)return fail('Lease lost',409);
+        if(role==='audio')latest.audio=output;
+        else latest.stems[role.slice(5)]=output;
+        latest.updatedAt=Date.now();
+        if(await save(b,latest,obj.etag)){recorded=true;break;}
+      }
+      if(!recorded)return fail('Retry artifact confirmation',409);
       await b.delete(stateKey);
       return json({ok:true});
     }
