@@ -52,7 +52,16 @@ async function main() {
            "BLOCKED: public V3 gateway and live GPU agent must be online");
     console.log("SONARA_FUSION_STAGE=FINAL_FRONTEND_RELEASE");
   }
-  cp.execFileSync("npm",["run","build"],{stdio:"inherit"});
+  if(stage==="gateway"){
+    // Deploy the V3-compatible Worker API with current main-branch frontend.
+    // New A+B UI assets are held back until the V3 GPU is running and audited.
+    assert(process.env.SONARA_GATEWAY_ASSETS_FROM_MAIN==="yes",
+           "BLOCKED: gateway stage requires separately built main-branch assets");
+    assert(fs.existsSync("dist/index.html"),
+           "BLOCKED: main-branch static assets not prepared");
+  } else {
+    cp.execFileSync("npm",["run","build"],{stdio:"inherit"});
+  }
   cp.execFileSync("npx",["--yes","wrangler@latest","deploy","--config",WORKER_CONFIG],{stdio:"inherit"});
   const next=await getJson(CAP_URL);
   assert(next.expectedAgentRevision===REV,
