@@ -149,10 +149,11 @@ def select_fusion_tempo(explicit_a, report_a, explicit_b, report_b):
             return None
         return round(number, 2)
 
+    # Explicit creator choices always outrank inferred values from either track.
     for value, explicit in (
         (explicit_a, True),
-        (report_a.get("tempoBpm"), False),
         (explicit_b, True),
+        (report_a.get("tempoBpm"), False),
         (report_b.get("tempoBpm"), False),
     ):
         found = parsed(value, explicit)
