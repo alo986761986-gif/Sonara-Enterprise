@@ -216,3 +216,14 @@ test('Alarm paginates beyond 100 active markers without starving a real reservat
   assert.equal(s.values.get('remix-pro:quota:'+id).status,'refunded');
   assert.equal(s.values.get(userKey).usageSeconds,0);
 });
+
+test('Studio can reserve a full eight-minute Remix Pro but rejects 481s',async()=>{
+  const s=setup();
+  const result=await s.op('reserve',job(42),480);
+  assert.equal(result.http,200);
+  assert.equal(result.body.chargedSeconds,1440);
+  assert.equal(s.values.get(userKey).usageSeconds,1440);
+  assert.equal((await s.op('refund',job(42),0,uid,false)).http,200);
+  assert.equal(s.values.get(userKey).usageSeconds,0);
+  assert.equal((await s.op('reserve',job(43),481)).http,400);
+});
