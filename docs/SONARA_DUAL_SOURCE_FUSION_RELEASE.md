@@ -42,7 +42,7 @@ def sonara_v3_install_safe():
     from urllib.request import urlopen
     import tempfile
     url = ("https://raw.githubusercontent.com/alo986761986-gif/"
-           "Sonara-Enterprise/8d0a8240c819da0c3d1b5c44f3cf8502740481e3/"
+           "Sonara-Enterprise/5555c99584217b626baf38af67b3157563fd27f9/"
            "molab/install_sonara_remix_fusion_v3.py")
     data = urlopen(url, timeout=30).read()
     # This script itself downloads only four Git-blob-hash-pinned source modules.
@@ -81,3 +81,5 @@ Use `--auth-mode required` instead if the existing ACE-Step local API requires a
 Never use the repo's `deploy-vercel-production.yml`. The manual guarded entrypoint is `scripts/deploy-remix-fusion-cloudflare.cjs` and requires Wrangler plus the existing Cloudflare API token in the trusted environment, not in GitHub or chat text. Its gateway stage requires saved rollback and a drained V2 Pro queue; only after the V3 GPU heartbeat has been verified may the final frontend stage run. Do not skip the gates, and verify the public `/api/sonara-relay/pro-capabilities` reports `fusionAvailable: true`.
 
 The protected release remains **not deployed** when these preconditions are unmet.
+
+**GitHub Actions limitation:** a new `workflow_dispatch` workflow is not runnable from the GitHub Actions UI until its workflow file exists on the default branch. The proposed `.github/workflows/sonara-remix-fusion-cloudflare-manual.yml` currently lives on the feature branch; do not merge it or assume that a production release has happened without reviewing other main-branch automation. The standalone deployment script can be run only in a trusted authenticated environment after both stages' safety prerequisites are satisfied.
