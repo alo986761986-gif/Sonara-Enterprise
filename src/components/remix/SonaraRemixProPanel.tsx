@@ -210,6 +210,7 @@ export default function SonaraRemixProPanel() {
           ...(bpmA?{sonaraRemixProBpmA:Number(bpmA)}:{}),
           ...(bpmB?{sonaraRemixProBpmB:Number(bpmB)}:{}),
           durationSec:requestedDuration,
+          expectedDurationSec:requestedDuration,
           prompt:prompt.trim().slice(0,6500),
           candidateCount:1,
           audio_cover_strength:0.76,
