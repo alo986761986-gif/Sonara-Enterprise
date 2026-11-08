@@ -1,0 +1,49 @@
+name: SONARA Remix Pro - Find Live Duration Error Source
+on:
+  push:
+    branches: [fix/remix-pro-duration-preserve-20261108]
+    paths: ['.github/workflows/diagnose-remix-live-js.yml']
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - name: Inspect loaded frontend JS in production; no changes or job submissions
+        run: |
+          node --input-type=module <<'NODE'
+          const origin='https://sonaraenterprise.com';
+          const res=await fetch(origin+'/',{headers:{'Cache-Control':'no-cache'},signal:AbortSignal.timeout(15000)});
+          const html=await res.text();
+          const refs=[...html.matchAll(/(?:src|href)\s*=\s*["']([^"']+\.js(?:\?[^"']*)?)["']/g)]
+            .map(x=>x[1]).filter(x=>!x.startsWith('http')||x.startsWith(origin));
+          console.log('SONARA_LIVE_JS',JSON.stringify({type:'html',status:res.status,
+            scripts:refs,htmlLength:html.length,header:res.headers.get('x-sonara-duration-shell')}));
+          const patterns=[
+            'La durata scelta non coincide con quella inviata',
+            'Nessun nuovo job è stato creato',
+            'Nessun nuovo job',
+            'Durata scelta',
+            'sonaraRemixProSourceA',
+            'sonara-remix-pro-duration-slider',
+            'Durata del NUOVO remix',
+            'requestedDurationSeconds',
+            'durationSec:30'
+          ];
+          for(const src of refs.slice(0,20)){
+            const url=new URL(src,origin);
+            if(url.origin!==origin)continue;
+            const r=await fetch(url,{signal:AbortSignal.timeout(20000)});
+            const type=String(r.headers.get('content-type')||'');
+            const body=await r.text();
+            const found=patterns.map(p=>{
+              const where=body.indexOf(p);
+              return where<0?null:{pattern:p,offset:where,
+                snippet:body.slice(Math.max(0,where-260),Math.min(body.length,where+Math.max(350,p.length+260)))};
+            }).filter(Boolean);
+            console.log('SONARA_LIVE_JS',JSON.stringify({type:'script',path:url.pathname,
+              status:r.status,contentType:type,length:body.length,
+              found:found.slice(0,9)}));
+          }
+          NODE
