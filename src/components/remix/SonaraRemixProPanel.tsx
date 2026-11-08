@@ -200,7 +200,7 @@ export default function SonaraRemixProPanel() {
       const b=await upload(sourceB,'B');
       setInfo('Avvio del job autenticato…');
       const response=await fetch('/api/billing/generate',{
-        method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},
+        method:'POST',credentials:'include',headers:{'Content-Type':'application/json','X-Sonara-Remix-Expected-Duration':String(requestedDuration)},
         body:JSON.stringify({
           sonaraRemixPro:true,
           sonaraRemixProRightsConfirmed:true,
@@ -210,6 +210,7 @@ export default function SonaraRemixProPanel() {
           ...(bpmA?{sonaraRemixProBpmA:Number(bpmA)}:{}),
           ...(bpmB?{sonaraRemixProBpmB:Number(bpmB)}:{}),
           durationSec:requestedDuration,
+          expectedDurationSec:requestedDuration,
           prompt:prompt.trim().slice(0,6500),
           candidateCount:1,
           audio_cover_strength:0.76,
