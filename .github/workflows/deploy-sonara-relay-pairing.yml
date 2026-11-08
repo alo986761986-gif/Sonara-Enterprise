@@ -125,3 +125,19 @@ jobs:
 
       - name: Verify public API
         run: curl -fsS --max-time 20 https://api.sonaraenterprise.com/api/health >/dev/null
+
+      - name: Verify live Remix Pro availability after deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6; do
+            if curl -fsS --max-time 20 "https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities" -o /tmp/sonara-remix-pro-availability.json; then
+              if node -e "const s=require('/tmp/sonara-remix-pro-availability.json');process.exit(s.available===true&&s.expectedAgentRevision==='sonara-remix-pro-r2-agent-v2-longwav'?0:1)"; then
+                echo "SONARA_REMIX_PRO_PRODUCTION_AVAILABLE=True"
+                exit 0
+              fi
+            fi
+            sleep 10
+          done
+          echo "::error::Remix Pro production is not available; check the v2 MoLab GPU agent heartbeat and deployed feature flags."
+          exit 1
