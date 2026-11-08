@@ -74,7 +74,9 @@ export function mixMasterPlan(body = {}, options = {}) {
     id,
     targetPeakDb,
     cues,
-    cue: [BASE[id], ...cues, 'final peak normalization is safety headroom only; keep musical dynamics inside the performance'].join('; ')
+    cue: [BASE[id], ...cues,
+      'tonal clarity: avoid an excessively dark, veiled or muddy mix; clean low-mid congestion around 200-500 Hz only when it masks the melody; preserve natural vocal and instrument presence around 1.5-4 kHz, articulate treble detail and a gentle sense of air above 8 kHz without brittle sibilance or harsh cymbals; do not use a global treble boost that changes a deliberately warm genre',
+      'final peak normalization is safety headroom only; keep musical dynamics inside the performance'].join('; ')
   };
 }
 
