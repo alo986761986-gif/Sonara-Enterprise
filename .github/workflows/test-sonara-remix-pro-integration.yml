@@ -143,3 +143,34 @@ jobs:
             }
           }
           NODE
+      - name: Probe live Worker V3 code access (read-only)
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+        run: |
+          node --input-type=module <<'NODE'
+          const token=process.env.CLOUDFLARE_API_TOKEN;
+          if(!token){console.log('V3_SCRIPT_PROBE',{tokenConfigured:false});process.exit(0);}
+          const h={Authorization:'Bearer '+token,Accept:'application/json'};
+          let account=process.env.CLOUDFLARE_ACCOUNT_ID||'';
+          if(!account){
+            const r=await fetch('https://api.cloudflare.com/client/v4/zones?name=sonaraenterprise.com&per_page=20',{headers:h,signal:AbortSignal.timeout(15000)});
+            const j=await r.json().catch(()=>({}));
+            account=j.result?.find(z=>z.name==='sonaraenterprise.com')?.account?.id||'';
+          }
+          if(!account){console.log('V3_SCRIPT_PROBE',{accountResolved:false});process.exit(0);}
+          const endpoint='https://api.cloudflare.com/client/v4/accounts/'+account+'/workers/scripts/sonara-enterprise/content/v2';
+          try {
+            const r=await fetch(endpoint,{headers:h,signal:AbortSignal.timeout(20000)});
+            const body=await r.text();
+            console.log('V3_SCRIPT_PROBE',JSON.stringify({
+              httpStatus:r.status,contentType:r.headers.get('content-type'),
+              byteCount:body.length,
+              containsV3:body.includes('sonara-remix-pro-r2-agent-v3-dual-reference-fusion'),
+              containsV2:body.includes('sonara-remix-pro-r2-agent-v2-longwav')
+            }));
+          } catch(e) {
+            console.log('V3_SCRIPT_PROBE',JSON.stringify({errorClass:e?.name||'Error'}));
+          }
+          NODE
