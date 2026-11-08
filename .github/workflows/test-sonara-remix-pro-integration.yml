@@ -32,5 +32,5 @@ jobs:
         run: python3 -m py_compile molab/sonara_remix_pro_r2_agent.py
       - name: Build actual SONARA site
         run: |
-          npm ci
+          npm install
           npm run build
