@@ -61,13 +61,34 @@ test('old Vercel UI must send exact 480s after user selects 8:00, even if stale 
   assert.equal(payload.sonaraRemixProSourceB,'ref-b');
   assert.match(p.label.note.textContent,/8:00/);
 });
-test('new React slider with data-testid bypasses Cloudflare shim',async()=>{
+test('modern React slider preserves the explicit selection over stale 30s state',async()=>{
+  const p=page({modern:true});
+  select(p,480);
+  const response=await p.window.fetch('/api/billing/generate',{
+    method:'POST',body:JSON.stringify({sonaraRemixPro:true,durationSec:30})
+  });
+  assert.equal(response.status,202);
+  assert.equal(JSON.parse(p.calls[0].init.body).durationSec,480);
+  assert.match(p.label.note.textContent,/8:00/);
+});
+test('background Remix Pro POST without any explicit selection is not rewritten',async()=>{
   const p=page({modern:true});
   const response=await p.window.fetch('/api/billing/generate',{
     method:'POST',body:JSON.stringify({sonaraRemixPro:true,durationSec:300})
   });
   assert.equal(response.status,202);
   assert.equal(JSON.parse(p.calls[0].init.body).durationSec,300);
+});
+test('modern input event locks the chosen duration even before a Generate click',async()=>{
+  const p=page({modern:true});
+  p.slider.value='420';
+  p.option.value='420';
+  p.listeners.get('input')({target:p.slider});
+  const response=await p.window.fetch('/api/billing/generate',{
+    method:'POST',body:JSON.stringify({sonaraRemixPro:true,durationSec:30})
+  });
+  assert.equal(response.status,202);
+  assert.equal(JSON.parse(p.calls[0].init.body).durationSec,420);
 });
 test('non-Pro generation remains untouched by 8-minute shim',async()=>{
   const p=page();
