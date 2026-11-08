@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AudioWaveform, ArrowRight, ArrowUpRight, Check, ChevronDown, Clock3, Download, Layers2, LoaderCircle, LockKeyhole, ShieldCheck, SlidersHorizontal, Sparkles, UploadCloud } from 'lucide-react';
 import './sonaraRemixProV3.css';
-import { chooseRandomRemixDuration, isValidRemixDuration } from './remixDuration';
+import { chooseRandomRemixDuration, isValidRemixDuration, buildRemixProGenerationRequest } from './remixDuration';
 
 type ProJob = {jobId?: string;status?: string;stage?: string;progress?: number;audioUrl?: string;
   stems?: {role:string;url:string}[];error?: string;
@@ -193,24 +193,23 @@ export default function SonaraRemixProPanel() {
       setInfo('Caricamento privato del brano B…');
       const b=await upload(sourceB,'B');
       setInfo('Avvio del job autenticato…');
-      const response=await fetch('/api/billing/generate',{
-        method:'POST',credentials:'include',headers:{'Content-Type':'application/json','X-Sonara-Remix-Expected-Duration':String(requestedDuration)},
-        body:JSON.stringify({
-          sonaraRemixPro:true,
-          sonaraRemixProRightsConfirmed:true,
-          sonaraRemixProSourceA:a,
-          sonaraRemixProSourceB:b,
-          sonaraRemixProBassFrom:bassFrom,
-          ...(bpmA?{sonaraRemixProBpmA:Number(bpmA)}:{}),
-          ...(bpmB?{sonaraRemixProBpmB:Number(bpmB)}:{}),
-          durationSec:requestedDuration,
-          expectedDurationSec:requestedDuration,
-          prompt:prompt.trim().slice(0,6500),
-          candidateCount:1,
-          audio_cover_strength:0.76,
-          cover_noise_strength:0.14
-        })
-      });
+      // Pass a complete Request instead of fetch(url, {body:string}).
+      // The legacy Cloudflare duration shim rewrites init.body.durationSec
+      // for hidden old sliders, but never updates the expected duration/header.
+      // fetch(Request) preserves the single authenticated V3 contract.
+      const response=await fetch(buildRemixProGenerationRequest(window.location.origin,{
+        sonaraRemixPro:true,
+        sonaraRemixProRightsConfirmed:true,
+        sonaraRemixProSourceA:a,
+        sonaraRemixProSourceB:b,
+        sonaraRemixProBassFrom:bassFrom,
+        ...(bpmA?{sonaraRemixProBpmA:Number(bpmA)}:{}),
+        ...(bpmB?{sonaraRemixProBpmB:Number(bpmB)}:{}),
+        prompt:prompt.trim().slice(0,6500),
+        candidateCount:1,
+        audio_cover_strength:0.76,
+        cover_noise_strength:0.14
+      },requestedDuration));
       const payload=await response.json().catch(()=>({}));
       if(!response.ok) {
         const recoverId=String(payload?.jobId||'');
