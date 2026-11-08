@@ -1,6 +1,7 @@
 import runtime, { SonaraJobState } from './sonara-studio-ai-router.mjs';
 import { SonaraAuthStore, handleSonaraNativeAuth } from './sonara-native-auth.mjs';
 import relayRuntime from './sonara-r2-https-relay.mjs';
+import { proCapabilities } from './sonara-remix-pro-r2.mjs';
 import { prepareMolabR2RelayPayload } from './sonara-molab-xl-router.mjs';
 import { deriveRelayGatewayInternalKey } from './sonara-gateway-verifier.mjs';
 
@@ -194,7 +195,13 @@ async function mutateRemixProUsage(request, env, action, jobId, seconds, ownerUi
 }
 
 async function forwardVerifiedRelayGeneration(request, env, ctx) {
-  if (!(await relayAgentAvailable(env))) {
+  // Remix Pro has its own heartbeat and does not depend on the classic relay.
+  const proRequested=(await request.clone().json().catch(()=>({})))?.sonaraRemixPro===true;
+  if(proRequested) {
+    const caps=await proCapabilities(env);
+    if(!caps.available)return nativeGenerationError(
+      'REMIX_PRO_NOT_ENABLED', 'Remix Pro non ancora disponibile: quote o GPU da verificare.',503);
+  } else if (!(await relayAgentAvailable(env))) {
     return nativeGenerationError(
       'MOLAB_RELAY_OFFLINE',
       'MoLab RTX PRO 6000 non è collegato. Il relay SONARA si sta ripristinando: riprova tra pochi secondi.',
