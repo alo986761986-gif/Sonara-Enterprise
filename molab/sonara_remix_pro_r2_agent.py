@@ -44,7 +44,7 @@ if str(_AGENT_DIRECTORY) not in sys.path:
 from sonara_remix_pro_toolkit import (
     analyze_audio, combine_two_songs, separate_stems, transparent_master
 )
-from sonara_remix_pro_ace_bridge import render as ace_cover
+from sonara_remix_pro_ace_bridge import render_long_remix as ace_cover
 from sonara_remix_pro_quality import audit_wav
 import soundfile as sf
 
@@ -505,11 +505,19 @@ def run_job(item, auth_mode):
             source_b = stem_cache / manifest_b["sourceSha256"][:20]
             progress(job, lease, "arranging", renewal)
             arranged = folder / "arranged.wav"
-            combine_two_songs(
+            requested_seconds = int(params.get("durationSec") or 60)
+            if requested_seconds not in range(30, 481, 30):
+                raise SourceTransferError("REMIX_INVALID_DURATION")
+            plan = combine_two_songs(
                 a,b,source_a,source_b,arranged,bpm_a=float(bpm_a),bpm_b=float(bpm_b),
                 bass_from="b" if params.get("bassFrom")=="b" else "a",
-                max_seconds=int(params.get("durationSec") or 60)
+                max_seconds=requested_seconds
             )
+            if (plan.get("durationVerified") is not True
+                or plan.get("realSourceAUsed") is not True
+                or plan.get("realSourceBUsed") is not True
+                or int(plan.get("seconds") or 0) != requested_seconds):
+                raise SourceTransferError("REMIX_DURATION_MISMATCH")
             progress(job, lease, "regenerating", renewal)
             generated = folder / "generated.wav"
             result = ace_cover(
@@ -520,12 +528,14 @@ def run_job(item, auth_mode):
                 bpm=float(bpm_a),
                 key=params.get("key") or None
             )
+            if result.get("durationVerified") is not True or result.get("oneContinuousOutput") is not True:
+                raise SourceTransferError("REMIX_DURATION_MISMATCH")
             if result.get("status")!="completed":
                 raise ProAgentError("Local ACE-Step did not complete the job")
             progress(job, lease, "mastering", renewal)
             sample, sr = sf.read(str(generated), dtype="float32", always_2d=True)
-            if sr < 22050 or sr > 96000 or len(sample) / sr > 480:
-                raise ProAgentError("Unsupported generated WAV duration or sample rate")
+            if sr < 22050 or sr > 96000 or abs(len(sample) / sr - requested_seconds) > 0.1:
+                raise SourceTransferError("REMIX_DURATION_MISMATCH")
             import numpy as np
             if sample.shape[1] == 1:
                 sample = np.repeat(sample, 2, axis=1)
@@ -535,6 +545,8 @@ def run_job(item, auth_mode):
             master_file = folder / "mastered.wav"
             sf.write(str(master_file), mastered, sr, subtype="PCM_24")
             audit = audit_wav(master_file)
+            if abs(float(audit.get("durationSeconds") or 0) - requested_seconds) > 0.1:
+                raise SourceTransferError("REMIX_DURATION_MISMATCH")
             if audit.get("integratedLufs") is None or audit.get("approxTruePeakDbTp", 0) > -0.8:
                 raise ProAgentError("Mastering verification failed")
             progress(job, lease, "uploading", renewal)
@@ -547,7 +559,9 @@ def run_job(item, auth_mode):
                 upload(job,lease,"stem/"+remote,source)
             upload(job,lease,"audio",master_file)
             renewal.verify()
-            response = request("POST",f"/api/sonara-relay/pro-job/{job}/complete",{},lease)
+            response = request("POST",f"/api/sonara-relay/pro-job/{job}/complete",
+                               {"actualDurationSeconds": float(audit["durationSeconds"]),
+                                "singleTrack": True, "twoSources": True},lease)
             if response.get("ok") is not True:
                 raise ProAgentError("Gateway completion not acknowledged")
         status("waiting_for_authorized_job", lastCompleted=job)

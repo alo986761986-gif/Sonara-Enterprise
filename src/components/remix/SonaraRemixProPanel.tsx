@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { AudioWaveform, Check, Download, LoaderCircle, ShieldCheck, UploadCloud } from 'lucide-react';
 
 type ProJob = {jobId?: string;status?: string;stage?: string;progress?: number;audioUrl?: string;
-  stems?: {role:string;url:string}[];error?: string;};
+  stems?: {role:string;url:string}[];error?: string;
+  requestedDurationSeconds?:number;actualDurationSeconds?:number;};
 const isJob = (id:string) => /^srpro_[0-9a-f-]{36}$/.test(id);
 const sleep=(ms:number)=>new Promise(resolve=>window.setTimeout(resolve,ms));
+const durationLabel=(seconds:number)=>`${Math.floor(seconds/60)}:${String(Math.round(seconds%60)).padStart(2,'0')}`;
 const safeError=(value:unknown,fallback:string)=>typeof value==='string'&&value.length<250?value:fallback;
 const KEY='sonara.remixPro.activeJob.v1';
 const AUDIO_FORMATS=/\.(wav|mp3|flac|m4a|mp4|aac|ogg|oga|opus|aif|aiff|aifc|webm|wma|caf|amr|ac3)$/i;
@@ -279,8 +281,11 @@ export default function SonaraRemixProPanel() {
       <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:8}}>
         <label>Durata Remix AI (30 secondi – 8 minuti)
           <input type="range" min={30} max={480} step={30} value={duration}
+            data-testid="sonara-remix-pro-duration-slider"
+            aria-label="Durata esatta del brano A+B da 30 secondi a 8 minuti"
+            aria-valuetext={durationLabel(duration)}
             onChange={e=>setDuration(Number(e.target.value))} style={{width:'100%'}}/>
-          <strong>{Math.floor(duration/60)}:{String(duration%60).padStart(2,'0')} minuti</strong>
+          <strong data-testid="sonara-remix-pro-duration-selected">{durationLabel(duration)} minuti</strong>
           <select value={duration} onChange={e=>setDuration(Number(e.target.value))}>
             {Array.from({length:16},(_,i)=>(i+1)*30).map(sec=>
               <option key={sec} value={sec}>{Math.floor(sec/60)}:{String(sec%60).padStart(2,'0')}</option>
@@ -295,7 +300,7 @@ export default function SonaraRemixProPanel() {
         <input type="checkbox" checked={rights} onChange={e=>setRights(e.target.checked)} />
         <span>Confermo di possedere o avere i diritti di utilizzo di entrambi i brani.</span>
       </label>
-      <small role="status">Remix Pro A+B: nessun consumo di minuti Studio e nessun piano Studio obbligatorio. Occorrono un account SONARA autenticato, due audio autorizzati e la GPU online. Ogni render dura da 30 secondi a 8 minuti.</small>
+      <small role="status">Remix Pro crea UN SOLO WAV con la voce/armonia di A e il groove di B. La durata selezionata è quella effettiva del master (0:30–8:00), verificata sul server. Se gli audio sorgenti sono più brevi, l'arrangiamento riutilizza le frasi originali con transizioni; un render da 8:00 può richiedere più passaggi ACE-Step. Non consuma minuti Studio.</small>
       <button type="button" disabled={!available||submitting||job?.status==='PROCESSING'||!rights}
         onClick={()=>void begin()} style={{padding:11,borderRadius:9,background:'#6c3b9d',color:'white',fontWeight:800}}>
         {submitting?<LoaderCircle size={15}/>:<ShieldCheck size={15}/>} Crea Remix Pro reale
@@ -304,6 +309,7 @@ export default function SonaraRemixProPanel() {
       {error&&<small role="alert" style={{color:'#ffb3b9'}}>{error}</small>}
       {job&&<div style={{display:'grid',gap:8}}>
         <strong>Job {job.jobId?.slice(0,18)} · {job.status||'PROCESSING'}</strong>
+        {Number(job.requestedDurationSeconds)>0&&<small data-testid="sonara-remix-pro-job-duration">Durata richiesta: {durationLabel(Number(job.requestedDurationSeconds))}{Number(job.actualDurationSeconds)>0?' · WAV verificato: '+durationLabel(Number(job.actualDurationSeconds)):''}</small>}
         <progress value={Math.max(0,Math.min(100,job.progress||0))} max={100} style={{width:'100%'}} />
         {job.status==='FAILED'&&<small role="alert">{job.error||'Job non riuscito.'}</small>}
         {output&&<>

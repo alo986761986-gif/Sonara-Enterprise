@@ -184,6 +184,164 @@ def render(audio_path, output_path, prompt, *, mode="required", strength=0.76,
         pathlib.Path(tmp).unlink(missing_ok=True)
 
 
+def render_long_remix(audio_path, output_path, prompt, *, mode="required",
+                      strength=0.76, noise=0.14, bpm=None, key=None,
+                      segment_seconds=90, crossfade_seconds=2,
+                      timeout_seconds=3600):
+    """Render an exact-duration A+B remix as ONE stitched WAV.
+
+    ACE-Step cover is applied to contiguous source segments (never to fake
+    audio). Longer songs must not be silently reduced to a short single task.
+    Every successful segment is real model output, audited for matching duration.
+    This preserves the coherent original A+B arrangement as source conditioning.
+    """
+    import math
+    import shutil
+    import soundfile as sf
+    import numpy as np
+    from scipy.signal import resample_poly
+
+    src = pathlib.Path(audio_path).expanduser().resolve(strict=True)
+    final = pathlib.Path(output_path).expanduser().resolve()
+    if src == final or final.exists():
+        raise ACEBridgeError("Output must be new and the source must be preserved")
+    if src.suffix.lower() != ".wav" or src.stat().st_size > MAX_BYTES:
+        raise ACEBridgeError("A genuine WAV source is required")
+    if not 30 <= segment_seconds <= 100 or not 0.5 <= crossfade_seconds <= 4:
+        raise ACEBridgeError("Invalid long-form chunk configuration")
+    if crossfade_seconds >= segment_seconds / 6:
+        raise ACEBridgeError("Crossfade cannot exceed the segment duration")
+
+    with sf.SoundFile(str(src)) as wav:
+        sr = wav.samplerate
+        source_frames = wav.frames
+        if not 22050 <= sr <= 96000 or wav.channels not in (1, 2):
+            raise ACEBridgeError("Long-form source sample rate or channels unsupported")
+        if not 10 <= source_frames / sr <= 480:
+            raise ACEBridgeError("Long-form source duration outside 10-480 seconds")
+
+    # Short songs retain exactly one genuine model task.
+    if source_frames / sr <= segment_seconds:
+        result = render(src, final, prompt, mode=mode, strength=strength,
+                        noise=noise, bpm=bpm, key=key,
+                        timeout_seconds=min(timeout_seconds, 1600))
+        with sf.SoundFile(str(final)) as got:
+            if abs((got.frames / got.samplerate) - source_frames/sr) > 2:
+                final.unlink(missing_ok=True)
+                raise ACEBridgeError("ACE-Step returned a shortened cover instead of requested music")
+        return {**result, "longForm": False, "segmentCount": 1,
+                "oneContinuousOutput": True, "durationVerified": True}
+
+    overlap = int(round(crossfade_seconds * sr))
+    take = int(round(segment_seconds * sr))
+    step = take - overlap
+    if step <= overlap:
+        raise ACEBridgeError("Invalid overlap configuration")
+    segments = []
+    # Use a private temp root for segment source, model outputs and the
+    # assembled final; it is removed even if a model task fails.
+    with tempfile.TemporaryDirectory(prefix="sonara-pro-longform-") as td:
+        tmp = pathlib.Path(td)
+        cursor = 0
+        start_wall = time.monotonic()
+        while cursor < source_frames:
+            end = min(source_frames, cursor + take)
+            # Fold a final tail shorter than ten seconds into this section,
+            # rather than leaving an unrendered gap or generating fake padding.
+            if 0 < source_frames - (cursor + step) < 10 * sr:
+                end = source_frames
+            with sf.SoundFile(str(src)) as input_file:
+                input_file.seek(cursor)
+                audio = input_file.read(end - cursor, dtype="float32", always_2d=True)
+            if len(audio) < sr * 10:
+                # Last tiny tail is included in the previous segment instead.
+                if not segments:
+                    raise ACEBridgeError("Long-form source segment too short")
+                break
+            n = len(segments)
+            source_chunk = tmp / ("source-%03d.wav" % n)
+            rendered_chunk = tmp / ("rendered-%03d.wav" % n)
+            sf.write(str(source_chunk), audio, sr, subtype="PCM_16")
+            remaining = timeout_seconds - (time.monotonic() - start_wall)
+            if remaining < 120:
+                raise ACEBridgeError("Long-form ACE-Step timeout before all sections finished")
+            result = render(source_chunk, rendered_chunk, prompt,
+                            mode=mode, strength=strength, noise=noise,
+                            bpm=bpm, key=key,
+                            timeout_seconds=min(1600, int(remaining)))
+            if result.get("status") != "completed":
+                raise ACEBridgeError("An ACE-Step long-form section did not complete")
+            with sf.SoundFile(str(rendered_chunk)) as decoded:
+                out_sr = decoded.samplerate
+                output_audio = decoded.read(dtype="float32", always_2d=True)
+            if not 22050 <= out_sr <= 96000 or output_audio.shape[1] not in (1, 2):
+                raise ACEBridgeError("ACE-Step segment has unsupported format")
+            if not np.isfinite(output_audio).all():
+                raise ACEBridgeError("ACE-Step segment contains non-finite audio")
+            if out_sr != sr:
+                g = math.gcd(sr, out_sr)
+                output_audio = resample_poly(output_audio, sr//g, out_sr//g, axis=0)
+            if output_audio.shape[1] == 1:
+                output_audio = np.repeat(output_audio, 2, axis=1)
+            # Never pad or repeat a failed short generation. Minor frame
+            # deviations are allowed only for codec rounding (<=2 seconds).
+            if abs(len(output_audio) - len(audio)) > 2 * sr:
+                raise ACEBridgeError("ACE-Step generated a section shorter than requested")
+            if len(output_audio) < len(audio):
+                # Sub-second codec/timing drift: retain authentic overlap
+                # only; do not fabricate audio to hit the user-selected time.
+                delta = len(audio) - len(output_audio)
+                if delta > sr // 10:
+                    raise ACEBridgeError("ACE-Step output is not long enough for its source section")
+            if len(output_audio) > len(audio):
+                output_audio = output_audio[:len(audio)]
+            segments.append((cursor, output_audio.astype(np.float32)))
+            cursor += step
+            if end == source_frames:
+                break
+
+        if not segments:
+            raise ACEBridgeError("No real long-form sections were rendered")
+        # Streaming sum/weight assembly limits GPU-host RAM use. Each real
+        # section is crossfaded with its neighbors; one timeline, one WAV.
+        stitched = np.zeros((source_frames, 2), dtype=np.float32)
+        weights = np.zeros((source_frames,), dtype=np.float32)
+        for i, (offset, piece) in enumerate(segments):
+            end = min(source_frames, offset + len(piece))
+            n = end - offset
+            if n <= 0:
+                continue
+            envelope = np.ones((n,), dtype=np.float32)
+            if i > 0:
+                fade = min(overlap, n)
+                envelope[:fade] = np.linspace(0, 1, fade, dtype=np.float32)
+            if i < len(segments)-1:
+                fade = min(overlap, n)
+                envelope[-fade:] = np.minimum(
+                    envelope[-fade:], np.linspace(1, 0, fade, dtype=np.float32))
+            stitched[offset:end] += piece[:n] * envelope[:, None]
+            weights[offset:end] += envelope
+        if np.any(weights <= 1e-7):
+            raise ACEBridgeError("ACE-Step long-form composition has uncovered sections")
+        stitched /= weights[:, None]
+        if not np.isfinite(stitched).all() or np.max(np.abs(stitched)) < 0.0001:
+            raise ACEBridgeError("ACE-Step long-form output is silent or invalid")
+        # Never leave a partial or misleading final on disk.
+        temp_final = tmp / "one-remix-final.wav"
+        sf.write(str(temp_final), stitched, sr, subtype="PCM_24")
+        with sf.SoundFile(str(temp_final)) as verify:
+            if verify.frames != source_frames or verify.channels != 2:
+                raise ACEBridgeError("Final long-form WAV is not full-duration stereo")
+        final.parent.mkdir(parents=True, exist_ok=True)
+        if final.exists():
+            raise ACEBridgeError("Existing output cannot be overwritten")
+        shutil.copyfile(temp_final, final)
+        return {"status": "completed", "outputPath": str(final),
+                "bytes": final.stat().st_size, "sourceDurationSeconds": round(source_frames/sr,2),
+                "segmentCount": len(segments), "longForm": True,
+                "oneContinuousOutput": True, "durationVerified": True,
+                "model": "local-ACE-Step-cover-multi-section", "noFakeAudio": True}
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="SONARA Remix Pro ACE-Step local cover bridge")
     parser.add_argument("--audio", required=True)

@@ -41,6 +41,8 @@ const FAILURE_NOTICES=Object.freeze({
   SOURCE_DECODER_FAILED:'Impossibile decodificare l’audio sorgente: controlla formato e durata.',
   SOURCE_OVERSIZE:'File audio sorgente oltre il limite di 512 MiB.',
   SOURCE_TRANSFER_INVALID:'Download audio incompleto o non valido, senza riutilizzare file parziali.',
+  REMIX_INVALID_DURATION:'Durata Remix non valida: seleziona da 0:30 a 8:00 in passi da 30 secondi.',
+  REMIX_DURATION_MISMATCH:'Il motore non ha prodotto un unico brano A+B della durata scelta. Nessun risultato incompleto è stato pubblicato.',
   REMIX_PROCESSING_ERROR:'Errore durante l’elaborazione audio GPU. Verifica lo stato dell’agente MoLab.'
 });
 const FAILURE_PHASES=new Set(['source_a','source_b','normalize_a','normalize_b','processing']);
@@ -91,6 +93,9 @@ async function save(b,j,conditional){
 function publicStatus(j){
   const id=j.id;
   return {jobId:id,status:j.status==='COMPLETE'?'COMPLETED':j.status==='FAILED'?'FAILED':'PROCESSING',
+    requestedDurationSeconds:Number(j.durationSeconds||j.params?.durationSec||0),
+    ...(Number.isFinite(Number(j.actualDurationSeconds)) && Number(j.actualDurationSeconds)>0
+       ? {actualDurationSeconds:Number(j.actualDurationSeconds)} : {}),
     progress:j.status==='COMPLETE'?100:j.status==='FAILED'?0:({
       queued:4,downloading:12,analyzing:24,separating:40,arranging:57,
       regenerating:72,mastering:86,uploading:93
@@ -165,7 +170,7 @@ if(!(await proQuota(e,'verify',id,uid,duration)))return fail('Registrazione priv
   // A PREPARING record is never claimable; a failed enqueue may be refunded.
   const j={kind:'sonara-remix-pro',id,ownerUid:uid,status:'PREPARING',stage:'queued',attempts:0,
     leaseId:null,leaseUntil:0,createdAt:now,updatedAt:now,
-    sourceA:refs[0],sourceB:refs[1],audio:null,stems:{},
+    sourceA:refs[0],sourceB:refs[1],audio:null,stems:{},durationSeconds:duration,
     params:{
       prompt:String(body.prompt||'').trim().slice(0,6500),
       durationSec:duration,
@@ -386,7 +391,16 @@ export async function handleRemixPro(req,env,ctx,auth) {
     if(action==='complete'&&(!j.audio||!await b.head(j.audio)))return fail('Final WAV required',409);
     // Only safe fixed-code diagnostics may be stored or shown to the owner.
     // Never store upstream responses, file paths, token values or audio content.
-    const reported=action==='fail'?await req.json().catch(()=>({})):{};
+    const reported=await req.json().catch(()=>({}));
+    // New agents provide measured duration. A mismatch rejects completion.
+    // Omission is allowed for older in-flight jobs during guarded rollout.
+    const claimedDuration=Number(reported?.actualDurationSeconds);
+    const selectedDuration=Number(j.durationSeconds||j.params?.durationSec);
+    if(action==='complete' && reported?.actualDurationSeconds!==undefined &&
+       (!Number.isFinite(claimedDuration) ||
+        !Number.isFinite(selectedDuration) ||
+        Math.abs(claimedDuration-selectedDuration)>0.10))
+      return fail('Durata del master diversa dalla selezione Remix Pro.',409);
     const failureCode=typeof reported?.errorCode==='string'&&
       Object.hasOwn(FAILURE_NOTICES,reported.errorCode)?reported.errorCode:null;
     const failurePhase=FAILURE_PHASES.has(reported?.failurePhase)?
@@ -396,6 +410,8 @@ export async function handleRemixPro(req,env,ctx,auth) {
     const next={...j,status:action==='complete'?'COMPLETE':'FAILED',
       stage:action==='complete'?'completed':'failed',leaseUntil:0,
       leaseId:null,updatedAt:Date.now(),params:null,sourceA:null,sourceB:null,
+      ...(action==='complete'&&reported?.actualDurationSeconds!==undefined
+         ? {actualDurationSeconds:claimedDuration} : {}),
       ...(action==='fail'?{failureCode,failurePhase}:{})};
     const sources=[j.sourceA,j.sourceB];
     const ok=await save(b,next,obj.etag);
