@@ -210,7 +210,24 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
 
   try {
     const internalSecret = await deriveRelayGatewayInternalKey(env);
-    const payload = await prepareMolabR2RelayPayload({ ...source, sonaraUserUid: uid });
+    const isPro = source.sonaraRemixPro === true;
+    // Existing billing entitlement and duration checks ran before this point.
+    // Pro uses a separate, feature-flagged R2 queue; nothing can bypass billing.
+    const payload = isPro
+      ? {
+          sourceA: source.sonaraRemixProSourceA,
+          sourceB: source.sonaraRemixProSourceB,
+          rightsConfirmed: source.sonaraRemixProRightsConfirmed === true,
+          prompt: String(source.prompt || '').slice(0, 6500),
+          durationSec: source.durationSec,
+          bpmA: source.sonaraRemixProBpmA,
+          bpmB: source.sonaraRemixProBpmB,
+          bassFrom: source.sonaraRemixProBassFrom,
+          coverStrength: source.audio_cover_strength,
+          coverNoise: source.cover_noise_strength,
+          key: source.key_scale
+        }
+      : await prepareMolabR2RelayPayload({ ...source, sonaraUserUid: uid });
     // Rebuild the internal request: client-supplied owner and gateway headers
     // must never authorize a different user or survive this trust boundary.
     const headers = new Headers({
@@ -218,7 +235,7 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
       'X-Sonara-Internal-Secret': internalSecret,
       'X-Sonara-User-Uid': uid
     });
-    const target = new URL('/api/sonara-relay/enqueue', request.url);
+    const target = new URL(isPro ? '/api/sonara-relay/pro-enqueue' : '/api/sonara-relay/enqueue', request.url);
     return await relayRuntime.fetch(new Request(target, {
       method: 'POST',
       headers,

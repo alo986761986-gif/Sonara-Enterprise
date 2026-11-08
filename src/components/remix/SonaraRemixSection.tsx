@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import SonaraMultitrackMixer from './SonaraMultitrackMixer';
 import SonaraRemixResultEq from './SonaraRemixResultEq';
+import SonaraRemixProPanel from './SonaraRemixProPanel';
 import {
   AudioWaveform,
   Check,
@@ -165,7 +166,7 @@ export default function SonaraRemixSection() {
   const [open, setOpen] = useState(false);
   const [libraryTracks, setLibraryTracks] = useState<SourceTrack[]>([]);
   const [source, setSource] = useState<SourceTrack | null>(readSelectedTrack);
-  const [sourceTab, setSourceTab] = useState<'library' | 'upload' | 'multitrack'>('library');
+  const [sourceTab, setSourceTab] = useState<'library' | 'upload' | 'multitrack' | 'pro'>('library');
   const [remixR2Ready, setRemixR2Ready] = useState<boolean | null>(null);
   const [duration, setDuration] = useState(0);
   const [segmentStart, setSegmentStart] = useState(0);
@@ -685,6 +686,7 @@ export default function SonaraRemixSection() {
             <button type="button" data-active={sourceTab === 'library'} onClick={() => setSourceTab('library')}><Library />Your songs</button>
             <button type="button" data-active={sourceTab === 'upload'} onClick={() => setSourceTab('upload')}><UploadCloud />Upload audio</button>
             <button type="button" data-active={sourceTab === 'multitrack'} onClick={() => setSourceTab('multitrack')}><AudioWaveform />Multi-track</button>
+            <button type="button" data-active={sourceTab === 'pro'} onClick={() => setSourceTab('pro')}><Sparkles />Remix Pro</button>
           </div>
 
           {sourceTab === 'library' ? (
@@ -702,11 +704,13 @@ export default function SonaraRemixSection() {
               <input ref={uploadRef} type="file" accept="audio/*,.wav,.mp3,.flac,.ogg,.m4a,.aac,.webm" onChange={event => chooseUpload(event.currentTarget.files?.[0])} />
               <UploadCloud /><strong>{source?.file ? source.name : 'Drop or choose an audio file'}</strong><small>WAV, MP3, FLAC, M4A, OGG · max 160 MB</small><button type="button">Choose file</button>
             </div>
-          ) : (
+          ) : sourceTab === 'multitrack' ? (
             <SonaraMultitrackMixer onMixReady={onMultitrackMixReady} onMixInvalidated={onMultitrackMixInvalidated} />
+          ) : (
+            <SonaraRemixProPanel />
           )}
 
-          {source && (
+          {source && sourceTab !== 'pro' && (
             <div className="sonara-remix-editor">
               <div className="sonara-remix-track-head">
                 <div><span className="sonara-remix-disc"><Music2 /></span><div><strong>{source.name}</strong><small>{duration ? `${formatTime(duration)} source` : 'Analisi sorgente…'}</small></div></div>
