@@ -35,7 +35,7 @@ export function createEqNodes(context: BaseAudioContext, bands: RemixEqBands) {
   high.gain.value = clampEqDb(bands.high);
 
   const preamp = context.createGain();
-  preamp.gain.value = Math.pow(10, REMIX_EQ_PREAMP_DB / 20);
+  preamp.gain.value = eqIsFlat(bands) ? 1 : Math.pow(10, REMIX_EQ_PREAMP_DB / 20);
   low.connect(mid);
   mid.connect(high);
   high.connect(preamp);
@@ -76,7 +76,7 @@ export function writeEqWav(buffer: AudioBuffer): Blob {
   return new Blob([view.buffer], { type: 'audio/wav' });
 }
 
-export async function renderRemixEqWav(sourceUrl: string, bands: RemixEqBands): Promise<Blob> {
+export async function renderRemixEqWav(sourceUrl: string, bands: RemixEqBands, enabled = true): Promise<Blob> {
   const response = await fetch(sourceUrl, { cache: 'no-store' });
   if (!response.ok) throw new Error('Audio Remix non disponibile: HTTP ' + response.status);
   // Bound browser memory use and prevent huge offline exports.
@@ -95,7 +95,7 @@ export async function renderRemixEqWav(sourceUrl: string, bands: RemixEqBands): 
   );
   const source = offline.createBufferSource();
   source.buffer = buffer;
-  const filters = createEqNodes(offline, bands);
+  const filters = createEqNodes(offline, enabled ? bands : REMIX_EQ_FLAT);
   source.connect(filters.low);
   filters.preamp.connect(offline.destination);
   source.start(0);
