@@ -14,8 +14,8 @@ def avvia_sonara_remix_pro_v3_ab():
     from pathlib import Path
     from urllib.request import urlopen
 
-    versione = "f916c231ebe0ebd605d304675bdff00f6ff2fb8f"
-    blob_verificato = "c74730305520498636fed72c8d5660bb2aa751d9"
+    versione = "3bdf2f396d48dbd0385fb3c1ad048eac77a61379"
+    blob_verificato = "77cd4a5c1ed91f660688c58c8e9d67d7ada27b1d"
     url = (
         "https://raw.githubusercontent.com/alo986761986-gif/"
         "Sonara-Enterprise/" + versione +
@@ -56,3 +56,11 @@ SONARA_AUDIO_GENERATION_TEST_RUN=False
 If the script refuses to start because the agent V2 is busy or the API credential is missing, **do not bypass the lock or kill the live process**. Only the isolated worker is handled. The site checks `/api/sonara-relay/pro-capabilities` every 10 seconds and enables Remix Pro when the genuine V3 GPU heartbeat is verified.
 
 **Important:** A successful readiness signal certifies that the V3 agent is online, *not* that generated music has been auditioned or artistically verified.
+
+## Correzione del blocco «Dedicated Pro worker is not confirmed idle»
+
+Se il gateway Cloudflare V3 rifiuta una richiesta `pro-claim` proveniente dal vecchio agente V2, il vecchio agente registra `connection_unavailable`, anche quando non sta producendo alcuna canzone. La versione precedente dell'attivatore considerava inattivi solo gli stati `waiting_for_authorized_job` e `waiting_for_pro_activation`: da qui il blocco.
+
+La versione corretta, adesso fissata ai nuovi hash, consente la transizione **solo** con revisione V2 esatta, stato recente, assenza di `jobId` e verifica della stessa condizione una seconda volta dopo due secondi. Se rileva una generazione in corso, stato vecchio, revisione sconosciuta o più agenti Pro, non invia alcun segnale. Se il vecchio agente è confermato inattivo, usa solo SIGTERM per il suo processo dedicato; non usa mai SIGKILL.
+
+L'aggiornamento si applica eseguendo nuovamente **questa cella aggiornata**; il vecchio blocco incollato nella precedente cella contiene invece il commit vecchio e riproduce l'errore. Il file Python principale ACE-Step, il relay SONARA e il sito non sono toccati.
