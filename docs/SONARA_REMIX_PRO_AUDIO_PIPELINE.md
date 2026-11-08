@@ -23,7 +23,8 @@ have been implemented and validated. The current SONARA Remix AI remains usable.
    unsupported/missing BPM or incompatible cross-song bass harmony when known.
    This is an **offline stem arrangement WAV**. To turn it into a new AI
    generation, import it as source into the existing SONARA Remix AI workflow
-   after inspecting it.
+   after inspecting it, or run the optional local ACE-Step cover bridge after
+   inspecting the source mix (one task, no duplicate billing jobs).
 4. **Mastering and QA**: measured integrated loudness, restrained global gain
    and a 4x oversampled approximate intersample-peak check/attenuation. This is
    **not** a professional brickwall limiter, spectral repair tool or certified
@@ -70,6 +71,27 @@ python molab/sonara_remix_pro_toolkit.py two-song-auto \
   --cache /marimo/sonara-remix-pro-cache --output /marimo/audio/SONARA-REMIX-PRO.wav \
   --device cuda --bpm-a 120 --bpm-b 120
 ```
+
+### Optional native ACE-Step regeneration (local loopback only)
+
+Once the two-song stem WAV is already produced and reviewed, the following
+performs **one actual inference task** with the currently running ACE-Step API.
+It does not send anything to public sites, Cloudflare or another service.
+
+```sh
+# Only when the existing notebook API is genuinely configured as auth=none:
+python molab/sonara_remix_pro_ace_bridge.py \
+  --audio /marimo/audio/SONARA-REMIX-PRO.wav \
+  --output /marimo/audio/SONARA-REMIX-PRO-AI.wav \
+  --prompt 'Rearrange these two source songs as one coherent new track, preserving the melodic hook and expressive percussion groove' \
+  --auth-mode none --strength 0.76 --noise 0.14
+```
+
+For authenticated local APIs, omit `--auth-mode none`; the private key file
+already used by SONARA must be present. No passwords or tokens are printed.
+The bridge polls the **same task ID** and refuses to overwrite existing WAVs.
+Do not run concurrently with customer requests if the GPU is resource-limited.
+The new file stays private in the notebook until an authorized user imports it.
 
 Use **measured BPM** where confidence is sufficient, otherwise manually
 provide BPM, and do not assume near-key labels guarantee chord compatibility.
