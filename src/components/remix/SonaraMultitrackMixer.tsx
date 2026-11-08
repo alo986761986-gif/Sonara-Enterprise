@@ -347,8 +347,8 @@ export default function SonaraMultitrackMixer({ onMixReady, onMixInvalidated, on
       </div>
       <div className="sonara-multitrack-ai-panel">
         <div>
-          <strong>Create Remix AI · Fusione A+B</strong>
-          <small>Trasforma due brani differenti in un unico brano nuovo. La GPU riceve separatamente i due originali: analisi BPM, separazione strumenti, arrangiamento e rigenerazione ACE-Step. Non è un DJ mix in sequenza.</small>
+          <strong>Create Remix AI · Composizione A+B</strong>
+          <small>SONARA usa i due originali come riferimenti musicali separati e genera una composizione nuova ispirata a entrambi, senza sovrapporre le registrazioni né concatenarle come DJ mix.</small>
         </div>
         <button type="button" data-testid="sonara-multitrack-create-ai"
           disabled={busy !== null || !canCreateAiRemix} onClick={createAiRemix}>
