@@ -22,7 +22,7 @@
     "directory": "./dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/__sonara_internal/*", "/sonara-video-ui-edge.js"]
+    "run_worker_first": ["/api/*", "/__sonara_internal/*", "/sonara-video-ui-edge.js", "/", "/index.html"]
   },
   "durable_objects": {
     "bindings": [
