@@ -720,7 +720,7 @@ export default function SonaraRemixSection() {
             <SonaraRemixProPanel initialSources={multitrackAiSources} />
           )}
 
-          {source && sourceTab !== 'pro' && (
+          {source && sourceTab !== 'pro' && sourceTab !== 'multitrack' && (
             <div className="sonara-remix-editor">
               <div className="sonara-remix-track-head">
                 <div><span className="sonara-remix-disc"><Music2 /></span><div><strong>{source.name}</strong><small>{duration ? `${formatTime(duration)} source` : 'Analisi sorgente…'}</small></div></div>
@@ -744,7 +744,7 @@ export default function SonaraRemixSection() {
           )}
         </section>
 
-        {sourceTab !== 'pro' && <section className="sonara-remix-controls-panel">
+        {sourceTab !== 'pro' && sourceTab !== 'multitrack' && <section className="sonara-remix-controls-panel">
           <div className="sonara-remix-section-head">
             <div><span>02</span><div><strong>Remix controls</strong><small>Descrivi come deve cambiare il brano</small></div></div>
             <WandSparkles />
@@ -827,7 +827,7 @@ export default function SonaraRemixSection() {
           </div>
         </section>}
 
-        {sourceTab !== 'pro' && <section className="sonara-remix-results-panel">
+        {sourceTab !== 'pro' && sourceTab !== 'multitrack' && <section className="sonara-remix-results-panel">
           <div className="sonara-remix-section-head">
             <div><span>03</span><div><strong>Results</strong><small>Ascolta e scegli la versione migliore</small></div></div>
             <span className="sonara-remix-result-count">{outputs.length || '—'}</span>
