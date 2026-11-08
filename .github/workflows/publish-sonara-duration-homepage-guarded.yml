@@ -63,8 +63,8 @@ jobs:
           const preview='https://'+script+'.'+subdomain.subdomain+'.workers.dev/';
           const checkStage=await fetch(preview,{signal:AbortSignal.timeout(15000)});
           const stagedHtml=await checkStage.text();
-          assert(checkStage.ok&&checkStage.headers.get('x-sonara-duration-shell')==='stage-v1'&&
-            stagedHtml.includes('sonara-remix-pro-duration-edge-v1'),
+          assert(checkStage.ok&&checkStage.headers.get('x-sonara-duration-shell')==='sync-v4'&&
+            stagedHtml.includes('sonara-remix-pro-duration-sync-v4'),
             'Staged shell not verified');
           let routeId=null,success=false,deleted=false;
           try{
@@ -81,11 +81,11 @@ jobs:
               const header=response.headers.get('x-sonara-duration-shell');
               console.log('SONARA_HOME_ROUTE_CHECK',JSON.stringify({
                 attempt:attempt+1,http:response.status,shell:header,
-                shim:html.includes('sonara-remix-pro-duration-edge-v1'),
+                shim:html.includes('sonara-remix-pro-duration-sync-v4'),
                 assetLinks:/\/assets\//.test(html)
               }));
-              good=response.ok&&header==='stage-v1'&&
-                html.includes('sonara-remix-pro-duration-edge-v1')&&/\/assets\//.test(html);
+              good=response.ok&&header==='sync-v4'&&
+                html.includes('sonara-remix-pro-duration-sync-v4')&&/\/assets\//.test(html);
               if(good)break;
             }
             assert(good,'Homepage does not show duration lock from dedicated Worker');
