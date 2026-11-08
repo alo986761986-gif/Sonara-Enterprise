@@ -11,6 +11,8 @@ on:
       - 'cloudflare/sonara-native-auth.mjs'
       - 'cloudflare/sonara-r2-https-relay.mjs'
       - 'cloudflare/sonara-ab-player-visibility-edge.mjs'
+      - 'cloudflare/sonara-remix-pro-duration-edge.mjs'
+      - 'cloudflare/sonara-remix-pro-duration-edge.test.mjs'
       - 'src/components/remix/SonaraRemixProPanel.tsx'
       - 'src/components/remix/SonaraRemixSection.tsx'
       - 'molab/sonara_remix_pro_r2_agent.py'
@@ -39,6 +41,8 @@ jobs:
         run: node --test cloudflare/sonara-remix-pro-r2.test.mjs
       - name: Durable Remix Pro native quota accounting tests
         run: node --test cloudflare/sonara-remix-pro-usage.test.mjs
+      - name: Legacy Vercel 8-minute duration selector integration
+        run: node --test cloudflare/sonara-remix-pro-duration-edge.test.mjs
       - name: Private long WAV multipart and nine-minute source validation
         run: node --test cloudflare/sonara-long-wav-upload.test.mjs
       - name: Legacy Remix R2 remains unchanged
