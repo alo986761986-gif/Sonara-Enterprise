@@ -18,6 +18,7 @@ export default function SonaraRemixProPanel() {
   const [bpmA,setBpmA]=useState('');
   const [bpmB,setBpmB]=useState('');
   const [rights,setRights]=useState(false);
+  const [usageAccepted,setUsageAccepted]=useState(false);
   const [submitting,setSubmitting]=useState(false);
   const [job,setJob]=useState<ProJob|null>(null);
   const [error,setError]=useState('');
@@ -137,6 +138,7 @@ export default function SonaraRemixProPanel() {
     if(!sourceA||!sourceB){setError('Seleziona due file WAV diversi.');return;}
     if(sourceA===sourceB){setError('Le sorgenti A e B devono essere diverse.');return;}
     if(!rights){setError('Conferma di avere il diritto di utilizzare entrambi i brani.');return;}
+    if(!usageAccepted){setError('Conferma il consumo di '+Math.ceil(duration*3/60)+' minuti Studio per questo Remix Pro.');return;}
     if(!prompt.trim()){setError('Inserisci le indicazioni musicali per il nuovo brano.');return;}
     setSubmitting(true);setError('');setInfo('Caricamento privato del brano A…');
     try{
@@ -149,6 +151,8 @@ export default function SonaraRemixProPanel() {
         body:JSON.stringify({
           sonaraRemixPro:true,
           sonaraRemixProRightsConfirmed:true,
+          sonaraRemixProUsageAccepted:true,
+          sonaraRemixProUsageSecondsAccepted:duration*3,
           sonaraRemixProSourceA:a,
           sonaraRemixProSourceB:b,
           sonaraRemixProBassFrom:bassFrom,
@@ -212,9 +216,9 @@ export default function SonaraRemixProPanel() {
       <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:8}}>
         <label>Durata Remix AI (30 secondi – 8 minuti)
           <input type="range" min={30} max={480} step={30} value={duration}
-            onChange={e=>setDuration(Number(e.target.value))} style={{width:'100%'}}/>
+            onChange={e=>{setDuration(Number(e.target.value));setUsageAccepted(false);}} style={{width:'100%'}}/>
           <strong>{Math.floor(duration/60)}:{String(duration%60).padStart(2,'0')} minuti</strong>
-          <select value={duration} onChange={e=>setDuration(Number(e.target.value))}>
+          <select value={duration} onChange={e=>{setDuration(Number(e.target.value));setUsageAccepted(false);}}>
             {Array.from({length:16},(_,i)=>(i+1)*30).map(sec=>
               <option key={sec} value={sec}>{Math.floor(sec/60)}:{String(sec%60).padStart(2,'0')}</option>
             )}
@@ -228,7 +232,11 @@ export default function SonaraRemixProPanel() {
         <input type="checkbox" checked={rights} onChange={e=>setRights(e.target.checked)} />
         <span>Confermo di possedere o avere i diritti di utilizzo di entrambi i brani.</span>
       </label>
-      <button type="button" disabled={!available||submitting||job?.status==='PROCESSING'||!rights}
+      <label style={{display:'flex',alignItems:'flex-start',gap:8}}>
+        <input type="checkbox" checked={usageAccepted} onChange={e=>setUsageAccepted(e.target.checked)} />
+        <span>Accetto il consumo di <strong>{(duration*3/60).toLocaleString('it-IT',{maximumFractionDigits:1})} minuti</strong> dal mio piano Studio per questo remix di {(duration/60).toLocaleString('it-IT',{maximumFractionDigits:1})} minuti (elaborazione A + B + render finale, quota 3×). In caso di job fallito la quota viene restituita secondo lo stato del servizio.</span>
+      </label>
+      <button type="button" disabled={!available||submitting||job?.status==='PROCESSING'||!rights||!usageAccepted}
         onClick={()=>void begin()} style={{padding:11,borderRadius:9,background:'#6c3b9d',color:'white',fontWeight:800}}>
         {submitting?<LoaderCircle size={15}/>:<ShieldCheck size={15}/>} Crea Remix Pro reale
       </button>
