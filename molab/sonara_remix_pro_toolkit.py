@@ -30,7 +30,10 @@ class RemixProError(RuntimeError):
 
 
 def source_file(value):
-    path = Path(value).expanduser().resolve(strict=True)
+    try:
+        path = Path(value).expanduser().resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        raise RemixProError("Audio source file not found or unavailable") from exc
     if not path.is_file() or path.suffix.lower() not in AUDIO_EXTENSIONS:
         raise RemixProError("Expected an existing supported audio file")
     if not 0 < path.stat().st_size <= MAX_INPUT_BYTES:
