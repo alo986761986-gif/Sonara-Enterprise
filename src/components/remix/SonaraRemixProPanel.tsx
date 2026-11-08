@@ -118,8 +118,21 @@ export default function SonaraRemixProPanel() {
         })
       });
       const payload=await response.json().catch(()=>({}));
-      if(!response.ok||!isJob(String(payload.jobId||''))){
+      if(!response.ok) {
+        const recoverId=String(payload?.jobId||'');
+        if(payload?.recoveryPending===true && isJob(recoverId)) {
+          // Do not blindly resubmit an ambiguously queued job: the quota is
+          // still reserved until the server reconciles its actual R2 state.
+          activeJob.current=recoverId;
+          try{sessionStorage.setItem(KEY,recoverId);}catch{}
+          setJob({jobId:recoverId,status:'PROCESSING',stage:'reconciling',progress:0});
+          setInfo('Accodamento non confermato. ID '+recoverId+' conservato; verifica del job e delle quote in corso.');
+          return;
+        }
         throw new Error(safeError(payload?.error?.message||payload.error,'Job Remix Pro non autorizzato.'));
+      }
+      if(!isJob(String(payload.jobId||''))) {
+        throw new Error('Risposta job non valida: controlla lo stato prima di riprovare.');
       }
       const id=String(payload.jobId);
       activeJob.current=id;
