@@ -112,8 +112,6 @@ async function enqueue(req,e,auth,b) {
   const duration=Number(body.durationSec);
   if(!idPattern.test(id)||!Number.isInteger(duration)||duration<30||duration>480)
     return fail('Prenotazione e durata Remix Pro non valide.',400);
-  if(body.usageConsentAccepted!==true||Number(body.usageSecondsAccepted)!==duration*3)
-    return fail('Conferma del consumo Studio Remix Pro mancante o non valida.',400);
   // The job id must be allocated by the authenticated native billing gateway.
   if(await b.head(jobKey(id)))return fail('Job gia accodato.',409);
   if(body.rightsConfirmed!==true)return fail('Conferma i diritti di utilizzo dei due brani.');
@@ -123,7 +121,7 @@ async function enqueue(req,e,auth,b) {
   if(refs.some(v=>!v))return fail('Una sorgente non è tua, è scaduta oppure non è un audio supportato.',404);
   if(refs.some(v=>v.format!=='wav')&&!(await gpuState(b)).formatsReady)
     return fail('Agente GPU multiformato non ancora aggiornato. I WAV restano disponibili.',503);
-if(!(await proQuota(e,'verify',id,uid,duration)))return fail('Quota Remix Pro non prenotata.',409);
+if(!(await proQuota(e,'verify',id,uid,duration)))return fail('Registrazione privata Remix Pro non valida.',409);
   const jobs=await b.list({prefix:P+'jobs/',limit:100});
   for(const item of jobs.objects||[]) {
     const old=await readJson(await b.get(item.key));
