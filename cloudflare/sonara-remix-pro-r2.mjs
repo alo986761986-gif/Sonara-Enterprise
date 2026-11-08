@@ -19,6 +19,32 @@ const idPattern=new RegExp('^srpro_'+UUID+'$');
 const refPattern=new RegExp('^sref_'+UUID+'$');
 const ROLES=new Set(['vocals-a','drums-b','bass-a','other-a']);
 const STAGES=new Set(['queued','downloading','analyzing','separating','arranging','regenerating','mastering','uploading','completed','failed']);
+const FAILURE_NOTICES=Object.freeze({
+  SOURCE_HTTP_401:'Accesso al download audio rifiutato (401): controlla l’autenticazione dell’agente GPU.',
+  SOURCE_HTTP_403:'Download audio bloccato (403): verifica il relay MoLab / Cloudflare.',
+  SOURCE_HTTP_404:'Sorgente audio non trovata in R2 (404): ricarica entrambi i brani.',
+  SOURCE_HTTP_409:'Download audio bloccato da lease non valido (409): controlla l’agente GPU.',
+  SOURCE_HTTP_429:'Download audio limitato temporaneamente (429): riprova più tardi.',
+  SOURCE_HTTP_500:'Errore temporaneo del servizio audio (500).',
+  SOURCE_HTTP_502:'Errore temporaneo del servizio audio (502).',
+  SOURCE_HTTP_503:'Servizio audio temporaneamente non disponibile (503).',
+  SOURCE_HTTP_504:'Timeout temporaneo del servizio audio (504).',
+  SOURCE_NETWORK_ERROR:'Connessione MoLab-R2 interrotta durante il download audio.',
+  SOURCE_INVALID_AUDIO:'Audio sorgente non leggibile: prova WAV PCM/float mono o stereo, 10-900 secondi.',
+  SOURCE_DECODER_UNAVAILABLE:'Decodifica audio non disponibile sull’agente GPU (FFmpeg/FFprobe).',
+  SOURCE_DECODER_FAILED:'Impossibile decodificare l’audio sorgente: controlla formato e durata.',
+  SOURCE_OVERSIZE:'File audio sorgente oltre il limite di 512 MiB.',
+  SOURCE_TRANSFER_INVALID:'Download audio incompleto o non valido, senza riutilizzare file parziali.',
+  REMIX_PROCESSING_ERROR:'Errore durante l’elaborazione audio GPU. Verifica lo stato dell’agente MoLab.'
+});
+const FAILURE_PHASES=new Set(['source_a','source_b','normalize_a','normalize_b','processing']);
+const failureExplanation=(j)=>{
+  const notice=FAILURE_NOTICES[j?.failureCode];
+  if(!notice)return 'Elaborazione Remix Pro non riuscita. Verifica il log diagnostico GPU.';
+  const phase=({source_a:'Brano A',source_b:'Brano B',normalize_a:'Decodifica A',
+    normalize_b:'Decodifica B'})[j?.failurePhase];
+  return (phase?phase+': ':'')+notice;
+};
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}});
 const fail=(message,status=400)=>json({error:message},status);
 const readJson=async obj=>{try{return obj?await obj.json():null;}catch{return null;}};
@@ -63,7 +89,8 @@ function publicStatus(j){
       queued:4,downloading:12,analyzing:24,separating:40,arranging:57,
       regenerating:72,mastering:86,uploading:93
     }[j.stage]||10),
-    stage:String(j.stage||'queued'),error:j.status==='FAILED'?'Elaborazione Remix Pro non riuscita.':null,
+    stage:String(j.stage||'queued'),error:j.status==='FAILED'?failureExplanation(j):null,
+    ...(j.status==='FAILED'&&FAILURE_NOTICES[j.failureCode]?{errorCode:j.failureCode,failurePhase:j.failurePhase}:{}),
     audioUrl:j.status==='COMPLETE'?'/api/sonara-relay/pro-job/'+id+'/audio':null,
     stems:j.status==='COMPLETE'?Object.keys(j.stems||{}).filter(k=>ROLES.has(k)).map(role=>({
       role,url:'/api/sonara-relay/pro-job/'+id+'/stem/'+role
@@ -351,11 +378,19 @@ export async function handleRemixPro(req,env,ctx,auth) {
   }
   if(req.method==='POST'&&(action==='complete'||action==='fail')){
     if(action==='complete'&&(!j.audio||!await b.head(j.audio)))return fail('Final WAV required',409);
+    // Only safe fixed-code diagnostics may be stored or shown to the owner.
+    // Never store upstream responses, file paths, token values or audio content.
+    const reported=action==='fail'?await req.json().catch(()=>({})):{};
+    const failureCode=typeof reported?.errorCode==='string'&&
+      Object.hasOwn(FAILURE_NOTICES,reported.errorCode)?reported.errorCode:null;
+    const failurePhase=FAILURE_PHASES.has(reported?.failurePhase)?
+      reported.failurePhase:null;
     // The terminal R2 state is written first, so a lease can never
     // produce audio after its reservation has been refunded.
     const next={...j,status:action==='complete'?'COMPLETE':'FAILED',
       stage:action==='complete'?'completed':'failed',leaseUntil:0,
-      leaseId:null,updatedAt:Date.now(),params:null,sourceA:null,sourceB:null};
+      leaseId:null,updatedAt:Date.now(),params:null,sourceA:null,sourceB:null,
+      ...(action==='fail'?{failureCode,failurePhase}:{})};
     const sources=[j.sourceA,j.sourceB];
     const ok=await save(b,next,obj.etag);
     if(!ok)return fail('Retry completion',409);

@@ -16,6 +16,7 @@ on:
       - 'molab/sonara_remix_pro_r2_agent.py'
       - 'molab/test_sonara_remix_pro_multiformat.py'
       - 'molab/test_sonara_remix_pro_import_path.py'
+      - 'molab/test_sonara_remix_pro_r2_download.py'
       - 'molab/sonara_remix_pro_live_qa.py'
       - 'molab/test_sonara_remix_pro_live_qa.py'
       - '.github/workflows/test-sonara-remix-pro-integration.yml'
@@ -49,6 +50,8 @@ jobs:
           sudo apt-get install -y -qq --no-install-recommends ffmpeg
           ffmpeg -version
           ffprobe -version
+      - name: Private R2 ranged download and safe error regression tests
+        run: python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_r2_download.py' -v
       - name: Real offline MP3 decoder and video rejection tests
         run: python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_multiformat.py' -v
       - name: Verify Marimo Python import path regression

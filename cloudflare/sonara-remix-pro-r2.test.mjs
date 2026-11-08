@@ -292,3 +292,40 @@ test('compressed sources require verified decoder-ready GPU heartbeat',async()=>
   const claim=await call(e,'POST','/api/sonara-relay/pro-claim',{},agent);
   assert.equal((await claim.json()).sourceFormatA,'mp3');
 });
+
+test('FAILED two-source job reports only allowlisted download code and private source phase',async()=>{
+  const e=env();
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',{gpuReady:true},agent);
+  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',spec,gate)).status,202);
+  const claimed=await call(e,'POST','/api/sonara-relay/pro-claim',{},agent);
+  const {jobId,leaseId}=await claimed.json();
+  const endpoint='/api/sonara-relay/pro-job/'+jobId;
+  const failed=await call(e,'POST',endpoint+'/fail',{
+    errorCode:'SOURCE_HTTP_403',failurePhase:'source_b',upstreamBody:'secret content never echoed'
+  },{...agent,'x-sonara-pro-lease':leaseId});
+  assert.equal(failed.status,200);
+  assert.equal((await call(e,'GET',endpoint,undefined,{'x-mock-user':OTHER})).status,404);
+  const status=await call(e,'GET',endpoint,undefined,owner).then(r=>r.json());
+  assert.equal(status.status,'FAILED');
+  assert.equal(status.errorCode,'SOURCE_HTTP_403');
+  assert.equal(status.failurePhase,'source_b');
+  assert.match(status.error,/Brano B/);
+  assert.match(status.error,/403/);
+  assert.equal(JSON.stringify(status).includes('secret content'),false);
+});
+test('Unknown agent error text never reaches the customer through a FAILED job',async()=>{
+  const e=env();
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',{gpuReady:true},agent);
+  await call(e,'POST','/api/sonara-relay/pro-enqueue',spec,gate);
+  const claimed=await call(e,'POST','/api/sonara-relay/pro-claim',{},agent);
+  const {jobId,leaseId}=await claimed.json();
+  const endpoint='/api/sonara-relay/pro-job/'+jobId;
+  assert.equal((await call(e,'POST',endpoint+'/fail',{
+    errorCode:'PRIVATE_TOKEN_LEAK',failurePhase:'private-path',details:'do not disclose'
+  },{...agent,'x-sonara-pro-lease':leaseId})).status,200);
+  const status=await call(e,'GET',endpoint,undefined,owner).then(r=>r.json());
+  assert.equal(status.errorCode,undefined);
+  assert.equal(status.failurePhase,undefined);
+  assert.equal(status.status,'FAILED');
+  assert.equal(JSON.stringify(status).includes('do not disclose'),false);
+});
