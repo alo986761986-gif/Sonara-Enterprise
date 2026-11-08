@@ -237,9 +237,14 @@ def transparent_master(audio, sr=44100, lufs=-14.0, peak_ceiling=-1.0):
         raise RemixProError("No measurable integrated loudness")
     gain_db = min(9.0, max(-12.0, lufs - current_lufs))
     result = audio.astype(np.float64) * (10 ** (gain_db / 20.0))
-    # 4x intersample-peak approximation; reduce uniformly, preserve crest factor.
-    oversampled = upsample(result, 4, 1, axis=0)
-    detected = float(np.max(np.abs(oversampled)))
+    # Bounded-memory 4x intersample-peak approximation. A full 8-minute
+    # stereo WAV would require over a gigabyte if oversampled in one array.
+    # Short overlapping windows keep peak detection practical on MoLab.
+    detected = float(np.max(np.abs(result)))
+    window = max(1, int(sr * 4))
+    for start in range(0, len(result), window):
+        piece = result[max(0, start - 32):min(len(result), start + window + 32)]
+        detected = max(detected, float(np.max(np.abs(upsample(piece, 4, 1, axis=0)))))
     ceiling = 10 ** (peak_ceiling / 20.0)
     correction = min(1.0, ceiling / max(detected, 1e-9))
     result *= correction
