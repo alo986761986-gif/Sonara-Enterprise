@@ -197,7 +197,8 @@ def render(audio_path, output_path, prompt, *, mode="required", strength=0.76,
                     "sourceDurationSeconds": round(duration, 2),
                     "outputPath": str(output), "bytes": len(raw),
                     "model": "existing-local-ACE-Step-cover",
-                    "noFakeAudio": True
+                    "noFakeAudio": True,
+                    "independentStyleReference": reference is not None
                 }
             time.sleep(2)
         raise ACEBridgeError("ACE-Step cover timed out; task was not duplicated")
