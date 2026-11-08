@@ -74,7 +74,7 @@ function bucket(){
   };
 }
 function env(flags=true) {
-  const reservations=new Map([[JOB,{ownerUid:USER,seconds:30,status:'reserved'}]]);
+  const reservations=new Map([[JOB,{ownerUid:USER,seconds:120,status:'reserved'}]]);
   const environment={
     SONARA_AUDIO_BUCKET:bucket(),SONARA_R2_RELAY_ENABLED:'true',
     SONARA_REMIX_PRO_ENABLED:flags?'true':'false',
@@ -121,7 +121,7 @@ const agent={'x-sonara-relay-token':TOKEN,'x-sonara-pro-agent-revision':PRO_AGEN
 const owner={'x-mock-user':USER};
 const gate={'x-sonara-internal-secret':SECRET,'x-sonara-user-uid':USER};
 const spec={jobId:JOB,sourceA:A,sourceB:B,rightsConfirmed:true,prompt:'Compose a coherent genre-true remix',
-  durationSec:30,bpmA:120,bpmB:122,bassFrom:'a'};
+  durationSec:120,bpmA:120,bpmB:122,bassFrom:'a'};
 
 test('Remix Pro fails closed until both billing approval and GPU heartbeat',async()=>{
   const environment=env();
@@ -212,7 +212,7 @@ test('Remix Pro refuses jobs without a matching authenticated private reservatio
   assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',
     {...spec,jobId:missing},gate)).status,409);
   assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',
-    {...spec,durationSec:120},gate)).status,409);
+    {...spec,durationSec:150},gate)).status,409);
   assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',
     {...spec,jobId:'bad-id'},gate)).status,400);
 });
@@ -240,16 +240,16 @@ test('Terminal R2 job stays COMPLETE when private quota settlement is unavailabl
   assert.equal((await call(e,'POST',endpoint+'/fail',{},leaseHeaders)).status,409);
 });
 
-test('Remix Pro supports 8-minute duration and long master via multipart',async()=>{
+test('Remix Pro supports 5-minute duration and long master via multipart',async()=>{
   const e=env();
-  e.__reservations.set(JOB,{ownerUid:USER,seconds:480,status:'reserved'});
+  e.__reservations.set(JOB,{ownerUid:USER,seconds:300,status:'reserved'});
   await call(e,'POST','/api/sonara-relay/pro-heartbeat',{gpuReady:true},agent);
   assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',
-    {...spec,durationSec:480},gate)).status,202);
+    {...spec,durationSec:300},gate)).status,202);
   const claimed=await call(e,'POST','/api/sonara-relay/pro-claim',{},agent);
   assert.equal(claimed.status,200);
   const {jobId,leaseId,params}=await claimed.json();
-  assert.equal(params.durationSec,480);
+  assert.equal(params.durationSec,300);
   const path='/api/sonara-relay/pro-job/'+jobId+'/audio';
   const signed={...agent,'x-sonara-pro-lease':leaseId};
   const size=8*1024*1024+2048;
@@ -267,20 +267,20 @@ test('Remix Pro supports 8-minute duration and long master via multipart',async(
   assert.equal(finish.status,200);
   const endpoint='/api/sonara-relay/pro-job/'+jobId;
   const before=await call(e,'GET',endpoint,undefined,owner).then(r=>r.json());
-  assert.equal(before.requestedDurationSeconds,480);
-  // A fake 60-second result must never be accepted for an 8-minute job.
+  assert.equal(before.requestedDurationSeconds,300);
+  // A fake 60-second result must never be accepted for a 5-minute job.
   assert.equal((await call(e,'POST',endpoint+'/complete',
     {actualDurationSeconds:60},signed)).status,409);
   const still=await call(e,'GET',endpoint,undefined,owner).then(r=>r.json());
   assert.equal(still.status,'PROCESSING');
   const complete=await call(e,'POST',endpoint+'/complete',
-    {actualDurationSeconds:480},signed);
+    {actualDurationSeconds:300},signed);
   assert.equal(complete.status,200);
   const ownerStatus=await call(e,'GET',endpoint,undefined,owner);
   const done=await ownerStatus.json();
   assert.equal(done.status,'COMPLETED');
-  assert.equal(done.requestedDurationSeconds,480);
-  assert.equal(done.actualDurationSeconds,480);
+  assert.equal(done.requestedDurationSeconds,300);
+  assert.equal(done.actualDurationSeconds,300);
 });
 
 test('compressed sources require verified decoder-ready GPU heartbeat',async()=>{
@@ -340,4 +340,17 @@ test('Unknown agent error text never reaches the customer through a FAILED job',
   assert.equal(status.failurePhase,undefined);
   assert.equal(status.status,'FAILED');
   assert.equal(JSON.stringify(status).includes('do not disclose'),false);
+});
+
+// The new automatic selection is bounded at the trusted enqueue boundary.
+// Legacy in-flight jobs are still readable and completable.
+test('Remix Pro rejects new 30-second, >5-minute and non-step durations',async()=>{
+  const e=env();
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',{gpuReady:true},agent);
+  for(const durationSec of [30,90,121,299,330,480]){
+    const response=await call(e,'POST','/api/sonara-relay/pro-enqueue',
+      {...spec,durationSec},gate);
+    assert.equal(response.status,400,'duration '+durationSec);
+  }
+  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',spec,gate)).status,202);
 });
