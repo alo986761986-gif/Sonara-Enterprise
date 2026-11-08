@@ -64,6 +64,8 @@ export default function SonaraRemixResultEq({ audioUrl, label, onUse }: Props) {
       [filters.mid, next.mid],
       [filters.high, next.high],
     ] as const) node.gain.setTargetAtTime(clampEqDb(gain), context.currentTime, 0.012);
+    const activeEq = enabled && !eqIsFlat(next);
+    filters.preamp.gain.setTargetAtTime(activeEq ? Math.pow(10, -2.5 / 20) : 1, context.currentTime, 0.012);
   }, [bands, enabled]);
 
   const updateBand = (key: keyof RemixEqBands, value: number) => {
@@ -72,7 +74,7 @@ export default function SonaraRemixResultEq({ audioUrl, label, onUse }: Props) {
   };
 
   const buildFile = async (): Promise<File> => {
-    const blob = await renderRemixEqWav(audioUrl, enabled ? bands : REMIX_EQ_FLAT);
+    const blob = await renderRemixEqWav(audioUrl, bands, enabled);
     return new File([blob], 'SONARA-REMIX-EQ.wav', { type: 'audio/wav' });
   };
 
