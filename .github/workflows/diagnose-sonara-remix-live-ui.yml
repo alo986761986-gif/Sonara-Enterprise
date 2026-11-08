@@ -1,0 +1,46 @@
+name: SONARA Remix - Read Only Live UI and Asset Diagnostic
+on:
+  push:
+    branches: [feature/remix-pro-automatic-random-duration-nov09]
+    paths: ['.github/workflows/diagnose-sonara-remix-live-ui.yml']
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect published pages and JS references without changing anything
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const urls=[
+            'https://sonaraenterprise.com/',
+            'https://sonaraenterprise.com/studio',
+            'https://sonaraenterprise.com/remix',
+            'https://www.sonaraenterprise.com/'
+          ];
+          const h={Accept:'text/html','Cache-Control':'no-store'};
+          for(const url of urls){
+            try{
+              const r=await fetch(url,{headers:h,redirect:'manual',signal:AbortSignal.timeout(15000)});
+              const html=await r.text();
+              const assets=[...html.matchAll(/(?:src|href)=["'](\/assets\/[^"'?#]+)["']/g)].map(m=>m[1]);
+              console.log('SONARA_PAGE',JSON.stringify({path:url,status:r.status,
+                redirect:r.headers.get('location'),shell:r.headers.get('x-sonara-duration-shell'),
+                size:html.length,auto:html.includes('sonara-remix-auto-duration-v1'),
+                prior:html.includes('sonara-remix-pro-duration-sync-v4'),
+                assets:assets.slice(0,5)}));
+              if(url.endsWith('/')&&!url.includes('www.')){
+                for(const path of assets.filter(p=>p.endsWith('.js')).slice(0,2)){
+                  const j=await fetch('https://sonaraenterprise.com'+path,{signal:AbortSignal.timeout(15000)});
+                  const text=await j.text();
+                  const needles=['sonara-remix-pro-duration-slider','Durata Remix AI',
+                    'Crea Remix Pro reale','sonara-remix-pro-auto-duration','expectedDurationSec',
+                    'SONARA'];
+                  console.log('SONARA_LIVE_JS',JSON.stringify({asset:path,http:j.status,
+                    bytes:text.length,matches:Object.fromEntries(needles.map(n=>[n,text.includes(n)]))}));
+                }
+              }
+            }catch(e){console.log('SONARA_DIAGNOSTIC_ERROR',JSON.stringify({path:url,error:String(e.message||e)}))}
+          }
+          NODE
