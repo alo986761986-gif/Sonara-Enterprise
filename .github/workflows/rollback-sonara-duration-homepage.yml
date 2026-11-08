@@ -1,0 +1,44 @@
+name: SONARA Duration Homepage - Manual Safe Rollback
+on:
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+    steps:
+      - name: Remove only the SONARA duration homepage route
+        run: |
+          node --input-type=module <<'NODE'
+          const token=process.env.CLOUDFLARE_API_TOKEN;
+          if(!token||token.length<20)throw Error('Cloudflare API token missing');
+          const root='https://api.cloudflare.com/client/v4';
+          const headers={Authorization:'Bearer '+token,'Content-Type':'application/json'};
+          const req=async(path,method='GET')=>{
+            const r=await fetch(root+path,{method,headers,signal:AbortSignal.timeout(20000)});
+            const j=await r.json().catch(()=>({}));
+            if(!r.ok||j.success===false)throw Error('Cloudflare '+method+' error HTTP '+r.status);
+            return j.result;
+          };
+          const zone=(await req('/zones?name=sonaraenterprise.com'))?.find(x=>x.name==='sonaraenterprise.com');
+          if(!zone)throw Error('SONARA zone not found');
+          const routePath='/zones/'+zone.id+'/workers/routes';
+          const before=await req(routePath);
+          const candidate=before.filter(r=>r.pattern==='sonaraenterprise.com'&&r.script==='sonara-remix-duration-shell');
+          if(candidate.length===0){
+            console.log('SONARA_ROLLBACK',{status:'ALREADY_REMOVED'});
+            process.exit(0);
+          }
+          if(candidate.length!==1)throw Error('Ambiguous rollback route');
+          if(!before.some(r=>r.pattern==='sonaraenterprise.com/*'&&r.script==='sonara-enterprise'))
+            throw Error('Original SONARA wildcard route missing: cannot safely remove');
+          const result=await req(routePath+'/'+candidate[0].id,'DELETE');
+          const after=await req(routePath);
+          if(after.some(r=>r.id===candidate[0].id))throw Error('Route deletion not confirmed');
+          if(!after.some(r=>r.pattern==='sonaraenterprise.com/*'&&r.script==='sonara-enterprise'))
+            throw Error('Original SONARA wildcard route is missing after rollback');
+          console.log('SONARA_ROLLBACK',JSON.stringify({status:'ROUTE_REMOVED',originalRoutePreserved:true}));
+          NODE
