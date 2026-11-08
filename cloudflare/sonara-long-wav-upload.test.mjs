@@ -123,3 +123,19 @@ test('multipart source endpoint is disabled when billing has not approved Pro',a
   });
   assert.equal(result.status,503);
 });
+
+test('DAW WAVE_FORMAT_EXTENSIBLE PCM24 long sources remain supported',()=>{
+  const bytes=48000*2*3*540;
+  const header=new Uint8Array(68),v=new DataView(header.buffer);
+  const put=(p,t)=>{for(let i=0;i<t.length;i++)header[p+i]=t.charCodeAt(i);};
+  put(0,'RIFF');v.setUint32(4,60+bytes,true);put(8,'WAVE');
+  put(12,'fmt ');v.setUint32(16,40,true);v.setUint16(20,65534,true);
+  v.setUint16(22,2,true);v.setUint32(24,48000,true);
+  v.setUint32(28,48000*2*3,true);v.setUint16(32,6,true);
+  v.setUint16(34,24,true);v.setUint16(36,22,true);
+  v.setUint16(38,24,true);v.setUint32(40,3,true);
+  const guid=[1,0,0,0,0,0,16,0,128,0,0,170,0,56,155,113];
+  header.set(guid,44);
+  put(60,'data');v.setUint32(64,bytes,true);
+  assert.equal(inspectWavHeader(header,bytes+68)?.durationSec,540);
+});
