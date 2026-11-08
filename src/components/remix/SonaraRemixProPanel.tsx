@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { AudioWaveform, Check, Download, LoaderCircle, ShieldCheck, UploadCloud } from 'lucide-react';
+import { chooseRandomRemixDuration, isValidRemixDuration } from './remixDuration';
 
 type ProJob = {jobId?: string;status?: string;stage?: string;progress?: number;audioUrl?: string;
   stems?: {role:string;url:string}[];error?: string;
@@ -9,17 +10,7 @@ const sleep=(ms:number)=>new Promise(resolve=>window.setTimeout(resolve,ms));
 const durationLabel=(seconds:number)=>`${Math.floor(seconds/60)}:${String(Math.round(seconds%60)).padStart(2,'0')}`;
 const safeError=(value:unknown,fallback:string)=>typeof value==='string'&&value.length<250?value:fallback;
 const KEY='sonara.remixPro.activeJob.v1';
-// The website chooses a fresh duration for each authorized Remix Pro submission.
-const RANDOM_MIN_SECONDS=120;
-const RANDOM_MAX_SECONDS=300;
-const RANDOM_STEP_SECONDS=30;
 const validDuration=(n:number)=>Number.isInteger(n)&&n>=30&&n<=480&&n%30===0;
-const randomRemixDuration=()=>{
-  const choices=(RANDOM_MAX_SECONDS-RANDOM_MIN_SECONDS)/RANDOM_STEP_SECONDS+1;
-  const bytes=new Uint32Array(1);
-  crypto.getRandomValues(bytes);
-  return RANDOM_MIN_SECONDS+(bytes[0]%choices)*RANDOM_STEP_SECONDS;
-};
 const AUDIO_FORMATS=/\.(wav|mp3|flac|m4a|mp4|aac|ogg|oga|opus|aif|aiff|aifc|webm|wma|caf|amr|ac3)$/i;
 const AUDIO_PICKER_ACCEPT='audio/*,.wav,.mp3,.flac,.m4a,.mp4,.aac,.ogg,.oga,.opus,.aif,.aiff,.aifc,.webm,.wma,.caf,.amr,.ac3';
 const audioSuffix=(name:string)=>name.match(AUDIO_FORMATS)?.[1]?.toLowerCase()||'';
@@ -192,8 +183,8 @@ export default function SonaraRemixProPanel() {
     if(!prompt.trim()){setError('Inserisci le indicazioni musicali per il nuovo brano.');return;}
     // Freeze one random duration before either upload. Never reroll after retries,
     // during asynchronous uploads, or while a job is in progress.
-    const requestedDuration=randomRemixDuration();
-    if(!validDuration(requestedDuration)){setError('Durata automatica non valida. Il job non è stato creato.');return;}
+    const requestedDuration=chooseRandomRemixDuration();
+    if(!isValidRemixDuration(requestedDuration)){setError('Durata automatica non valida. Il job non è stato creato.');return;}
     setSubmittedDuration(requestedDuration);
     setSubmitting(true);setError('');setInfo('Durata scelta automaticamente: '+durationLabel(requestedDuration)+'. Caricamento privato del brano A…');
     try{
