@@ -111,7 +111,8 @@ async function enqueue(req,e,auth,b) {
        (old.status==='QUEUED'||old.status==='LEASED'))return fail('Hai già un Remix Pro in corso. Verifica prima quel job.',409);
   }
   const now=Date.now();
-  const j={kind:'sonara-remix-pro',id,ownerUid:uid,status:'QUEUED',stage:'queued',attempts:0,
+  // A PREPARING record is never claimable; a failed enqueue may be refunded.
+  const j={kind:'sonara-remix-pro',id,ownerUid:uid,status:'PREPARING',stage:'queued',attempts:0,
     leaseId:null,leaseUntil:0,createdAt:now,updatedAt:now,
     sourceA:refs[0],sourceB:refs[1],audio:null,stems:{},
     params:{
@@ -127,7 +128,13 @@ async function enqueue(req,e,auth,b) {
   if(!j.params.prompt)return fail('Scrivi il prompt del Remix Pro.');
   const saved=await save(b,j);
   if(!saved)return fail('Impossibile registrare il job.',503);
-  await b.put(queueKey(now,id),id,{httpMetadata:{contentType:'text/plain'}});
+  try {
+    await b.put(queueKey(now,id),id,{httpMetadata:{contentType:'text/plain'}});
+    const current=await b.get(jobKey(id));
+    if(!current) return fail('Job preparation lost',503);
+    j.status='QUEUED';
+    if(!(await save(b,j,current.etag)))return fail('Job activation failed',503);
+  } catch { return fail('Job preparation failed',503); }
   return json({...publicStatus(j),model:'Demucs+ACE-Step-XL-Turbo'},202);
 }
 async function claim(e,b,ctx){
