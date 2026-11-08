@@ -54,6 +54,11 @@ jobs:
           const rev=(await api(main)).deployments?.[0]?.versions?.[0]?.version_id;
           assert(rev,'Main Worker revision unavailable');
           const current=await api(routePath);
+          console.log('SONARA_EXACT_ROUTES',JSON.stringify(current.filter(x=>
+            x.pattern.includes('sonaraenterprise.com') &&
+            (x.pattern==='sonaraenterprise.com' || x.pattern==='sonaraenterprise.com/' ||
+              x.pattern==='sonaraenterprise.com/*' || x.pattern.includes('remix') ||
+              x.pattern.includes('studio'))).map(x=>({id:x.id,pattern:x.pattern,script:x.script}))));
           const home=current.filter(x=>x.pattern==='sonaraenterprise.com');
           assert(home.length===1&&home[0].script===original,'Current root shell differs; fail closed');
           assert(current.some(x=>x.pattern==='sonaraenterprise.com/*'&&x.script==='sonara-enterprise'),
