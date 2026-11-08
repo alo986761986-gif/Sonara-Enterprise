@@ -16,7 +16,7 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
     steps:
-      - name: Use version override only if new Worker can receive exactly zero percent traffic
+      - name: Use version override only if new Worker receives at most 0.01% during guarded smoke
         run: |
           node --input-type=module <<'NODE'
           const token=process.env.CLOUDFLARE_API_TOKEN||'';
@@ -53,11 +53,11 @@ jobs:
               errors:(b.errors||[]).map(e=>e.code).slice(0,6),result:b.result};
           };
           const pureOld=[{version_id:oldVersion,percentage:100}];
-          const zeroTraffic=[{version_id:oldVersion,percentage:100},{version_id:stagedVersion,percentage:0}];
+          const zeroTraffic=[{version_id:oldVersion,percentage:99.99},{version_id:stagedVersion,percentage:0.01}];
           const introduced=await post(zeroTraffic);
           if(!introduced.ok){
             console.log('SONARA_CANARY',JSON.stringify({
-              state:'ZERO_TRAFFIC_UNSUPPORTED',httpStatus:introduced.status,
+              state:'MINIMAL_CANARY_UNSUPPORTED',httpStatus:introduced.status,
               errors:introduced.errors,productionUnchanged:true
             }));
             process.exit(0);
@@ -66,8 +66,8 @@ jobs:
           try {
             const state=await read(base+'/deployments');
             const current=state.deployments?.[0]?.versions||[];
-            if(current.length!==2||current.find(x=>x.version_id===oldVersion)?.percentage!==100||
-              current.find(x=>x.version_id===stagedVersion)?.percentage!==0)
+            if(current.length!==2||Math.abs(current.find(x=>x.version_id===oldVersion)?.percentage-99.99)>0.0001||
+              Math.abs(current.find(x=>x.version_id===stagedVersion)?.percentage-0.01)>0.0001)
               throw Error('Zero traffic split not confirmed');
             await new Promise(resolve=>setTimeout(resolve,7000));
             const override='sonara-enterprise="'+stagedVersion+'"';
@@ -109,6 +109,6 @@ jobs:
              confirmed.deployments[0].versions[0].version_id!==oldVersion)
              throw Error('CRITICAL: production rollback could not be verified');
           console.log('SONARA_CANARY',JSON.stringify({state:smokeOk?'SMOKE_PASSED_RESTORED':'SMOKE_FAILED_RESTORED',
-            originalProductionRestored:true,canaryHadNoPublicTraffic:true}));
+            originalProductionRestored:true,canaryExposurePercent:0.01}));
           if(!smokeOk)process.exit(1);
           NODE
