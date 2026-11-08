@@ -83,6 +83,8 @@ jobs:
             'export default {',
             '...__sonaraLiveWorker,',
             'async fetch(request,env,ctx){',
+            "if(request.method==='GET'&&new URL(request.url).pathname==='/api/sonara-remix-pro-duration-probe')",
+            'return new Response(JSON.stringify({revision:"sonara-remix-duration-v3-route-test"}),{headers:{"content-type":"application/json"}});',
             'const r=await __sonaraLiveWorker.fetch.call(__sonaraLiveWorker,request,env,ctx);',
             'const host=new URL(request.url).hostname;',
             "if(request.method!=='GET'||!r.ok||!['sonaraenterprise.com','www.sonaraenterprise.com'].includes(host)||",
@@ -101,6 +103,10 @@ jobs:
             main_module:'sonara-relay-gateway-entry.js',
             compatibility_date:'2026-08-23',
             keep_assets:true,
+            assets:{config:{run_worker_first:[
+              '/api/*','/__sonara_internal/*','/sonara-video-ui-edge.js',
+              '/','/index.html'
+            ],not_found_handling:'single-page-application'}},
             bindings:bindings.map(b=>({name:b.name,type:'inherit',version_id:'latest'})),
             annotations:{'workers/message':'SONARA duration-only staging; no deployment'}
           };
