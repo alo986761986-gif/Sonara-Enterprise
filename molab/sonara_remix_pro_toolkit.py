@@ -223,6 +223,10 @@ def _phrase_loop_stem(audio, frames, bpm, *, offset=0, sr=44100):
         raise RemixProError("A verified real stereo source stem is required")
     if not 55 <= bpm <= 200 or frames <= 0:
         raise RemixProError("Invalid source tempo or requested output duration")
+    if len(audio) >= frames + max(0, -int(offset)):
+        # Full-duration source must play through once, without losing its
+        # real outro or restarting a phrase before the last beat.
+        return _audio_at_timeline(audio, frames, int(offset)), 1
     phrase = max(1, int(round(16 * 60.0 / bpm * sr)))
     cycle = len(audio) // phrase * phrase
     if cycle < int(4 * sr):
