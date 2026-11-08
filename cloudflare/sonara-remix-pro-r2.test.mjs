@@ -23,8 +23,33 @@ function bucket(){
       filename:id+'.wav',contentType:'audio/wav',expiresAt:Date.now()+3600_000
     }));
   }
+  const uploads=new Map();
   return {
     store,
+    async createMultipartUpload(key){
+      const uploadId='upload-'+(++serial);
+      uploads.set(uploadId,{key,parts:new Map()});
+      return {uploadId};
+    },
+    resumeMultipartUpload(key,uploadId){
+      const entry=uploads.get(uploadId);
+      assert.equal(entry?.key,key);
+      return {
+        async uploadPart(n,raw){
+          entry.parts.set(n,new Uint8Array(raw));
+          return {etag:'part-'+n};
+        },
+        async complete(parts){
+          const chunks=parts.map(x=>entry.parts.get(x.partNumber));
+          const length=chunks.reduce((sum,x)=>sum+x.length,0);
+          const data=new Uint8Array(length);
+          let offset=0;
+          for(const piece of chunks){data.set(piece,offset);offset+=piece.length;}
+          persist(key,data);
+          return {size:length};
+        }
+      };
+    },
     async get(k,opts){
       const found=store.get(k);if(!found)return null;
       let bytes=found.bytes;
@@ -207,4 +232,35 @@ test('Terminal R2 job stays COMPLETE when private quota settlement is unavailabl
   assert.equal(e.__reservations.get(JOB).status,'reserved');
   // A follow-up failure report cannot overwrite the completed master.
   assert.equal((await call(e,'POST',endpoint+'/fail',{},leaseHeaders)).status,409);
+});
+
+test('Remix Pro supports 8-minute duration and long master via multipart',async()=>{
+  const e=env();
+  e.__reservations.set(JOB,{ownerUid:USER,seconds:480,status:'reserved'});
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',{gpuReady:true},agent);
+  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',
+    {...spec,durationSec:480},gate)).status,202);
+  const claimed=await call(e,'POST','/api/sonara-relay/pro-claim',{},agent);
+  assert.equal(claimed.status,200);
+  const {jobId,leaseId,params}=await claimed.json();
+  assert.equal(params.durationSec,480);
+  const path='/api/sonara-relay/pro-job/'+jobId+'/audio';
+  const signed={...agent,'x-sonara-pro-lease':leaseId};
+  const size=8*1024*1024+2048;
+  const begin=await call(e,'POST',path+'/start',{bytes:size},signed);
+  assert.equal(begin.status,200);
+  const first=new Uint8Array(8*1024*1024);
+  first.set([82,73,70,70],0);first.set([87,65,86,69],8);
+  const part1=await call(e,'PUT',path+'/part/1',first,signed);
+  assert.equal(part1.status,200);
+  const part2=await call(e,'PUT',path+'/part/2',new Uint8Array(2048),signed);
+  assert.equal(part2.status,200);
+  const finish=await call(e,'POST',path+'/finish',{
+    parts:[{partNumber:1,etag:'part-1'},{partNumber:2,etag:'part-2'}]
+  },signed);
+  assert.equal(finish.status,200);
+  const complete=await call(e,'POST','/api/sonara-relay/pro-job/'+jobId+'/complete',{},signed);
+  assert.equal(complete.status,200);
+  const ownerStatus=await call(e,'GET','/api/sonara-relay/pro-job/'+jobId,undefined,owner);
+  assert.equal((await ownerStatus.json()).status,'COMPLETED');
 });
