@@ -54,6 +54,6 @@ test('source and human instructions are present in all three musical modes', () 
     assert.equal(result.sonara_remix_precision_mode, mode);
     assert.match(result.prompt, /recognizable hook|core motif/);
     assert.match(result.prompt, /Avoid repeated generic tu-tu-tu/);
-    assert.match(result.prompt, /single newly rendered coherent musical reinterpretation/);
+    assert.match(result.prompt, /exactly one newly rendered coherent musical reinterpretation/);
   }
 });
