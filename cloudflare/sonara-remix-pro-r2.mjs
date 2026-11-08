@@ -99,6 +99,8 @@ async function enqueue(req,e,auth,b) {
   const duration=Number(body.durationSec);
   if(!idPattern.test(id)||!Number.isInteger(duration)||duration<30||duration>480)
     return fail('Prenotazione e durata Remix Pro non valide.',400);
+  if(body.usageConsentAccepted!==true||Number(body.usageSecondsAccepted)!==duration*3)
+    return fail('Conferma del consumo Studio Remix Pro mancante o non valida.',400);
   // The job id must be allocated by the authenticated native billing gateway.
   if(await b.head(jobKey(id)))return fail('Job gia accodato.',409);
   if(body.rightsConfirmed!==true)return fail('Conferma i diritti di utilizzo dei due brani.');
