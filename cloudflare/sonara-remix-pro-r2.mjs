@@ -6,7 +6,7 @@ import {audioFormatForName,audioContentType} from './sonara-remix-pro-audio-form
  * By default this feature is OFF until the billing gate and actual GPU worker
  * are independently verified. No client credentials authorize worker actions.
  */
-export const PRO_AGENT_REVISION='sonara-remix-pro-r2-agent-v2-longwav';
+export const PRO_AGENT_REVISION='sonara-remix-pro-r2-agent-v3-dual-reference-fusion';
 const P='relay-v1/pro/';
 const heartbeatKey=P+'agent/heartbeat.json';
 const jobKey=id=>P+'jobs/'+id+'.json';
