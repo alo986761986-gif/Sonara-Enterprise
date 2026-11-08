@@ -134,7 +134,7 @@ def separate_stems(path, output_root, *, device="cpu", timeout_seconds=3600):
     if manifest_path.is_file():
         try:
             previous = json.loads(manifest_path.read_text())
-            if previous.get("sourceSha256") == digest and all(
+            if previous.get("sourceSha256") == digest and previous.get("separationModel") == "htdemucs" and all(
                 (destination / f"{name}.wav").is_file() for name in STEM_NAMES
             ):
                 return previous
@@ -171,7 +171,10 @@ def separate_stems(path, output_root, *, device="cpu", timeout_seconds=3600):
 
 def _load_stem(folder, name, sr=44100):
     np, librosa, _, _ = _deps()
-    stem = Path(folder).expanduser().resolve() / f"{name}.wav"
+    folder = Path(folder).expanduser().resolve()
+    if name not in STEM_NAMES:
+        raise RemixProError("Unsupported stem name")
+    stem = folder / f"{name}.wav"
     if not stem.is_file():
         raise RemixProError(f"Missing real {name} stem; run separate first")
     audio, _ = librosa.load(str(stem), sr=sr, mono=False)
@@ -258,6 +261,8 @@ def combine_two_songs(a, b, stems_a, stems_b, destination, *,
     harmony = _load_stem(stems_a, "other")
     bass = _load_stem(stems_a if bass_from == "a" else stems_b, "bass")
     drums = _stretch_stereo(_load_stem(stems_b, "drums"), ratio)
+    if bass_from == "b":
+        bass = _stretch_stereo(bass, ratio)
     # Align beats only, NOT falsely claimed measure-accurate downbeats.
     beat_a = report_a["beatTimesSeconds"][0] if report_a["beatTimesSeconds"] else 0
     beat_b = report_b["beatTimesSeconds"][0] if report_b["beatTimesSeconds"] else 0
@@ -265,12 +270,19 @@ def combine_two_songs(a, b, stems_a, stems_b, destination, *,
     parts = {
         "vocalsA": (_audio_at_timeline(vocals, frames, 0), 0.85),
         "harmoniesA": (_audio_at_timeline(harmony, frames, 0), 0.55),
-        "bass"+bass_from.upper(): (_audio_at_timeline(bass, frames, 0), 0.72),
+        "bass"+bass_from.upper(): (_audio_at_timeline(bass, frames, drum_offset if bass_from == "b" else 0), 0.72),
         "drumsB": (_audio_at_timeline(drums, frames, drum_offset), 0.80)
     }
     rendered = np.zeros((frames,2), dtype=np.float32)
     for stem, level in parts.values():
         rendered += stem * level
+    # Never synthesize silence past the available musical material.
+    active_end = min(frames, max(len(vocals), len(harmony), len(bass), len(drums) + max(0, drum_offset)))
+    if active_end < 44100 * 10:
+        raise RemixProError("Available stem material is shorter than 10 seconds")
+    rendered = rendered[:active_end]
+    frames = len(rendered)
+    seconds = round(frames / 44100, 3)
     # Gentle 15ms fade-in and 250ms fade-out. No repeated full-song overlay.
     n_in = min(frames//2, int(.015*44100))
     n_out = min(frames//2, int(.25*44100))
