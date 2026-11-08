@@ -118,7 +118,10 @@ jobs:
           if(!created.ok||json.success===false){
             console.log('SONARA_STAGE',JSON.stringify({
               status:'NOT_STAGED',httpStatus:created.status,
-              errors:json.errors?.map(x=>x.code).slice(0,4)||[]
+              errors:(json.errors||[]).map(x=>({
+                code:x.code,
+                bindingNames:bindings.map(b=>b.name).filter(name=>String(x.message||'').includes(name))
+              })).slice(0,20)
             }));
             process.exit(1);
           }
