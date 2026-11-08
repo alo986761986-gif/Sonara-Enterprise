@@ -168,3 +168,31 @@ test('Alarm keeps reservation when R2 is unreadable or owns other users job',asy
   await s.store.alarm();
   assert.equal(s.values.get('remix-pro:quota:'+id).status,'reserved');
 });
+
+test('Alarm never refunds when R2 read fails',async()=>{
+  const s=setup();
+  const id=job(8);
+  await s.op('reserve',id);
+  const entry=s.values.get('remix-pro:quota:'+id);
+  entry.createdAt=Date.now()-11*60*1000;
+  s.values.set('remix-pro:quota:'+id,entry);
+  s.store.env.SONARA_AUDIO_BUCKET.get=async()=>{throw new Error('temporary R2 outage')};
+  await s.store.alarm();
+  assert.equal(s.values.get('remix-pro:quota:'+id).status,'reserved');
+  assert.equal(s.values.get(userKey).usageSeconds,75);
+});
+
+test('Alarm never refunds an expired job if conditional R2 update loses the race',async()=>{
+  const s=setup();
+  const id=job(9);
+  await s.op('reserve',id);
+  s.objects.set('relay-v1/pro/jobs/'+id+'.json',{
+    etag:'etag-start',
+    value:{id,ownerUid:uid,kind:'sonara-remix-pro',status:'LEASED',
+      leaseUntil:Date.now()-10000,attempts:3,createdAt:Date.now()-3600000}
+  });
+  s.store.env.SONARA_AUDIO_BUCKET.put=async()=>null;
+  await s.store.alarm();
+  assert.equal(s.values.get('remix-pro:quota:'+id).status,'reserved');
+  assert.equal(s.values.get(userKey).usageSeconds,75);
+});
