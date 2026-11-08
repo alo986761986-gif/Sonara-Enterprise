@@ -14,6 +14,7 @@ on:
       - "cloudflare/sonara-r2-generation-profile.mjs"
       - "cloudflare/sonara-mix-master-v1.mjs"
       - "cloudflare/sonara-r2-generation-profile.test.mjs"
+      - "cloudflare/sonara-tonal-clarity.test.mjs"
       - "cloudflare/sonara-studio-ai-router.mjs"
       - "cloudflare/sonara-remix-r2.test.mjs"
       - "cloudflare/sonara-molab-xl-router.mjs"
@@ -61,7 +62,7 @@ jobs:
         run: node --test cloudflare/sonara-five-pillars.test.mjs
 
       - name: Verify tonal-clarity guidance and original audio constraints
-        run: node --test cloudflare/sonara-r2-generation-profile.test.mjs
+        run: node --test cloudflare/sonara-tonal-clarity.test.mjs
 
       - name: Verify measured WAV pulse independently
         run: python3 -m unittest discover -s molab -p 'test_sonara_bpm_verification.py' -v
