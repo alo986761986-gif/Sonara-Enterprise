@@ -1,5 +1,8 @@
 name: SONARA Duration Homepage - Manual Safe Rollback
 on:
+  push:
+    branches: [fix/remix-pro-duration-preserve-20261108]
+    paths: ['.github/workflows/rollback-sonara-duration-homepage.yml']
   workflow_dispatch:
 permissions: {contents: read}
 jobs:
