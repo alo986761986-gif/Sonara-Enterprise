@@ -66,6 +66,21 @@ jobs:
               'sonara-remix-pro-duration-edge-v1','/api/billing/generate','export default','HTMLRewriter',
               'cloudflare/sonara-ab-player-visibility-edge.mjs'];
             const counts=Object.fromEntries(markers.map(k=>[k,raw.split(k).length-1]));
+            if(name==='sonara-relay-gateway-entry.js'){
+              const tail=raw.slice(-2000);
+              const e=/export\\s*\\{([^{}]+)\\}\\s*;?\\s*$/.exec(raw);
+              const parts=e?e[1].split(',').map(v=>v.trim()):[];
+              const defaultPart=parts.find(v=>/\\bas default$/.test(v))||null;
+              console.log('V3_INSPECTION',JSON.stringify({
+                kind:'entrypoint_export',
+                isEsmTerminalExport:!!e,
+                namedExportCount:parts.length,
+                defaultIdentifier:defaultPart?defaultPart.replace(/\\s+as default$/,'').slice(0,60):null,
+                hasDefaultObject:!!defaultPart,
+                hasWorkersHandler:tail.includes('default'),
+                bundledModuleBytes:raw.length
+              }));
+            }
             console.log('V3_INSPECTION',JSON.stringify({
               kind:'module',name:String(name).slice(0,150),
               fileName:typeof v==='string'?null:String(v.name||'').slice(0,150),
