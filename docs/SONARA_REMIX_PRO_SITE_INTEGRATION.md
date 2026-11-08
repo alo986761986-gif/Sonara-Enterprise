@@ -55,6 +55,10 @@ essere approvato prima del rilascio commerciale.
   precondizione ETag; solo dopo tenta il rimborso idempotente.
 - Per i job terminali in R2 (COMPLETE/FAILED) l'alarm completa il settlement
   contabile se l'agente si è interrotto tra i due salvataggi.
+- Se il job audio è già terminale e la contabilizzazione non risponde,
+  l'API restituisce `202` con `ok:true` e `settlementPending:true`:
+  l'agente non deve convertire un master WAV completato in un fallimento.
+  Il registro viene poi riconciliato dall'alarm.
 - Una risposta d'errore dall'accodamento non implica che l'operazione R2
   sia fallita: il gateway non rimborsa immediatamente, conserva l'ID del job
   e il sito lo riprende per permettere la riconciliazione.
