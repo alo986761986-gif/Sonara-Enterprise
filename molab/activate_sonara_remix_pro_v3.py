@@ -34,6 +34,7 @@ STATUS = PRIVATE / "remix-pro-agent-status.json"
 TOKEN = PRIVATE / "relay.token"
 LOG = PRIVATE / "remix-pro-v3-agent.log"
 EXPECTED_REVISION = "sonara-remix-pro-r2-agent-v3-dual-reference-fusion"
+LEGACY_REVISION = "sonara-remix-pro-r2-agent-v2-longwav"
 INSTALLER_COMMIT = "f56de2fa63385570082e7b4e2f070c0ca711e3b1"
 INSTALLER_SHA = "4707ea856d294732a0eaab91a339db2fa0cc6b86"
 INSTALLER_URL = (
@@ -151,14 +152,59 @@ def argv_for(pid):
         return []
 
 
+def safe_v2_handoff_reason(state, now):
+    """Decide only from recent, specific legacy-agent idle states.
+
+    With the published V3 Cloudflare gateway, V2 heartbeat is accepted for
+    backward compatibility, but V2 /pro-claim is rejected (HTTP 401). The V2
+    agent records that outside the work loop as `connection_unavailable`,
+    even when it is not generating. This state is safe for a cooperative stop
+    ONLY when its revision and timestamp match the known V2 worker.
+    """
+    revision = state.get("revision")
+    current = state.get("state")
+    try:
+        age = now - float(state.get("updatedAt") or 0)
+    except (TypeError, ValueError, OverflowError):
+        age = float("inf")
+    if revision != LEGACY_REVISION:
+        return "UNKNOWN_AGENT_REVISION", age
+    if state.get("jobId") or current == "processing":
+        return "ACTIVE_REMIX_JOB", age
+    if not 0 <= age <= 65:
+        return "STALE_AGENT_STATUS", age
+    if current in IDLE_STATES:
+        return "CONFIRMED_IDLE", age
+    if current == "connection_unavailable":
+        # V2 is unable to claim any V3 job. No active-job state may be present.
+        return "V2_CLAIM_REJECTED_IDLE", age
+    return "UNCONFIRMED_STATE", age
+
+
 def stop_idle_v2(pid):
     state = read_status()
-    age = time.time() - float(state.get("updatedAt") or 0)
-    check(state.get("revision") != EXPECTED_REVISION,
-          "V3 process is already running; will not interrupt it")
-    check(state.get("state") in IDLE_STATES and 0 <= age <= 50,
-          "Dedicated Pro worker is not confirmed idle; stop refused")
+    reason, age = safe_v2_handoff_reason(state, time.time())
+    # Safe metadata only; do not print token, customer audio, or job IDs.
+    print("SONARA_PREVIOUS_PRO_AGENT_REVISION=" +
+          str(state.get("revision") or "unknown"), flush=True)
+    print("SONARA_PREVIOUS_PRO_AGENT_STATE=" +
+          str(state.get("state") or "unknown"), flush=True)
+    print("SONARA_PREVIOUS_PRO_AGENT_STATUS_FRESH=" +
+          str(0 <= age <= 65), flush=True)
+    check(reason in ("CONFIRMED_IDLE", "V2_CLAIM_REJECTED_IDLE"),
+          "Pro V2 handoff blocked: " + reason +
+          ". The dedicated worker was NOT stopped.")
     check(is_pro_process(pid), "Dedicated Pro worker identity changed")
+    # Re-read the status after a short gap to prevent treating an old
+    # snapshot or transitioning job as idle. No forced termination.
+    time.sleep(2)
+    confirm = read_status()
+    second, _ = safe_v2_handoff_reason(confirm, time.time())
+    check(second in ("CONFIRMED_IDLE", "V2_CLAIM_REJECTED_IDLE")
+          and confirm.get("revision") == LEGACY_REVISION
+          and is_pro_process(pid),
+          "Pro agent state changed during handoff; process left running")
+    print("SONARA_PRO_V2_IDLE_REASON=" + second, flush=True)
     print("SONARA_PRO_V2_GRACEFUL_HANDOFF=START", flush=True)
     os.kill(pid, signal.SIGTERM)
     until = time.monotonic() + STOP_SECONDS
@@ -167,7 +213,7 @@ def stop_idle_v2(pid):
             print("SONARA_PRO_V2_GRACEFUL_HANDOFF=COMPLETE", flush=True)
             return
         time.sleep(1)
-    raise ActivationError("Idle Pro V2 worker did not release its process; refusing forced termination")
+    raise ActivationError("Idle Pro V2 worker did not exit; refusing forced termination")
 
 
 def invoke_installer(data):
