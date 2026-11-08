@@ -734,7 +734,7 @@ export default function SonaraRemixSection() {
           )}
         </section>
 
-        <section className="sonara-remix-controls-panel">
+        {sourceTab !== 'pro' && <section className="sonara-remix-controls-panel">
           <div className="sonara-remix-section-head">
             <div><span>02</span><div><strong>Remix controls</strong><small>Descrivi come deve cambiare il brano</small></div></div>
             <WandSparkles />
@@ -815,9 +815,9 @@ export default function SonaraRemixSection() {
               <span><strong>{generating ? 'Creating remix…' : 'Create remix'}</strong><small>{source ? `${formatTime(segmentLength)} selected · ${Math.round(preserveStrength * 100)}% source DNA` : 'Choose a source track first'}</small></span>
             </button>
           </div>
-        </section>
+        </section>}
 
-        <section className="sonara-remix-results-panel">
+        {sourceTab !== 'pro' && <section className="sonara-remix-results-panel">
           <div className="sonara-remix-section-head">
             <div><span>03</span><div><strong>Results</strong><small>Ascolta e scegli la versione migliore</small></div></div>
             <span className="sonara-remix-result-count">{outputs.length || '—'}</span>
@@ -839,7 +839,7 @@ export default function SonaraRemixSection() {
           ) : (
             <div className="sonara-remix-empty-results"><AudioWaveform /><strong>Your remixes will appear here</strong><small>Seleziona una sorgente, imposta il segmento e premi Create.</small></div>
           )}
-        </section>
+        </section>}
       </main>
 
       <style>{`
