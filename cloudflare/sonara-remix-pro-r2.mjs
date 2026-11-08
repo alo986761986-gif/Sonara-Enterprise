@@ -154,8 +154,14 @@ async function enqueue(req,e,auth,b) {
   if(!body||typeof body!=='object'||Array.isArray(body))return fail('Invalid JSON');
   const id=String(body.jobId||'');
   const duration=Number(body.durationSec);
-  if(!idPattern.test(id)||!Number.isInteger(duration)||duration<30||duration>480)
+  if(!idPattern.test(id)||!Number.isInteger(duration)||duration<30||duration>480||duration%30!==0)
     return fail('Prenotazione e durata Remix Pro non valide.',400);
+  // Independent intent must agree with the requested seconds. Reject before
+  // creating any R2 job or performing a billing reservation verification.
+  if(body.expectedDurationSec!==undefined &&
+     (!Number.isInteger(Number(body.expectedDurationSec)) ||
+      Number(body.expectedDurationSec)!==duration))
+    return fail('La durata inviata non coincide con la selezione originale: nessun job creato.',409);
   // The job id must be allocated by the authenticated native billing gateway.
   if(await b.head(jobKey(id)))return fail('Job gia accodato.',409);
   if(body.rightsConfirmed!==true)return fail('Conferma i diritti di utilizzo dei due brani.');
