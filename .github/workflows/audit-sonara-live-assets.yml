@@ -21,7 +21,7 @@ jobs:
           node-version: '24'
       - name: Build site assets, without deploying
         run: |
-          npm ci
+          npm install
           npm run build
       - name: Compare public production files and local assets (read only)
         run: |
