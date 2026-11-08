@@ -1,3 +1,16 @@
+import { deriveRelayGatewayInternalKey } from './sonara-gateway-verifier.mjs';
+
+// Remix Pro meters three processing passes: source A, source B and final render.
+// Feature remains disabled until owner approval of this quota policy.
+const REMIX_PRO_QUOTA_MULTIPLIER = 3;
+const REMIX_PRO_USAGE_PATH = '/__sonara_internal/remix-pro-usage';
+const REMIX_PRO_ACTIVE_PREFIX = 'remix-pro:active:';
+const REMIX_PRO_JOB_PREFIX = 'relay-v1/pro/jobs/';
+const REMIX_PRO_ALARM_MS = 5 * 60 * 1000;
+const REMIX_PRO_PREPARING_TTL_MS = 10 * 60 * 1000;
+const REMIX_PRO_QUEUED_TTL_MS = 2 * 60 * 60 * 1000;
+const REMIX_PRO_JOB_MAX_AGE_MS = 4 * 60 * 60 * 1000;
+
 const VERSION = 'sonara-native-auth-v2';
 const COOKIE_NAME = 'sonara_session';
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -444,6 +457,216 @@ export class SonaraAuthStore {
     });
   }
 
+  // Durable Objects alarms reconcile unconfirmed cross-service operations
+  // without depending on the GPU agent or a public administrative endpoint.
+  async scheduleRemixProAlarm() {
+    const due = Date.now() + REMIX_PRO_ALARM_MS;
+    const prior = await this.ctx.storage.getAlarm();
+    if (prior === null || prior > due) await this.ctx.storage.setAlarm(due);
+  }
+
+  async settleRemixProAlarm(jobId, action) {
+    const secret = await deriveRelayGatewayInternalKey(this.env);
+    const response = await this.remixProUsage(new Request(
+      'https://sonara.internal' + REMIX_PRO_USAGE_PATH, {
+        method: 'POST', headers: {'content-type':'application/json',
+          'X-Sonara-Internal-Secret':secret},
+        body: JSON.stringify({action,jobId})
+      }
+    ));
+    if (!response.ok) return false;
+    const result = await response.json().catch(()=>({}));
+    return result?.ok === true;
+  }
+
+  async alarm() {
+    const now = Date.now();
+    const prefix = REMIX_PRO_ACTIVE_PREFIX;
+    try {
+      // Bounded pagination avoids starving reservations beyond the first 100.
+      // Each alarm scans up to 500 keys; further keys are handled next alarm.
+      const bucket = this.env?.SONARA_AUDIO_BUCKET;
+      if (!bucket) return;
+      let cursor = '';
+      for (let page = 0; page < 5; page++) {
+      const outstanding = await this.ctx.storage.list({
+        prefix, limit:100, ...(cursor?{startAfter:cursor}:{})
+      });
+      if (!outstanding.size) break;
+      for (const [activeKey, marker] of outstanding) {
+        const id = String(marker?.jobId || activeKey.slice(prefix.length));
+        if (!/^srpro_[0-9a-f-]{36}$/.test(id)) continue;
+        const ledger = await this.ctx.storage.get('remix-pro:quota:' + id);
+        if (!ledger || ledger.status !== 'reserved') {
+          // Index cleanup is safe after a terminal ledger record is observed.
+          await this.ctx.storage.delete(activeKey);
+          continue;
+        }
+        const age = now - Number(ledger.createdAt || now);
+        const objectKey = REMIX_PRO_JOB_PREFIX + id + '.json';
+        let obj;
+        try { obj = await bucket.get(objectKey); } catch { continue; }
+        if (!obj) {
+          if (age >= REMIX_PRO_PREPARING_TTL_MS) {
+            try { await this.settleRemixProAlarm(id, 'refund'); } catch {}
+          }
+          continue;
+        }
+        let job;
+        try { job = await obj.json(); } catch { continue; }
+        if (!job || job.id !== id || job.ownerUid !== ledger.ownerUid ||
+            job.kind !== 'sonara-remix-pro') continue;
+        if (job.status === 'COMPLETE' || job.status === 'FAILED') {
+          try { await this.settleRemixProAlarm(id, job.status === 'COMPLETE' ? 'commit' : 'refund'); } catch {}
+          continue;
+        }
+        const jobAge = now - Number(job.createdAt || now);
+        const expired =
+          (job.status === 'PREPARING' && jobAge > REMIX_PRO_PREPARING_TTL_MS) ||
+          (job.status === 'QUEUED' && jobAge > REMIX_PRO_QUEUED_TTL_MS) ||
+          (job.status === 'LEASED' && job.leaseUntil < now && job.attempts >= 3) ||
+          (jobAge > REMIX_PRO_JOB_MAX_AGE_MS);
+        if (!expired) continue;
+        // Make the job unclaimable BEFORE issuing the refund. Conditional R2
+        // writes protect against a concurrent claim or lease renewal.
+        const failed = {...job,status:'FAILED',stage:'failed',
+          leaseId:null,leaseUntil:0,updatedAt:now,params:null,
+          sourceA:null,sourceB:null};
+        let changed = null;
+        try {
+          changed = await bucket.put(objectKey,JSON.stringify(failed),{
+            httpMetadata:{contentType:'application/json'},
+            onlyIf:{etagMatches:obj.etag}
+          });
+        } catch {}
+        if (changed) {
+          try { await this.settleRemixProAlarm(id,'refund'); } catch {}
+        }
+      }
+      cursor = [...outstanding.keys()].at(-1);
+      if (outstanding.size < 100) break;
+      }
+    } finally {
+      // One alarm per object; keep retrying until every reservation is settled.
+      const remain = await this.ctx.storage.list({prefix,limit:1});
+      if (remain.size) await this.ctx.storage.setAlarm(Date.now() + REMIX_PRO_ALARM_MS);
+    }
+  }
+
+  // Internal-only, fail-closed usage ledger. This path is not forwarded by
+  // handleSonaraNativeAuth, so public sessions cannot call it directly.
+  async remixProUsage(request) {
+    let expected = '';
+    try { expected = await deriveRelayGatewayInternalKey(this.env); } catch {}
+    const supplied = String(request.headers.get('X-Sonara-Internal-Secret') || '');
+    if (!expected || !timingSafeEqual(encoder.encode(supplied), encoder.encode(expected))) {
+      return json({ ok: false, code: 'PRO_USAGE_UNAUTHORIZED' }, 401);
+    }
+    let body;
+    try { body = await request.json(); }
+    catch { return json({ ok: false, code: 'INVALID_JSON' }, 400); }
+    const action = String(body?.action || '');
+    const jobId = String(body?.jobId || '');
+    if (!['reserve', 'verify', 'commit', 'refund'].includes(action) ||
+        !/^srpro_[0-9a-f-]{36}$/.test(jobId)) {
+      return json({ ok: false, code: 'INVALID_PRO_USAGE_REQUEST' }, 400);
+    }
+    const ledgerKey = 'remix-pro:quota:' + jobId;
+    const fault = (code, status) => { throw Object.assign(new Error(code), { status }); };
+    let result = null;
+    try {
+      if (action === 'reserve') {
+        const record = await this.authenticatedSession(request);
+        const ownerUid = String(body?.ownerUid || '');
+        const seconds = Number(body?.seconds);
+        if (!record || !ownerUid || record.user.uid !== ownerUid) {
+          return json({ ok: false, code: 'AUTH_REQUIRED' }, 401);
+        }
+        if (!Number.isInteger(seconds) || seconds < 10 || seconds > 120) {
+          return json({ ok: false, code: 'INVALID_PRO_DURATION' }, 400);
+        }
+        await this.scheduleRemixProAlarm();
+        await this.ctx.storage.transaction(async txn => {
+          const prior = await txn.get(ledgerKey);
+          if (prior) {
+            if (prior.ownerUid !== ownerUid || prior.seconds !== seconds ||
+                prior.status !== 'reserved') fault('PRO_RESERVATION_CONFLICT', 409);
+            await txn.put(REMIX_PRO_ACTIVE_PREFIX + jobId,{jobId,createdAt:prior.createdAt});
+            result = { ok: true, reservationStatus: 'reserved',
+              chargedSeconds: prior.chargedSeconds, reused: true };
+            return;
+          }
+          const user = await txn.get(record.userKey);
+          if (!user || user.uid !== ownerUid || user.status !== 'active') fault('AUTH_REQUIRED', 401);
+          const now = Date.now();
+          const period = monthPeriod(now);
+          if (Number(user.usagePeriodStart || 0) !== period.start ||
+              Number(user.usagePeriodEnd || 0) !== period.end) {
+            user.usagePeriodStart = period.start;
+            user.usagePeriodEnd = period.end;
+            user.usageSeconds = 0;
+            user.videoCreditsUsed = 0;
+          }
+          const bill = billingSnapshot(user, now);
+          if (bill.planId !== 'studio') fault('PRO_STUDIO_PLAN_REQUIRED', 403);
+          if (seconds > bill.maxTrackSeconds) fault('TRACK_DURATION_LIMIT', 403);
+          if (user.proActiveJobId && user.proActiveJobId !== jobId) fault('PRO_JOB_ALREADY_ACTIVE', 409);
+          const chargedSeconds = seconds * REMIX_PRO_QUOTA_MULTIPLIER;
+          if (chargedSeconds > bill.remainingSeconds) fault('USAGE_LIMIT_REACHED', 402);
+          user.usageSeconds = bill.usedSeconds + chargedSeconds;
+          user.proActiveJobId = jobId;
+          await txn.put(record.userKey, user);
+          await txn.put(ledgerKey, {
+            jobId, ownerUid, userKey: record.userKey, seconds, chargedSeconds,
+            periodStart: period.start, status: 'reserved', createdAt: now
+          });
+          await txn.put(REMIX_PRO_ACTIVE_PREFIX + jobId,{jobId,createdAt:now});
+          result = { ok: true, reservationStatus: 'reserved',
+            chargedSeconds, reused: false };
+        });
+      } else if (action === 'verify') {
+        const ownerUid = String(body?.ownerUid || '');
+        const seconds = Number(body?.seconds);
+        const entry = await this.ctx.storage.get(ledgerKey);
+        if (!entry || entry.status !== 'reserved' ||
+            entry.ownerUid !== ownerUid || entry.seconds !== seconds) {
+          return json({ ok: false, code: 'PRO_RESERVATION_NOT_VALID' }, 409);
+        }
+        result = { ok: true, reservationStatus: 'reserved',
+          chargedSeconds: entry.chargedSeconds };
+      } else {
+        await this.ctx.storage.transaction(async txn => {
+          const entry = await txn.get(ledgerKey);
+          if (!entry) fault('PRO_RESERVATION_NOT_FOUND', 404);
+          if (entry.status === 'refunded' && action === 'commit') fault('PRO_ALREADY_REFUNDED', 409);
+          if (entry.status === 'committed' && action === 'refund') fault('PRO_ALREADY_COMMITTED', 409);
+          if (entry.status !== 'reserved') {
+            result = { ok: true, reservationStatus: entry.status, changed: false };
+            return;
+          }
+          const user = await txn.get(entry.userKey);
+          if (!user || user.uid !== entry.ownerUid) fault('PRO_USER_NOT_FOUND', 503);
+          const nextStatus = action === 'commit' ? 'committed' : 'refunded';
+          if (nextStatus === 'refunded' &&
+              Number(user.usagePeriodStart || 0) === Number(entry.periodStart)) {
+            user.usageSeconds = Math.max(0, Number(user.usageSeconds || 0) - entry.chargedSeconds);
+          }
+          if (user.proActiveJobId === jobId) delete user.proActiveJobId;
+          await txn.put(entry.userKey, user);
+          await txn.put(ledgerKey, { ...entry, status: nextStatus, settledAt: Date.now() });
+          await txn.delete(REMIX_PRO_ACTIVE_PREFIX + jobId);
+          result = { ok: true, reservationStatus: nextStatus, changed: true };
+        });
+      }
+    } catch (error) {
+      const code = String(error?.message || 'PRO_USAGE_STORAGE_FAILED');
+      return json({ ok: false, code: /^([A-Z0-9_]+)$/.test(code) ? code :
+        'PRO_USAGE_STORAGE_FAILED' }, Number(error?.status || 503));
+    }
+    return json(result || { ok: false, code: 'PRO_USAGE_STORAGE_FAILED' },
+      result ? 200 : 503);
+  }
+
   async grantStudioGift(request) {
     let body;
     try { body = await request.json(); } catch { return json({ ok: false, code: 'INVALID_JSON', message: 'Richiesta non valida.' }, 400); }
@@ -567,6 +790,7 @@ export class SonaraAuthStore {
   async fetch(request) {
     if (!allowedOrigin(request)) return json({ ok: false, code: 'ORIGIN_DENIED', message: 'Origine non autorizzata.' }, 403);
     const url = new URL(request.url);
+    if (request.method === 'POST' && url.pathname === REMIX_PRO_USAGE_PATH) return this.remixProUsage(request);
     if (request.method === 'POST' && url.pathname.endsWith('/register')) return this.register(request);
     if (request.method === 'POST' && url.pathname.endsWith('/login')) return this.login(request);
     if (request.method === 'GET' && url.pathname.endsWith('/session')) return this.session(request);

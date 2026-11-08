@@ -35,6 +35,50 @@ macchina e revisione agente; per scaricare audio sorgente serve anche
 il lease del job. I WAV e gli stem finali sono recuperabili
 esclusivamente dal proprietario autenticato; non sono URL pubblici.
 
+## Contabilizzazione Remix Pro (PR di revisione, non attiva)
+
+L'integrazione proposta tiene i flag Remix Pro **spenti** finché i test automatici
+e il collaudo end-to-end non sono conclusi. Un job Pro di durata N secondi
+prenota **3 × N secondi** del piano Studio (analisi delle due sorgenti più
+rigenerazione finale): questo moltiplicatore è una **politica proposta** e deve
+essere approvato prima del rilascio commerciale.
+
+- Il Worker genera un ID `srpro_*`, chiede una prenotazione atomica
+  all'archivio account SONARA tramite endpoint interno firmato e soltanto
+  dopo accoda il job in R2.
+- La coda rifiuta ID non prenotati e non rende eseguibili job ancora in
+  preparazione. Il Worker conferma il consumo con `complete` o rimborsa con
+  `fail`, in modo idempotente.
+- Il Durable Object pianifica alarm ogni cinque minuti per ricontrollare
+  prenotazioni aperte: PREPARING oltre dieci minuti, QUEUED oltre due ore,
+  lease esauriti e job oltre quattro ore. Prima scrive FAILED in R2 con
+  precondizione ETag; solo dopo tenta il rimborso idempotente.
+- Per i job terminali in R2 (COMPLETE/FAILED) l'alarm completa il settlement
+  contabile se l'agente si è interrotto tra i due salvataggi.
+- Se il job audio è già terminale e la contabilizzazione non risponde,
+  l'API restituisce `202` con `ok:true` e `settlementPending:true`:
+  l'agente non deve convertire un master WAV completato in un fallimento.
+  Il registro viene poi riconciliato dall'alarm.
+- Una risposta d'errore dall'accodamento non implica che l'operazione R2
+  sia fallita: il gateway non rimborsa immediatamente, conserva l'ID del job
+  e il sito lo riprende per permettere la riconciliazione.
+- La scansione dei job usa paginazione limitata a 500 marker per allarme
+  e riprende le rimanenti prenotazioni nell'allarme successivo.
+- Il recupero è best-effort e non costituisce una transazione distribuita.
+  Bucket R2 non disponibile, stati ambigui e conflitti ETag restano
+  prenotati e devono essere ritentati senza rimborsi alla cieca.
+- Nessuna sessione browser autorizza direttamente modifiche al ledger.
+  I job dell'altro utente e i token rimangono privati.
+
+**Limite per il go-live:** Durable Object e R2 non condividono una singola
+transazione atomica. I test di alarm automatizzati coprono stati terminali,
+PREPARING orfani e lease scaduti, ma è ancora indispensabile un collaudo
+end-to-end su Worker reale con interruzioni forzate, ETag concorrenti,
+storage temporaneamente non disponibile e almeno un job musicale reale
+autorizzato, con prova di quota e rimborso.
+Non abilitare `SONARA_REMIX_PRO_BILLING_READY` solo sulla base dei test
+unitari o del preflight GPU.
+
 ## Job indipendente
 
 ```text
@@ -124,3 +168,41 @@ Remix classico. Non spostare il suo token in variabili client,
 non rendere il bucket pubblico e non utilizzare tunnel esterni.
 Non interpretare un heartbeat come prova di qualità musicale.
 
+
+
+## Collaudo reale GPU A+B, isolato dalla coda e dal billing
+
+Il runner `molab/sonara_remix_pro_live_qa.py` esegue un **vero** test end-to-end,
+senza ricorrere a finti WAV o job: separazione Demucs delle due sorgenti,
+un'unica traccia arrangiata A+B, un task cover ACE-Step sulla API locale
+già esistente, mastering misurato e audit WAV. Non avvia né riavvia ACE-Step,
+non scrive nel bucket R2 e non consuma quote utente sul sito.
+
+Eseguirlo solo in MoLab, nell'ambiente indipendente
+`/marimo/SONARA-REMIX-PRO/.venv`, dopo aver collocato **due WAV reali con
+licenza/autorizzazione** sotto `/marimo`. I path reali devono essere passati
+dall'operatore; nessun audio dimostrativo viene generato o scaricato.
+
+```sh
+/marimo/SONARA-REMIX-PRO/.venv/bin/python \
+  /marimo/SONARA-REMIX-PRO/sonara_remix_pro_live_qa.py \
+  --source-a /marimo/INPUT_A_AUTORIZZATO.wav \
+  --source-b /marimo/INPUT_B_AUTORIZZATO.wav \
+  --rights-confirmed \
+  --prompt "Fuse the authentic melodic identity of A with the natural groove of B into one coherent remix" \
+  --bpm-a 120 --bpm-b 122 \
+  --duration 30 --auth-mode required
+```
+
+La conferma dei diritti, la presenza delle sorgenti, la venv isolata e
+l'autenticazione locale sono obbligatorie. L'output è salvato in una
+nuova sottocartella privata `private-local-qa/qa_*` con `mastered.wav`
+e `qa-report.json` (nessuna sovrascrittura). Il risultato
+`SONARA_QA_AUDIO_TECHNICAL_PASS=True` prova soltanto che il file supera
+i controlli numerici; **non prova la qualità artistica o l'effettiva
+somiglianza/compatibilità delle sorgenti**. Verificare ascoltando voce,
+batteria, armonie, transizioni e artefatti prima dell'approvazione.
+
+Non attivare `SONARA_REMIX_PRO_ENABLED` o
+`SONARA_REMIX_PRO_BILLING_READY` prima dell'approvazione della politica
+di consumo, del test reale e della verifica del sito.

@@ -4,12 +4,16 @@ on:
     paths:
       - 'cloudflare/sonara-remix-pro-r2.mjs'
       - 'cloudflare/sonara-remix-pro-r2.test.mjs'
+      - 'cloudflare/sonara-remix-pro-usage.test.mjs'
+      - 'cloudflare/sonara-native-auth.mjs'
       - 'cloudflare/sonara-r2-https-relay.mjs'
       - 'cloudflare/sonara-ab-player-visibility-edge.mjs'
       - 'src/components/remix/SonaraRemixProPanel.tsx'
       - 'src/components/remix/SonaraRemixSection.tsx'
       - 'molab/sonara_remix_pro_r2_agent.py'
       - 'molab/test_sonara_remix_pro_import_path.py'
+      - 'molab/sonara_remix_pro_live_qa.py'
+      - 'molab/test_sonara_remix_pro_live_qa.py'
       - '.github/workflows/test-sonara-remix-pro-integration.yml'
   workflow_dispatch:
 permissions:
@@ -27,12 +31,18 @@ jobs:
           node-version: '24'
       - name: Pro billing and source ownership tests
         run: node --test cloudflare/sonara-remix-pro-r2.test.mjs
+      - name: Durable Remix Pro native quota accounting tests
+        run: node --test cloudflare/sonara-remix-pro-usage.test.mjs
       - name: Legacy Remix R2 remains unchanged
         run: node --test cloudflare/sonara-remix-r2.test.mjs
       - name: MoLab Python syntax only (never downloads models)
         run: python3 -m py_compile molab/sonara_remix_pro_r2_agent.py
       - name: Verify Marimo Python import path regression
         run: python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_import_path.py' -v
+      - name: Verify isolated real two-WAV QA runner
+        run: |
+          python3 -m py_compile molab/sonara_remix_pro_live_qa.py
+          python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_live_qa.py' -v
       - name: Build actual SONARA site
         run: |
           npm install
