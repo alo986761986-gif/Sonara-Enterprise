@@ -78,7 +78,7 @@ def run(args) -> dict:
     )
     from sonara_remix_pro_fusion import (
         make_structural_guide, make_independent_style_reference, build_fusion_prompt,
-        select_fusion_tempo,
+        select_fusion_tempo, ensure_distinct_sources,
     )
     from sonara_remix_pro_ace_bridge import render_long_remix as ace_cover
     from sonara_remix_pro_quality import audit_wav, audit_remix
@@ -95,6 +95,8 @@ def run(args) -> dict:
     os.environ["TORCH_HOME"] = str(ROOT / "model-cache")
     os.environ["XDG_CACHE_HOME"] = str(ROOT / "private-cache")
 
+    ensure_distinct_sources(a, b)
+    print("SONARA_QA_SOURCES_DISTINCT=True", flush=True)
     print("SONARA_QA_START=AUTHORIZED_TWO_WAV", flush=True)
     print("SONARA_QA_LOCAL_ONLY=True", flush=True)
     print("SONARA_QA_BILLING_UNCHANGED=True", flush=True)
