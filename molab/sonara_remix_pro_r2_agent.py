@@ -298,6 +298,8 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description="Isolated SONARA Remix Pro agent")
     parser.add_argument("--auth-mode",choices=("none","required"),default="required")
     parser.add_argument("--once",action="store_true")
+    parser.add_argument("--preflight",action="store_true",
+                        help="Verify CUDA and authenticated Pro heartbeat; never claim a job")
     args=parser.parse_args(argv)
     if not (ROOT/".venv/bin/python").resolve()==Path(__import__("sys").executable).resolve():
         raise ProAgentError("Refusing to run in the live ACE-Step environment")
@@ -328,6 +330,20 @@ def main(argv=None):
         if float((sample @ sample)[0,0]) != 8.0:
             raise ProAgentError("CUDA kernel test failed")
     print("SONARA Remix Pro agent initialized; independent HTTPS/443 queue.",flush=True)
+    if args.preflight:
+        beat = request("POST", "/api/sonara-relay/pro-heartbeat", {"gpuReady": True})
+        if beat.get("authenticated") is not True:
+            raise ProAgentError("Private Pro heartbeat not authenticated")
+        caps = request("GET", "/api/sonara-relay/pro-capabilities")
+        print("PRO_GPU_VERIFIED=True",flush=True)
+        print("PRO_AGENT_AUTHENTICATED=True",flush=True)
+        print("PRO_AGENT_REVISION="+REVISION,flush=True)
+        print("PRO_SITE_GENERATION_AVAILABLE="+str(caps.get("available") is True),flush=True)
+        print("PRO_BILLING_GATE_STILL_REQUIRED="+str(caps.get("available") is not True),flush=True)
+        print("PRO_JOBS_CLAIMED=0",flush=True)
+        print("ACE_STEP_UNMODIFIED=True",flush=True)
+        status("preflight_ready")
+        return
     while not STOP:
         try:
             request("POST","/api/sonara-relay/pro-heartbeat",{"gpuReady":True})
