@@ -24,12 +24,12 @@ import sys
 ROOT = Path("/marimo/SONARA-REMIX-PRO")
 VENV_PYTHON = ROOT / ".venv/bin/python"
 AGENT_LOCK = Path.home() / ".sonara/remix-pro-agent.lock"
-PINNED_COMMIT = "8cfee2eb8d441a1d9699f5e1bbfa3aa3511fe572"
+PINNED_COMMIT = "8dc109531c2db3d5afe846be01ff774b7e72ff8b"
 EXPECTED = {
-    "sonara_remix_pro_fusion.py": "4925e34d08f6276f1ea0c86711b1836f91b589fb",
+    "sonara_remix_pro_fusion.py": "1c747f54f53748aee932332215a6bea86afc2fb7",
     "sonara_remix_pro_ace_bridge.py": "649fffef1858dc9f55ea62efc51f8f7ed5429656",
-    "sonara_remix_pro_r2_agent.py": "4740a13811fddc719ce7ff817449a635d72bf86c",
-    "sonara_remix_pro_live_qa.py": "cc4d5b0e951f3620cf8061780c740e8a7c582dec",
+    "sonara_remix_pro_r2_agent.py": "a60d15052c64a573b729136b679a6659e8b7078e",
+    "sonara_remix_pro_live_qa.py": "e214c53dd9c2a02fe9dfd912d1ab93ac11753413",
 }
 URL_ROOT = (
     "https://raw.githubusercontent.com/alo986761986-gif/"
