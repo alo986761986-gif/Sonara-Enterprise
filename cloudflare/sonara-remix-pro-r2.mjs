@@ -41,7 +41,7 @@ const FAILURE_NOTICES=Object.freeze({
   SOURCE_DECODER_FAILED:'Impossibile decodificare l’audio sorgente: controlla formato e durata.',
   SOURCE_OVERSIZE:'File audio sorgente oltre il limite di 512 MiB.',
   SOURCE_TRANSFER_INVALID:'Download audio incompleto o non valido, senza riutilizzare file parziali.',
-  REMIX_INVALID_DURATION:'Durata Remix non valida: seleziona da 0:30 a 8:00 in passi da 30 secondi.',
+  REMIX_INVALID_DURATION:'Durata Remix non valida: deve essere compresa tra 2:00 e 5:00, in passi da 30 secondi.',
   REMIX_DURATION_MISMATCH:'Il motore non ha prodotto un unico brano A+B della durata scelta. Nessun risultato incompleto è stato pubblicato.',
   REMIX_PROCESSING_ERROR:'Errore durante l’elaborazione audio GPU. Verifica lo stato dell’agente MoLab.'
 });
@@ -148,7 +148,7 @@ async function enqueue(req,e,auth,b) {
   if(!body||typeof body!=='object'||Array.isArray(body))return fail('Invalid JSON');
   const id=String(body.jobId||'');
   const duration=Number(body.durationSec);
-  if(!idPattern.test(id)||!Number.isInteger(duration)||duration<30||duration>480)
+  if(!idPattern.test(id)||!Number.isInteger(duration)||duration<120||duration>300||duration%30!==0)
     return fail('Prenotazione e durata Remix Pro non valide.',400);
   // The job id must be allocated by the authenticated native billing gateway.
   if(await b.head(jobKey(id)))return fail('Job gia accodato.',409);
