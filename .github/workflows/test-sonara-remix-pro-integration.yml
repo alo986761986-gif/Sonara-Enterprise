@@ -17,6 +17,7 @@ on:
       - 'molab/test_sonara_remix_pro_multiformat.py'
       - 'molab/test_sonara_remix_pro_import_path.py'
       - 'molab/test_sonara_remix_pro_r2_download.py'
+      - 'molab/test_sonara_remix_pro_wavex.py'
       - 'molab/sonara_remix_pro_live_qa.py'
       - 'molab/test_sonara_remix_pro_live_qa.py'
       - '.github/workflows/test-sonara-remix-pro-integration.yml'
@@ -52,6 +53,10 @@ jobs:
           ffprobe -version
       - name: Private R2 ranged download and safe error regression tests
         run: python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_r2_download.py' -v
+      - name: Real libsndfile WAVEX PCM and float regression tests
+        run: |
+          python3 -m pip install --user soundfile==0.13.1
+          python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_wavex.py' -v
       - name: Real offline MP3 decoder and video rejection tests
         run: python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_multiformat.py' -v
       - name: Verify Marimo Python import path regression
