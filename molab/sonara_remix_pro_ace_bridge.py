@@ -226,7 +226,7 @@ def render_long_remix(audio_path, output_path, prompt, *, mode="required",
                         noise=noise, bpm=bpm, key=key,
                         timeout_seconds=min(timeout_seconds, 1600))
         with sf.SoundFile(str(final)) as got:
-            if abs(got.duration - source_frames/sr) > 2:
+            if abs((got.frames / got.samplerate) - source_frames/sr) > 2:
                 final.unlink(missing_ok=True)
                 raise ACEBridgeError("ACE-Step returned a shortened cover instead of requested music")
         return {**result, "longForm": False, "segmentCount": 1,
