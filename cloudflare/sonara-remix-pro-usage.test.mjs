@@ -64,30 +64,30 @@ function setup({used=0,studio=true}={}){
   return {op,values,store,objects,storage};
 }
 
-test('Pro requires active Studio and exact quota, including zero',async()=>{
+test('Pro requires active Studio but does not check or consume remaining minutes',async()=>{
   const free=setup({studio:false});
   assert.equal((await free.op('reserve',job(1))).http,403);
   const noQuota=setup({used:500*60});
-  assert.equal((await noQuota.op('reserve',job(1))).http,402);
+  assert.equal((await noQuota.op('reserve',job(1))).http,200);
   assert.equal(noQuota.values.get(userKey).usageSeconds,500*60);
   const near=setup({used:500*60-89});
-  assert.equal((await near.op('reserve',job(1))).http,402);
+  assert.equal((await near.op('reserve',job(1))).http,200);
   assert.equal(near.values.get(userKey).usageSeconds,500*60-89);
 });
 
-test('Pro reservation is idempotent; one active job and triple-pass metering',async()=>{
+test('Pro reservation is idempotent; one active job and zero-minute metering',async()=>{
   const s=setup();
   const first=await s.op('reserve',job(1));
   assert.equal(first.http,200);
-  assert.equal(first.body.chargedSeconds,90);
+  assert.equal(first.body.chargedSeconds,0);
   assert.equal((await s.op('reserve',job(1))).body.reused,true);
-  assert.equal(s.values.get(userKey).usageSeconds,90);
+  assert.equal(s.values.get(userKey).usageSeconds,0);
   assert.equal((await s.op('reserve',job(2))).http,409);
   assert.equal((await s.op('verify',job(1))).http,200);
   assert.equal((await s.op('verify',job(1),31)).http,409);
   assert.equal((await s.op('commit',job(1),0,uid,false)).http,200);
   assert.equal((await s.op('commit',job(1),0,uid,false)).body.changed,false);
-  assert.equal(s.values.get(userKey).usageSeconds,90);
+  assert.equal(s.values.get(userKey).usageSeconds,0);
   assert.equal((await s.op('refund',job(1),0,uid,false)).http,409);
   assert.equal((await s.op('reserve',job(2))).http,200);
 });
@@ -117,9 +117,9 @@ test('Alarm refunds an orphan reservation after grace period only',async()=>{
   const s=setup();
   const id=job(4);
   assert.equal((await s.op('reserve',id)).http,200);
-  assert.equal(s.values.get(userKey).usageSeconds,90);
+  assert.equal(s.values.get(userKey).usageSeconds,0);
   await s.store.alarm();
-  assert.equal(s.values.get(userKey).usageSeconds,90);
+  assert.equal(s.values.get(userKey).usageSeconds,0);
   const ledger=s.values.get('remix-pro:quota:'+id);
   ledger.createdAt=Date.now()-11*60*1000;
   s.values.set('remix-pro:quota:'+id,ledger);
@@ -139,9 +139,9 @@ test('Alarm finalizes completed job exactly once',async()=>{
   });
   await s.store.alarm();
   assert.equal(s.values.get('remix-pro:quota:'+id).status,'committed');
-  assert.equal(s.values.get(userKey).usageSeconds,90);
+  assert.equal(s.values.get(userKey).usageSeconds,0);
   await s.store.alarm();
-  assert.equal(s.values.get(userKey).usageSeconds,90);
+  assert.equal(s.values.get(userKey).usageSeconds,0);
 });
 
 test('Alarm terminalizes expired lease before refund',async()=>{
@@ -181,7 +181,7 @@ test('Alarm never refunds when R2 read fails',async()=>{
   s.store.env.SONARA_AUDIO_BUCKET.get=async()=>{throw new Error('temporary R2 outage')};
   await s.store.alarm();
   assert.equal(s.values.get('remix-pro:quota:'+id).status,'reserved');
-  assert.equal(s.values.get(userKey).usageSeconds,90);
+  assert.equal(s.values.get(userKey).usageSeconds,0);
 });
 
 test('Alarm never refunds an expired job if conditional R2 update loses the race',async()=>{
@@ -196,7 +196,7 @@ test('Alarm never refunds an expired job if conditional R2 update loses the race
   s.store.env.SONARA_AUDIO_BUCKET.put=async()=>null;
   await s.store.alarm();
   assert.equal(s.values.get('remix-pro:quota:'+id).status,'reserved');
-  assert.equal(s.values.get(userKey).usageSeconds,90);
+  assert.equal(s.values.get(userKey).usageSeconds,0);
 });
 
 test('Alarm paginates beyond 100 active markers without starving a real reservation',async()=>{
@@ -221,9 +221,22 @@ test('Studio can reserve a full eight-minute Remix Pro but rejects 481s',async()
   const s=setup();
   const result=await s.op('reserve',job(42),480);
   assert.equal(result.http,200);
-  assert.equal(result.body.chargedSeconds,1440);
-  assert.equal(s.values.get(userKey).usageSeconds,1440);
+  assert.equal(result.body.chargedSeconds,0);
+  assert.equal(s.values.get(userKey).usageSeconds,0);
   assert.equal((await s.op('refund',job(42),0,uid,false)).http,200);
   assert.equal(s.values.get(userKey).usageSeconds,0);
   assert.equal((await s.op('reserve',job(43),481)).http,400);
+});
+
+test('Refund preserves previously billed legacy reservations without changing new zero-charge jobs',async()=>{
+  const s=setup({used:90});
+  const id=job(77);
+  const reservation=await s.op('reserve',id);
+  assert.equal(reservation.http,200);
+  assert.equal(reservation.body.chargedSeconds,0);
+  assert.equal(s.values.get(userKey).usageSeconds,90);
+  const old=s.values.get('remix-pro:quota:'+id);
+  s.values.set('remix-pro:quota:'+id,{...old,chargedSeconds:90});
+  assert.equal((await s.op('refund',id,0,uid,false)).http,200);
+  assert.equal(s.values.get(userKey).usageSeconds,0);
 });
