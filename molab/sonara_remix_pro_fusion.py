@@ -107,6 +107,41 @@ def make_independent_style_reference(source_b, destination, max_seconds=45):
         raise
 
 
+
+def select_fusion_tempo(explicit_a, report_a, explicit_b, report_b):
+    """Use a verified musical tempo when known; never block creative fusion otherwise.
+
+    A user-selected tempo takes priority. The analyzer may be uncertain on
+    syncopated/ambient tracks; B's tempo may provide a useful fallback, and
+    finally the generator is allowed to infer tempo from its audio references.
+    """
+    def parsed(value, explicit):
+        if value is None or value == "":
+            return None
+        try:
+            number = float(value)
+        except (ValueError, TypeError, OverflowError):
+            if explicit:
+                raise FusionPlanError("Invalid user-selected BPM")
+            return None
+        if not math.isfinite(number) or not 30 <= number <= 300:
+            if explicit:
+                raise FusionPlanError("Selected BPM must be between 30 and 300")
+            return None
+        return round(number, 2)
+
+    for value, explicit in (
+        (explicit_a, True),
+        (report_a.get("tempoBpm"), False),
+        (explicit_b, True),
+        (report_b.get("tempoBpm"), False),
+    ):
+        found = parsed(value, explicit)
+        if found is not None:
+            return found
+    return None
+
+
 def build_fusion_prompt(creator_prompt, report_a, report_b):
     """Build a creative brief from real measured facts, without fake music tags."""
     creator = str(creator_prompt or "").strip()
