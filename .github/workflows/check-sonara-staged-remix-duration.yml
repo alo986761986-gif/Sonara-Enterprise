@@ -46,7 +46,11 @@ jobs:
             activeVersion:active,stagedVersion:id,
             productionUnchanged:active==='bbedc676-8792-4421-85b3-913e74270686',
             accountSubdomainAvailable:!!subdomain.result?.subdomain,
-            workerPreviewEnabled:workerSub.result?.previews_enabled===true
+            workerPreviewEnabled:workerSub.result?.previews_enabled===true,
+            workerDevEnabled:workerSub.result?.enabled===true,
+            versionFields:Object.keys(version.result||{}).slice(0,30),
+            versionPreviewAvailable:version.result?.metadata?.hasPreview??version.result?.hasPreview??null,
+            versionURLs:Array.isArray(version.result?.urls)?version.result.urls.slice(0,3):[]
           }));
           const slug=subdomain.result?.subdomain;
           if(typeof slug!=='string'||!/^[a-z0-9-]+$/.test(slug))process.exit(0);
@@ -59,7 +63,10 @@ jobs:
               kind:'versionUrl',http:r.status,
               contentType:r.headers.get('content-type'),
               durationScriptMarker:text.includes('sonara-remix-pro-duration-edge-v2'),
-              durationHeader:r.headers.get('x-sonara-remix-pro-duration-lock')||null
+              durationHeader:r.headers.get('x-sonara-remix-pro-duration-lock')||null,
+              server:r.headers.get('server')||null,
+              byteLength:text.length,
+              workerVersionHeader:r.headers.get('x-sonara-ab-player-fix')||null
             }));
           }catch(e){console.log('STAGED_READONLY',JSON.stringify({kind:'versionUrl',error:e?.name||'Error'}));}
           NODE
