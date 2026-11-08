@@ -98,12 +98,12 @@ async function enqueue(req,e,auth,b) {
     return fail('Prenotazione e durata Remix Pro non valide.',400);
   // The job id must be allocated by the authenticated native billing gateway.
   if(await b.head(jobKey(id)))return fail('Job gia accodato.',409);
-  if(!(await proQuota(e,'verify',id,uid,duration)))return fail('Quota Remix Pro non prenotata.',409);
   if(body.rightsConfirmed!==true)return fail('Conferma i diritti di utilizzo dei due brani.');
   const a=String(body.sourceA||''),c=String(body.sourceB||'');
   if(a===c)return fail('Seleziona due sorgenti differenti.');
   const refs=await Promise.all([ownedReference(b,a,uid),ownedReference(b,c,uid)]);
   if(refs.some(v=>!v))return fail('Una sorgente non è tua, è scaduta oppure non è un WAV valido.',404);
+if(!(await proQuota(e,'verify',id,uid,duration)))return fail('Quota Remix Pro non prenotata.',409);
   const jobs=await b.list({prefix:P+'jobs/',limit:100});
   for(const item of jobs.objects||[]) {
     const old=await readJson(await b.get(item.key));
