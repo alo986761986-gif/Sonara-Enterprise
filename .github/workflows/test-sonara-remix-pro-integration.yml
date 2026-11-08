@@ -11,6 +11,7 @@ on:
       - 'cloudflare/sonara-native-auth.mjs'
       - 'cloudflare/sonara-r2-https-relay.mjs'
       - 'cloudflare/sonara-ab-player-visibility-edge.mjs'
+      - 'cloudflare/sonara-relay-gateway-entry.mjs'
       - 'cloudflare/sonara-remix-pro-duration-edge.mjs'
       - 'cloudflare/sonara-remix-pro-duration-edge.test.mjs'
       - 'src/components/remix/SonaraRemixProPanel.tsx'
