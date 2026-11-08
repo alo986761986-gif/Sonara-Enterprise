@@ -73,11 +73,39 @@ export default function SonaraRemixProPanel({ initialSources = null }: RemixProP
     const previous=(()=>{try{return sessionStorage.getItem(KEY)||'';}catch{return '';}})();
     if(isJob(previous)){activeJob.current=previous;setJob({jobId:previous,status:'PROCESSING',progress:0});
       setInfo('Recupero un job precedente. La sua durata potrebbe essere diversa dalla nuova selezione.');}
-    fetch('/api/sonara-relay/pro-capabilities',{cache:'no-store',credentials:'include'})
-      .then(r=>r.ok?r.json():{available:false})
-      .then(x=>{if(mounted.current){setAvailable(x.available===true&&x.fusionAvailable===true);setMultiformatAvailable(x.multiformatAvailable===true);}})
-      .catch(()=>{if(mounted.current)setAvailable(false);});
-    return()=>{mounted.current=false;};
+    // A freshly deployed Cloudflare Worker is NOT evidence of a running V3
+    // GPU. Recheck a real, version-matched heartbeat so an already-open page
+    // becomes usable as soon as the MoLab V3 agent connects.
+    let inFlight=false;
+    let cancel=false;
+    const refresh=async()=>{
+      if(inFlight||cancel||document.hidden)return;
+      inFlight=true;
+      try {
+        const response=await fetch('/api/sonara-relay/pro-capabilities',
+          {cache:'no-store',credentials:'include'});
+        const caps=response.ok?await response.json():{};
+        if(!cancel&&mounted.current){
+          const ready=caps.available===true &&
+            caps.fusionAvailable===true &&
+            caps.expectedAgentRevision==='sonara-remix-pro-r2-agent-v3-dual-reference-fusion';
+          setAvailable(ready);
+          setMultiformatAvailable(ready&&caps.multiformatAvailable===true);
+        }
+      }catch{
+        if(!cancel&&mounted.current){setAvailable(false);setMultiformatAvailable(false);}
+      }finally{inFlight=false;}
+    };
+    void refresh();
+    const timer=window.setInterval(()=>{void refresh();},10000);
+    const onVisibility=()=>{if(!document.hidden)void refresh();};
+    document.addEventListener('visibilitychange',onVisibility);
+    return()=>{
+      cancel=true;
+      mounted.current=false;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange',onVisibility);
+    };
   },[]);
 
   useEffect(()=>{
