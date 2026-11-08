@@ -24,7 +24,7 @@ def avvia_sonara_remix_pro_v3_ab():
     with urlopen(url, timeout=35) as risposta:
         codice = risposta.read(200000)
     hash_git = hashlib.sha1(
-        b"blob " + str(len(codice)).encode() + b"\\0" + codice
+        b"blob " + str(len(codice)).encode() + b"\0" + codice
     ).hexdigest()
     assert hash_git == blob_verificato, "File modificato: installazione annullata"
     with tempfile.TemporaryDirectory(prefix="sonara-remix-v3-") as cartella:
