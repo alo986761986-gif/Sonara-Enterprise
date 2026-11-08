@@ -153,10 +153,23 @@ jobs:
           requireValue(sub?.enabled===true,
             'Isolated staging worker URL unavailable; do not publish');
           const stagedUrl='https://'+nextScript+'.'+subdomain+'.workers.dev/';
-          const stage=await fetch(stagedUrl,{signal:AbortSignal.timeout(20000)});
-          const stageHtml=await stage.text();
-          requireValue(stage.ok&&stage.headers.get('x-sonara-duration-shell')==='auto-v1'&&
-            stageHtml===patched,'Staged HTML does not match intended exact response');
+          let stageValid=false;
+          for(let attempt=0;attempt<7;attempt++){
+            if(attempt)await new Promise(resolve=>setTimeout(resolve,2500));
+            const stage=await fetch(stagedUrl+'?stage_check='+attempt,{
+              headers:{'Cache-Control':'no-store'},signal:AbortSignal.timeout(20000)});
+            const stageHtml=await stage.text();
+            const header=stage.headers.get('x-sonara-duration-shell');
+            stageValid=stage.ok&&header==='auto-v1'&&stageHtml===patched;
+            console.log('SONARA_AUTO_STAGE',JSON.stringify({
+              attempt:attempt+1,http:stage.status,header,
+              htmlBytes:stageHtml.length,expectedBytes:patched.length,
+              hasNewScript:stageHtml.includes('sonara-remix-auto-duration-v1'),
+              stageValid
+            }));
+            if(stageValid)break;
+          }
+          requireValue(stageValid,'Staged HTML does not match intended exact response');
           requireValue((await json(mainPath)).deployments?.[0]?.versions?.[0]?.version_id===mainBefore,
             'Main Worker changed during staging');
           const beforePublish=await json(routePath);
