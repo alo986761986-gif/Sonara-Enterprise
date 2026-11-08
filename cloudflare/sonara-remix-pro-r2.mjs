@@ -199,7 +199,8 @@ async function claim(e,b,ctx){
   }
   return {jobId:null};
 }
-async function privateAudio(req,b,key) {
+async function privateAudio(req,b,key,format='wav') {
+  const mime=audioContentType(format)||'audio/wav';
   const head=await b.head(key);
   if(!head)return fail('File non trovato',404);
   const range=String(req.headers.get('range')||'');
@@ -211,11 +212,11 @@ async function privateAudio(req,b,key) {
     if(!Number.isSafeInteger(start)||!Number.isSafeInteger(end)||start<0||start> end||start>=head.size)return fail('Range not satisfiable',416);
     const obj=await b.get(key,{range:{offset:start,length:end-start+1}});
     if(!obj)return fail('File non trovato',404);
-    return new Response(obj.body,{status:206,headers:{'content-type':'audio/wav','cache-control':'private,no-store',
+    return new Response(obj.body,{status:206,headers:{'content-type':mime,'cache-control':'private,no-store',
       'accept-ranges':'bytes','content-range':`bytes ${start}-${end}/${head.size}`,'content-length':String(end-start+1)}});
   }
   const obj=await b.get(key);
-  return obj?new Response(obj.body,{headers:{'content-type':'audio/wav','cache-control':'private,no-store',
+  return obj?new Response(obj.body,{headers:{'content-type':mime,'cache-control':'private,no-store',
     'content-length':String(head.size),'accept-ranges':'bytes'}}):fail('File non trovato',404);
 }
 export async function handleRemixPro(req,env,ctx,auth) {
@@ -257,7 +258,7 @@ export async function handleRemixPro(req,env,ctx,auth) {
      j.leaseUntil<Date.now())return fail('Invalid or expired lease',409);
   if(req.method==='GET'&&(action==='source/a'||action==='source/b')) {
     const src=action==='source/a'?j.sourceA:j.sourceB;
-    return privateAudio(req,b,src.objectKey);
+    return privateAudio(req,b,src.objectKey,src.format);
   }
   if(action==='renew'&&req.method==='POST'){
     j.leaseUntil=Date.now()+15*60*1000;j.updatedAt=Date.now();
