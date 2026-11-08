@@ -20,6 +20,8 @@ on:
       - "cloudflare/sonara-molab-xl-router.mjs"
       - "cloudflare/sonara-remix-precision-v1.mjs"
       - "cloudflare/sonara-remix-precision-v1.test.mjs"
+      - "cloudflare/sonara-remix-instrument-definition-v2.mjs"
+      - "cloudflare/sonara-remix-instrument-definition-v2.test.mjs"
       - "src/components/remix/SonaraRemixSection.tsx"
       - "molab/sonara_r2_pull_agent.py"
       - "molab/sonara_r2_install.py"
@@ -57,6 +59,9 @@ jobs:
 
       - name: Verify professional Remix source fidelity, duration and tempo locks
         run: node --test cloudflare/sonara-remix-precision-v1.test.mjs
+
+      - name: Verify real Remix instrument definition and safe focus options
+        run: node --test cloudflare/sonara-remix-instrument-definition-v2.test.mjs
 
       - name: Verify exact BPM request contracts
         run: node --test cloudflare/sonara-r2-bpm-lock.test.mjs

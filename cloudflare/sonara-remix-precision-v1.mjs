@@ -1,3 +1,4 @@
+import { remixInstrumentDefinitionPlan } from './sonara-remix-instrument-definition-v2.mjs';
 // SONARA Remix professional source-lock contract.
 // Uses native ACE-Step 1.5 cover controls, never claims source analysis.
 const clamp = (value, fallback, min, max) => {
@@ -26,7 +27,8 @@ export function preparePreciseRemixPayload(configured, body = {}) {
   const key = body.sonaraRemixKeyMode === 'auto' ? '' : String(body.sonaraRemixRequestedKey ?? body.key ?? body.key_scale ?? '').trim().slice(0, 40);
   const strength = clamp(body.audio_cover_strength, preset.strength, 0.35, 0.92);
   const noise = clamp(body.cover_noise_strength, preset.noise, 0.04, 0.30);
-  const creatorPrompt = String(body.rawPrompt || body.prompt || '').trim().slice(0, 7000);
+  const creatorPrompt = String(body.rawPrompt || body.prompt || '').trim().slice(0, 6000);
+  const instrumentDefinition = remixInstrumentDefinitionPlan(body);
   const contract = [
     'SONARA PROFESSIONAL REMIX: use the uploaded source audio as the structural and rhythmic reference, not as background decoration.',
     'Create exactly one newly rendered coherent musical reinterpretation. Preserve the identifiable hook and core motif, musical phrases, harmonic center, original meter, groove accents, section transitions and phrase continuity where audible.',
@@ -36,7 +38,8 @@ export function preparePreciseRemixPayload(configured, body = {}) {
     bpm !== null ? 'EXPLICIT CREATOR TEMPO: ' + bpm + ' BPM; keep this beat grid stable throughout the remix.' : 'TEMPO AUTO: follow the audible source pulse and meter. No numerical BPM has been measured or requested.',
     key ? 'EXPLICIT CREATOR TONALITY: ' + key + '; avoid unsupported key drift.' : 'KEY AUTO: preserve the audible source harmonic center. No numerical pitch/key analysis has been performed.',
     'Requested output duration: approximately ' + duration + ' seconds, reflecting the selected source excerpt, not an arbitrary 30-second minimum.',
-    'Remix intent: ' + preset.name + '. Prefer source recognition and coherent musical editing over unnecessary novelty.'
+    'Remix intent: ' + preset.name + '. Prefer source recognition and coherent musical editing over unnecessary novelty.',
+    instrumentDefinition.cue
   ].join(' ');
   const finalPrompt = [creatorPrompt, contract].filter(Boolean).join(' ').slice(0, 11000);
   return {
@@ -44,6 +47,9 @@ export function preparePreciseRemixPayload(configured, body = {}) {
     sonaraRemixSourceId: body.sonaraRemixSourceId,
     sonara_remix_precision_version: REMIX_PRECISION_VERSION,
     sonara_remix_precision_mode: mode,
+    sonara_remix_instrument_definition_version: instrumentDefinition.version,
+    sonara_remix_instrument_focus: instrumentDefinition.focus,
+    sonara_remix_instrument_clarity: instrumentDefinition.clarity,
     task_type: 'cover',
     batch_size: 1,
     candidateCount: 1,

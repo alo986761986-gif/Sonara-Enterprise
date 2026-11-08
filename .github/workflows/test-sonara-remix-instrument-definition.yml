@@ -1,0 +1,27 @@
+name: Test SONARA Remix Instrument Definition
+on:
+  pull_request:
+    paths:
+      - 'cloudflare/sonara-remix-instrument-definition-v2.mjs'
+      - 'cloudflare/sonara-remix-instrument-definition-v2.test.mjs'
+      - 'cloudflare/sonara-remix-precision-v1.mjs'
+      - 'src/components/remix/SonaraRemixSection.tsx'
+      - '.github/workflows/test-sonara-remix-instrument-definition.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  instrument-definition:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify source-conditioned instrument definition and focus bounds
+        run: node --test cloudflare/sonara-remix-instrument-definition-v2.test.mjs
+      - name: Verify previous professional remix contracts
+        run: node --test cloudflare/sonara-remix-precision-v1.test.mjs
+      - name: Verify R2 source security regression
+        run: node --test cloudflare/sonara-remix-r2.test.mjs
