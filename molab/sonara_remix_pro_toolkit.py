@@ -18,7 +18,7 @@ import subprocess
 import sys
 import time
 
-VERSION = "sonara-remix-pro-toolkit-v1"
+VERSION = "sonara-remix-pro-toolkit-v2-dual-source"
 AUDIO_EXTENSIONS = {".wav", ".flac", ".mp3", ".m4a", ".ogg"}
 STEM_NAMES = ("vocals", "drums", "bass", "other")
 MAX_INPUT_BYTES = 512 * 1024 * 1024
@@ -259,10 +259,99 @@ def transparent_master(audio, sr=44100, lufs=-14.0, peak_ceiling=-1.0):
     return np.asarray(result, dtype=np.float32), metadata
 
 
+def _dual_source_parts(stems_a, stems_b, frames, ratio, offset, bpm):
+    """Alternate tonal material over a shared drum arrangement on a beat grid.
+
+    Each tonal bed keeps its own bass and voice: unknown/different keys are
+    not layered or falsely advertised as harmonically corrected. Transitions
+    briefly duck tonal beds over continuous percussion. This is a beat-grid
+    arrangement, not semantic verse/chorus detection.
+    """
+    np, _, _, _ = _deps()
+    beds, drums = [], []
+    available = []
+    for folder, stretch, shift in ((stems_a, 1., 0), (stems_b, ratio, offset)):
+        bed = np.zeros((frames, 2), dtype=np.float32)
+        end = 0
+        for name, level in (("vocals", .85), ("other", .65), ("bass", .72)):
+            audio = _stretch_stereo(_load_stem(folder, name), stretch)
+            end = max(end, len(audio) + shift)
+            bed += _audio_at_timeline(audio, frames, shift) * level
+        beat = _stretch_stereo(_load_stem(folder, "drums"), stretch)
+        drums.append(_audio_at_timeline(beat, frames, shift))
+        beds.append(bed)
+        available.append(min(frames, end, len(beat) + shift))
+    # Do not quietly continue with just one source after the shorter song ends.
+    length = min(available)
+    if length < 10 * 44100:
+        raise RemixProError("Both sources need at least 10 seconds of aligned material")
+    # 16-beat sections; shorten for short clips so both identities are present.
+    section_beats = min(16, max(4, int(length / 44100 * bpm / 60 / 2)))
+    section = round(section_beats * 60 / bpm * 44100)
+    indices = np.arange(length)
+    side = (indices // section) % 2
+    phase = indices % section
+    transition = min(round(.12 * 44100), section // 8)
+    envelope = np.minimum(1., np.minimum(phase, section - phase) / max(1, transition))
+    parts = {}
+    for i, label in enumerate(("A", "B")):
+        mask = ((side == i) * envelope).astype(np.float32)
+        tonal = beds[i][:length] * mask[:, None]
+        # Swap drum sources beneath the other song's tonal bed. Crossfade
+        # drums over 120 ms instead of stacking two full drum kits throughout.
+        drum_side = (side != i).astype(np.float32)
+        ramp = np.minimum(1., phase / max(1, transition))
+        drum_mask = drum_side * ramp + (1 - drum_side) * (1 - ramp)
+        percussion = drums[i][:length] * drum_mask[:, None] * .80
+        contribution = tonal + percussion
+        rms = float(np.sqrt(np.mean(contribution.astype(np.float64) ** 2)))
+        tonal_rms = float(np.sqrt(np.mean(tonal.astype(np.float64) ** 2)))
+        if not np.isfinite(rms) or rms < 1e-5 or tonal_rms < 1e-5:
+            raise RemixProError("Source " + label + " has no audible tonal material in its arranged sections")
+        parts["tonal" + label] = (tonal, 1.)
+        parts["drums" + label] = (percussion, 1.)
+    return parts, length
+
+
+def add_generated_percussion(arranged_path, generated_drums, *, bpm):
+    """Keep both original tonal beds; use only AI percussion as an extra layer.
+
+    A full generative cover can lose either source's identity. It must never
+    replace the source arrangement or introduce a second generated lead vocal.
+    """
+    np, librosa, sf, _ = _deps()
+    arranged, sr = sf.read(str(arranged_path), dtype="float32", always_2d=True)
+    if arranged.shape[1] != 2 or not len(arranged) or not np.isfinite(arranged).all():
+        raise RemixProError("A finite stereo source arrangement is required")
+    report = analyze_audio(generated_drums)
+    tempo = report.get("tempoBpm")
+    if not tempo:
+        raise RemixProError("Generated percussion tempo could not be verified")
+    generated, _ = librosa.load(str(generated_drums), sr=sr, mono=False)
+    if generated.ndim == 1:
+        generated = np.vstack([generated, generated])
+    generated = _stretch_stereo(generated[:2].T, bpm / tempo)
+    original_beats = analyze_audio(arranged_path).get("beatTimesSeconds") or [0]
+    generated_beats = report.get("beatTimesSeconds") or [0]
+    offset = round((original_beats[0] - generated_beats[0] / (bpm / tempo)) * sr)
+    generated = _audio_at_timeline(generated, len(arranged), offset)
+    source_rms = float(np.sqrt(np.mean(arranged.astype(np.float64) ** 2)))
+    generated_rms = float(np.sqrt(np.mean(generated.astype(np.float64) ** 2)))
+    if not np.isfinite(generated).all() or generated_rms < 1e-5:
+        raise RemixProError("Generated percussion is silent or invalid")
+    # Cap the extra percussion at -18 dB relative RMS; never attenuate sources.
+    gain = min(1., source_rms * 10 ** (-18 / 20) / generated_rms)
+    return arranged + generated * gain, sr
+
+
 def combine_two_songs(a, b, stems_a, stems_b, destination, *,
-                      bpm_a=None, bpm_b=None, bass_from="a", max_seconds=180):
-    """One coherent WAV: voice/harmony from A, drums from B, bass selectable.
-    BPM is measured or explicitly supplied. Nonmatching keys NEVER silently transposed.
+                      bpm_a=None, bpm_b=None, bass_from="a", max_seconds=180,
+                      dual_source=False):
+    """One WAV from authenticated stems, with an explicit dual-source mode.
+
+    Legacy: voice/harmony A, drums B, bass selectable. Dual-source: alternate
+    tonal beds with their own bass and opposite-source drums. No silent pitch
+    transposition; BPM is measured or explicitly supplied.
     """
     np, _, sf, _ = _deps()
     a, b = source_file(a), source_file(b)
@@ -280,32 +369,38 @@ def combine_two_songs(a, b, stems_a, stems_b, destination, *,
         data = json.loads(manifest.read_text())
         if data.get("sourceSha256") != audio_hash(audio) or data.get("separationModel") != "htdemucs" or data.get("stemsVerified") is not True:
             raise RemixProError("Stem manifest does not belong to its source audio")
-    if bass_from == "b" and report_a["key"] and report_b["key"] and report_a["key"] != report_b["key"]:
+    if not dual_source and bass_from == "b" and report_a["key"] and report_b["key"] and report_a["key"] != report_b["key"]:
         raise RemixProError("Incompatible measured tonal centers for B bass; keep A bass or edit sources first")
     ratio = tempo_a / tempo_b
     seconds = min(480, max(30, min(max_seconds, 480)))
     frames = int(seconds * 44100)
-    vocals = _load_stem(stems_a, "vocals")
-    harmony = _load_stem(stems_a, "other")
-    bass = _load_stem(stems_a if bass_from == "a" else stems_b, "bass")
-    drums = _stretch_stereo(_load_stem(stems_b, "drums"), ratio)
-    if bass_from == "b":
-        bass = _stretch_stereo(bass, ratio)
     # Align beats only, NOT falsely claimed measure-accurate downbeats.
     beat_a = report_a["beatTimesSeconds"][0] if report_a["beatTimesSeconds"] else 0
     beat_b = report_b["beatTimesSeconds"][0] if report_b["beatTimesSeconds"] else 0
     drum_offset = round((beat_a - beat_b / ratio) * 44100)
-    parts = {
-        "vocalsA": (_audio_at_timeline(vocals, frames, 0), 0.85),
-        "harmoniesA": (_audio_at_timeline(harmony, frames, 0), 0.55),
-        "bass"+bass_from.upper(): (_audio_at_timeline(bass, frames, drum_offset if bass_from == "b" else 0), 0.72),
-        "drumsB": (_audio_at_timeline(drums, frames, drum_offset), 0.80)
-    }
+    if dual_source:
+        if audio_hash(a) == audio_hash(b):
+            raise RemixProError("Two distinct source recordings are required")
+        parts, frames = _dual_source_parts(stems_a, stems_b, frames, ratio, drum_offset, tempo_a)
+        active_end = frames
+    else:
+        vocals = _load_stem(stems_a, "vocals")
+        harmony = _load_stem(stems_a, "other")
+        bass = _load_stem(stems_a if bass_from == "a" else stems_b, "bass")
+        drums = _stretch_stereo(_load_stem(stems_b, "drums"), ratio)
+        if bass_from == "b":
+            bass = _stretch_stereo(bass, ratio)
+        parts = {
+            "vocalsA": (_audio_at_timeline(vocals, frames, 0), 0.85),
+            "harmoniesA": (_audio_at_timeline(harmony, frames, 0), 0.55),
+            "bass"+bass_from.upper(): (_audio_at_timeline(bass, frames, drum_offset if bass_from == "b" else 0), 0.72),
+            "drumsB": (_audio_at_timeline(drums, frames, drum_offset), 0.80)
+        }
+        active_end = min(frames, max(len(vocals), len(harmony), len(bass), len(drums) + max(0, drum_offset)))
     rendered = np.zeros((frames,2), dtype=np.float32)
     for stem, level in parts.values():
         rendered += stem * level
     # Never synthesize silence past the available musical material.
-    active_end = min(frames, max(len(vocals), len(harmony), len(bass), len(drums) + max(0, drum_offset)))
     if active_end < 44100 * 10:
         raise RemixProError("Available stem material is shorter than 10 seconds")
     rendered = rendered[:active_end]
@@ -330,6 +425,8 @@ def combine_two_songs(a, b, stems_a, stems_b, destination, *,
         "sourceKeyA": report_a["key"], "sourceKeyB": report_b["key"],
         "beatOffsetMethod": "first-measured-beat-not-downbeat",
         "stemRoles": list(parts), "seconds": seconds,
+        "arrangementMode": "dual-source-tonal-sections" if dual_source else "a-tonal-b-drums",
+        "bothSourcesVerified": bool(dual_source),
         "stretchRatioB": round(ratio,4), "master": loudness,
         "warnings": ["No automatic chord transcription or phrase-preserving generative composition",
                      "Requires independent quality listening before commercial publishing"]

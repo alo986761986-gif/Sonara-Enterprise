@@ -74,7 +74,8 @@ def run(args) -> dict:
         raise LocalQAFailure("Sources A and B must contain different audio")
 
     from sonara_remix_pro_toolkit import (
-        analyze_audio, separate_stems, combine_two_songs, transparent_master
+        analyze_audio, separate_stems, combine_two_songs, transparent_master,
+        add_generated_percussion
     )
     from sonara_remix_pro_ace_bridge import render as ace_cover
     from sonara_remix_pro_quality import audit_wav, audit_remix
@@ -116,7 +117,7 @@ def run(args) -> dict:
     arrangement = combine_two_songs(
         a, b, stems_a, stems_b, arranged,
         bpm_a=float(bpm_a), bpm_b=float(bpm_b),
-        bass_from=args.bass_from, max_seconds=args.duration
+        bass_from=args.bass_from, max_seconds=args.duration, dual_source=True
     )
     arranged_audit = audit_wav(arranged)
     if arranged_audit.get("durationSeconds", 0) < 10 or arranged_audit.get("channels") != 2:
@@ -133,7 +134,9 @@ def run(args) -> dict:
         raise LocalQAFailure("ACE-Step did not produce a completed real cover")
     print("SONARA_QA_REAL_ACE_STEP_COVER=True", flush=True)
 
-    audio, sr = sf.read(str(generated),dtype="float32",always_2d=True)
+    generated_manifest = separate_stems(generated, cache, device="cuda")
+    generated_stems = cache / generated_manifest["sourceSha256"][:20]
+    audio, sr = add_generated_percussion(arranged, generated_stems / "drums.wav", bpm=float(bpm_a))
     if not 22050 <= sr <= 96000 or not 10 <= len(audio)/sr <= 120:
         raise LocalQAFailure("ACE-Step output has unsupported rate or duration")
     if audio.shape[1] == 1:
@@ -152,7 +155,7 @@ def run(args) -> dict:
         or measured.get("nearSilenceFrameRatio", 1) > 0.15
     )
     summary = {
-        "pipeline": "real-demucs-A-and-B -> one mixed WAV -> one ACE-Step cover -> one mastered WAV",
+        "pipeline": "real-demucs-A-and-B -> dual tonal arrangement -> ACE-Step percussion -> source-preserving master",
         "technicalPass": not rejected,
         "humanListeningRequired": True,
         "sourceAHashPrefix": hash_a[:16],
