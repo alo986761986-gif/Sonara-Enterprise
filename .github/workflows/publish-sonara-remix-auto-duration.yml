@@ -143,8 +143,14 @@ jobs:
           requireValue(upload.ok&&uploaded.success!==false,
             'New isolated Cloudflare Worker stage upload failed '+upload.status);
           const subdomain=(await json('/accounts/'+account+'/workers/subdomain'))?.subdomain;
+          requireValue(/^[a-z0-9-]+$/.test(subdomain||''),
+            'Cloudflare account workers.dev subdomain unavailable');
+          // Only enable the unpublished, isolated staging script preview.
+          // Never alter the existing SONARA main Worker or its routes.
+          await json('/accounts/'+account+'/workers/scripts/'+nextScript+'/subdomain',
+            'POST',{enabled:true,previews_enabled:false});
           const sub=(await json('/accounts/'+account+'/workers/scripts/'+nextScript+'/subdomain'));
-          requireValue(sub?.enabled===true&&/^[a-z0-9-]+$/.test(subdomain||''),
+          requireValue(sub?.enabled===true,
             'Isolated staging worker URL unavailable; do not publish');
           const stagedUrl='https://'+nextScript+'.'+subdomain+'.workers.dev/';
           const stage=await fetch(stagedUrl,{signal:AbortSignal.timeout(20000)});
