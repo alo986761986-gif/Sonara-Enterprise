@@ -327,8 +327,8 @@ def combine_two_songs(a, b, stems_a, stems_b, destination, *,
         seconds = int(max_seconds)
     except (TypeError, ValueError, OverflowError) as exc:
         raise RemixProError("Requested remix duration must be an exact multiple of 30 seconds") from exc
-    if seconds != max_seconds or seconds < 30 or seconds > 480 or seconds % 30:
-        raise RemixProError("Requested remix duration must be 30-480 seconds in 30-second steps")
+    if seconds != max_seconds or seconds < 120 or seconds > 300 or seconds % 30:
+        raise RemixProError("Requested remix duration must be 120-300 seconds in 30-second steps")
     destination = Path(destination).expanduser().resolve()
     if destination.exists() or destination in (a, b):
         raise RemixProError("Refusing to overwrite existing or original source audio")
