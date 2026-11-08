@@ -1,0 +1,110 @@
+name: SONARA Duration Fix - Zero Traffic Canary with Rollback
+on:
+  push:
+    branches:
+      - fix/remix-pro-duration-preserve-20261108
+    paths:
+      - '.github/workflows/canary-remix-pro-duration-zero-traffic.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+    steps:
+      - name: Use version override only if new Worker can receive exactly zero percent traffic
+        run: |
+          node --input-type=module <<'NODE'
+          const token=process.env.CLOUDFLARE_API_TOKEN||'';
+          if(token.length<20)throw Error('Missing Cloudflare token');
+          const oldVersion='bbedc676-8792-4421-85b3-913e74270686';
+          const stagedVersion='bb81a8de-8147-492f-b95b-0597b6378130';
+          const root='https://api.cloudflare.com/client/v4';
+          const auth={Authorization:'Bearer '+token,'Content-Type':'application/json'};
+          const read=async path=>{
+            const r=await fetch(root+path,{headers:auth,signal:AbortSignal.timeout(20000)});
+            const b=await r.json().catch(()=>({}));
+            if(!r.ok||b.success===false)throw Error('Cloudflare GET status '+r.status);
+            return b.result;
+          };
+          const zone=(await read('/zones?name=sonaraenterprise.com'))?.find(x=>x.name==='sonaraenterprise.com');
+          const account=process.env.CLOUDFLARE_ACCOUNT_ID||zone?.account?.id;
+          if(!account)throw Error('Cannot identify Cloudflare account');
+          const base='/accounts/'+account+'/workers/scripts/sonara-enterprise';
+          const deployments=await read(base+'/deployments');
+          const previous=deployments.deployments?.[0];
+          if(previous?.versions?.length!==1||
+             previous.versions[0].version_id!==oldVersion||
+             previous.versions[0].percentage!==100)
+            throw Error('Production changed or mixed; abort canary');
+          const v=await read(base+'/versions/'+stagedVersion);
+          if(v.id!==stagedVersion)throw Error('Staged version unavailable');
+          const post=async versions=>{
+            const r=await fetch(root+base+'/deployments',{method:'POST',headers:auth,
+              body:JSON.stringify({strategy:'percentage',versions,annotations:{
+                'workers/message':'SONARA guarded duration smoke test, auto rollback on failure'
+              }}),signal:AbortSignal.timeout(30000)});
+            const b=await r.json().catch(()=>({}));
+            return {ok:r.ok&&b.success!==false,status:r.status,
+              errors:(b.errors||[]).map(e=>e.code).slice(0,6),result:b.result};
+          };
+          const pureOld=[{version_id:oldVersion,percentage:100}];
+          const zeroTraffic=[{version_id:oldVersion,percentage:100},{version_id:stagedVersion,percentage:0}];
+          const introduced=await post(zeroTraffic);
+          if(!introduced.ok){
+            console.log('SONARA_CANARY',JSON.stringify({
+              state:'ZERO_TRAFFIC_UNSUPPORTED',httpStatus:introduced.status,
+              errors:introduced.errors,productionUnchanged:true
+            }));
+            process.exit(0);
+          }
+          let smokeOk=false;
+          try {
+            const state=await read(base+'/deployments');
+            const current=state.deployments?.[0]?.versions||[];
+            if(current.length!==2||current.find(x=>x.version_id===oldVersion)?.percentage!==100||
+              current.find(x=>x.version_id===stagedVersion)?.percentage!==0)
+              throw Error('Zero traffic split not confirmed');
+            const override='sonara-enterprise="'+stagedVersion+'"';
+            const targets=[
+              ['site','https://sonaraenterprise.com/'],
+              ['health','https://api.sonaraenterprise.com/api/health'],
+              ['capabilities','https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities']
+            ];
+            for(const [label,url] of targets) {
+              const r=await fetch(url,{headers:{'Cloudflare-Workers-Version-Overrides':override},
+                signal:AbortSignal.timeout(20000),cache:'no-store'});
+              const body=await r.text();
+              const result={target:label,httpStatus:r.status,
+                marker:r.headers.get('x-sonara-remix-pro-duration-lock'),
+                script:body.includes('sonara-remix-pro-duration-edge-v2')};
+              if(label==='capabilities'&&r.ok){
+                const x=JSON.parse(body);
+                result.agentRevision=x.expectedAgentRevision;
+                result.available=x.available;
+              }
+              console.log('SONARA_CANARY',JSON.stringify(result));
+              if(!r.ok)throw Error('Smoke endpoint unavailable '+label);
+              if(label==='site'&&(!result.script||result.marker!=='v2'))throw Error('New code did not inject duration script');
+              if(label==='capabilities'&&(result.agentRevision!=='sonara-remix-pro-r2-agent-v3-dual-reference-fusion'||result.available!==true))
+                throw Error('New version lacks live Pro V3 capabilities');
+            }
+            smokeOk=true;
+          }catch(e){
+            console.log('SONARA_CANARY',JSON.stringify({state:'SMOKE_FAILED',errorClass:e?.name||'Error'}));
+          }
+          // Always restore 100% original after test, even if smoke passes.
+          const rollback=await post(pureOld);
+          if(!rollback.ok)throw Error('CRITICAL: restoring original Cloudflare version failed HTTP '+rollback.status);
+          const confirmed=await read(base+'/deployments');
+          if(confirmed.deployments?.[0]?.versions?.length!==1||
+             confirmed.deployments[0].versions[0].version_id!==oldVersion)
+             throw Error('CRITICAL: production rollback could not be verified');
+          console.log('SONARA_CANARY',JSON.stringify({state:smokeOk?'SMOKE_PASSED_RESTORED':'SMOKE_FAILED_RESTORED',
+            originalProductionRestored:true,canaryHadNoPublicTraffic:true}));
+          if(!smokeOk)process.exit(1);
+          NODE
