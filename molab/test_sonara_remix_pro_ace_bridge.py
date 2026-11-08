@@ -6,7 +6,7 @@ import wave
 from pathlib import Path
 from unittest.mock import patch
 
-from sonara_remix_pro_ace_bridge import ACEBridgeError, _headers, _result_path, render
+from sonara_remix_pro_ace_bridge import ACEBridgeError, _headers, _result_path, render, render_long_remix
 
 
 def wav_source(path, seconds=10):
@@ -50,6 +50,53 @@ class ACEBridgeTests(unittest.TestCase):
             self.assertEqual(len(calls),3)
             with self.assertRaises(ACEBridgeError):
                 render(input_wav,output_wav,"No overwrites",mode="none")
+
+
+    def test_long_form_multiple_real_sections_become_one_exact_length_wav(self):
+        import soundfile as sf
+        import numpy as np
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            src, dst = root / "original-ab.wav", root / "one-remix.wav"
+            sr = 22050
+            # Synthetic unit fixture: an actual production job must invoke ACE-Step.
+            sf.write(str(src), np.full((180*sr, 2), 0.1, dtype=np.float32), sr)
+            submissions = []
+            def fake_cover(segment, output, prompt, **kwargs):
+                submissions.append((segment, output))
+                with sf.SoundFile(str(segment)) as audio:
+                    data = audio.read(dtype="float32", always_2d=True)
+                    fs = audio.samplerate
+                sf.write(str(output), data, fs, subtype="PCM_16")
+                return {"status": "completed", "noFakeAudio": True}
+            with patch("sonara_remix_pro_ace_bridge.render", side_effect=fake_cover):
+                result = render_long_remix(src, dst, "ONE full A+B song",
+                    mode="none", segment_seconds=90, crossfade_seconds=2)
+            self.assertEqual(result["segmentCount"], 2)
+            self.assertTrue(result["oneContinuousOutput"])
+            self.assertTrue(result["durationVerified"])
+            self.assertEqual(len(submissions), 2)
+            with sf.SoundFile(str(dst)) as output:
+                self.assertEqual(output.frames, 180*sr)
+                self.assertEqual(output.channels, 2)
+                self.assertAlmostEqual(output.duration, 180)
+            self.assertTrue(src.is_file())
+
+    def test_long_form_rejects_short_model_output_instead_of_padding_eight_minutes(self):
+        import soundfile as sf
+        import numpy as np
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            src, dst = root / "original.wav", root / "final.wav"
+            sr = 22050
+            sf.write(str(src), np.full((120*sr, 2), 0.1, dtype=np.float32), sr)
+            def short_cover(segment, output, prompt, **kwargs):
+                sf.write(str(output), np.full((10*sr, 2), .1, dtype=np.float32), sr)
+                return {"status": "completed"}
+            with patch("sonara_remix_pro_ace_bridge.render", side_effect=short_cover):
+                with self.assertRaisesRegex(ACEBridgeError, "shorter than requested"):
+                    render_long_remix(src, dst, "Original A+B", mode="none")
+            self.assertFalse(dst.exists())
 
     def test_no_remote_result_urls(self):
         self.assertIsNone(_result_path({"result":[{"url":"https://attacker.example/path.wav"}]}))
