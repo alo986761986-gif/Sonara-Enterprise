@@ -1,0 +1,71 @@
+name: SONARA Remix - Public Auto Duration UI V2 Browser Smoke
+on:
+  push:
+    branches: [feature/remix-pro-automatic-random-duration-nov09]
+    paths: ['.github/workflows/smoke-sonara-remix-auto-ui-v2.yml']
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: '24'}
+      - name: Prepare headless Chromium
+        run: |
+          npm install --no-save --ignore-scripts playwright
+          npx playwright install --with-deps chromium
+      - name: Confirm live script executes and visibly replaces manual duration
+        run: |
+          node --input-type=module <<'NODE'
+          import {chromium} from 'playwright';
+          const browser=await chromium.launch({headless:true});
+          try{
+            for(const url of ['https://sonaraenterprise.com/',
+              'https://sonaraenterprise.com/studio',
+              'https://sonaraenterprise.com/remix',
+              'https://www.sonaraenterprise.com/']){
+              const page=await browser.newPage();
+              const result=await page.goto(url,{waitUntil:'domcontentloaded',timeout:30000});
+              await page.waitForTimeout(900);
+              const state=await page.evaluate(()=>{
+                const label=document.createElement('label');
+                label.textContent='Durata Remix AI (30 secondi – 8 minuti)';
+                const slider=document.createElement('input');
+                slider.type='range';
+                slider.min='30';slider.max='480';
+                slider.setAttribute('data-testid','sonara-remix-pro-duration-slider');
+                const strong=document.createElement('strong');
+                strong.setAttribute('data-testid','sonara-remix-pro-duration-selected');
+                strong.textContent='Durata del nuovo brano 0:30';
+                const select=document.createElement('select');
+                for(const n of [30,120,300,480]){
+                  const option=document.createElement('option');
+                  option.value=String(n);option.textContent=String(n);
+                  select.appendChild(option);
+                }
+                label.append(slider,strong,select);
+                document.body.appendChild(label);
+                return {scriptRan:window.__sonaraRemixAutoDurationV1===true};
+              });
+              await page.waitForTimeout(450);
+              const vis=await page.evaluate(()=>{
+                const slider=document.querySelector('[data-testid="sonara-remix-pro-duration-slider"]');
+                const label=slider?.closest('label');
+                const summary=label?.querySelector('[data-testid="sonara-remix-pro-duration-selected"]');
+                return {label:label?.textContent?.slice(0,220),
+                  sliderHidden:slider?.style.display==='none',
+                  summaryHidden:summary?.style.display==='none',
+                  newScript:!!document.querySelector('#sonara-remix-auto-duration-v2')};
+              });
+              console.log('SONARA_V2_BROWSER',JSON.stringify({url,status:result?.status(),...state,...vis}));
+              if(!result?.ok()||!state.scriptRan||!vis.newScript||
+                !vis.label?.includes('Durata automatica SONARA')||
+                !vis.sliderHidden||!vis.summaryHidden)
+                throw Error('Live visual duration controls not replaced on '+url);
+              await page.close();
+            }
+          }finally{await browser.close();}
+          NODE
