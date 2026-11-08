@@ -35,6 +35,7 @@ for _module in (
     "sonara_remix_pro_toolkit.py",
     "sonara_remix_pro_ace_bridge.py",
     "sonara_remix_pro_quality.py",
+    "sonara_remix_pro_fusion.py",
 ):
     if not (_AGENT_DIRECTORY / _module).is_file():
         raise RuntimeError("Missing local Remix Pro module: " + _module)
@@ -46,6 +47,9 @@ from sonara_remix_pro_toolkit import (
 )
 from sonara_remix_pro_ace_bridge import render_long_remix as ace_cover
 from sonara_remix_pro_quality import audit_wav
+from sonara_remix_pro_fusion import (
+    make_structural_guide, make_independent_style_reference, build_fusion_prompt,
+)
 import soundfile as sf
 
 ROOT = Path("/marimo/SONARA-REMIX-PRO")
@@ -504,29 +508,31 @@ def run_job(item, auth_mode):
             source_a = stem_cache / manifest_a["sourceSha256"][:20]
             source_b = stem_cache / manifest_b["sourceSha256"][:20]
             progress(job, lease, "arranging", renewal)
-            arranged = folder / "arranged.wav"
             requested_seconds = int(params.get("durationSec") or 60)
             if requested_seconds not in range(30, 481, 30):
                 raise SourceTransferError("REMIX_INVALID_DURATION")
-            plan = combine_two_songs(
-                a,b,source_a,source_b,arranged,bpm_a=float(bpm_a),bpm_b=float(bpm_b),
-                bass_from="b" if params.get("bassFrom")=="b" else "a",
-                max_seconds=requested_seconds
-            )
-            if (plan.get("durationVerified") is not True
-                or plan.get("realSourceAUsed") is not True
-                or plan.get("realSourceBUsed") is not True
-                or int(plan.get("seconds") or 0) != requested_seconds):
-                raise SourceTransferError("REMIX_DURATION_MISMATCH")
+
+            # ORIGINAL MUSIC FUSION: no additive mixing, no A+B stem overlay.
+            # A controls the structural reference; B is supplied separately as
+            # ACE-Step's independent style reference. Demucs output remains
+            # available for analysis and private stems only, never as a sum.
+            guide = folder / "structural-guide-a.wav"
+            style = folder / "style-reference-b.wav"
+            guide_report = make_structural_guide(a, guide, requested_seconds)
+            style_report = make_independent_style_reference(b, style)
+            if guide_report.get("containsSourceB") is not False or style_report.get("containsSourceA") is not False:
+                raise ProAgentError("A/B source independence was not verified")
+            prompt = build_fusion_prompt(str(params.get("prompt") or ""), report_a, report_b)
             progress(job, lease, "regenerating", renewal)
             generated = folder / "generated.wav"
             result = ace_cover(
-                arranged,generated,str(params.get("prompt") or "").strip(),
+                guide, generated, prompt,
                 mode=auth_mode,
-                strength=float(params.get("coverStrength") or .76),
-                noise=float(params.get("coverNoise") or .14),
+                strength=float(params.get("coverStrength") or .52),
+                noise=float(params.get("coverNoise") or .16),
                 bpm=float(bpm_a),
-                key=params.get("key") or None
+                key=params.get("key") or report_a.get("key") or None,
+                reference_audio_path=style,
             )
             if result.get("durationVerified") is not True or result.get("oneContinuousOutput") is not True:
                 raise SourceTransferError("REMIX_DURATION_MISMATCH")
@@ -597,7 +603,7 @@ def main(argv=None):
     args=parser.parse_args(argv)
     if not (ROOT/".venv/bin/python").resolve()==Path(__import__("sys").executable).resolve():
         raise ProAgentError("Refusing to run in the live ACE-Step environment")
-    for name in ("sonara_remix_pro_toolkit.py","sonara_remix_pro_ace_bridge.py"):
+    for name in ("sonara_remix_pro_toolkit.py","sonara_remix_pro_ace_bridge.py","sonara_remix_pro_fusion.py"):
         if not (ROOT/name).is_file():
             raise ProAgentError("Missing verified Remix Pro dependency "+name)
     if not TOKEN_FILE.is_file():
