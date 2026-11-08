@@ -126,6 +126,27 @@ jobs:
       - name: Validate Wrangler configuration
         run: npx --yes wrangler@latest deploy --dry-run --config wrangler.jsonc
 
+      - name: Protect live Remix Pro revision from downgrade
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { PRO_AGENT_REVISION } from './cloudflare/sonara-remix-pro-r2.mjs';
+          const r=await fetch('https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities',{
+            signal:AbortSignal.timeout(20000),
+            headers:{accept:'application/json'}
+          });
+          if(!r.ok) throw Error('Cannot verify active Remix Pro revision; deploy blocked');
+          const live=await r.json();
+          const actual=String(live.expectedAgentRevision||'');
+          if(!actual||actual!==PRO_AGENT_REVISION){
+            console.error('BLOCKED_LIVE_REMIX_PRO_REVISION_MISMATCH',{
+              expectedByRepository:PRO_AGENT_REVISION,currentlyActive:actual||'unknown'
+            });
+            process.exit(1);
+          }
+          console.log('REMIX_PRO_LIVE_REVISION_COMPATIBLE=true');
+          NODE
+
       - name: Deploy current SONARA Worker
         run: npx --yes wrangler@latest deploy --config wrangler.jsonc
 
