@@ -1,3 +1,4 @@
+import { deriveRelayGatewayInternalKey } from './sonara-gateway-verifier.mjs';
 /**
  * SONARA Remix Pro private two-source queue. Deliberately separate from the
  * existing sr2_* ACE-Step relay and its job history.
@@ -65,6 +66,22 @@ async function ownedReference(b,id,uid) {
   if(!head||head.size<44||head.size>maxBytes)return null;
   return {id,objectKey:meta.objectKey,bytes:head.size};
 }
+// Private, signed Durable Object settlement, never callable by customers.
+async function proQuota(env, action, jobId, ownerUid='', seconds=0) {
+  if (!env.SONARA_AUTH) return false;
+  try {
+    const secret = await deriveRelayGatewayInternalKey(env);
+    const stub = env.SONARA_AUTH.get(env.SONARA_AUTH.idFromName('sonara-auth-global-v1'));
+    const response = await stub.fetch(new Request(
+      'https://sonara.internal/__sonara_internal/remix-pro-usage', {
+        method: 'POST',
+        headers: {'content-type':'application/json','X-Sonara-Internal-Secret':secret},
+        body:JSON.stringify({action,jobId,ownerUid,seconds})
+      }
+    ));
+    return response.ok && (await response.json().catch(()=>({}))).ok===true;
+  } catch { return false; }
+}
 async function enqueue(req,e,auth,b) {
   if(!auth.gateway(req,e))return fail('Unauthorized',401);
   if(!enabled(e))return fail('Remix Pro non ancora abilitato per la fatturazione.',503);
@@ -75,6 +92,13 @@ async function enqueue(req,e,auth,b) {
   if(raw.length>35_000)return fail('Payload too large',413);
   let body;try{body=JSON.parse(raw);}catch{return fail('Invalid JSON');}
   if(!body||typeof body!=='object'||Array.isArray(body))return fail('Invalid JSON');
+  const id=String(body.jobId||'');
+  const duration=Number(body.durationSec);
+  if(!idPattern.test(id)||!Number.isInteger(duration)||duration<10||duration>120)
+    return fail('Prenotazione e durata Remix Pro non valide.',400);
+  // The job id must be allocated by the authenticated native billing gateway.
+  if(await b.head(jobKey(id)))return fail('Job gia accodato.',409);
+  if(!(await proQuota(e,'verify',id,uid,duration)))return fail('Quota Remix Pro non prenotata.',409);
   if(body.rightsConfirmed!==true)return fail('Conferma i diritti di utilizzo dei due brani.');
   const a=String(body.sourceA||''),c=String(body.sourceB||'');
   if(a===c)return fail('Seleziona due sorgenti differenti.');
@@ -86,13 +110,13 @@ async function enqueue(req,e,auth,b) {
     if(old?.ownerUid===uid&&old?.kind==='sonara-remix-pro'&&
        (old.status==='QUEUED'||old.status==='LEASED'))return fail('Hai già un Remix Pro in corso. Verifica prima quel job.',409);
   }
-  const now=Date.now(),id='srpro_'+crypto.randomUUID();
+  const now=Date.now();
   const j={kind:'sonara-remix-pro',id,ownerUid:uid,status:'QUEUED',stage:'queued',attempts:0,
     leaseId:null,leaseUntil:0,createdAt:now,updatedAt:now,
     sourceA:refs[0],sourceB:refs[1],audio:null,stems:{},
     params:{
       prompt:String(body.prompt||'').trim().slice(0,6500),
-      durationSec:Math.round(finite(body.durationSec,60,10,120)),
+      durationSec:duration,
       bpmA:body.bpmA===null||body.bpmA===undefined||body.bpmA===''?null:finite(body.bpmA,null,55,200),
       bpmB:body.bpmB===null||body.bpmB===undefined||body.bpmB===''?null:finite(body.bpmB,null,55,200),
       bassFrom:body.bassFrom==='b'?'b':'a',
@@ -223,6 +247,10 @@ export async function handleRemixPro(req,env,ctx,auth) {
   }
   if(req.method==='POST'&&(action==='complete'||action==='fail')){
     if(action==='complete'&&(!j.audio||!await b.head(j.audio)))return fail('Final WAV required',409);
+    // The ledger must acknowledge before the job reaches a final public state.
+    // The operation is idempotent on retries with the same leased job.
+    if(!(await proQuota(env,action==='complete'?'commit':'refund',id,j.ownerUid)))
+      return fail('Remix Pro quota settlement unavailable',503);
     j.status=action==='complete'?'COMPLETE':'FAILED';j.stage=action==='complete'?'completed':'failed';
     j.leaseUntil=0;j.leaseId=null;j.updatedAt=Date.now();
     // Do not retain prompts/owner's source metadata in a final job record.
