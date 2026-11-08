@@ -35,6 +35,33 @@ macchina e revisione agente; per scaricare audio sorgente serve anche
 il lease del job. I WAV e gli stem finali sono recuperabili
 esclusivamente dal proprietario autenticato; non sono URL pubblici.
 
+## Contabilizzazione Remix Pro (PR di revisione, non attiva)
+
+L'integrazione proposta tiene i flag Remix Pro **spenti** finché i test automatici
+e il collaudo end-to-end non sono conclusi. Un job Pro di durata N secondi
+prenota **3 × N secondi** del piano Studio (analisi delle due sorgenti più
+rigenerazione finale): questo moltiplicatore è una **politica proposta** e deve
+essere approvato prima del rilascio commerciale.
+
+- Il Worker genera un ID `srpro_*`, chiede una prenotazione atomica
+  all'archivio account SONARA tramite endpoint interno firmato e soltanto
+  dopo accoda il job in R2.
+- La coda rifiuta ID non prenotati e non rende eseguibili job ancora in
+  preparazione. Il Worker conferma il consumo con `complete` o rimborsa con
+  `fail`, in modo idempotente.
+- Dopo tre lease falliti o due ore in coda, l'agente tenta un rimborso prima
+  di segnare il job come fallito. Non è un sostituto di una riconciliazione
+  programmata quando l'agente è offline.
+- Nessuna sessione browser autorizza direttamente modifiche al ledger.
+  I job dell'altro utente e i token rimangono privati.
+
+**Limite per il go-live:** Durable Object e R2 non condividono una singola
+transazione atomica. Prima di attivare il flag billing, verificare anche
+riconciliazione dei job in preparazione, interruzioni tra settlement e
+salvataggio R2, e un job reale autorizzato con prova di quota/rimborso.
+Non abilitare `SONARA_REMIX_PRO_BILLING_READY` solo sulla base dei test
+unitari o del preflight GPU.
+
 ## Job indipendente
 
 ```text
