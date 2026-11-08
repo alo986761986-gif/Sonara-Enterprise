@@ -1,7 +1,7 @@
-"""SONARA Remix Pro private two-WAV end-to-end quality gate.
+"""SONARA Remix Pro private original A+B fusion GPU quality gate.
 
-Runs REAL Demucs htdemucs and exactly one REAL local ACE-Step cover task on
-authorized existing WAVs, then audits the resulting master. Never calls the
+Runs REAL Demucs htdemucs and REAL local ACE-Step cover generation on
+independent authorized A-structure and B-style audio references. Never calls the
 public site, claims a job, changes billing, starts/restarts ACE-Step, or uploads
 customer audio. Run only from the isolated /marimo/SONARA-REMIX-PRO/.venv.
 
@@ -56,7 +56,7 @@ def run(args) -> dict:
         raise LocalQAFailure("Explicit --rights-confirmed is required for both tracks")
     if not args.prompt or not args.prompt.strip():
         raise LocalQAFailure("An original musical remix prompt is required")
-    if not 30 <= args.duration <= 480:
+    if not 30 <= args.duration <= 480 or args.duration % 30:
         raise LocalQAFailure("Duration must be between 30 and 480 seconds")
     if args.bpm_a is not None and not 55 <= args.bpm_a <= 200:
         raise LocalQAFailure("BPM A outside 55-200")
@@ -74,9 +74,12 @@ def run(args) -> dict:
         raise LocalQAFailure("Sources A and B must contain different audio")
 
     from sonara_remix_pro_toolkit import (
-        analyze_audio, separate_stems, combine_two_songs, transparent_master
+        analyze_audio, separate_stems, transparent_master
     )
-    from sonara_remix_pro_ace_bridge import render as ace_cover
+    from sonara_remix_pro_fusion import (
+        make_structural_guide, make_independent_style_reference, build_fusion_prompt,
+    )
+    from sonara_remix_pro_ace_bridge import render_long_remix as ace_cover
     from sonara_remix_pro_quality import audit_wav, audit_remix
     import soundfile as sf
     import numpy as np
@@ -112,29 +115,33 @@ def run(args) -> dict:
     stems_b = cache / manifest_b["sourceSha256"][:20]
     print("SONARA_QA_REAL_DEMUCS_A_B=True", flush=True)
 
-    arranged = job_dir / "arranged.wav"
-    arrangement = combine_two_songs(
-        a, b, stems_a, stems_b, arranged,
-        bpm_a=float(bpm_a), bpm_b=float(bpm_b),
-        bass_from=args.bass_from, max_seconds=args.duration
-    )
-    arranged_audit = audit_wav(arranged)
-    if arranged_audit.get("durationSeconds", 0) < 10 or arranged_audit.get("channels") != 2:
-        raise LocalQAFailure("Merged arrangement failed minimum audio checks")
-    print("SONARA_QA_TWO_SONG_MERGE=True", flush=True)
-
+    # Original music A and B remain independent, never mixed into a DJ WAV.
+    guide = job_dir / "guide-only-a.wav"
+    reference = job_dir / "style-only-b.wav"
+    plan_a = make_structural_guide(a, guide, args.duration)
+    plan_b = make_independent_style_reference(b, reference)
+    if plan_a.get("containsSourceB") is not False or plan_b.get("containsSourceA") is not False:
+        raise LocalQAFailure("Two-source independence was not verified")
+    if plan_a.get("seconds") != args.duration or plan_b.get("source") != "b-only":
+        raise LocalQAFailure("Unexpected creative-fusion conditioning inputs")
+    print("SONARA_QA_SOURCE_AUDIO_NOT_MIXED=True", flush=True)
+    fused_prompt = build_fusion_prompt(args.prompt, report_a, report_b)
     generated = job_dir / "generated.wav"
     cover = ace_cover(
-        arranged, generated, args.prompt, mode=args.auth_mode,
+        guide, generated, fused_prompt, mode=args.auth_mode,
         strength=args.strength, noise=args.noise, bpm=float(bpm_a),
-        key=args.key or None
+        key=args.key or report_a.get("key") or None,
+        reference_audio_path=reference,
     )
-    if cover.get("status") != "completed":
-        raise LocalQAFailure("ACE-Step did not produce a completed real cover")
-    print("SONARA_QA_REAL_ACE_STEP_COVER=True", flush=True)
+    if (cover.get("status") != "completed"
+        or cover.get("independentStyleReference") is not True
+        or cover.get("oneContinuousOutput") is not True
+        or cover.get("durationVerified") is not True):
+        raise LocalQAFailure("ACE-Step did not verify a real two-reference composition")
+    print("SONARA_QA_REAL_ACE_STEP_DUAL_REFERENCE=True", flush=True)
 
     audio, sr = sf.read(str(generated),dtype="float32",always_2d=True)
-    if not 22050 <= sr <= 96000 or not 10 <= len(audio)/sr <= 120:
+    if not 22050 <= sr <= 96000 or abs(len(audio)/sr - args.duration) > 0.1:
         raise LocalQAFailure("ACE-Step output has unsupported rate or duration")
     if audio.shape[1] == 1:
         audio = np.repeat(audio, 2, axis=1)
@@ -146,22 +153,30 @@ def run(args) -> dict:
     measured = audit_wav(master)
     comparison = audit_remix(a, master)
     rejected = (
-        measured.get("integratedLufs") is None
+        abs(float(measured.get("durationSeconds") or 0) - args.duration) > 0.1
+        or measured.get("integratedLufs") is None
         or measured.get("clippedFrameRatio", 1) > 0.0001
         or measured.get("approxTruePeakDbTp", 20) > -0.5
         or measured.get("nearSilenceFrameRatio", 1) > 0.15
     )
     summary = {
-        "pipeline": "real-demucs-A-and-B -> one mixed WAV -> one ACE-Step cover -> one mastered WAV",
+        "pipeline": "real-demucs A+B analysis -> separate A structure & B style -> ACE-Step dual-reference generation -> one mastered WAV",
+        "fusionRevision": "sonara-dual-reference-composition-v1",
+        "independentSourceConditioning": True,
+        "notADJMixOrStemOverlay": True,
+        "artisticallyVerified": False,
         "technicalPass": not rejected,
         "humanListeningRequired": True,
         "sourceAHashPrefix": hash_a[:16],
         "sourceBHashPrefix": hash_b[:16],
         "durationRequestedSeconds": args.duration,
-        "arrangementDurationSeconds": arrangement.get("seconds"),
+        "structuralGuideDurationSeconds": plan_a.get("seconds"),
+        "styleReferenceDurationSeconds": plan_b.get("seconds"),
+        "modelSectionCount": cover.get("segmentCount"),
         "finalWav": str(master),
         "audit": {k:v for k,v in measured.items() if k != "path"},
         "audioReviewFlags": comparison.get("reviewFlags", []),
+        "humanReview": "Must listen and confirm both source influences; code checks alone cannot establish creative balance",
         "masteringMetrics": master_metrics,
         "billingUnchanged": True,
         "siteQueueUnchanged": True
@@ -187,8 +202,8 @@ def main(argv=None) -> int:
     p.add_argument("--bpm-b", type=float)
     p.add_argument("--bass-from", choices=("a","b"), default="a")
     p.add_argument("--auth-mode", choices=("required","none"), default="required")
-    p.add_argument("--strength", type=float, default=.76)
-    p.add_argument("--noise", type=float, default=.14)
+    p.add_argument("--strength", type=float, default=.52)
+    p.add_argument("--noise", type=float, default=.16)
     p.add_argument("--key", default="")
     args = p.parse_args(argv)
     try:
