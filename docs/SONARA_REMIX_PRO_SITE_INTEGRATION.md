@@ -49,16 +49,24 @@ essere approvato prima del rilascio commerciale.
 - La coda rifiuta ID non prenotati e non rende eseguibili job ancora in
   preparazione. Il Worker conferma il consumo con `complete` o rimborsa con
   `fail`, in modo idempotente.
-- Dopo tre lease falliti o due ore in coda, l'agente tenta un rimborso prima
-  di segnare il job come fallito. Non è un sostituto di una riconciliazione
-  programmata quando l'agente è offline.
+- Il Durable Object pianifica alarm ogni cinque minuti per ricontrollare
+  prenotazioni aperte: PREPARING oltre dieci minuti, QUEUED oltre due ore,
+  lease esauriti e job oltre quattro ore. Prima scrive FAILED in R2 con
+  precondizione ETag; solo dopo tenta il rimborso idempotente.
+- Per i job terminali in R2 (COMPLETE/FAILED) l'alarm completa il settlement
+  contabile se l'agente si è interrotto tra i due salvataggi.
+- Il recupero è best-effort e non costituisce una transazione distribuita.
+  Bucket R2 non disponibile, stati ambigui e conflitti ETag restano
+  prenotati e devono essere ritentati senza rimborsi alla cieca.
 - Nessuna sessione browser autorizza direttamente modifiche al ledger.
   I job dell'altro utente e i token rimangono privati.
 
 **Limite per il go-live:** Durable Object e R2 non condividono una singola
-transazione atomica. Prima di attivare il flag billing, verificare anche
-riconciliazione dei job in preparazione, interruzioni tra settlement e
-salvataggio R2, e un job reale autorizzato con prova di quota/rimborso.
+transazione atomica. I test di alarm automatizzati coprono stati terminali,
+PREPARING orfani e lease scaduti, ma è ancora indispensabile un collaudo
+end-to-end su Worker reale con interruzioni forzate, ETag concorrenti,
+storage temporaneamente non disponibile e almeno un job musicale reale
+autorizzato, con prova di quota e rimborso.
 Non abilitare `SONARA_REMIX_PRO_BILLING_READY` solo sulla base dei test
 unitari o del preflight GPU.
 
