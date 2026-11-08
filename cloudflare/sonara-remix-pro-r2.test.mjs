@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { handleRemixPro, proCapabilities, PRO_AGENT_REVISION } from './sonara-remix-pro-r2.mjs';
+import { deriveRelayGatewayInternalKey } from './sonara-gateway-verifier.mjs';
 
 const END='https://api.sonaraenterprise.com';
 const USER='owner-123';
@@ -9,6 +10,7 @@ const TOKEN='private-relay-test-token-001';
 const SECRET='private-billing-gateway-test-secret';
 const A='sref_11111111-1111-4111-8111-111111111111';
 const B='sref_22222222-2222-4222-8222-222222222222';
+const JOB='srpro_33333333-3333-4333-8333-333333333333';
 let serial=0;
 const wav=()=>{const data=new Uint8Array(300);data.set([82,73,70,70],0);data.set([87,65,86,69],8);return data;};
 function bucket(){
@@ -46,11 +48,36 @@ function bucket(){
     }
   };
 }
-const env=(flags=true)=>({
-  SONARA_AUDIO_BUCKET:bucket(),SONARA_R2_RELAY_ENABLED:'true',
-  SONARA_REMIX_PRO_ENABLED:flags?'true':'false',
-  SONARA_REMIX_PRO_BILLING_READY:flags?'true':'false'
-});
+function env(flags=true) {
+  const reservations=new Map([[JOB,{ownerUid:USER,seconds:25,status:'reserved'}]]);
+  const environment={
+    SONARA_AUDIO_BUCKET:bucket(),SONARA_R2_RELAY_ENABLED:'true',
+    SONARA_REMIX_PRO_ENABLED:flags?'true':'false',
+    SONARA_REMIX_PRO_BILLING_READY:flags?'true':'false',
+    SONARA_RELAY_TOKEN:'test-only-remix-pro-relay-root-12345678901234567890'
+  };
+  environment.SONARA_AUTH={
+    idFromName:name=>name,
+    get:()=>({fetch:async request=>{
+      const expected=await deriveRelayGatewayInternalKey(environment);
+      if(request.headers.get('X-Sonara-Internal-Secret')!==expected)
+        return Response.json({ok:false},{status:401});
+      const {action,jobId,ownerUid,seconds}=await request.json();
+      const reservation=reservations.get(jobId);
+      if(!reservation)return Response.json({ok:false},{status:404});
+      if(action==='verify'&&(
+        reservation.status!=='reserved'||ownerUid!==reservation.ownerUid||
+        seconds!==reservation.seconds))return Response.json({ok:false},{status:409});
+      if(action==='commit'||action==='refund'){
+        if(reservation.status!=='reserved')return Response.json({ok:false},{status:409});
+        reservation.status=action==='commit'?'committed':'refunded';
+      }
+      return Response.json({ok:true});
+    }})
+  };
+  environment.__reservations=reservations;
+  return environment;
+}
 const req=(method,path,body,headers={})=>new Request(END+path,{method,
   headers:{...headers,...(body&&!(body instanceof Uint8Array)?{'content-type':'application/json'}:{})},
   ...((body===undefined)?{}:{body:body instanceof Uint8Array?body:JSON.stringify(body)})
@@ -66,7 +93,7 @@ const call=(environment,method,path,body,headers={})=>
 const agent={'x-sonara-relay-token':TOKEN,'x-sonara-pro-agent-revision':PRO_AGENT_REVISION};
 const owner={'x-mock-user':USER};
 const gate={'x-sonara-internal-secret':SECRET,'x-sonara-user-uid':USER};
-const spec={sourceA:A,sourceB:B,rightsConfirmed:true,prompt:'Compose a coherent genre-true remix',
+const spec={jobId:JOB,sourceA:A,sourceB:B,rightsConfirmed:true,prompt:'Compose a coherent genre-true remix',
   durationSec:25,bpmA:120,bpmB:122,bassFrom:'a'};
 
 test('Remix Pro fails closed until both billing approval and GPU heartbeat',async()=>{
@@ -142,4 +169,17 @@ test('Two-source pro job stays private through lease, stem, output and completio
   assert.equal((await call(e,'GET',job+'/source/a',undefined,leaseHeaders)).status,409);
   assert.equal(e.SONARA_AUDIO_BUCKET.store.has('relay-v1/references/'+A+'/source'),false);
   assert.equal(e.SONARA_AUDIO_BUCKET.store.has('relay-v1/references/'+B+'/source'),false);
+  assert.equal(e.__reservations.get(JOB).status,'committed');
+});
+
+test('Remix Pro refuses jobs without a matching durable quota reservation',async()=>{
+  const e=env();
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',{gpuReady:true},agent);
+  const missing='srpro_44444444-4444-4444-8444-444444444444';
+  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',
+    {...spec,jobId:missing},gate)).status,409);
+  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',
+    {...spec,durationSec:120},gate)).status,409);
+  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',
+    {...spec,jobId:'bad-id'},gate)).status,400);
 });
