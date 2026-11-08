@@ -80,6 +80,10 @@ class TwoSourceFusionTests(unittest.TestCase):
         self.assertEqual(
             fusion.select_fusion_tempo(119, no_tempo, 127.5, no_tempo), 119.0,
         )
+        self.assertEqual(
+            fusion.select_fusion_tempo(None, {"tempoBpm": 133, "tempoConfidence": 0.9},
+                                       125, no_tempo), 125.0,
+        )
         for invalid in (0, 500, -5, "bogus", float("inf")):
             with self.subTest(bpm=invalid), self.assertRaises(fusion.FusionPlanError):
                 fusion.select_fusion_tempo(invalid, no_tempo, None, no_tempo)
