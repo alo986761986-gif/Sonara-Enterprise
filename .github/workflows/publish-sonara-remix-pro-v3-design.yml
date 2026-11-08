@@ -1,7 +1,7 @@
-name: SONARA Remix Pro - Publish New React V3 Design Safely
+name: SONARA Remix Pro - Publish V3 duration-contract fix without backend downgrade
 on:
   push:
-    branches: [feature/remix-pro-automatic-random-duration-nov09]
+    branches: [fix/remix-pro-v3-request-contract-20261109]
     paths: ['.github/workflows/publish-sonara-remix-pro-v3-design.yml']
   workflow_dispatch:
 permissions: {contents: read}
@@ -30,7 +30,7 @@ jobs:
           import fs from 'node:fs';
           const js=fs.readFileSync('dist-remix-v3/sonara-remix-v3.js','utf8');
           const css=fs.readFileSync('dist-remix-v3/sonara-remix-v3.css','utf8');
-          if(js.length<10000||!js.includes('Due brani.')||!js.includes('Una nuova identità.')||
+          if(js.length<10000||!js.includes('buildRemixProGenerationRequest')&& !js.includes('X-Sonara-Remix-Expected-Duration')||!js.includes('Due brani.')||!js.includes('Una nuova identità.')||
              !js.includes('sonara-remix-pro-v3')||!js.includes('expectedDurationSec')||
              !css.includes('sonara-pro-v3__hero'))throw Error('New React V3 build missing functionality');
           if(js.match(/<\/script/i)||css.match(/<\/style/i))
@@ -75,8 +75,8 @@ jobs:
           const prodPath='/accounts/'+account+'/workers/scripts/sonara-enterprise/deployments';
           const production=(await api(prodPath)).deployments?.[0]?.versions?.[0]?.version_id;
           must(production,'Live main Worker revision not available');
-          const source='sonara-remix-auto-duration-shell-v2';
-          const next='sonara-remix-pro-design-v3-shell';
+          const source='sonara-remix-pro-design-v3-shell';
+          const next='sonara-remix-pro-contract-v4-shell';
           const patterns=['sonaraenterprise.com','sonaraenterprise.com/studio',
             'sonaraenterprise.com/remix','www.sonaraenterprise.com',
             'www.sonaraenterprise.com/studio','www.sonaraenterprise.com/remix'];
@@ -102,19 +102,20 @@ jobs:
             signal:AbortSignal.timeout(20000)
           });
           const html=await home.text();
-          must(home.ok&&home.headers.get('x-sonara-duration-shell')==='auto-v2'&&
-            html.length>3000&&html.length<90000,'Unexpected live HTML; no changes');
-          const old=/<script\b[^>]*id=["']sonara-remix-auto-duration-v2["'][^>]*>[\s\S]*?<\/script>/gi;
-          must([...html.matchAll(old)].length===1,
-            'Expected single old V2 script not present');
+          must(home.ok&&home.headers.get('x-sonara-remix-pro-ui')==='react-v3'&&
+            html.length>3000&&html.length<1000000,'Unexpected live V3 HTML; no changes');
+          const old=/<script\b[^>]*id=["']sonara-remix-pro-v3-app["'][^>]*>[\s\S]*?<\/script>/gi;
+          const oldStyle=/<style\b[^>]*id=["']sonara-remix-pro-v3-styles["'][^>]*>[\s\S]*?<\/style>/gi;
+          must([...html.matchAll(old)].length===1&&[...html.matchAll(oldStyle)].length===1,
+            'Expected exactly one existing V3 React script and stylesheet; no changes');
           const js=fs.readFileSync('dist-remix-v3/sonara-remix-v3.js','utf8');
           const css=fs.readFileSync('dist-remix-v3/sonara-remix-v3.css','utf8');
           const injected='<style id="sonara-remix-pro-v3-styles">'+css+'</style>'+
             '<script type="module" id="sonara-remix-pro-v3-app">'+js+'</script>';
-          const patched=html.replace(old,'').replace(/<\/head>/i,injected+'</head>');
+          const patched=html.replace(old,'').replace(oldStyle,'').replace(/<\/head>/i,injected+'</head>');
           must(patched.includes('sonara-remix-pro-v3-app')&&
             patched.includes('sonara-remix-pro-v3-styles')&&
-            !patched.includes('sonara-remix-auto-duration-v2'),'V3 HTML patch mismatch');
+            patched.includes('X-Sonara-Remix-Expected-Duration'),'V3 duration contract bundle mismatch');
           const csp=home.headers.get('content-security-policy')||'';
           const inline=/script-src(?:-elem)?\s+([^;]+)/i.exec(csp)?.[1]||'';
           must(!inline||inline.includes("'unsafe-inline'"),
@@ -123,7 +124,7 @@ jobs:
             'content-type':'text/html; charset=UTF-8',
             'cache-control':'no-store, max-age=0',
             'x-content-type-options':'nosniff',
-            'x-sonara-remix-pro-ui':'react-v3'
+            'x-sonara-remix-pro-ui':'react-v3-contract-v4'
           };
           for(const h of ['content-security-policy','permissions-policy',
             'strict-transport-security','referrer-policy','x-frame-options']){
@@ -143,7 +144,7 @@ jobs:
           const form=new FormData();
           form.set('metadata',new Blob([JSON.stringify({
             main_module:'remix-v3-shell.mjs',compatibility_date:'2026-08-23',
-            annotations:{'workers/message':'SONARA isolated real React V3 Remix Pro UI; main backend unchanged'}
+            annotations:{'workers/message':'SONARA V3 contract fix; isolated UI only; main GPU backend untouched'}
           })],{type:'application/json'}),'metadata.json');
           form.set('remix-v3-shell.mjs',
             new Blob([worker],{type:'application/javascript+module'}),'remix-v3-shell.mjs');
@@ -165,7 +166,7 @@ jobs:
               headers:{'Cache-Control':'no-store'},signal:AbortSignal.timeout(18000)
             });
             const body=await response.text();
-            stageValid=response.ok&&response.headers.get('x-sonara-remix-pro-ui')==='react-v3'&&body===patched;
+            stageValid=response.ok&&response.headers.get('x-sonara-remix-pro-ui')==='react-v3-contract-v4'&&body===patched;
             console.log('SONARA_V3_STAGE',JSON.stringify({attempt:attempt+1,http:response.status,
               newReact:body.includes('sonara-remix-pro-v3-app'),matched:stageValid}));
             if(stageValid)break;
@@ -220,6 +221,76 @@ jobs:
               'Staged browser did not mount usable new React Remix Pro panel');
             await page.close();
           }finally{await browser.close();}
+            // Test the actual production component and a complete mock A+B job.
+            // The isolated staging Worker returns 405 for POST, ensuring NO real jobs.
+            const jobTest=await browser.newPage({viewport:{width:1440,height:900}});
+            try{
+              await jobTest.addInitScript(()=>{
+                const normalFetch=window.fetch.bind(window);
+                const calls=[];
+                window.__sonaraTestDurationCalls=calls;
+                const reply=(data,status=200)=>Promise.resolve(new Response(JSON.stringify(data),
+                  {status,headers:{'content-type':'application/json'}}));
+                window.fetch=(input,init)=>{
+                  const req=input instanceof Request?input:null;
+                  const path=new URL(req?req.url:input,location.href).pathname;
+                  if(path==='/api/sonara-relay/pro-capabilities')
+                    return reply({available:true,multiformatAvailable:true,fusionAvailable:true});
+                  if(path==='/api/sonara-relay/reference') {
+                    const ref='sref_'+(calls.filter(x=>x.type==='upload').length?'22222222-2222-4222-8222-222222222222':'11111111-1111-4111-8111-111111111111');
+                    calls.push({type:'upload'});
+                    return reply({referenceId:ref});
+                  }
+                  if(path==='/api/billing/generate'){
+                    return (async()=>{
+                      const data=req?await req.clone().json():JSON.parse(init?.body||'{}');
+                      const seconds=Number(data.durationSec);
+                      const expected=Number(data.expectedDurationSec);
+                      const header=Number(req?req.headers.get('X-Sonara-Remix-Expected-Duration'):
+                        new Headers(init?.headers).get('X-Sonara-Remix-Expected-Duration'));
+                      calls.push({type:'job',isRequest:!!req,seconds,expected,header,sourceA:data.sonaraRemixProSourceA,sourceB:data.sonaraRemixProSourceB});
+                      return reply({jobId:'srpro_33333333-3333-4333-8333-333333333333',requestedDurationSeconds:seconds},202);
+                    })();
+                  }
+                  if(path.startsWith('/api/sonara-relay/pro-job/'))return reply({status:'PROCESSING',stage:'queued',progress:4});
+                  return normalFetch(input,init);
+                };
+              });
+              const pageResponse=await jobTest.goto(stage,{waitUntil:'domcontentloaded',timeout:35000});
+              must(pageResponse?.ok(),'Staging browser mock could not open');
+              await jobTest.evaluate(()=>{
+                const old=document.createElement('div');
+                old.className='sonara-remix-pro';
+                old.textContent='Legacy SONARA Remix Pro';
+                document.body.appendChild(old);
+              });
+              await jobTest.waitForSelector('[data-testid="sonara-remix-pro-v3"]',{state:'visible',timeout:14000});
+              await jobTest.waitForFunction(()=>
+                !document.querySelector('[data-testid="sonara-pro-v3-generate"]')?.disabled,
+                {timeout:14000});
+              const wav=new Uint8Array(128);
+              wav.set([82,73,70,70],0);
+              wav.set([87,65,86,69],8);
+              const wavBuffer=Buffer.from(wav);
+              await jobTest.locator('[data-testid="sonara-remix-pro-input-a"]').setInputFiles({
+                name:'source-A.wav',mimeType:'audio/wav',buffer:wavBuffer});
+              await jobTest.locator('[data-testid="sonara-remix-pro-input-b"]').setInputFiles({
+                name:'source-B.wav',mimeType:'audio/wav',buffer:wavBuffer});
+              await jobTest.locator('[data-testid="sonara-remix-pro-v3"] input[type="checkbox"]').check();
+              await jobTest.locator('[data-testid="sonara-pro-v3-generate"]').click();
+              await jobTest.waitForFunction(()=>(window.__sonaraTestDurationCalls||[]).some(x=>x.type==='job'),
+                {timeout:15000});
+              const result=await jobTest.evaluate(()=>(window.__sonaraTestDurationCalls||[]));
+              const jobs=result.filter(x=>x.type==='job');
+              must(jobs.length===1&&jobs[0].isRequest&&
+                jobs[0].seconds>=120&&jobs[0].seconds<=300&&jobs[0].seconds%30===0&&
+                jobs[0].seconds===jobs[0].expected&&jobs[0].seconds===jobs[0].header&&
+                jobs[0].sourceA!==jobs[0].sourceB,
+                'V3 actual browser submission duration differs between header/JSON');
+              console.log('SONARA_V3_DURATION_CONTRACT_BROWSER',JSON.stringify({
+                oneJob:true,sourceCount:2,requestedSeconds:jobs[0].seconds,
+                matchingHeader:true,realBackendRequests:0}));
+            }finally{await jobTest.close();}
           must((await api(prodPath)).deployments?.[0]?.versions?.[0]?.version_id===production,
             'Main Worker changed during staging');
           const pre=await api(routesPath);
@@ -241,9 +312,8 @@ jobs:
                 const response=await fetch(url,{headers:{Accept:'text/html','Cache-Control':'no-store'},
                   signal:AbortSignal.timeout(18000)});
                 const body=await response.text();
-                valid=response.ok&&response.headers.get('x-sonara-remix-pro-ui')==='react-v3'&&
-                  body.includes('sonara-remix-pro-v3-app')&&
-                  !body.includes('sonara-remix-auto-duration-v2');
+                valid=response.ok&&response.headers.get('x-sonara-remix-pro-ui')==='react-v3-contract-v4'&&
+                  body.includes('sonara-remix-pro-v3-app')&&body.includes('X-Sonara-Remix-Expected-Duration');
                 console.log('SONARA_V3_LIVE',JSON.stringify({url,attempt:attempt+1,
                   status:response.status,verified:valid}));
                 if(valid)break;
@@ -262,9 +332,9 @@ jobs:
             must(patterns.every((pattern,i)=>final.some(r=>r.id===originals[i].id&&
               r.pattern===pattern&&r.script===next)),'One of six V3 UI routes did not update');
             complete=true;
-            console.log('SONARA_V3_UI_RELEASE',JSON.stringify({published:true,
+            console.log('SONARA_V3_DURATION_FIX_RELEASE',JSON.stringify({published:true,
               newReactUI:true,autoDuration:true,routeCount:patterns.length,
-              originalBackendPreserved:true,liveRemixProV3:true,
+              originalBackendPreserved:true,liveRemixProV3:true,durationContractFixed:true,
               browserVerified:true}));
           }finally{
             if(!complete){
@@ -274,7 +344,7 @@ jobs:
               const after=await api(routesPath);
               must(patterns.every((pattern,i)=>after.some(r=>r.id===originals[i].id&&
                 r.script===source)),'CRITICAL: V3 UI rollback incomplete');
-              console.log('SONARA_V3_UI_RELEASE',JSON.stringify({rolledBack:true}));
+              console.log('SONARA_V3_DURATION_FIX_RELEASE',JSON.stringify({rolledBack:true}));
             }
           }
           NODE
