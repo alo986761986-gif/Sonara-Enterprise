@@ -81,7 +81,8 @@ def token_headers():
 def request(method, path, data=None, lease=None, *, binary=False, timeout=120):
     if not path.startswith("/api/sonara-relay/pro-") or "//" in path:
         raise ProAgentError("Disallowed gateway path")
-    h = {**token_headers(), "Accept": "application/octet-stream" if binary else "application/json"}
+    h = {**token_headers(), "User-Agent": "SONARA-Remix-Pro-Agent/1.0 (+https://sonaraenterprise.com)",
+         "Accept": "application/octet-stream" if binary else "application/json"}
     if lease:
         h["X-Sonara-Pro-Lease"] = lease
     if isinstance(data, dict):
