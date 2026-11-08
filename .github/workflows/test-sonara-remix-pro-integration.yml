@@ -24,6 +24,8 @@ on:
       - 'molab/test_sonara_remix_pro_r2_download.py'
       - 'molab/test_sonara_remix_pro_wavex.py'
       - 'molab/sonara_remix_pro_live_qa.py'
+      - 'molab/install_sonara_remix_fusion_v3.py'
+      - 'molab/test_sonara_remix_fusion_installer.py'
       - 'molab/test_sonara_remix_pro_live_qa.py'
       - '.github/workflows/test-sonara-remix-pro-integration.yml'
   workflow_dispatch:
@@ -55,6 +57,10 @@ jobs:
           python3 -m pip install --user numpy soundfile
           python3 -m py_compile molab/sonara_remix_pro_fusion.py molab/sonara_remix_pro_ace_bridge.py molab/sonara_remix_pro_r2_agent.py
           python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_fusion.py' -v
+      - name: Verify immutable V3 installer and pinned module hashes
+        run: |
+          python3 -m py_compile molab/install_sonara_remix_fusion_v3.py
+          python3 -m unittest discover -s molab -p 'test_sonara_remix_fusion_installer.py' -v
       - name: MoLab Python syntax only (never downloads models)
         run: python3 -m py_compile molab/sonara_remix_pro_r2_agent.py
       - name: Install real FFmpeg audio decoder for non-skipped codec tests
