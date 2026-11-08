@@ -223,7 +223,8 @@ jobs:
           }finally{await browser.close();}
             // Test the actual production component and a complete mock A+B job.
             // The isolated staging Worker returns 405 for POST, ensuring NO real jobs.
-            const jobTest=await browser.newPage({viewport:{width:1440,height:900}});
+            const browser2=await chromium.launch({headless:true});
+          const jobTest=await browser2.newPage({viewport:{width:1440,height:900}});
             try{
               await jobTest.addInitScript(()=>{
                 const normalFetch=window.fetch.bind(window);
@@ -290,7 +291,7 @@ jobs:
               console.log('SONARA_V3_DURATION_CONTRACT_BROWSER',JSON.stringify({
                 oneJob:true,sourceCount:2,requestedSeconds:jobs[0].seconds,
                 matchingHeader:true,realBackendRequests:0}));
-            }finally{await jobTest.close();}
+            }finally{await jobTest.close();await browser2.close();}
           must((await api(prodPath)).deployments?.[0]?.versions?.[0]?.version_id===production,
             'Main Worker changed during staging');
           const pre=await api(routesPath);
