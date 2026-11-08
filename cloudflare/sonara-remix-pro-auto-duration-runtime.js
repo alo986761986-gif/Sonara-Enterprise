@@ -15,7 +15,8 @@
     const slider=document.querySelector('[data-testid="sonara-remix-pro-duration-slider"]') ||
       document.querySelector('input[type="range"][min="30"][max="480"]');
     const label=slider&&slider.closest('label');
-    if(!label||!/Durata Remix AI/i.test(label.textContent||''))return null;
+    if(!label||(!/Durata Remix AI|Durata automatica SONARA/i.test(label.textContent||'') &&
+      label.getAttribute('data-sonara-auto-duration')!=='v2'))return null;
     return {slider,label,select:label.querySelector('select')};
   };
   const message=(msg,warning=false)=>{
@@ -36,6 +37,15 @@
   const showAutomatic=()=>{
     const c=labelNode();
     if(!c)return;
+    c.label.setAttribute('data-sonara-auto-duration','v2');
+    // Replace the user-visible legacy label, not just its form controls.
+    for(const node of c.label.childNodes){
+      if(node.nodeType===3&&/Durata Remix AI/i.test(node.textContent||'')){
+        node.textContent='Durata automatica SONARA (2–5 minuti)';
+      }
+    }
+    const oldSummary=c.label.querySelector('[data-testid="sonara-remix-pro-duration-selected"]');
+    if(oldSummary)oldSummary.style.display='none';
     c.slider.style.display='none';
     c.slider.setAttribute('aria-hidden','true');
     c.slider.tabIndex=-1;
@@ -88,7 +98,8 @@
     if(!document.body)return;
     const obs=new MutationObserver(()=>{
       const c=labelNode();
-      if(c&&c.slider.style.display!=='none')showAutomatic();
+      if(c&&(c.slider.style.display!=='none' ||
+        !c.label.textContent.includes('Durata automatica SONARA')))showAutomatic();
     });
     obs.observe(document.body,{childList:true,subtree:true});
   };
