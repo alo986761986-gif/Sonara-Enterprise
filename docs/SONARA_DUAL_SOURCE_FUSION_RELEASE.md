@@ -42,7 +42,7 @@ def sonara_v3_install_safe():
     from urllib.request import urlopen
     import tempfile
     url = ("https://raw.githubusercontent.com/alo986761986-gif/"
-           "Sonara-Enterprise/5555c99584217b626baf38af67b3157563fd27f9/"
+           "Sonara-Enterprise/f15792e95b5bf0be13e4b356292069abf887578e/"
            "molab/install_sonara_remix_fusion_v3.py")
     data = urlopen(url, timeout=30).read()
     # This script itself downloads only four Git-blob-hash-pinned source modules.
