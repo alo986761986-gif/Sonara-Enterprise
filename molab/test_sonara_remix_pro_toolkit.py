@@ -10,7 +10,7 @@ from unittest import mock
 
 from sonara_remix_pro_toolkit import (
     RemixProError, STEM_NAMES, VERSION, audio_hash, analyze_audio,
-    combine_two_songs, preflight, separate_stems, source_file, transparent_master
+    combine_two_songs, _phrase_loop_stem, preflight, separate_stems, source_file, transparent_master
 )
 
 
@@ -107,6 +107,75 @@ class SONARARemixProTests(unittest.TestCase):
                 with self.assertRaisesRegex(RemixProError, "Stem manifest does not belong"):
                     combine_two_songs(a, b, fake_a, fake_b, root / "remix.wav",
                                       bpm_a=120, bpm_b=120)
+
+
+    def test_eight_minute_source_phrase_loop_has_no_padding_or_silent_tail(self):
+        import numpy as np
+        source = np.column_stack([
+            np.full(1200, .14, dtype=np.float32),
+            np.full(1200, .09, dtype=np.float32),
+        ])
+        arranged, loops = _phrase_loop_stem(source, 480*200, 120, sr=200)
+        self.assertEqual(arranged.shape, (480*200, 2))
+        self.assertGreater(loops, 2)
+        self.assertGreater(np.min(np.abs(arranged[10000:-10000])), .08)
+
+    def test_real_two_source_stems_arrange_one_exact_60_second_wav(self):
+        import numpy as np
+        import soundfile as sf
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            a, b = root/"a.wav", root/"b.wav"
+            fixture(a, seconds=3, frequency=330)
+            fixture(b, seconds=3, frequency=440)
+            sa, sb = root/"stem-a", root/"stem-b"
+            sa.mkdir(); sb.mkdir()
+            for source, folder in ((a,sa), (b,sb)):
+                (folder/"stems-manifest.json").write_text(json.dumps({
+                    "sourceSha256":audio_hash(source), "separationModel":"htdemucs",
+                    "stemsVerified":True
+                }))
+            def fake_stem(folder, name, sr=44100):
+                amp = .08 if Path(folder)==sa else .13
+                return np.full((sr*3,2),amp,dtype=np.float32)
+            def fake_master(audio, **kwargs):
+                return audio, {"testOnly":True}
+            with (mock.patch("sonara_remix_pro_toolkit.analyze_audio",
+                    return_value={"tempoBpm":120,"key":None,"beatTimesSeconds":[]}),
+                  mock.patch("sonara_remix_pro_toolkit._load_stem", side_effect=fake_stem),
+                  mock.patch("sonara_remix_pro_toolkit.transparent_master",
+                    side_effect=fake_master)):
+                target=root/"one-fused.wav"
+                plan=combine_two_songs(a,b,sa,sb,target,bpm_a=120,bpm_b=120,max_seconds=60)
+            with sf.SoundFile(str(target)) as f:
+                self.assertEqual(f.frames,60*44100)
+                self.assertEqual(f.channels,2)
+            self.assertEqual(plan["seconds"],60)
+            self.assertTrue(plan["durationVerified"])
+            self.assertTrue(plan["realSourceAUsed"])
+            self.assertTrue(plan["realSourceBUsed"])
+            self.assertIn("drumsB", plan["stemRoles"])
+            self.assertIn("vocalsA", plan["stemRoles"])
+
+    def test_reject_same_music_even_if_uploaded_as_two_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            a,b=root/"a.wav",root/"b.wav"
+            fixture(a, seconds=3, frequency=330)
+            b.write_bytes(a.read_bytes())
+            with self.assertRaisesRegex(RemixProError, "due audio differenti"):
+                combine_two_songs(a,b,root,root,root/"out.wav",
+                                  bpm_a=120,bpm_b=120,max_seconds=480)
+
+    def test_reject_unaligned_duration_not_silently_clamped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            a,b=root/"a.wav",root/"b.wav"
+            fixture(a,seconds=3,frequency=330)
+            fixture(b,seconds=3,frequency=440)
+            with self.assertRaisesRegex(RemixProError, "30-480"):
+                combine_two_songs(a,b,root,root,root/"out.wav",
+                                  bpm_a=120,bpm_b=120,max_seconds=540)
 
     def test_true_peak_and_loudness_report(self):
         import numpy as np
