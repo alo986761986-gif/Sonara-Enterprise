@@ -122,6 +122,21 @@ def status(state, **safe):
     path.replace(STATUS_FILE)
 
 
+
+def pro_activation_pending():
+    """Distinguish an intentionally closed Pro queue from network failure.
+
+    The heartbeat happens first and establishes GPU/authentication readiness.
+    When Pro capabilities are unavailable, do not poll the gated pro-claim
+    endpoint: it returns HTTP 503 by design until the billing gate is enabled.
+    """
+    caps = request("GET", "/api/sonara-relay/pro-capabilities")
+    if caps.get("available") is True:
+        return False
+    status("waiting_for_pro_activation", siteGenerationAvailable=False)
+    return True
+
+
 def validate_wav(path):
     p = Path(path)
     if not p.is_file() or not 44 <= p.stat().st_size <= MAX_WAV_BYTES:
@@ -416,9 +431,19 @@ def main(argv=None):
         print("ACE_STEP_UNMODIFIED=True",flush=True)
         status("preflight_ready")
         return
+    last_gate_pending = None
     while not STOP:
         try:
             request("POST","/api/sonara-relay/pro-heartbeat",{"gpuReady":True})
+            if pro_activation_pending():
+                if last_gate_pending is not True:
+                    print("SONARA PRO standby: GPU/auth ready; awaiting Remix Pro activation.",flush=True)
+                last_gate_pending = True
+                if args.once:
+                    break
+                time.sleep(20)
+                continue
+            last_gate_pending = False
             response = request("POST","/api/sonara-relay/pro-claim",{})
             if response.get("jobId"):
                 run_job(response,args.auth_mode)
