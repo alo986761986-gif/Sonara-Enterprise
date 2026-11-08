@@ -22,7 +22,7 @@ jobs:
           const token=process.env.CLOUDFLARE_API_TOKEN||'';
           if(token.length<20)throw Error('Missing Cloudflare token');
           const oldVersion='bbedc676-8792-4421-85b3-913e74270686';
-          const stagedVersion='bb81a8de-8147-492f-b95b-0597b6378130';
+          const stagedVersion='a5137e8b-b4e8-4298-8892-c4d75bdb18de';
           const root='https://api.cloudflare.com/client/v4';
           const auth={Authorization:'Bearer '+token,'Content-Type':'application/json'};
           const read=async path=>{
@@ -72,6 +72,7 @@ jobs:
             await new Promise(resolve=>setTimeout(resolve,7000));
             const override='sonara-enterprise="'+stagedVersion+'"';
             const targets=[
+              ['probe','https://sonaraenterprise.com/api/sonara-remix-pro-duration-probe'],
               ['site','https://sonaraenterprise.com/'],
               ['health','https://api.sonaraenterprise.com/api/health'],
               ['capabilities','https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities']
@@ -90,6 +91,8 @@ jobs:
               }
               console.log('SONARA_CANARY',JSON.stringify(result));
               if(!r.ok)throw Error('Smoke endpoint unavailable '+label);
+              if(label==='probe'&&JSON.parse(body).revision!=='sonara-remix-duration-v3-route-test')
+                throw Error('Version override did not reach staged Worker');
               if(label==='site'&&(!result.script||result.marker!=='v2'))throw Error('New code did not inject duration script');
               if(label==='capabilities'&&(result.agentRevision!=='sonara-remix-pro-r2-agent-v3-dual-reference-fusion'||result.available!==true))
                 throw Error('New version lacks live Pro V3 capabilities');
