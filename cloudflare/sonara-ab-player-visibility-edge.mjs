@@ -288,8 +288,17 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
       response = nativeGenerationError('R2_RELAY_UNAVAILABLE', 'Coda Remix Pro non disponibile.', 503);
     }
     if (proJobId && !response.ok) {
-      const refund = await mutateRemixProUsage(request, env, 'refund', proJobId, 0, uid);
-      if (!refund.ok) return nativeGenerationError('PRO_REFUND_REQUIRED', 'Prenotazione da recuperare: contatta supporto SONARA.', 503);
+      // A failed response does NOT prove the R2 write failed. Refunding here
+      // can race a job already queued/leased on MoLab. Keep the reservation
+      // until the Durable Object alarm verifies absence or terminal state.
+      return new Response(JSON.stringify({
+        jobId: proJobId,
+        recoveryPending: true,
+        error: {
+          code: 'REMIX_PRO_ENQUEUE_UNCONFIRMED',
+          message: 'Accodamento Remix Pro non confermato. La quota e temporaneamente riservata; il recupero automatico verifichera lo stato del job. ID: ' + proJobId
+        }
+      }), { status: 503, headers: { 'content-type': 'application/json; charset=UTF-8', 'cache-control': 'no-store' } });
     }
     return response;
   } catch {
