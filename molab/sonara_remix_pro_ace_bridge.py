@@ -25,6 +25,11 @@ class ACEBridgeError(RuntimeError):
     pass
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def _headers(mode):
     if mode == "none":
         return {}
@@ -48,7 +53,7 @@ def _request(path, data=None, *, mode="required", timeout=40):
     if raw is not None:
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(LOCAL + path, data=raw, method="POST" if raw else "GET", headers=headers)
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPHandler())
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
     try:
         with opener.open(req, timeout=timeout) as response:
             result = response.read(MAX_BYTES + 1)
@@ -122,8 +127,8 @@ def render(audio_path, output_path, prompt, *, mode="required", strength=0.76,
         duration = wav.getnframes() / wav.getframerate()
     if not 10 <= duration <= 600:
         raise ACEBridgeError("Remix Pro cover duration outside 10-600 seconds")
-    if output == source:
-        raise ACEBridgeError("Output would overwrite the original source")
+    if output == source or output.exists():
+        raise ACEBridgeError("Output must be new; original and existing files are protected")
     fd, tmp = tempfile.mkstemp(prefix="sonara_pro_cover_", suffix=".wav")
     try:
         with os.fdopen(fd, "wb") as out, source.open("rb") as inp:
