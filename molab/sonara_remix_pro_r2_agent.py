@@ -42,7 +42,8 @@ if str(_AGENT_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(_AGENT_DIRECTORY))
 
 from sonara_remix_pro_toolkit import (
-    analyze_audio, combine_two_songs, separate_stems, transparent_master
+    analyze_audio, combine_two_songs, separate_stems, transparent_master,
+    add_generated_percussion
 )
 from sonara_remix_pro_ace_bridge import render as ace_cover
 from sonara_remix_pro_quality import audit_wav
@@ -508,7 +509,7 @@ def run_job(item, auth_mode):
             combine_two_songs(
                 a,b,source_a,source_b,arranged,bpm_a=float(bpm_a),bpm_b=float(bpm_b),
                 bass_from="b" if params.get("bassFrom")=="b" else "a",
-                max_seconds=int(params.get("durationSec") or 60)
+                max_seconds=int(params.get("durationSec") or 60), dual_source=True
             )
             progress(job, lease, "regenerating", renewal)
             generated = folder / "generated.wav"
@@ -523,7 +524,14 @@ def run_job(item, auth_mode):
             if result.get("status")!="completed":
                 raise ProAgentError("Local ACE-Step did not complete the job")
             progress(job, lease, "mastering", renewal)
-            sample, sr = sf.read(str(generated), dtype="float32", always_2d=True)
+            # Preserve both uploaded recordings in the delivered master. Only
+            # authentic generated percussion is added; generated voices/harmony
+            # must not erase or double the source melodies.
+            generated_manifest = separate_stems(generated, stem_cache, device="cuda")
+            generated_stems = stem_cache / generated_manifest["sourceSha256"][:20]
+            sample, sr = add_generated_percussion(
+                arranged, generated_stems / "drums.wav", bpm=float(bpm_a)
+            )
             if sr < 22050 or sr > 96000 or len(sample) / sr > 480:
                 raise ProAgentError("Unsupported generated WAV duration or sample rate")
             import numpy as np
