@@ -10,6 +10,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import sys
 import re
 import shutil
 import signal
@@ -20,6 +21,23 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import wave
+
+# Marimo launches code cells and external Python processes with different
+# sys.path policies (including possible PYTHONSAFEPATH). Resolve trusted sibling
+# modules from the exact agent directory before any project-local imports.
+_AGENT_DIRECTORY = Path(__file__).resolve().parent
+_MOLAB_ROOT = Path("/marimo/SONARA-REMIX-PRO")
+if _AGENT_DIRECTORY != _MOLAB_ROOT.resolve():
+    raise RuntimeError("Unexpected Remix Pro agent directory")
+for _module in (
+    "sonara_remix_pro_toolkit.py",
+    "sonara_remix_pro_ace_bridge.py",
+    "sonara_remix_pro_quality.py",
+):
+    if not (_AGENT_DIRECTORY / _module).is_file():
+        raise RuntimeError("Missing local Remix Pro module: " + _module)
+if str(_AGENT_DIRECTORY) not in sys.path:
+    sys.path.insert(0, str(_AGENT_DIRECTORY))
 
 from sonara_remix_pro_toolkit import (
     analyze_audio, combine_two_songs, separate_stems, transparent_master
