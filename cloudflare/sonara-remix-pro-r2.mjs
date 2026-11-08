@@ -1,4 +1,5 @@
 import { deriveRelayGatewayInternalKey } from './sonara-gateway-verifier.mjs';
+import {audioFormatForName,audioContentType} from './sonara-remix-pro-audio-formats.mjs';
 /**
  * SONARA Remix Pro private two-source queue. Deliberately separate from the
  * existing sr2_* ACE-Step relay and its job history.
@@ -29,6 +30,12 @@ const finite=(v,def,min,max)=>v===null||v===undefined||v===''?def:Number.isFinit
 const enabled=e=>e.SONARA_REMIX_PRO_ENABLED==='true'&&e.SONARA_REMIX_PRO_BILLING_READY==='true'&&e.SONARA_R2_RELAY_ENABLED==='true';
 const proAgentOk=r=>r.headers.get('X-Sonara-Pro-Agent-Revision')===PRO_AGENT_REVISION;
 const record=async(b,id)=>readJson(await b.get(jobKey(id)));
+async function gpuState(b){
+  const d=b?await readJson(await b.get(heartbeatKey)):null;
+  const age=Date.now()-Number(d?.lastSeen||0);
+  return {ready:Boolean(d?.gpuReady===true&&d?.revision===PRO_AGENT_REVISION&&age>=0&&age<30_000),
+    formatsReady:d?.formatsReady===true};
+}
 async function beat(b){
   const d=b?await readJson(await b.get(heartbeatKey)):null;
   const age=Date.now()-Number(d?.lastSeen||0);
@@ -36,8 +43,11 @@ async function beat(b){
 }
 export async function proCapabilities(env) {
   const available=Boolean(env.SONARA_AUDIO_BUCKET)&&enabled(env)&&await beat(env.SONARA_AUDIO_BUCKET);
+  const gpu=await gpuState(env.SONARA_AUDIO_BUCKET);
   return {mode:'remix-pro-private-2-source',available,engine:'Demucs 4.1 + ACE-Step XL Turbo',
     model:'htdemucs',expectedAgentRevision:PRO_AGENT_REVISION,
+    multiformatAvailable:available&&gpu.formatsReady,
+    formats:['wav','mp3','flac','m4a','mp4','aac','ogg','oga','opus','aif','aiff','aifc','webm','wma','caf','amr','ac3'],
     requiresBillingReady:true,siteIntegrated:true};
 }
 async function save(b,j,conditional){
@@ -64,10 +74,13 @@ async function ownedReference(b,id,uid) {
   const meta=await readJson(await b.get(referenceKey(id)));
   if(!meta||meta.id!==id||meta.ownerUid!==uid||Number(meta.expiresAt||0)<Date.now())return null;
   if(meta.objectKey!=='relay-v1/references/'+id+'/source')return null;
-  if(!['audio/wav','audio/x-wav','audio/wave'].includes(String(meta.contentType||'').toLowerCase()))return null;
+  const fmt=meta.format||((meta.filename||'').toLowerCase().endsWith('.wav')?'wav':null);
+  if(!fmt||!audioContentType(fmt))return null;
+  if(fmt==='wav'&&!['audio/wav','audio/x-wav','audio/wave'].includes(String(meta.contentType||'').toLowerCase()))return null;
+  if(fmt!=='wav'&&meta.contentType!==audioContentType(fmt))return null;
   const head=await b.head(meta.objectKey);
   if(!head||head.size<44||head.size>maxBytes)return null;
-  return {id,objectKey:meta.objectKey,bytes:head.size};
+  return {id,objectKey:meta.objectKey,bytes:head.size,format:fmt};
 }
 // Private, signed Durable Object settlement, never callable by customers.
 async function proQuota(env, action, jobId, ownerUid='', seconds=0) {
@@ -107,7 +120,9 @@ async function enqueue(req,e,auth,b) {
   const a=String(body.sourceA||''),c=String(body.sourceB||'');
   if(a===c)return fail('Seleziona due sorgenti differenti.');
   const refs=await Promise.all([ownedReference(b,a,uid),ownedReference(b,c,uid)]);
-  if(refs.some(v=>!v))return fail('Una sorgente non è tua, è scaduta oppure non è un WAV valido.',404);
+  if(refs.some(v=>!v))return fail('Una sorgente non è tua, è scaduta oppure non è un audio supportato.',404);
+  if(refs.some(v=>v.format!=='wav')&&!(await gpuState(b)).formatsReady)
+    return fail('Agente GPU multiformato non ancora aggiornato. I WAV restano disponibili.',503);
 if(!(await proQuota(e,'verify',id,uid,duration)))return fail('Quota Remix Pro non prenotata.',409);
   const jobs=await b.list({prefix:P+'jobs/',limit:100});
   for(const item of jobs.objects||[]) {
@@ -165,7 +180,7 @@ async function claim(e,b,ctx){
       leaseUntil:now+15*60*1000,updatedAt:now,stage:'downloading'};
     const ok=await save(b,updated,obj.etag);
     if(!ok)return null;
-    return {jobId:j.id,leaseId,params:j.params};
+    return {jobId:j.id,leaseId,params:j.params,sourceFormatA:j.sourceA?.format||'wav',sourceFormatB:j.sourceB?.format||'wav'};
   }
   const index=await b.list({prefix:P+'queue/',limit:64});
   for(const marker of index.objects||[]){
@@ -184,7 +199,8 @@ async function claim(e,b,ctx){
   }
   return {jobId:null};
 }
-async function privateAudio(req,b,key) {
+async function privateAudio(req,b,key,format='wav') {
+  const mime=audioContentType(format)||'audio/wav';
   const head=await b.head(key);
   if(!head)return fail('File non trovato',404);
   const range=String(req.headers.get('range')||'');
@@ -196,11 +212,11 @@ async function privateAudio(req,b,key) {
     if(!Number.isSafeInteger(start)||!Number.isSafeInteger(end)||start<0||start> end||start>=head.size)return fail('Range not satisfiable',416);
     const obj=await b.get(key,{range:{offset:start,length:end-start+1}});
     if(!obj)return fail('File non trovato',404);
-    return new Response(obj.body,{status:206,headers:{'content-type':'audio/wav','cache-control':'private,no-store',
+    return new Response(obj.body,{status:206,headers:{'content-type':mime,'cache-control':'private,no-store',
       'accept-ranges':'bytes','content-range':`bytes ${start}-${end}/${head.size}`,'content-length':String(end-start+1)}});
   }
   const obj=await b.get(key);
-  return obj?new Response(obj.body,{headers:{'content-type':'audio/wav','cache-control':'private,no-store',
+  return obj?new Response(obj.body,{headers:{'content-type':mime,'cache-control':'private,no-store',
     'content-length':String(head.size),'accept-ranges':'bytes'}}):fail('File non trovato',404);
 }
 export async function handleRemixPro(req,env,ctx,auth) {
@@ -214,7 +230,8 @@ export async function handleRemixPro(req,env,ctx,auth) {
     if(!(await auth.agent(req,env))||!proAgentOk(req))return fail('Unauthorized agent',401);
     const payload=await req.json().catch(()=>({}));
     if(payload?.gpuReady!==true)return fail('GPU verification required',409);
-    await b.put(heartbeatKey,JSON.stringify({revision:PRO_AGENT_REVISION,gpuReady:true,lastSeen:Date.now()}));
+    await b.put(heartbeatKey,JSON.stringify({revision:PRO_AGENT_REVISION,gpuReady:true,
+      formatsReady:payload?.formatsReady===true,lastSeen:Date.now()}));
     return json({authenticated:true,revision:PRO_AGENT_REVISION});
   }
   if(p==='/api/sonara-relay/pro-claim'&&req.method==='POST'){
@@ -241,7 +258,7 @@ export async function handleRemixPro(req,env,ctx,auth) {
      j.leaseUntil<Date.now())return fail('Invalid or expired lease',409);
   if(req.method==='GET'&&(action==='source/a'||action==='source/b')) {
     const src=action==='source/a'?j.sourceA:j.sourceB;
-    return privateAudio(req,b,src.objectKey);
+    return privateAudio(req,b,src.objectKey,src.format);
   }
   if(action==='renew'&&req.method==='POST'){
     j.leaseUntil=Date.now()+15*60*1000;j.updatedAt=Date.now();

@@ -1,5 +1,6 @@
+import { audioFormatForName, audioContentType, audioSignatureMatches } from './sonara-remix-pro-audio-formats.mjs';
 /**
- * Authenticated R2 multipart WAV uploads for long SONARA Remix Pro sources.
+ * Authenticated R2 multipart audio uploads for long SONARA Remix Pro sources.
  * Never merges user bytes in Worker memory; R2 handles 8 MiB upload parts.
  * The original reference endpoint remains unchanged for short sources.
  */
@@ -96,18 +97,19 @@ export async function handleLongWavUpload(request, env, nativeUser) {
     const data=await request.json().catch(()=>null);
     const size=Number(data?.bytes);
     const name=safeName(data?.name);
-    if(!Number.isSafeInteger(size)||size<44||size>LONG_SOURCE_MAX_BYTES||!name.toLowerCase().endsWith('.wav'))
-      return bad('Invalid WAV upload size or name',413);
+    const format=audioFormatForName(name);
+    if(!Number.isSafeInteger(size)||size<44||size>LONG_SOURCE_MAX_BYTES||!format)
+      return bad('Invalid audio upload size or unsupported format',413);
     const parts=Math.ceil(size/LONG_SOURCE_PART_BYTES);
     if(parts>LONG_SOURCE_MAX_PARTS)return bad('Too many WAV parts',413);
     const id='sref_'+crypto.randomUUID();
     const upload=await bucket.createMultipartUpload(objectKey(id),{
-      httpMetadata:{contentType:'audio/wav'}
+      httpMetadata:{contentType:audioContentType(format)}
     });
     const now=Date.now();
     await bucket.put(markerKey(id),JSON.stringify({
       id,ownerUid:user.uid,uploadId:upload.uploadId,size,parts,
-      name,createdAt:now,expiresAt:now+TTL,
+      name,format,createdAt:now,expiresAt:now+TTL,
     }),{httpMetadata:{contentType:'application/json'}});
     return json({referenceId:id,parts,partBytes:LONG_SOURCE_PART_BYTES},201);
   }
@@ -127,10 +129,8 @@ export async function handleLongWavUpload(request, env, nativeUser) {
     const data=await request.arrayBuffer();
     if(data.byteLength!==expected)return bad('WAV part size mismatch',400);
     if(n===1){
-      const header=new Uint8Array(data.slice(0,12));
-      const valid=String.fromCharCode(...header.slice(0,4))==='RIFF' &&
-        String.fromCharCode(...header.slice(8,12))==='WAVE';
-      if(!valid)return bad('Actual RIFF/WAVE audio required',415);
+      if(!audioSignatureMatches(data.slice(0,64),state.format))
+        return bad('File content does not match selected audio format',415);
     }
     const result=await upload.uploadPart(n,data);
     return json({partNumber:n,etag:result.etag});
@@ -150,14 +150,19 @@ export async function handleLongWavUpload(request, env, nativeUser) {
     }
     const first=await bucket.get(objectKey(id),{range:{offset:0,length:65536}});
     const prefix=first?await first.arrayBuffer():new ArrayBuffer(0);
-    const audio=inspectWavHeader(prefix,state.size);
-    if(!audio) {
+    if(!audioSignatureMatches(prefix,state.format)) {
+      await bucket.delete(objectKey(id)).catch(()=>{});
+      return bad('Audio signature mismatch',415);
+    }
+    const audio=state.format==='wav'?inspectWavHeader(prefix,state.size):null;
+    if(state.format==='wav'&&!audio) {
       await bucket.delete(objectKey(id)).catch(()=>{});
       return bad('Invalid PCM/float WAV or source duration exceeds 15 minutes',415);
     }
     await bucket.put(metaKey(id),JSON.stringify({
-      id,ownerUid:user.uid,objectKey:objectKey(id),contentType:'audio/wav',
-      filename:state.name,size:state.size,durationSec:audio.durationSec,createdAt:state.createdAt,expiresAt:state.expiresAt
+      id,ownerUid:user.uid,objectKey:objectKey(id),contentType:audioContentType(state.format),
+      format:state.format,filename:state.name,size:state.size,
+      durationSec:audio?.durationSec??null,createdAt:state.createdAt,expiresAt:state.expiresAt
     }),{httpMetadata:{contentType:'application/json'}});
     await bucket.delete(markerKey(id));
     return json({referenceId:id,size:state.size,expiresAt:new Date(state.expiresAt).toISOString()},201);

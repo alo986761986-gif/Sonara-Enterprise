@@ -278,3 +278,25 @@ test('Remix Pro supports 8-minute duration and long master via multipart',async(
   const ownerStatus=await call(e,'GET','/api/sonara-relay/pro-job/'+jobId,undefined,owner);
   assert.equal((await ownerStatus.json()).status,'COMPLETED');
 });
+
+test('compressed sources require verified decoder-ready GPU heartbeat',async()=>{
+  const e=env();
+  const metaKey='relay-v1/references/'+A+'.json';
+  e.SONARA_AUDIO_BUCKET.store.set(metaKey,{
+    bytes:new TextEncoder().encode(JSON.stringify({
+      id:A,ownerUid:USER,objectKey:'relay-v1/references/'+A+'/source',
+      format:'mp3',filename:'licensed.mp3',contentType:'audio/mpeg',
+      expiresAt:Date.now()+3600_000
+    })),etag:'"mp3-meta"'
+  });
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',{gpuReady:true},agent);
+  const rejected=await call(e,'POST','/api/sonara-relay/pro-enqueue',spec,gate);
+  assert.equal(rejected.status,503);
+  assert.equal((await proCapabilities(e)).multiformatAvailable,false);
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',{gpuReady:true,formatsReady:true},agent);
+  assert.equal((await proCapabilities(e)).multiformatAvailable,true);
+  const accepted=await call(e,'POST','/api/sonara-relay/pro-enqueue',spec,gate);
+  assert.equal(accepted.status,202);
+  const claim=await call(e,'POST','/api/sonara-relay/pro-claim',{},agent);
+  assert.equal((await claim.json()).sourceFormatA,'mp3');
+});

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {handleLongWavUpload,inspectWavHeader,LONG_SOURCE_PART_BYTES} from './sonara-long-wav-upload.mjs';
+import {audioFormatForName,audioSignatureMatches,audioContentType} from './sonara-remix-pro-audio-formats.mjs';
 
 function wavHeader(dataBytes,rate=44100,channels=2){
   const raw=new Uint8Array(44),v=new DataView(raw.buffer);
@@ -154,4 +155,51 @@ test('long upload rejects Free accounts before allocating R2 multipart storage',
     name:'free.wav',bytes:9*1024*1024
   });
   assert.equal(response.status,403);
+});
+
+test('audio format allowlist rejects arbitrary files and mislabeled content',()=>{
+  assert.equal(audioFormatForName('track.MP3'),'mp3');
+  assert.equal(audioFormatForName('track.m4a'),'m4a');
+  assert.equal(audioFormatForName('track.mid'),null);
+  assert.equal(audioFormatForName('movie.exe'),null);
+  assert.equal(audioContentType('flac'),'audio/flac');
+  assert.equal(audioSignatureMatches(new Uint8Array([102,76,97,67,...new Array(16).fill(0)]),'flac'),true);
+  assert.equal(audioSignatureMatches(new Uint8Array(16),'mp3'),false);
+  assert.equal(audioSignatureMatches(new Uint8Array([73,68,51,...new Array(16).fill(0)]),'mp3'),true);
+  assert.equal(audioSignatureMatches(new Uint8Array([0,0,0,24,102,116,121,112,...new Array(12).fill(0)]),'m4a'),true);
+  assert.equal(audioSignatureMatches(new Uint8Array([79,103,103,83,...new Array(12).fill(0)]),'opus'),true);
+});
+test('authenticated multipart MP3 is privately recorded with true format for GPU decode',async()=>{
+  const {call,objects}=setup();
+  const size=LONG_SOURCE_PART_BYTES+512;
+  const start=await call('POST','/api/sonara-relay/reference-multipart/start',
+    {name:'song.mp3',bytes:size});
+  assert.equal(start.status,201);
+  const {referenceId}=await start.json();
+  const first=new Uint8Array(LONG_SOURCE_PART_BYTES);
+  first.set([73,68,51]);
+  const part1=await call('PUT','/api/sonara-relay/reference-multipart/part/'+referenceId+'/1',first);
+  assert.equal(part1.status,200);
+  const part2=await call('PUT','/api/sonara-relay/reference-multipart/part/'+referenceId+'/2',
+    new Uint8Array(512));
+  assert.equal(part2.status,200);
+  const complete=await call('POST','/api/sonara-relay/reference-multipart/finish/'+referenceId,
+    {parts:[{partNumber:1,etag:'part-1'},{partNumber:2,etag:'part-2'}]});
+  assert.equal(complete.status,201);
+  const meta=JSON.parse(new TextDecoder().decode(objects.get('relay-v1/references/'+referenceId+'.json')));
+  assert.equal(meta.format,'mp3');
+  assert.equal(meta.contentType,'audio/mpeg');
+  assert.equal(meta.ownerUid,'owner');
+  assert.equal(meta.durationSec,null);
+});
+test('multipart MP3 rejects false file signature on first part',async()=>{
+  const {call}=setup();
+  const start=await call('POST','/api/sonara-relay/reference-multipart/start',{
+    name:'fake.mp3',bytes:LONG_SOURCE_PART_BYTES+512
+  });
+  const {referenceId}=await start.json();
+  const wrong=new Uint8Array(LONG_SOURCE_PART_BYTES);
+  wrong.set([82,73,70,70]);
+  const response=await call('PUT','/api/sonara-relay/reference-multipart/part/'+referenceId+'/1',wrong);
+  assert.equal(response.status,415);
 });
