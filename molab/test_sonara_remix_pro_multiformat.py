@@ -22,14 +22,15 @@ class ProAgentError(RuntimeError):
 
 def source_functions():
     tree=ast.parse(AGENT.read_text())
-    names={"multiformat_ready","verify_audio_source","normalized_audio_source",
-           "pro_heartbeat_payload"}
+    names={"multiformat_ready","probe_audio_source","verify_audio_source",
+           "normalized_audio_source","pro_heartbeat_payload"}
     funcs=[node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name in names]
     assert {node.name for node in funcs}==names
     code=compile(ast.Module(body=funcs,type_ignores=[]),str(AGENT),"exec")
     scope={
         "Path":Path,"shutil":shutil,"subprocess":subprocess,"json":json,
         "lru_cache":functools.lru_cache,"ProAgentError":ProAgentError,
+        "SourceTransferError":ProAgentError,
         "MAX_WAV_BYTES":512*1024*1024,
         "SOURCE_FORMATS":frozenset(("wav","mp3","flac","m4a","mp4",
             "aac","ogg","oga","opus","aif","aiff","aifc",
