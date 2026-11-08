@@ -1,8 +1,6 @@
-name: SONARA Cloudflare V3 Read Only Compatibility Probe
+name: SONARA Cloudflare V3 Inspection - Read Only
 on:
-  push:
-    branches:
-      - fix/remix-pro-duration-preserve-20261108
+  pull_request:
     paths:
       - '.github/workflows/probe-sonara-cloudflare-v3-readonly.yml'
   workflow_dispatch:
@@ -11,57 +9,69 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 4
     env:
-      CLOUDFLARE_API_TOKEN_PRIMARY: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_API_TOKEN_SECONDARY: ${{ secrets.CF_API_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
     steps:
-      - name: Read only Cloudflare compatibility checks, never deploy
+      - name: Inspect deployed Worker shape, settings and route (no mutations)
         run: |
           node --input-type=module <<'NODE'
-          const primary=process.env.CLOUDFLARE_API_TOKEN_PRIMARY||'';
-          const secondary=process.env.CLOUDFLARE_API_TOKEN_SECONDARY||'';
-          const tokens=[['primary',primary],['secondary',secondary]].filter(([,v])=>v);
-          if(!tokens.length){console.log('V3_READONLY',{tokenConfigured:false});process.exit(0);}
+          import { createHash } from 'node:crypto';
+          const token=process.env.CLOUDFLARE_API_TOKEN;
+          if(!token){console.log('V3_INSPECTION',JSON.stringify({tokenConfigured:false}));process.exit(0);}
+          const headers={Authorization:'Bearer '+token,Accept:'application/json'};
           const api='https://api.cloudflare.com/client/v4';
-          for(const [kind,token] of tokens){
-            const headers={Authorization:'Bearer '+token,Accept:'application/json'};
-            const req=async(path,{binary=false}={})=>{
-              try{
-                const r=await fetch(api+path,{headers,signal:AbortSignal.timeout(12000)});
-                const t=await r.text();
-                let p=null;
-                if(!binary){try{p=JSON.parse(t)}catch{}}
-                return {httpStatus:r.status,success:p?.success===true,result:p?.result,
-                  codes:p?.errors?.map(x=>x.code).slice(0,4)??[],
-                  contentType:r.headers.get('content-type')||'',
-                  content:binary?t:''};
-              }catch(e){return {errorClass:e?.name||'Error'};}
-            };
-            const zones=await req('/zones?name=sonaraenterprise.com&per_page=20');
-            const zone=zones.result?.find(x=>x.name==='sonaraenterprise.com');
-            const id=process.env.CLOUDFLARE_ACCOUNT_ID||zone?.account?.id||'';
-            console.log('V3_READONLY',JSON.stringify({token:kind,resource:'zone',status:zones.httpStatus,available:!!zone,errors:zones.codes}));
-            if(zone){
-              const snippet=await req('/zones/'+zone.id+'/snippets');
-              const rule=await req('/zones/'+zone.id+'/snippets/snippet_rules');
-              for(const [resource,obj] of [['snippets',snippet],['snippet_rules',rule]]){
-                console.log('V3_READONLY',JSON.stringify({token:kind,resource,status:obj.httpStatus,success:obj.success,errors:obj.codes}));
-              }
-            }
-            if(id){
-              const versions=await req('/accounts/'+id+'/workers/scripts/sonara-enterprise/versions');
-              console.log('V3_READONLY',JSON.stringify({token:kind,resource:'worker_versions',status:versions.httpStatus,success:versions.success,errors:versions.codes}));
-              const script=await req('/accounts/'+id+'/workers/scripts/sonara-enterprise/content/v2',{binary:true});
-              const c=script.content||'';
-              console.log('V3_READONLY',JSON.stringify({
-                token:kind,resource:'live_worker_content',status:script.httpStatus,
-                contentType:script.contentType.slice(0,100),bytes:c.length,
-                referencesActiveProV3:c.includes('sonara-remix-pro-r2-agent-v3-dual-reference-fusion'),
-                referencesOldProV2:c.includes('sonara-remix-pro-r2-agent-v2-longwav'),
-                durationEdgePresent:c.includes('sonara-remix-pro-duration-edge-v1')
-              }));
-            }
+          const get=async path=>{
+            try {
+              const r=await fetch(api+path,{headers,signal:AbortSignal.timeout(20000)});
+              const body=await r.json().catch(()=>({}));
+              return {status:r.status,body};
+            }catch(e){return {status:0,errorClass:e?.name||'Error',body:{}};}
+          };
+          const zones=await get('/zones?name=sonaraenterprise.com&per_page=20');
+          const zone=zones.body.result?.find(z=>z.name==='sonaraenterprise.com');
+          const account=process.env.CLOUDFLARE_ACCOUNT_ID||zone?.account?.id||'';
+          console.log('V3_INSPECTION',JSON.stringify({kind:'account',zoneAccessible:!!zone,accountResolved:!!account}));
+          if(zone){
+            const routes=await get('/zones/'+zone.id+'/workers/routes');
+            const entries=(Array.isArray(routes.body.result)?routes.body.result:[])
+              .filter(x=>String(x.pattern||'').includes('sonaraenterprise.com'))
+              .map(x=>({pattern:String(x.pattern||'').slice(0,120),script:String(x.script||'').slice(0,110)}));
+            console.log('V3_INSPECTION',JSON.stringify({kind:'zone_routes',status:routes.status,success:routes.body.success===true,routes:entries.slice(0,20)}));
+          }
+          if(!account)return;
+          const settings=await get('/accounts/'+account+'/workers/scripts/sonara-enterprise/settings');
+          const s=settings.body.result||{};
+          console.log('V3_INSPECTION',JSON.stringify({
+            kind:'worker_settings',status:settings.status,success:settings.body.success===true,
+            compatibilityDate:s.compatibility_date||null,
+            mainModule:s.main_module||null,
+            bindings:Array.isArray(s.bindings)?s.bindings.map(b=>({name:String(b.name||'').slice(0,100),type:String(b.type||'')})):[],
+            hasAssets:Boolean(s.assets),assetsFields:Object.keys(s.assets||{})
+          }));
+          const deployments=await get('/accounts/'+account+'/workers/scripts/sonara-enterprise/deployments');
+          const deployed=(Array.isArray(deployments.body.result?.deployments)?deployments.body.result.deployments:[]);
+          console.log('V3_INSPECTION',JSON.stringify({kind:'deployments',status:deployments.status,
+            count:deployed.length,latest:deployed.slice(0,2).map(x=>({id:String(x.id||'').slice(0,40),versions:x.versions?.map(y=>({id:y.version_id,percentage:y.percentage}))}))}));
+          const target=api+'/accounts/'+account+'/workers/scripts/sonara-enterprise/content/v2';
+          const res=await fetch(target,{headers,signal:AbortSignal.timeout(30000)});
+          console.log('V3_INSPECTION',JSON.stringify({kind:'content',status:res.status,type:res.headers.get('content-type')?.slice(0,120)}));
+          if(!res.ok)return;
+          const form=await res.formData();
+          for(const [name,v] of form.entries()){
+            const raw=typeof v==='string'?v:await v.text();
+            const hash=createHash('sha256').update(raw).digest('hex');
+            const markers=['sonara-remix-pro-r2-agent-v3-dual-reference-fusion','sonara-remix-pro-r2-agent-v2-longwav',
+              'sonara-remix-pro-duration-edge-v1','/api/billing/generate','export default','HTMLRewriter',
+              'cloudflare/sonara-ab-player-visibility-edge.mjs'];
+            const counts=Object.fromEntries(markers.map(k=>[k,raw.split(k).length-1]));
+            console.log('V3_INSPECTION',JSON.stringify({
+              kind:'module',name:String(name).slice(0,150),
+              fileName:typeof v==='string'?null:String(v.name||'').slice(0,150),
+              mime:typeof v==='string'?'string':String(v.type||''),
+              length:raw.length,sha256:hash,counts,
+              isText:typeof v==='string'||String(v.type||'').includes('javascript')
+            }));
           }
           NODE
