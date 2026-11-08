@@ -57,3 +57,14 @@ test('source and human instructions are present in all three musical modes', () 
     assert.match(result.prompt, /exactly one newly rendered coherent musical reinterpretation/);
   }
 });
+
+
+test('explicit AUTO mode overrides any billing gateway-injected default tempo and key', () => {
+  const result = preparePreciseRemixPayload(base, {
+    ...input, sonaraRemixTempoMode: 'auto', sonaraRemixKeyMode: 'auto',
+    bpm: 124, key_scale: 'C Major'
+  });
+  assert.equal(result.bpm, null);
+  assert.equal(result.sonara_requested_bpm, null);
+  assert.equal(result.key_scale, '');
+});
