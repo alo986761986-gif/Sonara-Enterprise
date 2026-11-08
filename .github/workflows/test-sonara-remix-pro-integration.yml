@@ -27,6 +27,8 @@ on:
       - 'molab/install_sonara_remix_fusion_v3.py'
       - 'molab/test_sonara_remix_fusion_installer.py'
       - 'molab/test_sonara_remix_pro_live_qa.py'
+      - 'molab/activate_sonara_remix_pro_v3.py'
+      - 'molab/test_sonara_remix_v3_activation.py'
       - '.github/workflows/test-sonara-remix-pro-integration.yml'
   workflow_dispatch:
 permissions:
@@ -61,6 +63,10 @@ jobs:
         run: |
           python3 -m py_compile molab/install_sonara_remix_fusion_v3.py
           python3 -m unittest discover -s molab -p 'test_sonara_remix_fusion_installer.py' -v
+      - name: Verify safe handoff from stopped/idle V2 to V3 (offline only)
+        run: |
+          python3 -m py_compile molab/activate_sonara_remix_pro_v3.py
+          python3 -m unittest discover -s molab -p 'test_sonara_remix_v3_activation.py' -v
       - name: MoLab Python syntax only (never downloads models)
         run: python3 -m py_compile molab/sonara_remix_pro_r2_agent.py
       - name: Install real FFmpeg audio decoder for non-skipped codec tests
