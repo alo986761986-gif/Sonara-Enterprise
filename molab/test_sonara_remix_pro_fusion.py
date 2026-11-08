@@ -53,6 +53,22 @@ class TwoSourceFusionTests(unittest.TestCase):
         self.assertIn("Measured B pulse: 125 BPM", p)
         self.assertIn("compatible tonal center", p)
 
+    def test_identical_audio_A_B_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            sr = 22050
+            t = np.arange(sr * 12, dtype=np.float32) / sr
+            tone = 0.2 * np.sin(2 * np.pi * 240 * t)
+            a, b = root / "a.wav", root / "b.wav"
+            sf.write(a, tone, sr, subtype="PCM_16")
+            b.write_bytes(a.read_bytes())
+            with self.assertRaises(fusion.FusionPlanError):
+                fusion.ensure_distinct_sources(a, b)
+            with self.assertRaises(fusion.FusionPlanError):
+                fusion.ensure_distinct_sources(a, a)
+            sf.write(b, 0.2 * np.sin(2 * np.pi * 400 * t), sr, subtype="PCM_16")
+            self.assertTrue(fusion.ensure_distinct_sources(a, b))
+
     def test_unverified_bpm_never_blocks_two_source_fusion(self):
         no_tempo = {"tempoBpm": None, "tempoConfidence": 0}
         self.assertIsNone(fusion.select_fusion_tempo(None, no_tempo, None, no_tempo))
