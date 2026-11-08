@@ -13,7 +13,7 @@ export default function SonaraRemixProPanel() {
   const [sourceA,setSourceA]=useState<File|null>(null);
   const [sourceB,setSourceB]=useState<File|null>(null);
   const [prompt,setPrompt]=useState('Create one cohesive professional new remix preserving the principal melody and A harmonies, with the rhythmic groove and drum articulation of B.');
-  const [duration,setDuration]=useState(60);
+  const [duration,setDuration]=useState(120);
   const [bassFrom,setBassFrom]=useState<'a'|'b'>('a');
   const [bpmA,setBpmA]=useState('');
   const [bpmB,setBpmB]=useState('');
@@ -42,7 +42,7 @@ export default function SonaraRemixProPanel() {
     let cancelled=false;
     void (async()=>{
       let errors=0;
-      for(let i=0;i<520&&!cancelled;i++){
+      for(let i=0;i<1800&&!cancelled;i++){
         try{
           const response=await fetch('/api/sonara-relay/pro-job/'+id,{credentials:'include',cache:'no-store'});
           const data:ProJob=await response.json().catch(()=>({}));
@@ -55,7 +55,7 @@ export default function SonaraRemixProPanel() {
             return;
           }
           setInfo('Fase: '+String(data.stage||'elaborazione')+' — '+Math.round(Number(data.progress||0))+'%');
-          await sleep(2500);
+          await sleep(5000);
         }catch{
           errors++;
           if(errors>10){if(mounted.current)setError('Monitoraggio interrotto. Il job '+id+' è conservato: riapri Remix Pro per riprenderlo.');return;}
@@ -66,25 +66,69 @@ export default function SonaraRemixProPanel() {
     return()=>{cancelled=true;};
   },[job?.jobId,job?.status]);
 
-  const upload=async(file:File)=>{
-    if(file.size<44||file.size>80*1024*1024||!/^audio\/(?:wav|x-wav|wave)$/.test(file.type||'audio/wav')&&!/\.wav$/i.test(file.name)){
-      throw new Error('Carica una sorgente WAV fino a 80 MB.');
+  const upload=async(file:File,sourceLabel:string)=>{
+    const maxSourceBytes=512*1024*1024;
+    if(file.size<44||file.size>maxSourceBytes||!/^audio\/(?:wav|x-wav|wave)$/.test(file.type||'audio/wav')&&!/\.wav$/i.test(file.name)){
+      throw new Error('Carica un WAV originale fino a 512 MiB (anche oltre 8 minuti).');
     }
     const buffer=await file.slice(0,12).arrayBuffer();
     const bytes=new Uint8Array(buffer);
     if(String.fromCharCode(...bytes.slice(0,4))!=='RIFF'||String.fromCharCode(...bytes.slice(8,12))!=='WAVE'){
       throw new Error('Il file non è un WAV autentico.');
     }
-    const r=await fetch('/api/sonara-relay/reference',{
-      method:'POST',credentials:'include',
-      headers:{'Content-Type':'audio/wav','X-Sonara-Reference-Name':file.name.slice(0,120)},
-      body:file
-    });
-    const data=await r.json().catch(()=>({}));
-    if(!r.ok||!/^sref_[0-9a-f-]{36}$/.test(String(data.referenceId||''))){
-      throw new Error(safeError(data.error,'Caricamento privato R2 non riuscito.'));
+    if(file.size<=80*1024*1024) {
+      const r=await fetch('/api/sonara-relay/reference',{
+        method:'POST',credentials:'include',
+        headers:{'Content-Type':'audio/wav','X-Sonara-Reference-Name':file.name.slice(0,120)},
+        body:file
+      });
+      const data=await r.json().catch(()=>({}));
+      if(!r.ok||!/^sref_[0-9a-f-]{36}$/.test(String(data.referenceId||''))){
+        throw new Error(safeError(data.error,'Caricamento privato R2 non riuscito.'));
+      }
+      return String(data.referenceId);
     }
-    return String(data.referenceId);
+    const start=await fetch('/api/sonara-relay/reference-multipart/start',{
+      method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name:file.name,bytes:file.size})
+    });
+    const session=await start.json().catch(()=>({}));
+    if(!start.ok||!/^sref_[0-9a-f-]{36}$/.test(String(session.referenceId||'')))
+      throw new Error(safeError(session.error,'Avvio upload WAV lungo non riuscito.'));
+    const ref=String(session.referenceId),chunk=Number(session.partBytes);
+    const total=Number(session.parts);
+    if(chunk!==8*1024*1024||!Number.isInteger(total)||total<1||total>64)
+      throw new Error('Configurazione upload a blocchi non valida.');
+    const parts:{partNumber:number;etag:string}[]=[];
+    for(let n=1;n<=total;n++){
+      setInfo('Caricamento brano '+sourceLabel+': blocco '+n+'/'+total+'...');
+      const piece=file.slice((n-1)*chunk,Math.min(n*chunk,file.size));
+      let uploaded=false;
+      for(let attempt=0;attempt<3&&!uploaded;attempt++){
+        try{
+          const response=await fetch('/api/sonara-relay/reference-multipart/part/'+ref+'/'+n,{
+            method:'PUT',credentials:'include',
+            headers:{'Content-Type':'application/octet-stream'},
+            body:piece
+          });
+          const answer=await response.json().catch(()=>({}));
+          if(!response.ok||typeof answer.etag!=='string')
+            throw new Error(safeError(answer.error,'Blocco non caricato.'));
+          parts.push({partNumber:n,etag:answer.etag});uploaded=true;
+        }catch(e){
+          if(attempt===2)throw e;
+          await sleep((attempt+1)*1000);
+        }
+      }
+    }
+    const finish=await fetch('/api/sonara-relay/reference-multipart/finish/'+ref,{
+      method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({parts})
+    });
+    const result=await finish.json().catch(()=>({}));
+    if(!finish.ok||result.referenceId!==ref)
+      throw new Error(safeError(result.error,'Finalizzazione upload WAV fallita.'));
+    return ref;
   };
 
   const begin=async()=>{
@@ -96,9 +140,9 @@ export default function SonaraRemixProPanel() {
     if(!prompt.trim()){setError('Inserisci le indicazioni musicali per il nuovo brano.');return;}
     setSubmitting(true);setError('');setInfo('Caricamento privato del brano A…');
     try{
-      const a=await upload(sourceA);
+      const a=await upload(sourceA,'A');
       setInfo('Caricamento privato del brano B…');
-      const b=await upload(sourceB);
+      const b=await upload(sourceB,'B');
       setInfo('Avvio del job autenticato…');
       const response=await fetch('/api/billing/generate',{
         method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},
@@ -157,7 +201,7 @@ export default function SonaraRemixProPanel() {
         <strong style={{display:'flex',alignItems:'center',gap:6}}><AudioWaveform size={16}/> SONARA REMIX PRO</strong>
         <span style={{fontSize:10,color:available?'#97e5b8':'#d5b6ef'}}>{available?'GPU ONLINE':available===null?'CONNESSIONE…':'NON ANCORA ATTIVO'}</span>
       </div>
-      <small>Remix di due brani: voce e armonie A + batteria B, strumenti separati con Demucs e nuovo render ACE-Step. Audio privati e accessibili solo al proprietario.</small>
+      <small>Remix di due brani: voce e armonie A + batteria B, strumenti separati con Demucs e nuovo render ACE-Step. Audio privati e accessibili solo al proprietario. Carica due sorgenti WAV anche oltre 8 minuti (max 15 minuti, 512 MiB per file); scegli il Remix AI da 0:30 a 8:00.</small>
       <label>Brano A (voce e armonie)
         <input type="file" accept=".wav,audio/wav" onChange={e=>setSourceA(e.currentTarget.files?.[0]||null)} />
       </label>
@@ -166,7 +210,16 @@ export default function SonaraRemixProPanel() {
       </label>
       <label>Direzione musicale<textarea rows={3} value={prompt} onChange={e=>setPrompt(e.target.value)} style={{width:'100%',marginTop:6,padding:8,borderRadius:6,background:'#1c1926',color:'#fff'}} /></label>
       <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:8}}>
-        <label>Durata (10–120 s)<input type="number" min={10} max={120} value={duration} onChange={e=>setDuration(Math.max(10,Math.min(120,Number(e.target.value)||60)))} /></label>
+        <label>Durata Remix AI (30 secondi – 8 minuti)
+          <input type="range" min={30} max={480} step={30} value={duration}
+            onChange={e=>setDuration(Number(e.target.value))} style={{width:'100%'}}/>
+          <strong>{Math.floor(duration/60)}:{String(duration%60).padStart(2,'0')} minuti</strong>
+          <select value={duration} onChange={e=>setDuration(Number(e.target.value))}>
+            {Array.from({length:16},(_,i)=>(i+1)*30).map(sec=>
+              <option key={sec} value={sec}>{Math.floor(sec/60)}:{String(sec%60).padStart(2,'0')}</option>
+            )}
+          </select>
+        </label>
         <label>Basso<select value={bassFrom} onChange={e=>setBassFrom(e.target.value==='b'?'b':'a')}><option value="a">Dal brano A</option><option value="b">Dal brano B</option></select></label>
         <label>BPM A (facoltativo)<input type="number" min={55} max={200} placeholder="Analisi automatica" value={bpmA} onChange={e=>setBpmA(e.target.value)} /></label>
         <label>BPM B (facoltativo)<input type="number" min={55} max={200} placeholder="Analisi automatica" value={bpmB} onChange={e=>setBpmB(e.target.value)} /></label>

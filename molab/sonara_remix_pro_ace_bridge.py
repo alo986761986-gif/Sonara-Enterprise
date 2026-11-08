@@ -18,7 +18,7 @@ import wave
 
 LOCAL = "http://127.0.0.1:8001"
 KEY_FILE = pathlib.Path("/home/marimo/ACE-STEP/.sonara-api-key")
-MAX_BYTES = 100 * 1024 * 1024
+MAX_BYTES = 512 * 1024 * 1024
 
 
 class ACEBridgeError(RuntimeError):
@@ -116,7 +116,7 @@ def render(audio_path, output_path, prompt, *, mode="required", strength=0.76,
     source = pathlib.Path(audio_path).expanduser().resolve(strict=True)
     output = pathlib.Path(output_path).expanduser().resolve()
     if not source.is_file() or source.suffix.lower() != ".wav" or source.stat().st_size > MAX_BYTES:
-        raise ACEBridgeError("Real WAV source required, under 100 MiB")
+        raise ACEBridgeError("Real WAV source required, under 512 MiB")
     if not str(prompt).strip():
         raise ACEBridgeError("An explicit musical remix instruction is required")
     if not 0.35 <= strength <= 0.92 or not 0.04 <= noise <= 0.30:

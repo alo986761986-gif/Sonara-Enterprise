@@ -22,7 +22,7 @@ import wave
 
 ROOT = Path("/marimo/SONARA-REMIX-PRO")
 OUTPUTS = ROOT / "private-local-qa"
-MAX_BYTES = 80 * 1024 * 1024
+MAX_BYTES = 512 * 1024 * 1024
 
 
 class LocalQAFailure(RuntimeError):
@@ -38,8 +38,8 @@ def private_wav(raw: str) -> Path:
         raise LocalQAFailure("Input must be an existing local WAV up to 80 MiB")
     with wave.open(str(src), "rb") as f:
         duration = f.getnframes() / f.getframerate()
-        if not 10 <= duration <= 600 or f.getnchannels() not in (1, 2):
-            raise LocalQAFailure("Source WAV requires 10-600 s and 1 or 2 channels")
+        if not 10 <= duration <= 900 or f.getnchannels() not in (1, 2):
+            raise LocalQAFailure("Source WAV requires 10-900 s and 1 or 2 channels")
     return src
 
 
@@ -56,8 +56,8 @@ def run(args) -> dict:
         raise LocalQAFailure("Explicit --rights-confirmed is required for both tracks")
     if not args.prompt or not args.prompt.strip():
         raise LocalQAFailure("An original musical remix prompt is required")
-    if not 10 <= args.duration <= 120:
-        raise LocalQAFailure("Duration must be between 10 and 120 seconds")
+    if not 30 <= args.duration <= 480:
+        raise LocalQAFailure("Duration must be between 30 and 480 seconds")
     if args.bpm_a is not None and not 55 <= args.bpm_a <= 200:
         raise LocalQAFailure("BPM A outside 55-200")
     if args.bpm_b is not None and not 55 <= args.bpm_b <= 200:

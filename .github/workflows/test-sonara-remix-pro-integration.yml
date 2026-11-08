@@ -4,6 +4,8 @@ on:
     paths:
       - 'cloudflare/sonara-remix-pro-r2.mjs'
       - 'cloudflare/sonara-remix-pro-r2.test.mjs'
+      - 'cloudflare/sonara-long-wav-upload.mjs'
+      - 'cloudflare/sonara-long-wav-upload.test.mjs'
       - 'cloudflare/sonara-remix-pro-usage.test.mjs'
       - 'cloudflare/sonara-native-auth.mjs'
       - 'cloudflare/sonara-r2-https-relay.mjs'
@@ -33,6 +35,8 @@ jobs:
         run: node --test cloudflare/sonara-remix-pro-r2.test.mjs
       - name: Durable Remix Pro native quota accounting tests
         run: node --test cloudflare/sonara-remix-pro-usage.test.mjs
+      - name: Private long WAV multipart and nine-minute source validation
+        run: node --test cloudflare/sonara-long-wav-upload.test.mjs
       - name: Legacy Remix R2 remains unchanged
         run: node --test cloudflare/sonara-remix-r2.test.mjs
       - name: MoLab Python syntax only (never downloads models)

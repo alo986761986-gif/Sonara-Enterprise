@@ -1,4 +1,5 @@
 import { handleRemixPro } from './sonara-remix-pro-r2.mjs';
+import { handleLongWavUpload } from './sonara-long-wav-upload.mjs';
 // SONARA R2 HTTPS relay: all MoLab traffic is outbound on TCP/443.
 // Deployed inside the existing sonara-enterprise Worker; gated by SONARA_R2_RELAY_ENABLED.
 // R2 objects remain private. Do not place credentials in code or notebook cells.
@@ -147,6 +148,11 @@ export default {
   const url=new URL(request.url),p=url.pathname,b=env.SONARA_AUDIO_BUCKET;
   if(!isService(p)) return null;
   if(request.method==='OPTIONS') return new Response(null,{status:204,headers:{'access-control-allow-origin':'https://sonaraenterprise.com','access-control-allow-methods':'GET,HEAD,POST,PUT,OPTIONS','access-control-allow-headers':'Content-Type,Range,If-Range,X-Sonara-Internal-Secret,X-Sonara-Relay-Token,Authorization,X-Sonara-Pro-Agent-Revision,X-Sonara-Pro-Lease'}});
+  // Long sources use an authenticated multipart R2 upload; unrelated relay
+  // endpoints retain their existing size and behavior.
+  if(p.startsWith('/api/sonara-relay/reference-multipart/')){
+    return handleLongWavUpload(request,env,nativeUser);
+  }
   // Dedicated Remix Pro queue, separately gated and authenticated. Legacy jobs
   // never enter this namespace and are not affected if Pro is disabled.
   if(p==='/api/sonara-relay/pro-capabilities'||p.startsWith('/api/sonara-relay/pro-')){

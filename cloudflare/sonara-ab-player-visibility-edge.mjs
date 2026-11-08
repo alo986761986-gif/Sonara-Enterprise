@@ -267,7 +267,7 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
     let proJobId = null;
     if (isPro) {
       const seconds = Number(source.durationSec);
-      if (!Number.isInteger(seconds) || seconds < 10 || seconds > 120) {
+      if (!Number.isInteger(seconds) || seconds < 30 || seconds > 480) {
         return nativeGenerationError('INVALID_PRO_DURATION', 'Durata Remix Pro non valida.', 400);
       }
       proJobId = 'srpro_' + crypto.randomUUID();
