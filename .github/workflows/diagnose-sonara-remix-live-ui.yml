@@ -27,7 +27,8 @@ jobs:
               const assets=[...html.matchAll(/(?:src|href)=["'](\/assets\/[^"'?#]+)["']/g)].map(m=>m[1]);
               console.log('SONARA_PAGE',JSON.stringify({path:url,status:r.status,
                 redirect:r.headers.get('location'),shell:r.headers.get('x-sonara-duration-shell'),
-                size:html.length,auto:html.includes('sonara-remix-auto-duration-v1'),
+                size:html.length,autoV1:html.includes('sonara-remix-auto-duration-v1'),
+                autoV2:html.includes('sonara-remix-auto-duration-v2'),
                 prior:html.includes('sonara-remix-pro-duration-sync-v4'),
                 assets:assets.slice(0,5)}));
               if(url.endsWith('/')&&!url.includes('www.')){
