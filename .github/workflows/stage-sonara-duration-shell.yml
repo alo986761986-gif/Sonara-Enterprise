@@ -77,18 +77,18 @@ jobs:
             assert(r.ok&&(ct.includes('javascript')||ct.includes('css')),
               'Referenced live JS or CSS is unavailable: '+path);
           }
-          const edge=readFileSync('cloudflare/sonara-remix-pro-duration-edge.mjs','utf8');
-          const lit=edge.match(/export const REMIX_PRO_DURATION_EDGE_SCRIPT = ("(?:[^"\\]|\\.)*");/);
+          const edge=readFileSync('cloudflare/sonara-remix-pro-duration-sync-v4.mjs','utf8');
+          const lit=edge.match(/export const REMIX_PRO_DURATION_SYNC_V4_SCRIPT = ("(?:[^"\\]|\\.)*");/);
           assert(lit,'Cannot load built-in duration script');
           const shim=JSON.parse(lit[1]);
-          assert(shim.includes('sonara-remix-pro-duration-edge-v1'),'Incorrect script identity');
+          assert(shim.includes('sonara-remix-pro-duration-sync-v4'),'Incorrect script identity');
           const patched=html.replace(/<\/head>/i,shim+'</head>');
           const sha=s=>createHash('sha256').update(s).digest('hex');
           const responseHeaders={'content-type':'text/html; charset=UTF-8',
             'cache-control':'no-store, max-age=0',
             'x-content-type-options':original.headers.get('x-content-type-options')||'nosniff',
             'referrer-policy':original.headers.get('referrer-policy')||'strict-origin-when-cross-origin',
-            'x-sonara-duration-shell':'stage-v1'};
+            'x-sonara-duration-shell':'sync-v4'};
           for(const key of ['content-security-policy','permissions-policy','strict-transport-security','x-frame-options']){
             const val=original.headers.get(key);
             if(val)responseHeaders[key]=val;
@@ -123,8 +123,8 @@ jobs:
             const url='https://'+scriptName+'.'+slug+'.workers.dev/';
             const r=await fetch(url,{redirect:'manual',signal:AbortSignal.timeout(18000)});
             const text=await r.text();
-            test={stagePreviewEnabled:true,status:r.status,hasShim:text.includes('sonara-remix-pro-duration-edge-v1'),
-              hasShellHeader:r.headers.get('x-sonara-duration-shell')==='stage-v1',
+            test={stagePreviewEnabled:true,status:r.status,hasShim:text.includes('sonara-remix-pro-duration-sync-v4'),
+              hasShellHeader:r.headers.get('x-sonara-duration-shell')==='sync-v4',
               htmlVerified:r.ok&&text===patched};
           }
           const after=(await get('/accounts/'+account+'/workers/scripts/sonara-enterprise/deployments')).deployments?.[0];
