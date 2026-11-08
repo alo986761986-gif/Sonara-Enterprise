@@ -22,7 +22,7 @@ jobs:
         with: {node-version: '24'}
       - name: Install frontend build dependencies
         run: npm install --no-audit --no-fund
-      - name: Build dedicated real React Remix Pro V3 UI and verify duration
+      - name: Build browser-safe React Remix Pro V3 UI and verify duration
         run: |
           npx tsx --test src/components/remix/remixDuration.test.ts
           npx vite build --config vite.remixpro.config.ts
