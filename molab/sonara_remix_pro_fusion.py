@@ -8,6 +8,7 @@ This module never starts ACE-Step, touches the main relay, or uses a tunnel.
 from __future__ import annotations
 
 import math
+import hashlib
 from pathlib import Path
 
 import numpy as np
@@ -108,6 +109,24 @@ def make_independent_style_reference(source_b, destination, max_seconds=45):
 
 
 
+
+def ensure_distinct_sources(source_a, source_b):
+    """Reject identical normalized source audio, without exposing audio hashes."""
+    a = _input_audio(source_a)
+    b = _input_audio(source_b)
+    if a == b:
+        raise FusionPlanError("A and B must be two genuinely different audio sources")
+    def digest(path):
+        h = hashlib.sha256()
+        with path.open("rb") as audio:
+            for chunk in iter(lambda: audio.read(1024 * 1024), b""):
+                h.update(chunk)
+        return h.digest()
+    if digest(a) == digest(b):
+        raise FusionPlanError("A and B have identical audio content")
+    return True
+
+
 def select_fusion_tempo(explicit_a, report_a, explicit_b, report_b):
     """Use a verified musical tempo when known; never block creative fusion otherwise.
 
@@ -124,9 +143,9 @@ def select_fusion_tempo(explicit_a, report_a, explicit_b, report_b):
             if explicit:
                 raise FusionPlanError("Invalid user-selected BPM")
             return None
-        if not math.isfinite(number) or not 30 <= number <= 300:
+        if not math.isfinite(number) or not 40 <= number <= 220:
             if explicit:
-                raise FusionPlanError("Selected BPM must be between 30 and 300")
+                raise FusionPlanError("Selected BPM must be between 40 and 220")
             return None
         return round(number, 2)
 
