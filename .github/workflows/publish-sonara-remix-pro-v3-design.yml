@@ -186,7 +186,21 @@ jobs:
               old.textContent='OLD REMIX PRO LEGACY';
               document.body.appendChild(old);
             });
-            await page.waitForSelector('[data-testid="sonara-remix-pro-v3"]',{timeout:12000});
+            try{
+              await page.waitForSelector('[data-testid="sonara-remix-pro-v3"]',{timeout:12000,state:'attached'});
+            }catch(e){
+              const debug=await page.evaluate(()=>({
+                scriptFound:!!document.querySelector('#sonara-remix-pro-v3-app'),
+                standaloneGlobal:window.__sonaraRemixV3Standalone||false,
+                oldFound:!!document.querySelector('.sonara-remix-pro'),
+                mountFound:!!document.querySelector('[data-sonara-remix-v3-mount]'),
+                v3Found:!!document.querySelector('[data-testid="sonara-remix-pro-v3"]'),
+                bodyLength:document.body?.innerText?.length||0,
+                ready:document.readyState
+              }));
+              console.log('SONARA_V3_BROWSER_DIAGNOSTIC',JSON.stringify({debug,errors:errors.slice(0,15)}));
+              throw e;
+            }
             const state=await page.evaluate(()=>{
               const panel=document.querySelector('[data-testid="sonara-remix-pro-v3"]');
               const old=document.querySelector('.sonara-remix-pro');
