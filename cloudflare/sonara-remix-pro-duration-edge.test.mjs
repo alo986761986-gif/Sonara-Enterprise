@@ -104,6 +104,10 @@ test('Wrangler entry point injects duration lock on real public HTML responses',
   const cfg=readFileSync(new URL('../wrangler.jsonc', import.meta.url),'utf8');
   const entry=readFileSync(new URL('./sonara-relay-gateway-entry.mjs', import.meta.url),'utf8');
   assert.match(cfg,/"main": "cloudflare\/sonara-relay-gateway-entry\.mjs"/);
+  const routes=JSON.parse(cfg).assets?.run_worker_first||[];
+  assert.ok(routes.includes('/'),'SPA homepage must execute duration HTMLRewriter');
+  assert.ok(routes.includes('/index.html'),'Explicit HTML entry must execute Worker');
+  assert.ok(routes.includes('/api/*'),'Existing API routing must remain unchanged');
   assert.match(entry,/import \{ REMIX_PRO_DURATION_EDGE_SCRIPT \} from '\.\/sonara-remix-pro-duration-edge\.mjs'/);
   assert.match(entry,/element\.append\(REMIX_PRO_DURATION_EDGE_SCRIPT, \{ html: true \}\)/);
   assert.match(entry,/request\.method !== 'GET'/);
