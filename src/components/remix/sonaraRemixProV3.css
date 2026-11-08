@@ -1,3 +1,10 @@
+/* The live V3 mount expands only the Remix Pro tab without changing other tabs. */
+.sonara-remix-main:has([data-sonara-remix-v3-mount]){display:block!important;width:min(1260px,calc(100% - 28px))!important;max-width:1260px!important}
+.sonara-remix-main:has([data-sonara-remix-v3-mount]) .sonara-remix-source-panel{width:100%!important;grid-column:1/-1!important;grid-row:auto!important;overflow:visible!important;background:transparent!important;box-shadow:none!important;border:0!important}
+.sonara-remix-main:has([data-sonara-remix-v3-mount]) .sonara-remix-source-tabs{background:#17151d!important;border:1px solid rgba(255,255,255,.085)!important;border-radius:15px!important;padding:10px!important;margin:8px 16px 12px!important}
+.sonara-remix-main:has([data-sonara-remix-v3-mount]) .sonara-remix-section-head{background:transparent!important;border:0!important}
+.sonara-pro-v3-standalone{display:block;width:100%;min-width:0}
+
 .sonara-pro-v3{--sp-border:rgba(255,255,255,.105);--sp-muted:#8d8d9f;--sp-accent:#a58bfa;color:#f5f5fa;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;display:grid;gap:20px;padding:8px 16px 30px;min-width:0;font-size:14px}
 .sonara-pro-v3 *{box-sizing:border-box}.sonara-pro-v3 button,.sonara-pro-v3 textarea,.sonara-pro-v3 input,.sonara-pro-v3 select{font-family:inherit}.sonara-pro-v3 button{cursor:pointer;transition:background .18s,border-color .18s,transform .18s}.sonara-pro-v3 button:focus-visible,.sonara-pro-v3 input:focus-visible,.sonara-pro-v3 textarea:focus-visible,.sonara-pro-v3 select:focus-visible{outline:2px solid #a78bfa;outline-offset:3px}
 .sonara-pro-v3__hero{position:relative;overflow:hidden;padding:34px 37px 28px;border:1px solid rgba(170,147,241,.16);border-radius:22px;background:radial-gradient(ellipse at 100% 0%,rgba(130,93,214,.2),transparent 42%),linear-gradient(150deg,#17141f,#0d0d13 72%)}
