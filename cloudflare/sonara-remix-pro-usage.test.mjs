@@ -23,13 +23,33 @@ function setup({used=0,studio=true}={}){
       ...(studio?{entitlement:{planId:'studio',cadence:'monthly',status:'active',expiresAt:now+86_400_000}}:{})}],
     [sessionKey,{uid,userKey,expiresAt:now+86_400_000}]
   ]);
+  let nextAlarm=null;
   const storage={
     async get(k){return structuredClone(values.get(k))},
     async put(k,v){values.set(k,structuredClone(v))},
     async delete(k){values.delete(k)},
+    async list({prefix='',limit=100}={}) {
+      return new Map([...values].filter(([k])=>String(k).startsWith(prefix)).slice(0,limit));
+    },
+    async getAlarm(){return nextAlarm},
+    async setAlarm(t){nextAlarm=t},
     async transaction(fn){return fn(this)}
   };
-  const env={SONARA_RELAY_TOKEN:'test-only-private-relay-signing-root-12345678901234567890'};
+  const objects=new Map();
+  const env={
+    SONARA_RELAY_TOKEN:'test-only-private-relay-signing-root-12345678901234567890',
+    SONARA_AUDIO_BUCKET:{
+      async get(k){const data=objects.get(k);if(!data)return null;return {
+        etag:data.etag,async json(){return structuredClone(data.value)}
+      }},
+      async put(k,json,{onlyIf}={}){
+        if(!objects.has(k)||objects.get(k).etag!==onlyIf?.etagMatches)return null;
+        const value=JSON.parse(json);
+        objects.set(k,{value,etag:'etag-updated'});
+        return {etag:'etag-updated'};
+      }
+    }
+  };
   const store=new SonaraAuthStore({storage},env);
   async function op(action,id,seconds=25,ownerUid=uid,authenticated=true){
     const secret=await deriveRelayGatewayInternalKey(env);
@@ -39,7 +59,7 @@ function setup({used=0,studio=true}={}){
       body:JSON.stringify({action,jobId:id,seconds,ownerUid})}));
     return {http:response.status,body:await response.json()};
   }
-  return {op,values,store};
+  return {op,values,store,objects,storage};
 }
 
 test('Pro requires active Studio and exact quota, including zero',async()=>{
@@ -89,4 +109,62 @@ test('Internal key cannot be replaced with just a user cookie',async()=>{
     body:JSON.stringify({action:'reserve',jobId:job(3),seconds:25,ownerUid:uid})}));
   assert.equal(result.status,401);
   assert.equal(s.values.get(userKey).usageSeconds,0);
+});
+
+test('Alarm refunds an orphan reservation after grace period only',async()=>{
+  const s=setup();
+  const id=job(4);
+  assert.equal((await s.op('reserve',id)).http,200);
+  assert.equal(s.values.get(userKey).usageSeconds,75);
+  await s.store.alarm();
+  assert.equal(s.values.get(userKey).usageSeconds,75);
+  const ledger=s.values.get('remix-pro:quota:'+id);
+  ledger.createdAt=Date.now()-11*60*1000;
+  s.values.set('remix-pro:quota:'+id,ledger);
+  await s.store.alarm();
+  assert.equal(s.values.get(userKey).usageSeconds,0);
+  assert.equal(s.values.get('remix-pro:quota:'+id).status,'refunded');
+  assert.equal(s.values.has('remix-pro:active:'+id),false);
+});
+
+test('Alarm finalizes completed job exactly once',async()=>{
+  const s=setup();
+  const id=job(5);
+  await s.op('reserve',id);
+  s.objects.set('relay-v1/pro/jobs/'+id+'.json',{
+    etag:'etag-start',
+    value:{id,ownerUid:uid,kind:'sonara-remix-pro',status:'COMPLETE'}
+  });
+  await s.store.alarm();
+  assert.equal(s.values.get('remix-pro:quota:'+id).status,'committed');
+  assert.equal(s.values.get(userKey).usageSeconds,75);
+  await s.store.alarm();
+  assert.equal(s.values.get(userKey).usageSeconds,75);
+});
+
+test('Alarm terminalizes expired lease before refund',async()=>{
+  const s=setup();
+  const id=job(6);
+  await s.op('reserve',id);
+  s.objects.set('relay-v1/pro/jobs/'+id+'.json',{
+    etag:'etag-start',
+    value:{id,ownerUid:uid,kind:'sonara-remix-pro',status:'LEASED',
+      leaseUntil:Date.now()-10000,attempts:3,createdAt:Date.now()-3600000}
+  });
+  await s.store.alarm();
+  assert.equal(s.objects.get('relay-v1/pro/jobs/'+id+'.json').value.status,'FAILED');
+  assert.equal(s.values.get('remix-pro:quota:'+id).status,'refunded');
+  assert.equal(s.values.get(userKey).usageSeconds,0);
+});
+
+test('Alarm keeps reservation when R2 is unreadable or owns other users job',async()=>{
+  const s=setup();
+  const id=job(7);
+  await s.op('reserve',id);
+  s.objects.set('relay-v1/pro/jobs/'+id+'.json',{
+    etag:'etag-start',
+    value:{id,ownerUid:'other-user',kind:'sonara-remix-pro',status:'FAILED'}
+  });
+  await s.store.alarm();
+  assert.equal(s.values.get('remix-pro:quota:'+id).status,'reserved');
 });
