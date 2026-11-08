@@ -1,0 +1,25 @@
+name: Test SONARA Professional Remix Precision
+on:
+  pull_request:
+    paths:
+      - 'cloudflare/sonara-remix-precision-v1.mjs'
+      - 'cloudflare/sonara-remix-precision-v1.test.mjs'
+      - 'cloudflare/sonara-molab-xl-router.mjs'
+      - 'src/components/remix/SonaraRemixSection.tsx'
+      - '.github/workflows/test-sonara-remix-precision.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  precision:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify native ACE-Step cover contract and remix source fidelity
+        run: node --test cloudflare/sonara-remix-precision-v1.test.mjs
+      - name: Verify existing R2 Remix security
+        run: node --test cloudflare/sonara-remix-r2.test.mjs

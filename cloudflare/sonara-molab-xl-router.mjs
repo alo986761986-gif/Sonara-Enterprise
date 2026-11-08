@@ -2,6 +2,7 @@ import siteRuntime from './sonara-instant-speed-router.mjs';
 import { buildStudioPayload } from './sonara-engine-v16-studio-quality.mjs';
 import { rewriteGenerationRequest } from './sonara-engine-v15-authoritative-prompt.mjs';
 import { applyR2GenerationProfile } from './sonara-r2-generation-profile.mjs';
+import { preparePreciseRemixPayload } from './sonara-remix-precision-v1.mjs';
 export { SonaraJobState } from './sonara-instant-speed-router.mjs';
 
 // Keep this public contract stable: configure-molab-xl.yml verifies it.
@@ -544,18 +545,7 @@ export async function prepareMolabR2RelayPayload(body) {
   });
   const configured = applyR2GenerationProfile(payload, corrected, body);
   if(body?.sonaraRemixSourceId) {
-    return {
-      ...configured,
-      sonaraRemixSourceId: body.sonaraRemixSourceId,
-      task_type: 'cover',
-      batch_size: 1,
-      candidateCount: 1,
-      audio_cover_strength: Number(body.audio_cover_strength) || .68,
-      cover_noise_strength: Number(body.cover_noise_strength) || .15,
-      audio_duration: Number(body.durationSec) || 45,
-      prompt: String(body.prompt || configured.prompt || '').slice(0,9000),
-      instruction: String(body.prompt || configured.instruction || '').slice(0,9000)
-    };
+    return preparePreciseRemixPayload(configured, body);
   }
   return configured;
 }
