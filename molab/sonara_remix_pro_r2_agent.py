@@ -15,6 +15,8 @@ import re
 import shutil
 import signal
 import tempfile
+import subprocess
+from functools import lru_cache
 import threading
 import time
 import urllib.error
@@ -55,6 +57,9 @@ LOCK_FILE = HOME / "remix-pro-agent.lock"
 BASE = "https://api.sonaraenterprise.com/api/sonara-relay"
 REVISION = "sonara-remix-pro-r2-agent-v2-longwav"
 MAX_WAV_BYTES = 512 * 1024 * 1024
+SOURCE_FORMATS = frozenset(("wav","mp3","flac","m4a","mp4","aac","ogg",
+                           "oga","opus","aif","aiff","aifc","webm","wma",
+                           "caf","amr","ac3"))
 STOP = False
 JOB = re.compile(r"^srpro_[0-9a-f-]{36}$")
 
@@ -137,6 +142,84 @@ def pro_activation_pending():
     return True
 
 
+
+@lru_cache(maxsize=1)
+def multiformat_ready():
+    """Fail closed if verified FFmpeg and FFprobe are not installed."""
+    for executable in ("ffmpeg", "ffprobe"):
+        binary = shutil.which(executable)
+        if not binary:
+            return False
+        try:
+            version = subprocess.run([binary, "-version"], capture_output=True,
+                                     text=True, timeout=8, check=True)
+            if not version.stdout.lower().startswith(executable + " version"):
+                return False
+        except (subprocess.SubprocessError, OSError):
+            return False
+    return True
+
+
+def verify_audio_source(path, fmt):
+    """Validate real media streams before resource-intensive Demucs inference."""
+    p = Path(path)
+    if fmt not in SOURCE_FORMATS or p.suffix.lower() != "." + fmt:
+        raise ProAgentError("Unsupported source audio container")
+    if not p.is_file() or not 44 <= p.stat().st_size <= MAX_WAV_BYTES:
+        raise ProAgentError("Source audio missing or exceeds 512 MiB")
+    if fmt == "wav":
+        return validate_wav(p)
+    if not multiformat_ready():
+        raise ProAgentError("FFmpeg decoder not installed in Remix Pro environment")
+    try:
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries",
+             "stream=codec_type,channels,sample_rate:format=duration",
+             "-of", "json", str(p)],
+            check=True, capture_output=True, text=True, timeout=45
+        )
+        meta = json.loads(probe.stdout)
+        streams = meta.get("streams") or []
+        audio = [x for x in streams if x.get("codec_type") == "audio"]
+        if len(audio) != 1 or any(x.get("codec_type") == "video" for x in streams):
+            raise ProAgentError("Expected one audio stream and no video streams")
+        rate = int(audio[0].get("sample_rate") or 0)
+        channels = int(audio[0].get("channels") or 0)
+        duration = float((meta.get("format") or {}).get("duration") or 0)
+        if not (8000 <= rate <= 96000 and 1 <= channels <= 2 and 10 <= duration <= 900):
+            raise ProAgentError("Audio duration, channels or sampling not supported")
+    except (ValueError, KeyError, TypeError, subprocess.SubprocessError, OSError) as exc:
+        raise ProAgentError("Audio file could not be decoded or validated") from exc
+    return p
+
+
+def normalized_audio_source(source, destination):
+    """Decode compressed source into private PCM16 WAV, never alter uploaded data."""
+    source = Path(source)
+    if source.suffix.lower() == ".wav":
+        return validate_wav(source)
+    if destination.exists():
+        raise ProAgentError("Refusing to replace a private normalized WAV")
+    try:
+        subprocess.run(
+            ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+             "-i", str(source), "-map", "0:a:0", "-vn", "-sn", "-dn",
+             "-ac", "2", "-ar", "44100", "-c:a", "pcm_s16le",
+             "-f", "wav", "-n", str(destination)],
+            check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+            timeout=300
+        )
+        destination.chmod(0o600)
+        return validate_wav(destination)
+    except Exception as exc:
+        destination.unlink(missing_ok=True)
+        raise ProAgentError("Safe audio-to-WAV conversion failed") from exc
+
+
+def pro_heartbeat_payload():
+    return {"gpuReady": True, "formatsReady": multiformat_ready()}
+
+
 def validate_wav(path):
     p = Path(path)
     if not p.is_file() or not 44 <= p.stat().st_size <= MAX_WAV_BYTES:
@@ -167,8 +250,11 @@ def save_bytes(data, name, folder):
     return p
 
 
-def download_source(job, lease, endpoint, name, folder):
+def download_source(job, lease, endpoint, name, folder, source_format='wav'):
     """Stream long private WAVs directly to disk; never hold 512 MiB in RAM."""
+    if source_format not in SOURCE_FORMATS:
+        raise ProAgentError("Source format not permitted")
+    name = name + "." + source_format
     path = f"/api/sonara-relay/pro-job/{job}/source/{endpoint}"
     headers = {**token_headers(),
                "User-Agent": "SONARA-Remix-Pro-Agent/1.0 (+https://sonaraenterprise.com)",
@@ -188,7 +274,7 @@ def download_source(job, lease, endpoint, name, folder):
                     raise ProAgentError("Private source exceeds 512 MiB")
                 handle.write(chunk)
         target.chmod(0o600)
-        return validate_wav(target)
+        return verify_audio_source(target, source_format)
     except Exception:
         target.unlink(missing_ok=True)
         raise
@@ -245,7 +331,7 @@ class Renewer:
                     if data.get("ok") is not True:
                         raise ProAgentError("Lease renewal not confirmed")
                     request("POST", "/api/sonara-relay/pro-heartbeat",
-                            {"gpuReady": True}, timeout=25)
+                            pro_heartbeat_payload(), timeout=25)
                     success = True
                     break
                 except Exception:
@@ -299,8 +385,12 @@ def run_job(item, auth_mode):
     try:
         with Renewer(job, lease) as renewal:
             progress(job, lease, "downloading", renewal)
-            a = download_source(job, lease, "a", "source-a.wav", folder)
-            b = download_source(job, lease, "b", "source-b.wav", folder)
+            original_a = download_source(job, lease, "a", "source-a", folder,
+                                         item.get("sourceFormatA") or "wav")
+            original_b = download_source(job, lease, "b", "source-b", folder,
+                                         item.get("sourceFormatB") or "wav")
+            a = normalized_audio_source(original_a, folder / "normalized-a.wav")
+            b = normalized_audio_source(original_b, folder / "normalized-b.wav")
             progress(job, lease, "analyzing", renewal)
             report_a = analyze_audio(a)
             report_b = analyze_audio(b)
@@ -418,7 +508,7 @@ def main(argv=None):
             raise ProAgentError("CUDA kernel test failed")
     print("SONARA Remix Pro agent initialized; independent HTTPS/443 queue.",flush=True)
     if args.preflight:
-        beat = request("POST", "/api/sonara-relay/pro-heartbeat", {"gpuReady": True})
+        beat = request("POST", "/api/sonara-relay/pro-heartbeat", pro_heartbeat_payload())
         if beat.get("authenticated") is not True:
             raise ProAgentError("Private Pro heartbeat not authenticated")
         caps = request("GET", "/api/sonara-relay/pro-capabilities")
@@ -434,7 +524,7 @@ def main(argv=None):
     last_gate_pending = None
     while not STOP:
         try:
-            request("POST","/api/sonara-relay/pro-heartbeat",{"gpuReady":True})
+            request("POST","/api/sonara-relay/pro-heartbeat",pro_heartbeat_payload())
             if pro_activation_pending():
                 if last_gate_pending is not True:
                     print("SONARA PRO standby: GPU/auth ready; awaiting Remix Pro activation.",flush=True)
