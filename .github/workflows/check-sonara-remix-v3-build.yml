@@ -1,0 +1,55 @@
+name: SONARA Remix V3 - Production Frontend Build QA
+on:
+  push:
+    branches: [feature/remix-pro-automatic-random-duration-nov09]
+    paths:
+      - 'src/components/remix/SonaraRemixProPanel.tsx'
+      - 'src/components/remix/SonaraRemixSection.tsx'
+      - 'src/components/remix/sonaraRemixProV3.css'
+      - 'src/components/remix/remixDuration.ts'
+      - '.github/workflows/check-sonara-remix-v3-build.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v4
+        with: {node-version: '24'}
+      - name: Install frontend dependencies
+        run: npm ci --ignore-scripts
+      - name: Verify automatic duration and build real React UI
+        run: |
+          npx tsx --test src/components/remix/remixDuration.test.ts
+          npx vite build
+      - name: Inspect V3 frontend asset graph and actual compiled UI
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          const root='dist';
+          const walk=(dir)=>fs.readdirSync(dir,{withFileTypes:true}).flatMap(x=>
+            x.isDirectory()?walk(path.join(dir,x.name)):[path.join(dir,x.name)]);
+          const files=walk(root);
+          const assets=files.filter(x=>x.includes('/assets/'));
+          const js=assets.filter(x=>x.endsWith('.js'));
+          const css=assets.filter(x=>x.endsWith('.css'));
+          const total=files.reduce((n,x)=>n+fs.statSync(x).size,0);
+          const source=js.map(x=>fs.readFileSync(x,'utf8')).join('\n');
+          const style=css.map(x=>fs.readFileSync(x,'utf8')).join('\n');
+          const markers={
+            newPanel:source.includes('Due brani.')&&source.includes('Una nuova identità.'),
+            newDuration:source.includes('Durata automatica SONARA')||source.includes('DURATA DEL NUOVO BRANO'),
+            expectedDuration:source.includes('expectedDurationSec'),
+            newStyles:style.includes('sonara-pro-v3__hero'),
+            legacyPanel:source.includes('Durata Remix AI (30 secondi'),
+            importPatterns:js.map(x=>({file:x,imports:(fs.readFileSync(x,'utf8').match(/import\s*\(/g)||[]).length}))
+          };
+          console.log('SONARA_V3_BUILD',JSON.stringify({assets:assets.map(x=>({
+            file:x,bytes:fs.statSync(x).size})),total,markers}));
+          if(!markers.newPanel||!markers.newDuration||!markers.expectedDuration||!markers.newStyles)
+            throw Error('Actual production UI bundle does not contain V3 redesign');
+          NODE
