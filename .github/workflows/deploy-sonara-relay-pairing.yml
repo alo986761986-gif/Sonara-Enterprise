@@ -25,6 +25,8 @@ on:
       - "cloudflare/sonara-remix-pro-r2.mjs"
       - "cloudflare/sonara-remix-pro-r2.test.mjs"
       - "cloudflare/sonara-ab-player-visibility-edge.mjs"
+      - "cloudflare/sonara-remix-pro-duration-edge.mjs"
+      - "cloudflare/sonara-remix-pro-duration-edge.test.mjs"
       - "src/components/remix/SonaraRemixProPanel.tsx"
       - "molab/sonara_remix_pro_r2_agent.py"
       - "src/components/remix/SonaraRemixSection.tsx"
@@ -70,6 +72,9 @@ jobs:
 
       - name: Verify two-source Pro billing gate, R2 ownership and lease isolation
         run: node --test cloudflare/sonara-remix-pro-r2.test.mjs
+
+      - name: Verify 8-minute duration bridge for existing Vercel UI
+        run: node --test cloudflare/sonara-remix-pro-duration-edge.test.mjs
 
       - name: Verify exact BPM request contracts
         run: node --test cloudflare/sonara-r2-bpm-lock.test.mjs

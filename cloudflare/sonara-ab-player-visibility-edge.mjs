@@ -4,6 +4,7 @@ import relayRuntime from './sonara-r2-https-relay.mjs';
 import { proCapabilities } from './sonara-remix-pro-r2.mjs';
 import { prepareMolabR2RelayPayload } from './sonara-molab-xl-router.mjs';
 import { deriveRelayGatewayInternalKey } from './sonara-gateway-verifier.mjs';
+import { REMIX_PRO_DURATION_EDGE_SCRIPT } from './sonara-remix-pro-duration-edge.mjs';
 
 export { SonaraJobState, SonaraAuthStore };
 
@@ -88,6 +89,7 @@ function inject(response) {
     element(element) {
       element.append(AUTH_EMAIL_ONLY_SCRIPT, { html: true });
       element.append(AB_VISIBILITY_SCRIPT, { html: true });
+      element.append(REMIX_PRO_DURATION_EDGE_SCRIPT, { html: true });
     }
   }).transform(safe);
 }
