@@ -53,6 +53,21 @@ class TwoSourceFusionTests(unittest.TestCase):
         self.assertIn("Measured B pulse: 125 BPM", p)
         self.assertIn("compatible tonal center", p)
 
+    def test_unverified_bpm_never_blocks_two_source_fusion(self):
+        no_tempo = {"tempoBpm": None, "tempoConfidence": 0}
+        self.assertIsNone(fusion.select_fusion_tempo(None, no_tempo, None, no_tempo))
+        self.assertEqual(
+            fusion.select_fusion_tempo(None, no_tempo, None,
+                                       {"tempoBpm": 127.5, "tempoConfidence": 0.8}),
+            127.5,
+        )
+        self.assertEqual(
+            fusion.select_fusion_tempo(119, no_tempo, 127.5, no_tempo), 119.0,
+        )
+        for invalid in (0, 500, -5, "bogus", float("inf")):
+            with self.subTest(bpm=invalid), self.assertRaises(fusion.FusionPlanError):
+                fusion.select_fusion_tempo(invalid, no_tempo, None, no_tempo)
+
     def test_invalid_duration_and_overwrite_rejected(self):
         with tempfile.TemporaryDirectory() as td:
             source = pathlib.Path(td) / "input.wav"
