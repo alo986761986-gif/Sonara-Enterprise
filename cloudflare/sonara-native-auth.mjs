@@ -584,6 +584,12 @@ export class SonaraAuthStore {
         if (!Number.isInteger(seconds) || seconds < 30 || seconds > 480) {
           return json({ ok: false, code: 'INVALID_PRO_DURATION' }, 400);
         }
+        // A previous Remix Pro can already be terminal in R2 while its
+        // private settlement is pending. Reconcile once before deciding
+        // whether the authenticated user still has an active job.
+        if (record.user.proActiveJobId && record.user.proActiveJobId !== jobId) {
+          try { await this.alarm(); } catch { /* Fail closed if R2 is unavailable. */ }
+        }
         await this.scheduleRemixProAlarm();
         await this.ctx.storage.transaction(async txn => {
           const prior = await txn.get(ledgerKey);
@@ -606,9 +612,9 @@ export class SonaraAuthStore {
             user.usageSeconds = 0;
             user.videoCreditsUsed = 0;
           }
-          const bill = billingSnapshot(user, now);
-          if (bill.planId !== 'studio') fault('PRO_STUDIO_PLAN_REQUIRED', 403);
-          if (seconds > bill.maxTrackSeconds) fault('TRACK_DURATION_LIMIT', 403);
+          // Remix Pro is available to authenticated active SONARA accounts,
+          // with no Studio plan/minute restriction. Its hard 30-480s render
+          // bound and one active job per account remain enforced above/below.
           if (user.proActiveJobId && user.proActiveJobId !== jobId) fault('PRO_JOB_ALREADY_ACTIVE', 409);
           // New Pro jobs must never consume Studio minutes. Existing
           // legacy reservations retain their historical chargedSeconds
