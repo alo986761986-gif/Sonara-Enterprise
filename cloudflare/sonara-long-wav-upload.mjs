@@ -79,21 +79,10 @@ export async function handleLongWavUpload(request, env, nativeUser) {
   const user=await authorized(request,env,nativeUser);
   if(!user)return bad('SONARA session required',401);
   if(p==='/api/sonara-relay/reference-multipart/start'&&request.method==='POST'){
-    // Uploading hundreds of MiB is available only to eligible Studio users,
-    // not merely to any logged-in SONARA session.
-    if(!env.SONARA_AUTH)return bad('Plan verification unavailable',503);
-    let billing;
-    try {
-      const stub=env.SONARA_AUTH.get(env.SONARA_AUTH.idFromName('sonara-auth-global-v1'));
-      const response=await stub.fetch(new Request(
-        'https://sonara.internal/api/billing/status',{
-          method:'GET',headers:{Cookie:request.headers.get('Cookie')||''}
-        }
-      ));
-      if(!response.ok)return bad('Studio authorization required',403);
-      billing=(await response.json()).billing;
-    } catch {return bad('Studio authorization unavailable',503);}
-    if(billing?.planId!=='studio')return bad('Studio plan required for long WAV upload',403);
+    // The private owner is authenticated above. Remix Pro never consumes
+    // Studio minutes and does not require a Studio plan for source uploads.
+    // Content signatures, ownership, 512 MiB/900s ceilings and feature gates
+    // remain enforced before the GPU can use a reference.
     const data=await request.json().catch(()=>null);
     const size=Number(data?.bytes);
     const name=safeName(data?.name);
