@@ -58,7 +58,7 @@ jobs:
             echo "CLOUDFLARE_ACCOUNT_ID=${account_id}" >> "${GITHUB_ENV}"
           fi
       - name: Install SONARA dependencies (no tests)
-        run: npm ci --no-audit --no-fund
+        run: npm install --no-audit --no-fund --ignore-scripts
       - name: Build static frontend assets only (no tests, no Vercel)
         id: build
         run: |
