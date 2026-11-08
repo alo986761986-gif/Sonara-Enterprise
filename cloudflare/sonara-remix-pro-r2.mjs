@@ -21,7 +21,7 @@ const STAGES=new Set(['queued','downloading','analyzing','separating','arranging
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}});
 const fail=(message,status=400)=>json({error:message},status);
 const readJson=async obj=>{try{return obj?await obj.json():null;}catch{return null;}};
-const maxBytes=80*1024*1024;
+const maxBytes=512*1024*1024;
 const finite=(v,def,min,max)=>v===null||v===undefined||v===''?def:Number.isFinite(Number(v))?Math.min(max,Math.max(min,Number(v))):def;
 const enabled=e=>e.SONARA_REMIX_PRO_ENABLED==='true'&&e.SONARA_REMIX_PRO_BILLING_READY==='true'&&e.SONARA_R2_RELAY_ENABLED==='true';
 const proAgentOk=r=>r.headers.get('X-Sonara-Pro-Agent-Revision')===PRO_AGENT_REVISION;
@@ -94,7 +94,7 @@ async function enqueue(req,e,auth,b) {
   if(!body||typeof body!=='object'||Array.isArray(body))return fail('Invalid JSON');
   const id=String(body.jobId||'');
   const duration=Number(body.durationSec);
-  if(!idPattern.test(id)||!Number.isInteger(duration)||duration<10||duration>120)
+  if(!idPattern.test(id)||!Number.isInteger(duration)||duration<30||duration>480)
     return fail('Prenotazione e durata Remix Pro non valide.',400);
   // The job id must be allocated by the authenticated native billing gateway.
   if(await b.head(jobKey(id)))return fail('Job gia accodato.',409);
