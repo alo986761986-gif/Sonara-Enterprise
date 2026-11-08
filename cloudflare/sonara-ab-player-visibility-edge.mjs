@@ -269,8 +269,21 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
     let proJobId = null;
     if (isPro) {
       const seconds = Number(source.durationSec);
-      if (!Number.isInteger(seconds) || seconds < 30 || seconds > 480) {
+      if (!Number.isInteger(seconds) || seconds < 30 || seconds > 480 || seconds % 30 !== 0) {
         return nativeGenerationError('INVALID_PRO_DURATION', 'Durata Remix Pro non valida.', 400);
+      }
+      // Explicit two-channel agreement prevents a stale slider render (0:30)
+      // from silently queuing a job that the user selected as 8:00.
+      // Preserve compatibility for already-open older client builds without
+      // the independent intent field, which still use the R2 job validation.
+      const claimedIntent = source.expectedDurationSec;
+      const claimedHeader = request.headers.get('X-Sonara-Remix-Expected-Duration');
+      if ((claimedIntent !== undefined && Number(claimedIntent) !== seconds) ||
+          (claimedHeader !== null && Number(claimedHeader) !== seconds) ||
+          (claimedHeader !== null && claimedIntent !== undefined &&
+           Number(claimedHeader) !== Number(claimedIntent))) {
+        return nativeGenerationError('REMIX_DURATION_INTENT_MISMATCH',
+          'La durata scelta non coincide con quella inviata. Nessun nuovo job è stato creato.',409);
       }
       // Remix Pro does not deduct any Studio minutes; the authenticated
       // private job reservation still prevents duplicate or cross-user jobs.
