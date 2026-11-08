@@ -101,7 +101,7 @@ jobs:
             main_module:'sonara-relay-gateway-entry.js',
             compatibility_date:'2026-08-23',
             keep_assets:true,
-            bindings:bindings.map(b=>({name:b.name,type:'inherit',version_id:liveVersion})),
+            bindings:bindings.map(b=>({name:b.name,type:'inherit',version_id:'latest'})),
             annotations:{'workers/message':'SONARA duration-only staging; no deployment'}
           };
           form.set('metadata',new Blob([JSON.stringify(metadata)],{type:'application/json'}),'metadata.json');
