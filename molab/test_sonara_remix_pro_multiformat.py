@@ -37,9 +37,12 @@ def source_functions():
             "webm","wma","caf","amr","ac3")),
     }
     def validate_wav(path):
-        with wave.open(str(path),"rb") as audio:
-            if not 10<=audio.getnframes()/audio.getframerate()<=900:
-                raise ProAgentError("bad WAV duration")
+        try:
+            with wave.open(str(path),"rb") as audio:
+                if not 10<=audio.getnframes()/audio.getframerate()<=900 or audio.getnchannels() not in (1,2):
+                    raise ProAgentError("bad WAV duration or channels")
+        except wave.Error as exc:
+            raise ProAgentError("unsupported WAV container") from exc
         return Path(path)
     scope["validate_wav"]=validate_wav
     exec(code,scope)
@@ -52,6 +55,26 @@ class OfflineMultiFormatTests(unittest.TestCase):
         self.assertIn("multiformat_ready",f)
         self.assertEqual(set(f["pro_heartbeat_payload"]().keys()),{"gpuReady","formatsReady"})
         self.assertTrue(f["pro_heartbeat_payload"]()["gpuReady"])
+
+    @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
+                         "FFmpeg or FFprobe unavailable")
+    def test_four_channel_source_wav_is_normalized_to_safe_stereo_pcm(self):
+        f=source_functions()
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            src=root/"multichannel.wav"
+            subprocess.run([
+                "ffmpeg","-nostdin","-hide_banner","-loglevel","error",
+                "-f","lavfi","-i","anullsrc=r=48000:cl=quad",
+                "-t","10.2","-c:a","pcm_s24le","-y",str(src)
+            ],check=True,capture_output=True,timeout=60)
+            self.assertEqual(f["verify_audio_source"](src,"wav"),src)
+            normalized=f["normalized_audio_source"](src,root/"stereo.wav")
+            self.assertEqual(normalized.name,"stereo.wav")
+            with wave.open(str(normalized),"rb") as audio:
+                self.assertEqual(audio.getnchannels(),2)
+                self.assertEqual(audio.getframerate(),44100)
+                self.assertGreater(audio.getnframes()/44100,10)
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                          "System FFmpeg unavailable; actual GPU heartbeat must remain fail-closed")
