@@ -201,7 +201,7 @@ export default function SonaraRemixProPanel() {
         <strong style={{display:'flex',alignItems:'center',gap:6}}><AudioWaveform size={16}/> SONARA REMIX PRO</strong>
         <span style={{fontSize:10,color:available?'#97e5b8':'#d5b6ef'}}>{available?'GPU ONLINE':available===null?'CONNESSIONE…':'NON ANCORA ATTIVO'}</span>
       </div>
-      <small>Remix di due brani: voce e armonie A + batteria B, strumenti separati con Demucs e nuovo render ACE-Step. Audio privati e accessibili solo al proprietario. Sorgenti WAV lunghe fino a 512 MiB; remix da 0:30 a 8:00.</small>
+      <small>Remix di due brani: voce e armonie A + batteria B, strumenti separati con Demucs e nuovo render ACE-Step. Audio privati e accessibili solo al proprietario. Carica due sorgenti WAV anche oltre 8 minuti (max 15 minuti, 512 MiB per file); scegli il Remix AI da 0:30 a 8:00.</small>
       <label>Brano A (voce e armonie)
         <input type="file" accept=".wav,audio/wav" onChange={e=>setSourceA(e.currentTarget.files?.[0]||null)} />
       </label>
