@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import SonaraMultitrackMixer from './SonaraMultitrackMixer';
+import SonaraRemixResultEq from './SonaraRemixResultEq';
 import {
   AudioWaveform,
   Check,
@@ -192,6 +193,7 @@ export default function SonaraRemixSection() {
   const decodedBufferRef = useRef<AudioBuffer | null>(null);
   const localObjectUrlRef = useRef<string>('');
   const libraryObjectUrlsRef = useRef<string[]>([]);
+  const eqSelectedUrlsRef = useRef<string[]>([]);
   const generationTokenRef = useRef(0);
 
   const segmentLength = Math.max(0, segmentEnd - segmentStart);
@@ -367,6 +369,7 @@ export default function SonaraRemixSection() {
 
   useEffect(() => () => {
     if (localObjectUrlRef.current) URL.revokeObjectURL(localObjectUrlRef.current);
+    eqSelectedUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
   }, []);
 
   const chooseLibraryTrack = (track: SourceTrack) => {
@@ -604,17 +607,23 @@ export default function SonaraRemixSection() {
     }
   };
 
-  const selectOutput = (output: RemixOutput) => {
+  const selectOutput = (output: RemixOutput, processed?: File) => {
+    const processedUrl = processed ? URL.createObjectURL(processed) : '';
+    if (processedUrl) eqSelectedUrlsRef.current.push(processedUrl);
     const payload = {
       variationId: output.label,
       jobId: output.id,
-      audioUrl: output.audioUrl,
+      audioUrl: processedUrl || output.audioUrl,
       audioFormat: 'wav',
-      title: output.label
+      title: processed ? `${output.label} · EQ` : output.label
     };
-    try { window.localStorage.setItem('sonara.selectedGeneratedTrack', JSON.stringify(payload)); } catch { /* optional */ }
+    // Blob object URLs live for this browser session only; never persist them as
+    // remote Library addresses that would be broken after a page refresh.
+    if (!processedUrl) {
+      try { window.localStorage.setItem('sonara.selectedGeneratedTrack', JSON.stringify(payload)); } catch { /* optional */ }
+    }
     window.dispatchEvent(new CustomEvent('sonara:generated-track-selected', { detail: payload }));
-    setNotice(`${output.label} selezionato nel player SONARA.`);
+    setNotice(processed ? 'WAV equalizzato selezionato nel player (solo questa sessione). Scaricalo per conservarlo.' : `${output.label} selezionato nel player SONARA.`);
   };
 
   const downloadOutput = async (output: RemixOutput) => {
@@ -773,7 +782,8 @@ export default function SonaraRemixSection() {
                   <div className="sonara-remix-result-art"><AudioWaveform /><span>{String(index + 1).padStart(2, '0')}</span></div>
                   <div className="sonara-remix-result-body">
                     <div className="sonara-remix-result-title"><div><strong>{output.label || `Remix ${index + 1}`}</strong><small>SONARA XL TURBO · WAV</small></div>{typeof output.quality?.qualityScore === 'number' && <em>{Math.round(output.quality.qualityScore)} Q</em>}</div>
-                    <audio controls preload="metadata" src={output.audioUrl} />
+                    <SonaraRemixResultEq audioUrl={output.audioUrl} label={output.label}
+                      onUse={file => selectOutput(output, file)} />
                     <div className="sonara-remix-result-actions"><button type="button" onClick={() => selectOutput(output)}><Check />Use this remix</button><button type="button" onClick={() => void downloadOutput(output)}><Download />Download</button></div>
                   </div>
                 </article>
@@ -808,6 +818,7 @@ export default function SonaraRemixSection() {
         .sonara-remix-slider-block{margin:15px 16px 0;padding:12px;border:1px solid rgba(255,255,255,.055);border-radius:12px;background:#101014}.sonara-remix-slider-block>div:first-child{display:flex;align-items:center;justify-content:space-between}.sonara-remix-slider-block label{color:#777782;font-size:8px;font-weight:950;letter-spacing:.12em}.sonara-remix-slider-block strong{color:#d8d8df;font-size:9px}.sonara-remix-slider-block input{width:100%;margin:10px 0 3px;accent-color:#7c3aed}.sonara-remix-scale{display:flex;justify-content:space-between;color:#50505a;font-size:7px}.sonara-remix-slider-block>small{display:block;margin-top:8px;color:#5f5f69;font-size:7px;line-height:1.5}.sonara-remix-subsection{margin-top:15px}.sonara-remix-segmented{margin:0 16px;display:grid;grid-template-columns:repeat(3,1fr);padding:3px;border:1px solid rgba(255,255,255,.055);border-radius:10px;background:#0d0d11}.sonara-remix-segmented button{min-height:32px;border:0;border-radius:7px;background:transparent;color:#64646f;font-size:8px;font-weight:900;cursor:pointer}.sonara-remix-segmented button[data-active="true"]{background:#222229;color:#fff}.sonara-remix-lyrics{width:calc(100% - 32px);margin:8px 16px 0;padding:11px;border:1px solid rgba(255,255,255,.065);border-radius:10px;outline:0;background:#0b0b0f;color:#ececf1;font-size:10px;line-height:1.55;resize:vertical}
         .sonara-remix-advanced-toggle{width:calc(100% - 32px);margin:15px 16px 0;padding:10px 11px;display:flex;align-items:center;gap:7px;border:1px solid rgba(255,255,255,.055);border-radius:10px;background:#101014;color:#858590;font-size:8px;font-weight:900;cursor:pointer}.sonara-remix-advanced-toggle svg{width:12px}.sonara-remix-advanced-toggle span{margin-left:auto;color:#6d6d78}.sonara-remix-advanced-grid{margin:8px 16px 0;display:grid;grid-template-columns:1fr 1fr;gap:7px}.sonara-remix-advanced-grid>label{display:block;color:#62626d;font-size:7px;font-weight:900;letter-spacing:.1em}.sonara-remix-advanced-grid input,.sonara-remix-readonly,.sonara-remix-count{width:100%;height:34px;margin-top:5px;border:1px solid rgba(255,255,255,.06);border-radius:8px;background:#0b0b0f;color:#d7d7df}.sonara-remix-advanced-grid input{padding:0 9px;outline:0;font-size:9px}.sonara-remix-readonly{display:flex;align-items:center;padding:0 9px;color:#8b5cf6;font-size:8px;font-weight:900}.sonara-remix-count{display:grid;grid-template-columns:1fr 1fr;padding:3px}.sonara-remix-count button{border:0;border-radius:6px;background:transparent;color:#61616c;font-size:8px;font-weight:900;cursor:pointer}.sonara-remix-count button[data-active="true"]{background:#24242b;color:#fff}
         .sonara-remix-message{margin:12px 16px 0;padding:9px 10px;border:1px solid rgba(52,211,153,.12);border-radius:9px;background:rgba(16,185,129,.045);color:#8ed9bd;font-size:8px;line-height:1.45}.sonara-remix-message.is-error{border-color:rgba(248,113,113,.18);background:rgba(127,29,29,.08);color:#fca5a5}.sonara-remix-generate-wrap{margin:14px 16px 0}.sonara-remix-progress-list{margin-bottom:8px;display:grid;gap:5px}.sonara-remix-progress-list>div{display:grid;grid-template-columns:52px 1fr 32px;align-items:center;gap:7px;color:#676772;font-size:7px;font-weight:900}.sonara-remix-progress-list i{height:4px;overflow:hidden;border-radius:99px;background:#202027}.sonara-remix-progress-list b{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#7c3aed,#6366f1)}.sonara-remix-progress-list strong{text-align:right;color:#92929c;font-size:7px}.sonara-remix-generate{width:100%;min-height:58px;padding:10px 13px;display:flex;align-items:center;justify-content:center;gap:10px;border:1px solid rgba(255,255,255,.16);border-radius:12px;background:linear-gradient(110deg,#f4f4f5,#fff 46%,#e4e4e7);color:#09090b;box-shadow:0 12px 34px rgba(0,0,0,.24);cursor:pointer}.sonara-remix-generate:disabled{opacity:.38;cursor:not-allowed}.sonara-remix-generate>svg{width:17px}.sonara-remix-generate span{text-align:left}.sonara-remix-generate strong{display:block;font-size:10px;font-weight:950}.sonara-remix-generate small{display:block;margin-top:2px;color:#65656d;font-size:7px}.sonara-spin{animation:sonara-remix-spin 1s linear infinite}
+        .sonara-remix-eq{margin-top:9px;padding:9px;border:1px solid rgba(167,139,250,.14);border-radius:10px;background:#111018}.sonara-remix-eq>audio{width:100%;height:32px;margin:0}.sonara-remix-eq-head{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:8px;color:#c4b5fd;font-size:8px;font-weight:900;letter-spacing:.02em}.sonara-remix-eq-head>span{display:flex;gap:5px;align-items:center}.sonara-remix-eq-head svg{width:12px;height:12px}.sonara-remix-eq-bypass{border:1px solid rgba(167,139,250,.2);border-radius:5px;background:#221a33;color:#c4b5fd;padding:4px 7px;cursor:pointer;font-size:8px}.sonara-remix-eq-presets{display:flex;align-items:center;gap:5px;margin:8px 0}.sonara-remix-eq-presets>button{padding:5px 8px;border-radius:7px;border:1px solid rgba(255,255,255,.075);background:#18171e;color:#9a98a8;font-size:8px;font-weight:800;cursor:pointer}.sonara-remix-eq-presets>button[data-active="true"]{color:#e9ddff;border-color:rgba(167,139,250,.3);background:#322246}.sonara-remix-eq-presets>button:last-child{margin-left:auto;display:grid;place-items:center;width:23px;height:23px;padding:0}.sonara-remix-eq-presets svg{width:12px}.sonara-remix-eq-bands{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}.sonara-remix-eq-bands label{display:block;min-width:0}.sonara-remix-eq-bands label>span{display:flex;flex-wrap:wrap;justify-content:space-between;gap:3px;color:#8b8799;font-size:7px}.sonara-remix-eq-bands b{font-weight:900;color:#d4c5ef}.sonara-remix-eq-bands input{width:100%;margin:5px 0 0;accent-color:#a78bfa}.sonara-remix-eq-info{display:block;margin:7px 0;color:#6e687d;font-size:7px;line-height:1.5}.sonara-remix-eq-actions{display:grid;grid-template-columns:1fr 1fr;gap:5px}.sonara-remix-eq-actions>button{min-height:26px;display:flex;align-items:center;justify-content:center;gap:5px;background:#1d172b;color:#d2c1ef;border:1px solid rgba(167,139,250,.18);border-radius:6px;cursor:pointer;font-size:8px;font-weight:800}.sonara-remix-eq-actions>button:disabled{opacity:.5;cursor:wait}.sonara-remix-eq-actions svg{width:11px}.sonara-remix-eq-error{display:block;color:#fda4af;font-size:8px;margin-top:6px}
         .sonara-remix-result-count{min-width:28px;height:25px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.06);border-radius:7px;background:#141419;color:#767681;font-size:8px;font-weight:900}.sonara-remix-results{padding:14px 16px 16px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.sonara-remix-results article{min-width:0;display:grid;grid-template-columns:72px minmax(0,1fr);border:1px solid rgba(255,255,255,.06);border-radius:13px;background:#0d0d11;overflow:hidden}.sonara-remix-result-art{position:relative;min-height:128px;display:grid;place-items:center;background:linear-gradient(145deg,#24113e,#10152d 58%,#0b0b11);color:#8b5cf6}.sonara-remix-result-art svg{width:25px}.sonara-remix-result-art span{position:absolute;left:8px;bottom:7px;color:rgba(255,255,255,.4);font-size:8px;font-weight:950}.sonara-remix-result-body{min-width:0;padding:10px}.sonara-remix-result-title{display:flex;align-items:flex-start;gap:8px}.sonara-remix-result-title>div{min-width:0}.sonara-remix-result-title strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px}.sonara-remix-result-title small{display:block;margin-top:3px;color:#575761;font-size:7px}.sonara-remix-result-title em{margin-left:auto;padding:4px 5px;border-radius:6px;background:rgba(52,211,153,.08);color:#6ee7b7;font-size:7px;font-style:normal;font-weight:900}.sonara-remix-result-body audio{width:100%;height:30px;margin-top:9px}.sonara-remix-result-actions{display:grid;grid-template-columns:1fr auto;gap:5px;margin-top:7px}.sonara-remix-result-actions button{min-height:28px;display:flex;align-items:center;justify-content:center;gap:5px;border:1px solid rgba(255,255,255,.065);border-radius:7px;background:#16161c;color:#a7a7b0;font-size:7px;font-weight:900;cursor:pointer}.sonara-remix-result-actions button:first-child{border-color:rgba(167,139,250,.16);background:rgba(124,58,237,.07);color:#b7a4ff}.sonara-remix-result-actions svg{width:10px}.sonara-remix-empty-results{min-height:210px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#4f4f59}.sonara-remix-empty-results svg{width:27px}.sonara-remix-empty-results strong{margin-top:10px;color:#8a8a95;font-size:10px}.sonara-remix-empty-results small{margin-top:4px;font-size:8px}
         @keyframes sonara-remix-spin{to{transform:rotate(360deg)}}
         @media(max-width:1080px){.sonara-remix-main{grid-template-columns:1fr;width:min(900px,calc(100% - 30px))}.sonara-remix-source-panel,.sonara-remix-controls-panel,.sonara-remix-results-panel{grid-column:1;grid-row:auto}.sonara-remix-controls-panel{order:2}.sonara-remix-results-panel{order:3}.sonara-remix-topbar{grid-template-columns:1fr auto}.sonara-remix-top-status{display:none}}
