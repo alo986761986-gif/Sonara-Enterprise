@@ -353,3 +353,11 @@ test('R2 preserves a valid requested tempo and never invents a measured BPM', ()
   assert.equal(r2GenerationMetadata(unselected).requestedBpm, null);
 });
 
+
+
+test('mix/master describes natural tonal clarity without indiscriminate brightening', () => {
+  const plan = mixMasterPlan({ genre: 'Jazz', selectedInstruments: ['Piano', 'Double Bass'] });
+  assert.match(plan.cue, /avoid an excessively dark, veiled or muddy mix/);
+  assert.match(plan.cue, /200-500 Hz/);
+  assert.match(plan.cue, /do not use a global treble boost/);
+});
