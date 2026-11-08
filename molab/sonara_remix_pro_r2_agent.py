@@ -270,7 +270,7 @@ def run_job(item, auth_mode):
                                   (source_a/"other.wav","other-a")):
                 renewal.verify()
                 upload(job,lease,"stem/"+remote,source)
-            upload(job,lease,"audio",master_file")
+            upload(job,lease,"audio",master_file)
             renewal.verify()
             response = request("POST",f"/api/sonara-relay/pro-job/{job}/complete",{},lease)
             if response.get("ok") is not True:
