@@ -73,6 +73,30 @@ jobs:
         run: npm ci
       - name: Verify Remix Pro Cloudflare API safety tests
         run: node --test cloudflare/sonara-remix-pro-r2.test.mjs
+      - name: Checkout current production UI from main for gateway-only stage
+        if: ${{ inputs.stage == 'gateway' }}
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: production-ui
+          persist-credentials: false
+      - name: Build the existing main-branch UI, not the pending Fusion V3 UI
+        if: ${{ inputs.stage == 'gateway' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd production-ui
+          npm ci
+          npm run build
+          test -f dist/index.html
+          cd ..
+          rm -rf dist
+          cp -R production-ui/dist dist
+      - name: Confirm gateway staging keeps the current UI
+        if: ${{ inputs.stage == 'gateway' }}
+        run: |
+          test -f dist/index.html
+          echo "SONARA_GATEWAY_ASSETS_FROM_MAIN=yes" >> "${GITHUB_ENV}"
       - name: Resolve Cloudflare account ID securely
         shell: bash
         run: |
