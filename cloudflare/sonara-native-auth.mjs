@@ -464,7 +464,7 @@ export class SonaraAuthStore {
     catch { return json({ ok: false, code: 'INVALID_JSON' }, 400); }
     const action = String(body?.action || '');
     const jobId = String(body?.jobId || '');
-    if (!['reserve', 'commit', 'refund'].includes(action) ||
+    if (!['reserve', 'verify', 'commit', 'refund'].includes(action) ||
         !/^srpro_[0-9a-f-]{36}$/.test(jobId)) {
       return json({ ok: false, code: 'INVALID_PRO_USAGE_REQUEST' }, 400);
     }
@@ -518,6 +518,16 @@ export class SonaraAuthStore {
           result = { ok: true, reservationStatus: 'reserved',
             chargedSeconds, reused: false };
         });
+      } else if (action === 'verify') {
+        const ownerUid = String(body?.ownerUid || '');
+        const seconds = Number(body?.seconds);
+        const entry = await this.ctx.storage.get(ledgerKey);
+        if (!entry || entry.status !== 'reserved' ||
+            entry.ownerUid !== ownerUid || entry.seconds !== seconds) {
+          return json({ ok: false, code: 'PRO_RESERVATION_NOT_VALID' }, 409);
+        }
+        result = { ok: true, reservationStatus: 'reserved',
+          chargedSeconds: entry.chargedSeconds };
       } else {
         await this.ctx.storage.transaction(async txn => {
           const entry = await txn.get(ledgerKey);
