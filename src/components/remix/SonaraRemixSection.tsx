@@ -675,7 +675,7 @@ export default function SonaraRemixSection() {
         <button type="button" className="sonara-remix-close" onClick={() => setOpen(false)} aria-label="Chiudi Remix"><X /></button>
       </header>
 
-      <main className="sonara-remix-main">
+      <main className={`sonara-remix-main ${sourceTab === "pro" ? "sonara-remix-main--pro" : ""}`}>
         <section className="sonara-remix-source-panel">
           <div className="sonara-remix-section-head">
             <div><span>01</span><div><strong>Source</strong><small>Scegli il brano da reimmaginare</small></div></div>
@@ -853,6 +853,11 @@ export default function SonaraRemixSection() {
         .sonara-remix-top-status{justify-self:center;display:flex;align-items:center;gap:8px;color:#777782;font-size:8px;font-weight:900;letter-spacing:.13em}.sonara-remix-top-status span{padding:6px 8px;border:1px solid rgba(167,139,250,.16);border-radius:7px;background:rgba(124,58,237,.07);color:#a78bfa}.sonara-remix-top-status i{width:5px;height:5px;border-radius:50%;background:#34d399;box-shadow:0 0 10px rgba(52,211,153,.55)}
         .sonara-remix-close{justify-self:end;width:36px;height:36px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:#111116;color:#9f9fa9;cursor:pointer}.sonara-remix-close:hover{color:#fff;border-color:rgba(255,255,255,.16)}.sonara-remix-close svg{width:16px}
         .sonara-remix-main{width:min(1420px,calc(100% - 44px));margin:0 auto;padding:28px 0 76px;display:grid;grid-template-columns:minmax(0,1.18fr) minmax(380px,.82fr);gap:18px;align-items:start}
+        .sonara-remix-main--pro{display:block;width:min(1220px,calc(100% - 40px));max-width:1220px}
+        .sonara-remix-main--pro .sonara-remix-source-panel{width:100%;grid-column:1/-1;border:0;background:transparent;box-shadow:none;overflow:visible}
+        .sonara-remix-main--pro .sonara-remix-source-tabs{margin:4px 0 14px;padding:10px;border-radius:14px;border:1px solid rgba(255,255,255,.075);background:#151419;justify-content:flex-start}
+        .sonara-remix-main--pro .sonara-remix-source-tabs button[data-active="true"]{background:#30253f;border-color:#65517f;color:#f5eaff}
+        .sonara-remix-main--pro .sonara-remix-section-head{border:0;background:transparent;padding:8px 16px 15px}
         .sonara-remix-source-panel,.sonara-remix-controls-panel,.sonara-remix-results-panel{border:1px solid rgba(255,255,255,.065);border-radius:18px;background:rgba(15,15,20,.86);box-shadow:0 20px 60px rgba(0,0,0,.2);overflow:hidden}.sonara-remix-source-panel{grid-column:1}.sonara-remix-controls-panel{grid-column:2;grid-row:1/span 2}.sonara-remix-results-panel{grid-column:1}
         .sonara-remix-section-head{min-height:68px;padding:15px 17px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.055);background:rgba(255,255,255,.012)}.sonara-remix-section-head>div{display:flex;align-items:center;gap:11px}.sonara-remix-section-head>div>span{width:31px;height:31px;display:grid;place-items:center;border:1px solid rgba(167,139,250,.16);border-radius:9px;background:rgba(124,58,237,.07);color:#a78bfa;font-size:9px;font-weight:950}.sonara-remix-section-head strong{display:block;font-size:12px;font-weight:950}.sonara-remix-section-head small{display:block;margin-top:3px;color:#656570;font-size:9px}.sonara-remix-section-head>em{display:flex;align-items:center;gap:5px;color:#6ee7b7;font-size:8px;font-style:normal;font-weight:900;letter-spacing:.12em}.sonara-remix-section-head>em svg,.sonara-remix-section-head>svg{width:14px}.sonara-remix-section-head>svg{color:#7c3aed}
         .sonara-remix-source-tabs{display:flex;gap:5px;padding:14px 16px 0;flex-wrap:wrap}.sonara-remix-source-tabs button{display:flex;align-items:center;gap:7px;padding:9px 12px;border:1px solid transparent;border-radius:10px;background:transparent;color:#777782;font-size:9px;font-weight:900;cursor:pointer}.sonara-remix-source-tabs button svg{width:13px}.sonara-remix-source-tabs button[data-active="true"]{border-color:rgba(255,255,255,.075);background:#18181e;color:#fff}
