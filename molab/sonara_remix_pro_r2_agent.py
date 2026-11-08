@@ -177,49 +177,77 @@ def multiformat_ready():
     return True
 
 
-def verify_audio_source(path, fmt):
-    """Validate real media streams before resource-intensive Demucs inference."""
-    p = Path(path)
-    if fmt not in SOURCE_FORMATS or p.suffix.lower() != "." + fmt:
-        raise ProAgentError("Unsupported source audio container")
-    if not p.is_file() or not 44 <= p.stat().st_size <= MAX_WAV_BYTES:
-        raise ProAgentError("Source audio missing or exceeds 512 MiB")
-    if fmt == "wav":
-        return validate_wav(p)
+def probe_audio_source(path):
+    """Safely inspect one decodable audio stream; no external protocols or media logs."""
     if not multiformat_ready():
-        raise ProAgentError("FFmpeg decoder not installed in Remix Pro environment")
+        raise SourceTransferError("SOURCE_DECODER_UNAVAILABLE")
     try:
         probe = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries",
-             "stream=codec_type,channels,sample_rate:format=duration",
-             "-of", "json", str(p)],
+            ["ffprobe", "-v", "error", "-protocol_whitelist", "file",
+             "-show_entries", "stream=codec_type,channels,sample_rate:format=duration",
+             "-of", "json", str(path)],
             check=True, capture_output=True, text=True, timeout=45
         )
-        meta = json.loads(probe.stdout)
-        streams = meta.get("streams") or []
-        audio = [x for x in streams if x.get("codec_type") == "audio"]
-        if len(audio) != 1 or any(x.get("codec_type") == "video" for x in streams):
-            raise ProAgentError("Expected one audio stream and no video streams")
-        rate = int(audio[0].get("sample_rate") or 0)
-        channels = int(audio[0].get("channels") or 0)
-        duration = float((meta.get("format") or {}).get("duration") or 0)
-        if not (8000 <= rate <= 96000 and 1 <= channels <= 2 and 10 <= duration <= 900):
-            raise ProAgentError("Audio duration, channels or sampling not supported")
+        metadata = json.loads(probe.stdout)
+        streams = metadata.get("streams") or []
+        if len(streams) != 1 or streams[0].get("codec_type") != "audio":
+            raise SourceTransferError("SOURCE_STREAM_UNSUPPORTED")
+        rate = int(streams[0].get("sample_rate") or 0)
+        channels = int(streams[0].get("channels") or 0)
+        duration = float((metadata.get("format") or {}).get("duration") or 0)
+    except SourceTransferError:
+        raise
     except (ValueError, KeyError, TypeError, subprocess.SubprocessError, OSError) as exc:
-        raise ProAgentError("Audio file could not be decoded or validated") from exc
-    return p
+        raise SourceTransferError("SOURCE_UNREADABLE_AUDIO") from exc
+    if duration < 10:
+        raise SourceTransferError("SOURCE_DURATION_TOO_SHORT")
+    if duration > 900:
+        raise SourceTransferError("SOURCE_DURATION_TOO_LONG")
+    # Accept bounded genuine multichannel/high-rate input only for controlled
+    # downmix/resample into a normal PCM16 stereo WAV before model inference.
+    if not 1 <= channels <= 8:
+        raise SourceTransferError("SOURCE_CHANNELS_UNSUPPORTED")
+    if not 8000 <= rate <= 192000:
+        raise SourceTransferError("SOURCE_SAMPLERATE_UNSUPPORTED")
+    return Path(path)
+
+
+def verify_audio_source(path, fmt):
+    """Validate a downloaded real audio stream, including decodable WAV variants."""
+    p = Path(path)
+    if fmt not in SOURCE_FORMATS or p.suffix.lower() != "." + fmt:
+        raise SourceTransferError("SOURCE_STREAM_UNSUPPORTED")
+    if not p.is_file() or not 44 <= p.stat().st_size <= MAX_WAV_BYTES:
+        raise SourceTransferError("SOURCE_OVERSIZE" if p.is_file() and
+                                  p.stat().st_size > MAX_WAV_BYTES else
+                                  "SOURCE_UNREADABLE_AUDIO")
+    if fmt == "wav":
+        try:
+            return validate_wav(p)
+        except ProAgentError:
+            # A RIFF WAVE can be decodable by FFmpeg even if libsndfile cannot
+            # open its codec, metadata, or nonstandard but valid header.
+            return probe_audio_source(p)
+    return probe_audio_source(p)
 
 
 def normalized_audio_source(source, destination):
-    """Decode compressed source into private PCM16 WAV, never alter uploaded data."""
+    """Use original valid PCM/float WAV; transcode other decodable audio safely."""
     source = Path(source)
     if source.suffix.lower() == ".wav":
-        return validate_wav(source)
+        try:
+            return validate_wav(source)
+        except ProAgentError:
+            # Previous source validation already checked bounds with FFprobe.
+            probe_audio_source(source)
+    else:
+        probe_audio_source(source)
     if destination.exists():
         raise ProAgentError("Refusing to replace a private normalized WAV")
     try:
         subprocess.run(
             ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
+             "-protocol_whitelist", "file",
              "-i", str(source), "-map", "0:a:0", "-vn", "-sn", "-dn",
              "-ac", "2", "-ar", "44100", "-c:a", "pcm_s16le",
              "-f", "wav", "-n", str(destination)],
@@ -227,11 +255,11 @@ def normalized_audio_source(source, destination):
             timeout=300
         )
         destination.chmod(0o600)
-        return validate_wav(destination)
-    except Exception as exc:
+        validate_wav(destination)
+        return destination
+    except (subprocess.SubprocessError, OSError, ProAgentError) as exc:
         destination.unlink(missing_ok=True)
-        raise ProAgentError("Safe audio-to-WAV conversion failed") from exc
-
+        raise SourceTransferError("SOURCE_DECODER_FAILED") from exc
 
 def pro_heartbeat_payload():
     return {"gpuReady": True, "formatsReady": multiformat_ready()}
@@ -335,13 +363,10 @@ def download_source(job, lease, endpoint, name, folder, source_format='wav'):
         target.chmod(0o600)
         try:
             return verify_audio_source(target, source_format)
+        except SourceTransferError:
+            raise
         except ProAgentError as exc:
-            error = str(exc)
-            if "decoder not installed" in error.lower():
-                raise SourceTransferError("SOURCE_DECODER_UNAVAILABLE") from exc
-            if "decode" in error.lower():
-                raise SourceTransferError("SOURCE_DECODER_FAILED") from exc
-            raise SourceTransferError("SOURCE_INVALID_AUDIO") from exc
+            raise SourceTransferError("SOURCE_UNREADABLE_AUDIO") from exc
     except Exception:
         target.unlink(missing_ok=True)
         raise
