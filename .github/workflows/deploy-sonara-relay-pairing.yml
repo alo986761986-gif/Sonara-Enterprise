@@ -12,6 +12,8 @@ on:
       - "cloudflare/sonara-r2-tempo-report.test.mjs"
       - "cloudflare/sonara-audio-quality-engine.mjs"
       - "cloudflare/sonara-r2-generation-profile.mjs"
+      - "cloudflare/sonara-mix-master-v1.mjs"
+      - "cloudflare/sonara-r2-generation-profile.test.mjs"
       - "cloudflare/sonara-studio-ai-router.mjs"
       - "cloudflare/sonara-remix-r2.test.mjs"
       - "cloudflare/sonara-molab-xl-router.mjs"
@@ -57,6 +59,9 @@ jobs:
 
       - name: Verify new A/B quality and Studio BPM truth before Worker deployment
         run: node --test cloudflare/sonara-five-pillars.test.mjs
+
+      - name: Verify tonal-clarity guidance and original audio constraints
+        run: node --test cloudflare/sonara-r2-generation-profile.test.mjs
 
       - name: Verify measured WAV pulse independently
         run: python3 -m unittest discover -s molab -p 'test_sonara_bpm_verification.py' -v
