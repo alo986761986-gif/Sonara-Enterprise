@@ -22,10 +22,11 @@ import urllib.request
 import wave
 
 from sonara_remix_pro_toolkit import (
-    analyze_audio, audio_hash, combine_two_songs, separate_stems, transparent_master
+    analyze_audio, combine_two_songs, separate_stems, transparent_master
 )
 from sonara_remix_pro_ace_bridge import render as ace_cover
 from sonara_remix_pro_quality import audit_wav
+import soundfile as sf
 
 ROOT = Path("/marimo/SONARA-REMIX-PRO")
 PRIVATE = ROOT / "private-jobs"
@@ -148,15 +149,21 @@ class Renewer:
 
     def loop(self):
         while not self.stop.wait(45):
-            try:
-                data = request("POST", f"/api/sonara-relay/pro-job/{self.job}/renew",
-                               {}, self.lease, timeout=30)
-                if data.get("ok") is not True:
-                    self.failed.set()
-                    return
-                request("POST", "/api/sonara-relay/pro-heartbeat",
-                        {"gpuReady": True}, timeout=25)
-            except Exception:
+            success = False
+            for attempt in range(3):
+                try:
+                    data = request("POST", f"/api/sonara-relay/pro-job/{self.job}/renew",
+                                   {}, self.lease, timeout=30)
+                    if data.get("ok") is not True:
+                        raise ProAgentError("Lease renewal not confirmed")
+                    request("POST", "/api/sonara-relay/pro-heartbeat",
+                            {"gpuReady": True}, timeout=25)
+                    success = True
+                    break
+                except Exception:
+                    if self.stop.wait(3):
+                        return
+            if not success:
                 self.failed.set()
                 return
 
@@ -175,8 +182,15 @@ class Renewer:
 
 def progress(job, lease, stage, renewer):
     renewer.verify()
-    request("POST", f"/api/sonara-relay/pro-job/{job}/progress", {"stage": stage}, lease)
-    status("processing", jobId=job, stage=stage)
+    for attempt in range(3):
+        try:
+            request("POST", f"/api/sonara-relay/pro-job/{job}/progress", {"stage": stage}, lease)
+            status("processing", jobId=job, stage=stage)
+            return
+        except ProAgentError:
+            if attempt == 2:
+                raise
+            time.sleep(1)
 
 
 def run_job(item, auth_mode):
@@ -234,9 +248,20 @@ def run_job(item, auth_mode):
             if result.get("status")!="completed":
                 raise ProAgentError("Local ACE-Step did not complete the job")
             progress(job, lease, "mastering", renewal)
-            audit = audit_wav(generated)
-            if audit.get("integratedLufs") is None:
-                raise ProAgentError("No measurable loudness from generated WAV")
+            sample, sr = sf.read(str(generated), dtype="float32", always_2d=True)
+            if sr < 22050 or sr > 96000 or len(sample) / sr > 120:
+                raise ProAgentError("Unsupported generated WAV duration or sample rate")
+            import numpy as np
+            if sample.shape[1] == 1:
+                sample = np.repeat(sample, 2, axis=1)
+            elif sample.shape[1] > 2:
+                raise ProAgentError("Only stereo WAV output is supported")
+            mastered, metrics = transparent_master(sample, sr=sr)
+            master_file = folder / "mastered.wav"
+            sf.write(str(master_file), mastered, sr, subtype="PCM_24")
+            audit = audit_wav(master_file)
+            if audit.get("integratedLufs") is None or audit.get("approxTruePeakDbTp", 0) > -0.8:
+                raise ProAgentError("Mastering verification failed")
             progress(job, lease, "uploading", renewal)
             # All stems must be authentic model outputs, not synthesized silence.
             for source,remote in ((source_a/"vocals.wav","vocals-a"),
@@ -245,7 +270,7 @@ def run_job(item, auth_mode):
                                   (source_a/"other.wav","other-a")):
                 renewal.verify()
                 upload(job,lease,"stem/"+remote,source)
-            upload(job,lease,"audio",generated)
+            upload(job,lease,"audio",master_file")
             renewal.verify()
             response = request("POST",f"/api/sonara-relay/pro-job/{job}/complete",{},lease)
             if response.get("ok") is not True:
