@@ -32,16 +32,33 @@ async function main() {
   assert(fs.existsSync(WORKER_CONFIG),"Missing Wrangler config");
   const caps=await getJson(CAP_URL);
   assert(caps.available===true, "BLOCKED: Remix Pro backend unavailable");
-  assert(caps.expectedAgentRevision===REV, "BLOCKED: Cloudflare Worker has not enabled required V3 revision");
-  assert(caps.fusionAvailable===true, "BLOCKED: real MoLab V3 GPU heartbeat not ready");
   assert(process.env.CLOUDFLARE_API_TOKEN||process.env.CF_API_TOKEN,
          "BLOCKED: expected existing Cloudflare API token environment");
-  console.log("SONARA_FUSION_PREFLIGHT=V3_MATCH_READY");
+  // Stage 1: V3 gateway is needed before a V3 MoLab worker can heartbeat.
+  // Never attempt it automatically: an operator must first drain V2 queue,
+  // save the current Cloudflare rollback revision, and confirm readiness.
+  const stage=process.env.SONARA_RELEASE_STAGE;
+  assert(stage==="gateway"||stage==="final", "BLOCKED: set SONARA_RELEASE_STAGE=gateway or final");
+  if(stage==="gateway"){
+    assert(process.env.SONARA_PRO_QUEUE_DRAINED==="yes",
+           "BLOCKED: old V2 queue must be drained before gateway staging");
+    assert(process.env.SONARA_ROLLBACK_SAVED==="yes",
+           "BLOCKED: Cloudflare Worker/asset rollback must be saved");
+    console.log("SONARA_FUSION_STAGE=GATEWAY_COMPATIBILITY_RELEASE");
+  } else {
+    // Stage 2: after V3 MoLab has been started and its real GPU QA approved.
+    assert(caps.expectedAgentRevision===REV && caps.fusionAvailable===true,
+           "BLOCKED: public V3 gateway and live GPU agent must be online");
+    console.log("SONARA_FUSION_STAGE=FINAL_FRONTEND_RELEASE");
+  }
   cp.execFileSync("npm",["run","build"],{stdio:"inherit"});
   cp.execFileSync("npx",["--yes","wrangler@latest","deploy","--config",WORKER_CONFIG],{stdio:"inherit"});
   const next=await getJson(CAP_URL);
-  assert(next.fusionAvailable===true&&next.expectedAgentRevision===REV,
-         "FAIL: post-deploy public GPU fusion capability missing");
-  console.log("SONARA_FUSION_CLOUDFLARE_RELEASE=SUCCESS");
+  assert(next.expectedAgentRevision===REV,
+         "FAIL: Cloudflare public gateway still reports old revision");
+  if(stage==="final")assert(next.fusionAvailable===true,
+         "FAIL: GPU V3 creative fusion not ready after final deployment");
+  console.log(stage==="final"?"SONARA_FUSION_CLOUDFLARE_RELEASE=SUCCESS":
+              "SONARA_FUSION_GATEWAY_STAGED=V3_AWAITING_GPU_HEARTBEAT");
 }
 main().catch(e=>{console.error("SONARA_FUSION_RELEASE_BLOCKED="+String(e.message||e));process.exitCode=1;});
