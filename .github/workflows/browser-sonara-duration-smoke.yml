@@ -35,8 +35,8 @@ jobs:
               const root=document.querySelector('#root');
               return {
                 title:document.title.slice(0,120),
-                shimExecuted:window.__sonaraRemixProDurationEdgeV1===true,
-                shimScriptCount:document.querySelectorAll('#sonara-remix-pro-duration-edge-v1').length,
+                shimExecuted:window.__sonaraRemixProDurationSyncV4===true,
+                shimScriptCount:document.querySelectorAll('#sonara-remix-pro-duration-sync-v4').length,
                 rootLoaded:!!root&&root.children.length>0,
                 remixDurationVisible:!!remix,
                 durationBefore:remix?Number(remix.value):null,
