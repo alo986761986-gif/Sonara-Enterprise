@@ -7,6 +7,7 @@ import json
 import os
 import pathlib
 import signal
+import tempfile
 import time
 import wave
 import struct
@@ -109,23 +110,50 @@ def reference_suffix(reference):
     }.get(content_type, '.wav')
 
 def store_reference(job_id, data, reference):
+    """Store authorized sources in the system temp directory accepted by ACE-Step.
+
+    ACE-Step 1.5 rejects absolute src_audio_path/reference_audio_path outside
+    tempfile.gettempdir() with HTTP 400. mkstemp creates a private 0600 file
+    in that directory, with a trusted prefix and a vetted audio suffix.
+    """
     if not isinstance(data, bytes) or not data:
         raise RuntimeError('Invalid reference response')
     if len(data) > 80 * 1024 * 1024:
         raise RuntimeError('Reference exceeds configured limit')
-    REFERENCE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
-    REFERENCE_DIR.chmod(0o700)
-    path = REFERENCE_DIR / (job_id + reference_suffix(reference))
-    if path.is_symlink():
-        raise RuntimeError('Unsafe reference path')
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-    if hasattr(os, 'O_NOFOLLOW'):
-        flags |= os.O_NOFOLLOW
-    fd = os.open(str(path), flags, 0o600)
-    with os.fdopen(fd, 'wb') as out:
-        os.fchmod(out.fileno(), 0o600)
-        out.write(data)
-    return path.resolve()
+    suffix = reference_suffix(reference)
+    fd, name = tempfile.mkstemp(prefix='sonara_r2_source_', suffix=suffix)
+    target = pathlib.Path(name)
+    try:
+        with os.fdopen(fd, 'wb') as out:
+            os.fchmod(out.fileno(), 0o600)
+            out.write(data)
+        return target.resolve()
+    except BaseException:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        target.unlink(missing_ok=True)
+        raise
+
+
+def classify_http_rejection(error):
+    """Classify only known HTTP details, never log request/response bodies."""
+    try:
+        data = json.loads(error.read(8192))
+        detail = data.get('detail') if isinstance(data, dict) else None
+    except Exception:
+        detail = None
+    if detail == 'absolute audio file paths are not allowed':
+        return 'absolute_audio_path'
+    if detail == 'path traversal in audio file paths is not allowed':
+        return 'audio_path_traversal'
+    if detail == 'Malformed JSON payload' or detail == 'JSON payload must be an object':
+        return 'invalid_json'
+    if isinstance(detail, list):
+        return 'payload_validation'
+    return 'unclassified'
+
 
 def publish_status(state: str, **safe_fields):
     # Only callers' explicit non-secret booleans and job IDs reach this file.
@@ -497,8 +525,11 @@ def process(job):
     timings = {}
     reference_path = None
     remix_source_path = None
+    current_stage = 'preparing'
 
     def progress(stage, **fields):
+        nonlocal current_stage
+        current_stage = stage
         publish_status('processing', jobId=job_id, stage=stage,
                        elapsedSeconds=round(time.monotonic() - started, 2), **fields)
 
@@ -664,7 +695,14 @@ def process(job):
         raise RuntimeError('Generation polling deadline reached')
     except Exception as error:
         # Do not print exception messages, headers, source text or private paths.
-        print('SONARA job failed:', job_id, type(error).__name__, flush=True)
+        if isinstance(error, urllib.error.HTTPError):
+            classification = classify_http_rejection(error) if current_stage == 'submitting' else 'unclassified'
+            print('SONARA job failed:', job_id, 'HTTPError',
+                  'stage=' + current_stage, 'http=' + str(error.code),
+                  'reason=' + classification, flush=True)
+        else:
+            print('SONARA job failed:', job_id, type(error).__name__,
+                  'stage=' + current_stage, flush=True)
         try:
             request('POST', base + '/fail', {}, head, 20)
         except Exception:

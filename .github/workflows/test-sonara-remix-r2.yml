@@ -7,6 +7,7 @@ on:
       - 'cloudflare/sonara-molab-xl-router.mjs'
       - 'molab/sonara_r2_pull_agent.py'
       - 'molab/sonara_r2_install.py'
+      - 'molab/test_sonara_r2_source_paths.py'
       - 'src/components/remix/SonaraRemixSection.tsx'
       - 'wrangler.jsonc'
       - '.github/workflows/test-sonara-remix-r2.yml'
@@ -26,3 +27,5 @@ jobs:
         run: node --test cloudflare/sonara-remix-r2.test.mjs cloudflare/sonara-r2-https-relay.test.mjs
       - name: Verify guarded MoLab scripts
         run: python3 -m py_compile molab/sonara_r2_pull_agent.py molab/sonara_r2_install.py
+      - name: Verify ACE-Step source path compatibility and agent pins
+        run: python3 -m unittest discover -s molab -p 'test_sonara_r2_source_paths.py' -v && python3 -m unittest discover -s molab -p 'test_sonara_r2_installer_pins.py' -v
