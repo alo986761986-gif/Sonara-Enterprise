@@ -1,0 +1,207 @@
+name: SONARA Remix Pro - Safe Automatic Duration Homepage Release
+on:
+  push:
+    branches: [feature/remix-pro-automatic-random-duration-nov09]
+    paths:
+      - '.github/workflows/publish-sonara-remix-auto-duration.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+concurrency:
+  group: sonara-remix-auto-homepage-release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify isolated browser runtime and fail-closed behavior
+        run: |
+          node --check cloudflare/sonara-remix-pro-auto-duration-runtime.js
+          node --test cloudflare/sonara-remix-pro-auto-duration-runtime.test.mjs
+          npx --yes tsx --test src/components/remix/remixDuration.test.ts
+      - name: Replace only exact SONARA homepage Cloudflare route with guarded rollback
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const token=process.env.CLOUDFLARE_API_TOKEN||'';
+          if(token.length<20)throw Error('Cloudflare API token unavailable. No changes made.');
+          const root='https://api.cloudflare.com/client/v4';
+          const auth={Authorization:'Bearer '+token};
+          const json=async (path,method='GET',body)=>{
+            const headers={...auth};
+            if(body!==undefined)headers['Content-Type']='application/json';
+            const resp=await fetch(root+path,{method,headers,
+              ...(body!==undefined?{body:JSON.stringify(body)}:{}),
+              signal:AbortSignal.timeout(25000)});
+            const value=await resp.json().catch(()=>({}));
+            if(!resp.ok||value.success===false)throw Error('Cloudflare '+method+' error '+resp.status+
+              ' codes '+(value.errors||[]).map(e=>e.code).slice(0,4).join(','));
+            return value.result;
+          };
+          const requireValue=(condition,message)=>{if(!condition)throw Error(message);};
+          const zones=await json('/zones?name=sonaraenterprise.com&per_page=20');
+          const zone=zones.find(z=>z.name==='sonaraenterprise.com');
+          requireValue(zone,'SONARA zone missing');
+          const account=process.env.CLOUDFLARE_ACCOUNT_ID||zone.account?.id;
+          requireValue(account,'Cloudflare account missing');
+          const routePath='/zones/'+zone.id+'/workers/routes';
+          const originalScript='sonara-remix-duration-shell';
+          const nextScript='sonara-remix-auto-duration-shell';
+          const pattern='sonaraenterprise.com';
+          const before=await json(routePath);
+          const exact=before.filter(r=>r.pattern===pattern);
+          requireValue(exact.length===1&&exact[0].script===originalScript,
+            'Unexpected homepage route: abort without touching production');
+          requireValue(before.some(r=>r.pattern==='sonaraenterprise.com/*'&&r.script==='sonara-enterprise'),
+            'Original main Worker route missing');
+          const mainPath='/accounts/'+account+'/workers/scripts/sonara-enterprise/deployments';
+          const mainBefore=(await json(mainPath)).deployments?.[0]?.versions?.[0]?.version_id;
+          requireValue(mainBefore,'Main Worker revision unavailable');
+          const proUrl='https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities';
+          const getPro=async()=>{
+            const r=await fetch(proUrl,{headers:{'cache-control':'no-store'},
+              signal:AbortSignal.timeout(20000)});
+            if(!r.ok)throw Error('Remix Pro API unavailable '+r.status);
+            const c=await r.json();
+            requireValue(c.available===true&&c.fusionAvailable===true&&
+              c.expectedAgentRevision==='sonara-remix-pro-r2-agent-v3-dual-reference-fusion',
+              'Live V3 Remix Pro not available');
+          };
+          await getPro();
+          const live=await fetch('https://sonaraenterprise.com/',{
+            headers:{accept:'text/html','cache-control':'no-store'},
+            signal:AbortSignal.timeout(25000)});
+          const html=await live.text();
+          requireValue(live.ok&&html.length>2000&&html.length<80000&&
+            /<head\b/i.test(html)&&/<\/head>/i.test(html),'Live HTML unexpected');
+          requireValue(live.headers.get('x-sonara-duration-shell')==='sync-v4',
+            'Live exact shell not known V4 revision');
+          requireValue(html.includes('sonara-remix-pro-duration-sync-v4'),
+            'V4 shell script not found');
+          const old=/<script\b[^>]*id=["']sonara-remix-pro-duration-sync-v4["'][^>]*>[\s\S]*?<\/script>/gi;
+          const matches=[...html.matchAll(old)];
+          requireValue(matches.length===1,'Cannot safely remove one and only one V4 script');
+          const script=fs.readFileSync('cloudflare/sonara-remix-pro-auto-duration-runtime.js','utf8');
+          requireValue(script.includes('window.__sonaraRemixAutoDurationV1')&&script.length<20000,
+            'New script missing');
+          const patched=html.replace(old,'').replace(/<\/head>/i,
+            '<script id="sonara-remix-auto-duration-v1">'+script+'<\/script></head>');
+          requireValue(patched.includes('sonara-remix-auto-duration-v1')&&
+            !patched.includes('sonara-remix-pro-duration-sync-v4'),
+            'Live HTML patch failed');
+          const csp=live.headers.get('content-security-policy')||'';
+          const inline=/script-src(?:-elem)?\s+([^;]+)/i.exec(csp)?.[1]||'';
+          requireValue(!inline||inline.includes("'unsafe-inline'"),
+            'CSP would block the isolated inline script');
+          const assetPaths=[...patched.matchAll(/(?:src|href)\s*=\s*["'](\/assets\/[^"'?#]+)["']/g)]
+            .map(m=>m[1]);
+          requireValue(assetPaths.length>0,'Live asset paths missing');
+          for(const asset of [...new Set(assetPaths)].slice(0,6)){
+            const res=await fetch('https://sonaraenterprise.com'+asset,{
+              signal:AbortSignal.timeout(20000)});
+            requireValue(res.ok,'Live asset unavailable '+asset);
+          }
+          const responseHeaders={
+            'content-type':'text/html; charset=UTF-8',
+            'cache-control':'no-store, max-age=0',
+            'x-content-type-options':live.headers.get('x-content-type-options')||'nosniff',
+            'x-sonara-duration-shell':'auto-v1'
+          };
+          for(const key of ['content-security-policy','permissions-policy',
+            'strict-transport-security','x-frame-options','referrer-policy']){
+            const v=live.headers.get(key);if(v)responseHeaders[key]=v;
+          }
+          const worker=[
+            'const html='+JSON.stringify(patched)+';',
+            'const headers='+JSON.stringify(responseHeaders)+';',
+            'export default {async fetch(req){',
+            'const u=new URL(req.url);',
+            "if(req.method!=='GET'&&req.method!=='HEAD')return new Response('Method not allowed',{status:405});",
+            "if(u.pathname!=='/'&&u.pathname!=='/index.html')return new Response('Not found',{status:404});",
+            "return new Response(req.method==='HEAD'?null:html,{status:200,headers});",
+            '}};'
+          ].join('\n');
+          const form=new FormData();
+          form.set('metadata',new Blob([JSON.stringify({main_module:'auto-shell.mjs',
+            compatibility_date:'2026-08-23',
+            annotations:{'workers/message':'SONARA isolated automatic duration; existing main V3 Worker untouched'}})],
+            {type:'application/json'}),'metadata.json');
+          form.set('auto-shell.mjs',new Blob([worker],{type:'application/javascript+module'}),'auto-shell.mjs');
+          const upload=await fetch(root+'/accounts/'+account+'/workers/scripts/'+nextScript,{
+            method:'PUT',headers:auth,body:form,signal:AbortSignal.timeout(35000)});
+          const uploaded=await upload.json().catch(()=>({}));
+          requireValue(upload.ok&&uploaded.success!==false,
+            'New isolated Cloudflare Worker stage upload failed '+upload.status);
+          const subdomain=(await json('/accounts/'+account+'/workers/subdomain'))?.subdomain;
+          const sub=(await json('/accounts/'+account+'/workers/scripts/'+nextScript+'/subdomain'));
+          requireValue(sub?.enabled===true&&/^[a-z0-9-]+$/.test(subdomain||''),
+            'Isolated staging worker URL unavailable; do not publish');
+          const stagedUrl='https://'+nextScript+'.'+subdomain+'.workers.dev/';
+          const stage=await fetch(stagedUrl,{signal:AbortSignal.timeout(20000)});
+          const stageHtml=await stage.text();
+          requireValue(stage.ok&&stage.headers.get('x-sonara-duration-shell')==='auto-v1'&&
+            stageHtml===patched,'Staged HTML does not match intended exact response');
+          requireValue((await json(mainPath)).deployments?.[0]?.versions?.[0]?.version_id===mainBefore,
+            'Main Worker changed during staging');
+          const beforePublish=await json(routePath);
+          requireValue(beforePublish.filter(r=>r.pattern===pattern).length===1&&
+            beforePublish.find(r=>r.pattern===pattern)?.script===originalScript,
+            'Concurrent homepage route mutation: abort');
+          let switched=false,success=false;
+          try{
+            await json(routePath+'/'+exact[0].id,'PUT',{pattern,script:nextScript});
+            switched=true;
+            await new Promise(resolve=>setTimeout(resolve,4500));
+            let verified=false;
+            for(let i=0;i<4;i++){
+              const check=await fetch('https://sonaraenterprise.com/?auto_release_check='+i,{
+                headers:{accept:'text/html','cache-control':'no-store'},
+                signal:AbortSignal.timeout(20000)});
+              const body=await check.text();
+              verified=check.ok&&check.headers.get('x-sonara-duration-shell')==='auto-v1'&&
+                body.includes('sonara-remix-auto-duration-v1')&&
+                !body.includes('sonara-remix-pro-duration-sync-v4')&&
+                body.includes('/assets/');
+              console.log('SONARA_AUTO_HOME_CHECK',JSON.stringify({attempt:i+1,
+                http:check.status,header:check.headers.get('x-sonara-duration-shell'),
+                passed:verified}));
+              if(verified)break;
+              await new Promise(resolve=>setTimeout(resolve,1800));
+            }
+            requireValue(verified,'New live homepage verification failed');
+            await getPro();
+            const health=await fetch('https://api.sonaraenterprise.com/api/health',{
+              signal:AbortSignal.timeout(20000)});
+            requireValue(health.ok,'Main API health unavailable after route switch');
+            requireValue((await json(mainPath)).deployments?.[0]?.versions?.[0]?.version_id===mainBefore,
+              'Production main Worker revision changed');
+            const after=await json(routePath);
+            requireValue(after.some(r=>r.id===exact[0].id&&r.pattern===pattern&&
+              r.script===nextScript),'New route not confirmed');
+            requireValue(after.some(r=>r.pattern==='sonaraenterprise.com/*'&&
+              r.script==='sonara-enterprise'),'Original wildcard route missing');
+            success=true;
+            console.log('SONARA_AUTO_DURATION_RELEASE',JSON.stringify({
+              published:true,previousV4Removed:true,homepageOnly:true,
+              mainWorkerUntouched:true,remixProV3Preserved:true}));
+          }finally{
+            if(switched&&!success){
+              console.log('SONARA_AUTO_DURATION_RELEASE rollback requested');
+              await json(routePath+'/'+exact[0].id,'PUT',{pattern,script:originalScript});
+              const restored=await json(routePath);
+              requireValue(restored.some(r=>r.id===exact[0].id&&
+                r.script===originalScript),'CRITICAL: original homepage route not restored');
+              console.log('SONARA_AUTO_DURATION_RELEASE',JSON.stringify({rolledBack:true}));
+            }
+          }
+          NODE
