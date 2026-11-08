@@ -270,6 +270,15 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
       if (!Number.isInteger(seconds) || seconds < 30 || seconds > 480) {
         return nativeGenerationError('INVALID_PRO_DURATION', 'Durata Remix Pro non valida.', 400);
       }
+      // Require a deliberate, duration-bound acknowledgement of the Studio
+      // 3x usage policy. A changed duration invalidates the previous consent.
+      if (source.sonaraRemixProUsageAccepted !== true ||
+          Number(source.sonaraRemixProUsageSecondsAccepted) !== seconds * 3) {
+        return nativeGenerationError('PRO_USAGE_CONSENT_REQUIRED',
+          'Accetta il consumo Studio di tre volte la durata del Remix Pro.', 400);
+      }
+      payload.usageConsentAccepted = true;
+      payload.usageSecondsAccepted = seconds * 3;
       proJobId = 'srpro_' + crypto.randomUUID();
       const reservation = await mutateRemixProUsage(request, env, 'reserve', proJobId, seconds, uid);
       if (!reservation.ok) return reservation;
