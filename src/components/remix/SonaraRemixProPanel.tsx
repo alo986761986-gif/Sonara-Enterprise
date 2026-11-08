@@ -34,15 +34,19 @@ export default function SonaraRemixProPanel({ initialSources = null }: RemixProP
   const [rights,setRights]=useState(false);
   const [submitting,setSubmitting]=useState(false);
   const [job,setJob]=useState<ProJob|null>(null);
-  const [submittedDuration,setSubmittedDuration]=useState<number|null>(null);
+  // A submitted duration is meaningful only for the exact server-assigned job ID.
+  // Never compare a previous 0:30 job against a new 8:00 selection.
+  const [submission,setSubmission]=useState<{id:string;seconds:number}|null>(null);
   const [error,setError]=useState('');
   const [info,setInfo]=useState('');
   const mounted=useRef(true);
   const activeJob=useRef('');
+  const selectedDurationRef=useRef(duration);
   const sourceAInput=useRef<HTMLInputElement>(null);
   const sourceBInput=useRef<HTMLInputElement>(null);
   const changeDuration=(seconds:number)=>{
     if (!validDuration(seconds)) return;
+    selectedDurationRef.current=seconds;
     setDuration(seconds);
     try { sessionStorage.setItem(DURATION_KEY,String(seconds)); } catch {}
   };
@@ -135,10 +139,10 @@ export default function SonaraRemixProPanel({ initialSources = null }: RemixProP
           if(cancelled||!mounted.current)return;
           errors=0;
           setJob(data);
-          if (submittedDuration!==null && data.requestedDurationSeconds!==undefined &&
-              Number(data.requestedDurationSeconds)!==submittedDuration) {
+          if (submission?.id===id && data.jobId===id && data.requestedDurationSeconds!==undefined &&
+              Number(data.requestedDurationSeconds)!==submission.seconds) {
             setError('ERRORE DURATA: il server ha registrato '+durationLabel(Number(data.requestedDurationSeconds))+
-              ' invece di '+durationLabel(submittedDuration)+'. Il job non corrisponde alla richiesta; non inviarne un altro prima che termini.');
+              ' invece di '+durationLabel(submission.seconds)+'. Il job non corrisponde alla richiesta; non inviarne un altro prima che termini.');
           }
           if(data.status==='COMPLETED'||data.status==='FAILED'){
             try{sessionStorage.removeItem(KEY);}catch{}
@@ -154,7 +158,7 @@ export default function SonaraRemixProPanel({ initialSources = null }: RemixProP
       }
     })();
     return()=>{cancelled=true;};
-  },[job?.jobId,job?.status,submittedDuration]);
+  },[job?.jobId,job?.status,submission?.id,submission?.seconds]);
 
   const upload=async(file:File,sourceLabel:string)=>{
     const maxSourceBytes=512*1024*1024;
@@ -231,9 +235,11 @@ export default function SonaraRemixProPanel({ initialSources = null }: RemixProP
     if(sourceA===sourceB){setError('Le sorgenti A e B devono essere diverse.');return;}
     if(!rights){setError('Conferma di avere il diritto di utilizzare entrambi i brani.');return;}
     if(!prompt.trim()){setError('Inserisci le indicazioni musicali per il nuovo brano.');return;}
-    const requestedDuration=duration;
+    // Capture the value synchronously at input change, not from a potentially
+    // stale React render during an immediate slider -> Create click.
+    const requestedDuration=selectedDurationRef.current;
     if(!validDuration(requestedDuration)){setError('Scegli una durata valida fra 0:30 e 8:00.');return;}
-    setSubmittedDuration(requestedDuration);
+    setSubmission(null);
     setSubmitting(true);setError('');setInfo('Caricamento privato del brano A…');
     try{
       const a=await upload(sourceA,'A');
@@ -241,9 +247,12 @@ export default function SonaraRemixProPanel({ initialSources = null }: RemixProP
       const b=await upload(sourceB,'B');
       setInfo('Avvio del job autenticato…');
       const response=await fetch('/api/billing/generate',{
-        method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},
+        method:'POST',credentials:'include',
+        headers:{'Content-Type':'application/json',
+          'X-Sonara-Remix-Expected-Duration':String(requestedDuration)},
         body:JSON.stringify({
           sonaraRemixPro:true,
+          expectedDurationSec:requestedDuration,
           sonaraRemixProRightsConfirmed:true,
           sonaraRemixProSourceA:a,
           sonaraRemixProSourceB:b,
@@ -264,6 +273,7 @@ export default function SonaraRemixProPanel({ initialSources = null }: RemixProP
           // Do not blindly resubmit an ambiguously queued job; the private
           // job record remains pending until its R2 state is reconciled.
           activeJob.current=recoverId;
+          setSubmission({id:recoverId,seconds:requestedDuration});
           try{sessionStorage.setItem(KEY,recoverId);}catch{}
           setJob({jobId:recoverId,status:'PROCESSING',stage:'reconciling',progress:0,requestedDurationSeconds:requestedDuration});
           setInfo('Accodamento non confermato. ID '+recoverId+' conservato; verifica dello stato del job in corso.');
@@ -280,6 +290,7 @@ export default function SonaraRemixProPanel({ initialSources = null }: RemixProP
         // This job may already exist in the private queue: retain its ID and
         // NEVER duplicate the request or pretend that 0:30 equals 8:00.
         activeJob.current=id;
+        setSubmission({id,seconds:requestedDuration});
         try{sessionStorage.setItem(KEY,id);}catch{}
         setJob({jobId:id,status:'PROCESSING',stage:'queued',progress:0,
           requestedDurationSeconds:validDuration(queuedDuration)?queuedDuration:undefined});
@@ -289,6 +300,7 @@ export default function SonaraRemixProPanel({ initialSources = null }: RemixProP
         return;
       }
       activeJob.current=id;
+      setSubmission({id,seconds:requestedDuration});
       try{sessionStorage.setItem(KEY,id);}catch{}
       setJob({jobId:id,status:'PROCESSING',stage:'queued',progress:0,
         requestedDurationSeconds:requestedDuration});
