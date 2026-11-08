@@ -1,0 +1,126 @@
+name: SONARA Remix Pro - Guarded Homepage Duration Publish
+on:
+  push:
+    branches: [fix/remix-pro-duration-preserve-20261108]
+    paths: ['.github/workflows/publish-sonara-duration-homepage-guarded.yml']
+  workflow_dispatch:
+permissions: {contents: read}
+concurrency:
+  group: sonara-duration-homepage-route
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+    steps:
+      - name: Route exact site homepage to isolated duration shell, rollback on failure
+        run: |
+          node --input-type=module <<'NODE'
+          const token=process.env.CLOUDFLARE_API_TOKEN;
+          if(!token||token.length<20)throw Error('Missing Cloudflare API token');
+          const h={Authorization:'Bearer '+token,'Content-Type':'application/json'};
+          const api='https://api.cloudflare.com/client/v4';
+          const assert=(v,msg)=>{if(!v)throw Error(msg)};
+          const request=async(path,method='GET',payload)=>{
+            const res=await fetch(api+path,{method,headers:h,
+              ...(payload?{body:JSON.stringify(payload)}:{}),
+              signal:AbortSignal.timeout(20000)});
+            const data=await res.json().catch(()=>({}));
+            if(!res.ok||data.success===false){
+              const codes=(data.errors||[]).map(e=>e.code).slice(0,4);
+              throw Error('Cloudflare '+method+' HTTP '+res.status+' code '+codes.join(','));
+            }
+            return data.result;
+          };
+          const zone=(await request('/zones?name=sonaraenterprise.com'))?.find(z=>z.name==='sonaraenterprise.com');
+          assert(zone,'Zone not found');
+          const account=process.env.CLOUDFLARE_ACCOUNT_ID||zone.account?.id;
+          assert(account,'Account missing');
+          const zoneBase='/zones/'+zone.id+'/workers/routes';
+          const script='sonara-remix-duration-shell';
+          const pattern='sonaraenterprise.com';
+          const originalVersion='bbedc676-8792-4421-85b3-913e74270686';
+          const deployments=await request('/accounts/'+account+'/workers/scripts/sonara-enterprise/deployments');
+          assert(deployments.deployments?.[0]?.versions?.length===1 &&
+            deployments.deployments[0].versions[0].version_id===originalVersion,
+            'Main Worker production version unexpected');
+          const caps=await fetch('https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities',{
+            headers:{Accept:'application/json'},signal:AbortSignal.timeout(15000)});
+          assert(caps.ok,'Remix Pro capabilities unreachable');
+          const capability=await caps.json();
+          assert(capability.available===true&&
+            capability.expectedAgentRevision==='sonara-remix-pro-r2-agent-v3-dual-reference-fusion',
+            'Pro V3 not ready');
+          const prior=await request(zoneBase);
+          assert(prior.some(r=>r.pattern==='sonaraenterprise.com/*'&&r.script==='sonara-enterprise'),
+            'Original full-site route not present');
+          assert(!prior.some(r=>r.pattern===pattern),'Exact homepage route already occupied');
+          assert(!prior.some(r=>r.script===script),'Isolated shell already used by another production route');
+          const subdomain=await request('/accounts/'+account+'/workers/subdomain');
+          const preview='https://'+script+'.'+subdomain.subdomain+'.workers.dev/';
+          const checkStage=await fetch(preview,{signal:AbortSignal.timeout(15000)});
+          const stagedHtml=await checkStage.text();
+          assert(checkStage.ok&&checkStage.headers.get('x-sonara-duration-shell')==='stage-v1'&&
+            stagedHtml.includes('sonara-remix-pro-duration-edge-v1'),
+            'Staged shell not verified');
+          let routeId=null,success=false,deleted=false;
+          try{
+            const created=await request(zoneBase,'POST',{pattern,script});
+            routeId=created.id;
+            assert(routeId,'Cloudflare did not return created route id');
+            await new Promise(resolve=>setTimeout(resolve,4000));
+            let good=false;
+            for(let attempt=0;attempt<4;attempt++){
+              if(attempt)await new Promise(resolve=>setTimeout(resolve,1500));
+              const response=await fetch('https://sonaraenterprise.com/',{
+                signal:AbortSignal.timeout(15000),headers:{Accept:'text/html','Cache-Control':'no-store'}});
+              const html=await response.text();
+              const header=response.headers.get('x-sonara-duration-shell');
+              console.log('SONARA_HOME_ROUTE_CHECK',JSON.stringify({
+                attempt:attempt+1,http:response.status,shell:header,
+                shim:html.includes('sonara-remix-pro-duration-edge-v1'),
+                assetLinks:/\/assets\//.test(html)
+              }));
+              good=response.ok&&header==='stage-v1'&&
+                html.includes('sonara-remix-pro-duration-edge-v1')&&/\/assets\//.test(html);
+              if(good)break;
+            }
+            assert(good,'Homepage does not show duration lock from dedicated Worker');
+            const health=await fetch('https://api.sonaraenterprise.com/api/health',{
+              signal:AbortSignal.timeout(15000)});
+            assert(health.ok,'Main API health regression');
+            const pro=await fetch('https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities',{
+              signal:AbortSignal.timeout(15000)});
+            assert(pro.ok,'Pro capabilities regression');
+            const body=await pro.json();
+            assert(body.available===true&&
+              body.expectedAgentRevision==='sonara-remix-pro-r2-agent-v3-dual-reference-fusion',
+              'Remix Pro V3 no longer available');
+            const routes=await request(zoneBase);
+            assert(routes.some(r=>r.id===routeId&&r.pattern===pattern&&r.script===script),
+              'Expected new homepage route missing');
+            assert(routes.some(r=>r.pattern==='sonaraenterprise.com/*'&&r.script==='sonara-enterprise'),
+              'Original main route overwritten');
+            const current=await request('/accounts/'+account+'/workers/scripts/sonara-enterprise/deployments');
+            assert(current.deployments?.[0]?.versions?.[0]?.version_id===originalVersion,
+              'Main Worker version changed');
+            success=true;
+            console.log('SONARA_HOME_ROUTE',JSON.stringify({
+              result:'PUBLISHED',homepageDurationShim:true,
+              mainWorkerVersionUnchanged:true,remixProV3Available:true,
+              productionRouteId:routeId
+            }));
+          }finally{
+            if(routeId&&!success){
+              console.log('SONARA_HOME_ROUTE',JSON.stringify({result:'ROLLBACK_START'}));
+              await request(zoneBase+'/'+routeId,'DELETE');
+              deleted=true;
+              const routes=await request(zoneBase);
+              assert(!routes.some(r=>r.id===routeId),'CRITICAL: homepage route not removed');
+              console.log('SONARA_HOME_ROUTE',JSON.stringify({result:'ROLLED_BACK',routeRemoved:true}));
+            }
+          }
+          NODE
