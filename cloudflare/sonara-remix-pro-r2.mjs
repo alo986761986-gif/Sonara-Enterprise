@@ -22,6 +22,9 @@ const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:
 const fail=(message,status=400)=>json({error:message},status);
 const readJson=async obj=>{try{return obj?await obj.json():null;}catch{return null;}};
 const maxBytes=512*1024*1024;
+const partBytes=8*1024*1024;
+const partMax=64;
+const uploadMarker=(id,role)=>P+'uploads/'+id+'/'+role+'.json';
 const finite=(v,def,min,max)=>v===null||v===undefined||v===''?def:Number.isFinite(Number(v))?Math.min(max,Math.max(min,Number(v))):def;
 const enabled=e=>e.SONARA_REMIX_PRO_ENABLED==='true'&&e.SONARA_REMIX_PRO_BILLING_READY==='true'&&e.SONARA_R2_RELAY_ENABLED==='true';
 const proAgentOk=r=>r.headers.get('X-Sonara-Pro-Agent-Revision')===PRO_AGENT_REVISION;
@@ -248,6 +251,63 @@ export async function handleRemixPro(req,env,ctx,auth) {
     if(!STAGES.has(d.stage))return fail('Invalid stage');
     j.stage=d.stage;j.updatedAt=Date.now();
     return (await save(b,j,obj.etag))?json({ok:true}):fail('Retry progress',409);
+  }
+  // Long outputs and stems use the same private, lease-verified R2
+  // multipart API. No large WAV is buffered in a single Worker request.
+  const multi=action.match(/^(audio|stem\/(?:vocals-a|drums-b|bass-a|other-a))\/(start|part\/(\d{1,3})|finish)$/);
+  if(multi) {
+    const role=multi[1],kind=multi[2],tag=role.replace('/','-');
+    const output=role==='audio'?audioKey(id):stemKey(id,role.slice(5));
+    const stateKey=uploadMarker(id,tag);
+    if(kind==='start'&&req.method==='POST') {
+      const body=await req.json().catch(()=>null),size=Number(body?.bytes);
+      if(!Number.isSafeInteger(size)||size<44||size>maxBytes)return fail('Invalid long WAV size',413);
+      const parts=Math.ceil(size/partBytes);
+      if(parts>partMax)return fail('Too many WAV parts',413);
+      if(await b.head(stateKey))return fail('Upload already in progress',409);
+      const upload=await b.createMultipartUpload(output,{httpMetadata:{contentType:'audio/wav'}});
+      await b.put(stateKey,JSON.stringify({ownerUid:j.ownerUid,leaseId:j.leaseId,
+        id,output,uploadId:upload.uploadId,size,parts,startedAt:Date.now()}));
+      return json({partBytes,parts});
+    }
+    const current=await readJson(await b.get(stateKey));
+    if(!current||current.id!==id||current.leaseId!==j.leaseId||
+       current.ownerUid!==j.ownerUid||current.output!==output)
+      return fail('Upload not found or lease changed',409);
+    const multipart=b.resumeMultipartUpload(output,current.uploadId);
+    if(kind.startsWith('part/')&&req.method==='PUT'){
+      const n=Number(multi[3]);
+      if(!Number.isInteger(n)||n<1||n>current.parts)return fail('Invalid part',400);
+      const expected=n===current.parts?current.size-(n-1)*partBytes:partBytes;
+      const data=await req.arrayBuffer();
+      if(data.byteLength!==expected)return fail('Unexpected part length',400);
+      if(n===1){
+        const head=new Uint8Array(data.slice(0,12));
+        if(String.fromCharCode(...head.slice(0,4))!=='RIFF'||
+           String.fromCharCode(...head.slice(8,12))!=='WAVE')
+          return fail('Real WAV required',415);
+      }
+      const result=await multipart.uploadPart(n,data);
+      return json({partNumber:n,etag:result.etag});
+    }
+    if(kind==='finish'&&req.method==='POST'){
+      const body=await req.json().catch(()=>null),parts=body?.parts;
+      if(!Array.isArray(parts)||parts.length!==current.parts||
+         !parts.every((p,k)=>p?.partNumber===k+1&&typeof p.etag==='string'&&p.etag.length>0&&p.etag.length<200))
+        return fail('Incomplete multipart WAV',400);
+      try {await multipart.complete(parts);} catch {return fail('Multipart finalization failed',503);}
+      const head=await b.head(output);
+      if(!head||head.size!==current.size)return fail('WAV size mismatch',503);
+      const obj=await b.get(jobKey(id)),latest=await readJson(obj);
+      if(latest?.status!=='LEASED'||latest.leaseId!==j.leaseId)return fail('Lease lost',409);
+      if(role==='audio')latest.audio=output;
+      else latest.stems[role.slice(5)]=output;
+      latest.updatedAt=Date.now();
+      if(!(await save(b,latest,obj.etag)))return fail('Retry artifact confirmation',409);
+      await b.delete(stateKey);
+      return json({ok:true});
+    }
+    return fail('Method unsupported',405);
   }
   const uploadRole=action.startsWith('stem/')?action.slice(5):null;
   if(req.method==='PUT'&&(action==='audio'||ROLES.has(uploadRole))){
