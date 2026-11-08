@@ -31,6 +31,21 @@ jobs:
             'requestedDurationSeconds',
             'durationSec:30'
           ];
+          const liveBundleUrl=new URL(refs.find(s=>s.startsWith('/assets/index-'))||'',origin);
+          if(liveBundleUrl.pathname.startsWith('/assets/index-')){
+            const live=await fetch(liveBundleUrl,{signal:AbortSignal.timeout(20000)});
+            const body=await live.text();
+            for(const [name,needle,pre,post] of [
+              ['request_and_lock','X-Sonara-Remix-Expected-Duration',2300,3400],
+              ['mismatch_messaging','La durata scelta',1600,2000],
+              ['polling_compare','ERRORE DURATA: il server ha registrato',1300,1100]
+            ]){
+              const index=body.indexOf(needle);
+              console.log('SONARA_LIVE_FOCUS',JSON.stringify({
+                name,index,snippet:index<0?'':body.slice(Math.max(0,index-pre),index+post)
+              }));
+            }
+          }
           for(const src of refs.slice(0,20)){
             const url=new URL(src,origin);
             if(url.origin!==origin)continue;
