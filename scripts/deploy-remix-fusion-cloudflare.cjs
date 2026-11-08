@@ -27,7 +27,6 @@ function getJson(url) {
   });
 }
 async function main() {
-  assert(process.env.SONARA_FUSION_QA_APPROVED==="yes","BLOCKED: real two-track MoLab GPU QA not yet approved");
   assert(process.env.SONARA_FUSION_CLOUDFLARE_RELEASE==="yes","BLOCKED: manual Cloudflare release opt-in required");
   assert(fs.existsSync(WORKER_CONFIG),"Missing Wrangler config");
   const caps=await getJson(CAP_URL);
@@ -47,6 +46,8 @@ async function main() {
     console.log("SONARA_FUSION_STAGE=GATEWAY_COMPATIBILITY_RELEASE");
   } else {
     // Stage 2: after V3 MoLab has been started and its real GPU QA approved.
+    assert(process.env.SONARA_FUSION_QA_APPROVED==="yes",
+           "BLOCKED: real two-track MoLab GPU QA must be approved before public launch");
     assert(caps.expectedAgentRevision===REV && caps.fusionAvailable===true,
            "BLOCKED: public V3 gateway and live GPU agent must be online");
     console.log("SONARA_FUSION_STAGE=FINAL_FRONTEND_RELEASE");
