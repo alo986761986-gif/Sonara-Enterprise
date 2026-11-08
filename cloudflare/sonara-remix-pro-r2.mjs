@@ -41,6 +41,8 @@ const FAILURE_NOTICES=Object.freeze({
   SOURCE_DECODER_FAILED:'Impossibile decodificare l’audio sorgente: controlla formato e durata.',
   SOURCE_OVERSIZE:'File audio sorgente oltre il limite di 512 MiB.',
   SOURCE_TRANSFER_INVALID:'Download audio incompleto o non valido, senza riutilizzare file parziali.',
+  REMIX_INVALID_DURATION:'Durata Remix non valida: seleziona da 0:30 a 8:00 in passi da 30 secondi.',
+  REMIX_DURATION_MISMATCH:'Il motore non ha prodotto un unico brano A+B della durata scelta. Nessun risultato incompleto è stato pubblicato.',
   REMIX_PROCESSING_ERROR:'Errore durante l’elaborazione audio GPU. Verifica lo stato dell’agente MoLab.'
 });
 const FAILURE_PHASES=new Set(['source_a','source_b','normalize_a','normalize_b','processing']);
