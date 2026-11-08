@@ -23,7 +23,7 @@ export default function SonaraRemixProPanel({ initialSources = null }: RemixProP
   const [multiformatAvailable,setMultiformatAvailable]=useState(false);
   const [sourceA,setSourceA]=useState<File|null>(null);
   const [sourceB,setSourceB]=useState<File|null>(null);
-  const [prompt,setPrompt]=useState('Create ONE newly arranged coherent professional remix from both uploaded songs. Retain the recognizable leading motif, harmonies and vocal phrasing of A; integrate the rhythmic fingerprint, authentic drum articulation and complementary accents of B. Align the pulse and downbeats, prevent incompatible bass notes and clashing vocals, introduce purposeful verse, buildup, hook, breakdown and finale sections, and render one continuous naturally mastered song. No back-to-back playback or two unrelated songs superimposed.');
+  const [prompt,setPrompt]=useState('Compose ONE NEW original song that creatively merges the melodic, rhythmic, harmonic and timbral character of BOTH track A and track B. Recompose their musical gestures into one seamless new composition with a distinctive original hook, fresh arrangement, connected sections and natural instrumentation. No source waveform overlay, raw stem mixing, DJ transitions or medley.');
   const [duration,setDuration]=useState<number>(()=>{
     try { const value=Number(sessionStorage.getItem(DURATION_KEY)); return validDuration(value)?value:120; }
     catch { return 120; }
@@ -225,8 +225,8 @@ export default function SonaraRemixProPanel({ initialSources = null }: RemixProP
           durationSec:requestedDuration,
           prompt:prompt.trim().slice(0,6500),
           candidateCount:1,
-          audio_cover_strength:0.76,
-          cover_noise_strength:0.14
+          audio_cover_strength:0.52,
+          cover_noise_strength:0.16
         })
       });
       const payload=await response.json().catch(()=>({}));
@@ -284,10 +284,10 @@ export default function SonaraRemixProPanel({ initialSources = null }: RemixProP
         <span style={{fontSize:10,color:available?'#97e5b8':'#d5b6ef'}}>{available?'GPU ONLINE':available===null?'CONNESSIONE…':'NON ANCORA ATTIVO'}</span>
       </div>
       {initialSources && <div role="status" data-testid="sonara-remix-pro-multitrack-handoff" style={{padding:12,border:'1px solid #5b4d80',borderRadius:9,background:'#1d1929',display:'grid',gap:4}}>
-        <strong>Multi Track → Fusione AI A+B</strong>
+        <strong>Multi Track → Nuova composizione A+B</strong>
         <small>I due file originali sono stati trasferiti separatamente. Conferma i diritti, scegli la durata e premi Crea Remix Pro reale per produrre un solo master WAV, non una playlist o un mix DJ.</small>
       </div>}
-      <small>Remix di due brani: voce e armonie A + batteria B, strumenti separati con Demucs e nuovo render ACE-Step. Audio privati e accessibili solo al proprietario. Carica WAV, MP3, FLAC, M4A, AAC, OGG, OPUS, AIFF, WebM e altri formati elencati (max 15 minuti e 512 MiB per file); Remix AI da 0:30 a 8:00.</small>
+      <small>Fusione creativa di due brani diversi: A guida la struttura, B ispira stile e timbro. ACE-Step rigenera il nuovo brano senza sommare gli audio originali. Audio privati e accessibili solo al proprietario. Carica WAV, MP3, FLAC, M4A, AAC, OGG, OPUS, AIFF, WebM e altri formati elencati (max 15 minuti e 512 MiB per file); Remix AI da 0:30 a 8:00.</small>
       <div data-testid="sonara-remix-pro-uploaders" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,225px),1fr))',gap:12}}>
         <div data-sonara-pro-source="a" onDragOver={e=>{e.preventDefault();e.dataTransfer.dropEffect='copy';}}
           onDrop={e=>{e.preventDefault();chooseSource(e.dataTransfer.files?.[0]||null,'a');}}
@@ -351,7 +351,7 @@ export default function SonaraRemixProPanel({ initialSources = null }: RemixProP
         <input type="checkbox" checked={rights} onChange={e=>setRights(e.target.checked)} />
         <span>Confermo di possedere o avere i diritti di utilizzo di entrambi i brani.</span>
       </label>
-      <small role="status">Remix Pro crea UN SOLO WAV con la voce/armonia di A e il groove di B. La durata selezionata è quella effettiva del master (0:30–8:00), verificata sul server. Se gli audio sorgenti sono più brevi, l'arrangiamento riutilizza le frasi originali con transizioni; un render da 8:00 può richiedere più passaggi ACE-Step. Non consuma minuti Studio.</small>
+      <small role="status">Remix Pro genera UN SOLO brano nuovo usando A come guida strutturale e B come riferimento timbrico e musicale separato, senza sovrapporre le registrazioni originali. La durata selezionata è quella effettiva del master (0:30–8:00), verificata sul server. Se gli audio sorgenti sono più brevi, l'arrangiamento riutilizza le frasi originali con transizioni; un render da 8:00 può richiedere più passaggi ACE-Step. Non consuma minuti Studio.</small>
       <button type="button" disabled={!available||submitting||job?.status==='PROCESSING'||!rights}
         onClick={()=>void begin()} style={{padding:11,borderRadius:9,background:'#6c3b9d',color:'white',fontWeight:800}}>
         {submitting?<LoaderCircle size={15}/>:<ShieldCheck size={15}/>} Crea Remix Pro reale
