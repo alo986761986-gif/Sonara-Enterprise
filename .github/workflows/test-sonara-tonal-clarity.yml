@@ -1,0 +1,22 @@
+name: Test SONARA Tonal Clarity
+on:
+  pull_request:
+    paths:
+      - 'cloudflare/sonara-mix-master-v1.mjs'
+      - 'cloudflare/sonara-r2-generation-profile.mjs'
+      - 'cloudflare/sonara-tonal-clarity.test.mjs'
+      - '.github/workflows/test-sonara-tonal-clarity.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify clarity and preserve music inputs
+        run: node --test cloudflare/sonara-tonal-clarity.test.mjs
