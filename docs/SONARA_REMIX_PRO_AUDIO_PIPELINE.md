@@ -93,6 +93,22 @@ The bridge polls the **same task ID** and refuses to overwrite existing WAVs.
 Do not run concurrently with customer requests if the GPU is resource-limited.
 The new file stays private in the notebook until an authorized user imports it.
 
+### Mandatory measured quality review
+
+Run the real, non-destructive comparison and inspect any flagged items before
+submitting the final mix commercially or uploading it to the website:
+
+```sh
+python molab/sonara_remix_pro_quality.py \
+  --original /marimo/audio/A.wav \
+  --remix /marimo/audio/SONARA-REMIX-PRO-AI.wav \
+  --output /marimo/audio/SONARA-REMIX-PRO-AI.qa.json
+```
+
+This records clipping, integrated LUFS, sample/approximated true peaks,
+crest factor, stereo correlation, measured tempo/key and uncertainty flags.
+It **never** declares source separation, harmony or music perceptually perfect.
+
 Use **measured BPM** where confidence is sufficient, otherwise manually
 provide BPM, and do not assume near-key labels guarantee chord compatibility.
 `--bass-from b` is rejected if measured keys are explicitly incompatible.
