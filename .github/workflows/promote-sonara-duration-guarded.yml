@@ -1,0 +1,114 @@
+name: SONARA Guarded Duration Fix Production Promotion
+on:
+  push:
+    branches:
+      - fix/remix-pro-duration-preserve-20261108
+    paths:
+      - '.github/workflows/promote-sonara-duration-guarded.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: sonara-remix-pro-duration-promotion
+  cancel-in-progress: false
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+    steps:
+      - name: Promote only proven exact-live clone; restore immediately on any regression
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const token=process.env.CLOUDFLARE_API_TOKEN||'';
+          if(token.length<20)throw Error('Missing Cloudflare token');
+          const old='bbedc676-8792-4421-85b3-913e74270686';
+          const next='a5137e8b-b4e8-4298-8892-c4d75bdb18de';
+          const root='https://api.cloudflare.com/client/v4';
+          const auth={Authorization:'Bearer '+token,'Content-Type':'application/json'};
+          const get=async path=>{
+            const r=await fetch(root+path,{headers:auth,signal:AbortSignal.timeout(20000)});
+            const p=await r.json().catch(()=>({}));
+            if(!r.ok||p.success===false)throw Error('Cloudflare read HTTP '+r.status);
+            return p.result;
+          };
+          const z=(await get('/zones?name=sonaraenterprise.com'))?.find(x=>x.name==='sonaraenterprise.com');
+          const account=process.env.CLOUDFLARE_ACCOUNT_ID||z?.account?.id;
+          if(!account)throw Error('Cloudflare account unavailable');
+          const base='/accounts/'+account+'/workers/scripts/sonara-enterprise';
+          const readActive=async()=>{
+            const d=(await get(base+'/deployments')).deployments?.[0];
+            return d?.versions||[];
+          };
+          const active=await readActive();
+          if(active.length!==1||active[0].version_id!==old||active[0].percentage!==100)
+            throw Error('Production modified by another deployment; do not promote');
+          const staged=await get(base+'/versions/'+next);
+          if(staged?.id!==next)throw Error('Staged duration fix missing');
+          const cap=await fetch('https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities',{signal:AbortSignal.timeout(12000)});
+          const liveCap=cap.ok?await cap.json():{};
+          if(liveCap.expectedAgentRevision!=='sonara-remix-pro-r2-agent-v3-dual-reference-fusion'||liveCap.available!==true)
+            throw Error('Live Pro V3 not ready; do not promote');
+          const post=async versions=>{
+            const res=await fetch(root+base+'/deployments',{
+              method:'POST',headers:auth,
+              body:JSON.stringify({strategy:'percentage',versions,
+                annotations:{'workers/message':'SONARA duration fix from exact live bundle; guarded rollback'}}),
+              signal:AbortSignal.timeout(25000)
+            });
+            const result=await res.json().catch(()=>({}));
+            if(!res.ok||result.success===false)
+              throw Error('Cloudflare deployment request HTTP '+res.status+' codes '+(result.errors||[]).map(e=>e.code).join(','));
+            return result.result;
+          };
+          let promoted=false;
+          let validated=false;
+          try {
+            await post([{version_id:next,percentage:100}]);
+            promoted=true;
+            await new Promise(r=>setTimeout(r,6000));
+            const current=await readActive();
+            if(current.length!==1||current[0].version_id!==next||current[0].percentage!==100)
+              throw Error('New version was not fully promoted');
+            const check=async(url,label)=>{
+              const r=await fetch(url,{headers:{'Cache-Control':'no-cache'},signal:AbortSignal.timeout(15000)});
+              const body=await r.text();
+              const detail={
+                page:label,status:r.status,
+                lock:r.headers.get('x-sonara-remix-pro-duration-lock')||null,
+                script:body.includes('sonara-remix-pro-duration-edge-v2')
+              };
+              if(label==='capabilities'&&r.ok){
+                const data=JSON.parse(body);
+                detail.available=data.available===true;
+                detail.revision=data.expectedAgentRevision;
+              }
+              console.log('SONARA_PROMOTE',JSON.stringify(detail));
+              if(!r.ok)throw Error(label+' unavailable');
+              if(label==='site'&&(detail.lock!=='v2'||!detail.script))
+                throw Error('HTML duration script not active');
+              if(label==='capabilities'&&(!detail.available||detail.revision!=='sonara-remix-pro-r2-agent-v3-dual-reference-fusion'))
+                throw Error('Remix Pro V3 regression');
+            };
+            await check('https://sonaraenterprise.com/?sonara_remix_duration_verify=1','site');
+            await check('https://api.sonaraenterprise.com/api/health','health');
+            await check('https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities','capabilities');
+            validated=true;
+            console.log('SONARA_PROMOTE',JSON.stringify({state:'PUBLISHED_VERIFIED',newVersion:next}));
+          } catch(e) {
+            console.log('SONARA_PROMOTE',JSON.stringify({state:'VERIFICATION_FAILED',reason:String(e?.message||'unknown').slice(0,140)}));
+            throw e;
+          } finally {
+            if(promoted&&!validated){
+              console.log('SONARA_PROMOTE',JSON.stringify({state:'ROLLBACK_START',oldVersion:old}));
+              await post([{version_id:old,percentage:100}]);
+              const restored=await readActive();
+              if(restored.length!==1||restored[0].version_id!==old)
+                throw Error('CRITICAL: rollback verification failed');
+              console.log('SONARA_PROMOTE',JSON.stringify({state:'ROLLED_BACK',productionRestored:true}));
+            }
+          }
+          NODE
