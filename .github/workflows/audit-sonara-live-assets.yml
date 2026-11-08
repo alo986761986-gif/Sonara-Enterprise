@@ -1,0 +1,75 @@
+name: SONARA Remix Pro Production Asset Fingerprint Audit
+on:
+  push:
+    branches:
+      - fix/remix-pro-duration-preserve-20261108
+    paths:
+      - '.github/workflows/audit-sonara-live-assets.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build site assets, without deploying
+        run: |
+          npm ci
+          npm run build
+      - name: Compare public production files and local assets (read only)
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync,readdirSync,statSync} from 'node:fs';
+          import {join,relative,sep} from 'node:path';
+          import {createHash} from 'node:crypto';
+          const files=[];
+          const walk=dir=>{
+            for(const d of readdirSync(dir,{withFileTypes:true})){
+              const p=join(dir,d.name);
+              if(d.isDirectory())walk(p);
+              else if(d.isFile())files.push(p);
+            }
+          };
+          walk('dist');
+          const hash=b=>createHash('sha256').update(b).digest('hex');
+          const rel=p=>relative('dist',p).split(sep).join('/');
+          const byName=new Map(files.map(p=>[rel(p),p]));
+          const index=readFileSync(byName.get('index.html'));
+          const paths=new Set(['index.html']);
+          const html=index.toString('utf8');
+          for(const m of html.matchAll(/(?:src|href)=["']\/?([^"'?#]+)(?:\?[^"']*)?["']/g)){
+            if(byName.has(m[1]))paths.add(m[1]);
+          }
+          const extras=files.map(rel).filter(s=>/\.(js|css|html)$/.test(s)).slice(0,15);
+          extras.forEach(s=>paths.add(s));
+          let match=0,missing=0,mismatch=0;
+          const details=[];
+          for(const path of [...paths].slice(0,50)){
+            if(!byName.has(path))continue;
+            const url=new URL('/'+path,'https://sonaraenterprise.com');
+            const original=readFileSync(byName.get(path));
+            try{
+              const response=await fetch(url,{headers:{Accept:'*/*'},signal:AbortSignal.timeout(12000)});
+              const remote=Buffer.from(await response.arrayBuffer());
+              const same=response.ok&&hash(original)===hash(remote);
+              if(same)match++;else if(response.status===404)missing++;else mismatch++;
+              details.push({path,status:response.status,localBytes:original.length,liveBytes:remote.length,
+                same,localSha:hash(original).slice(0,16),liveSha:hash(remote).slice(0,16)});
+            }catch(e){missing++;details.push({path,error:e?.name||'Error'});}
+          }
+          const originalHome=await fetch('https://sonaraenterprise.com/',{signal:AbortSignal.timeout(12000)});
+          const home=Buffer.from(await originalHome.arrayBuffer());
+          console.log('SONARA_ASSET_AUDIT',JSON.stringify({
+            filesInBuild:files.length,checked:details.length,match,mismatch,missing,
+            homeStatus:originalHome.status,
+            homeMatchesDistIndex:hash(home)===hash(index),
+            homeSha:hash(home).slice(0,16),distIndexSha:hash(index).slice(0,16),details
+          }));
+          NODE
