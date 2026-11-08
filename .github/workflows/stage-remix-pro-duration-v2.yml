@@ -45,6 +45,7 @@ jobs:
           ok(capsRes.ok,'Live capabilities unavailable');
           const caps=await capsRes.json();
           ok(caps.available===true&&caps.expectedAgentRevision==='sonara-remix-pro-r2-agent-v3-dual-reference-fusion','Live V3 mismatch');
+          console.log('SONARA_STAGE',JSON.stringify({status:'PREFLIGHT_V3_VERIFIED',noDeployment:true}));
           const before=(await get(base+'/deployments')).deployments?.[0];
           ok(before?.versions?.length===1&&before.versions[0].percentage===100,'Live deployment ambiguous');
           const liveVersion=before.versions[0].version_id;
