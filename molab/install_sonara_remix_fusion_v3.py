@@ -24,9 +24,9 @@ import sys
 ROOT = Path("/marimo/SONARA-REMIX-PRO")
 VENV_PYTHON = ROOT / ".venv/bin/python"
 AGENT_LOCK = Path.home() / ".sonara/remix-pro-agent.lock"
-PINNED_COMMIT = "8dc109531c2db3d5afe846be01ff774b7e72ff8b"
+PINNED_COMMIT = "f56de2fa63385570082e7b4e2f070c0ca711e3b1"
 EXPECTED = {
-    "sonara_remix_pro_fusion.py": "1c747f54f53748aee932332215a6bea86afc2fb7",
+    "sonara_remix_pro_fusion.py": "7a2b5b94b01dbc5f50f49b4ad4a387242caec974",
     "sonara_remix_pro_ace_bridge.py": "649fffef1858dc9f55ea62efc51f8f7ed5429656",
     "sonara_remix_pro_r2_agent.py": "a60d15052c64a573b729136b679a6659e8b7078e",
     "sonara_remix_pro_live_qa.py": "e214c53dd9c2a02fe9dfd912d1ab93ac11753413",
