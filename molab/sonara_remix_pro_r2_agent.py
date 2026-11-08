@@ -68,6 +68,23 @@ class ProAgentError(RuntimeError):
     pass
 
 
+class SourceTransferError(ProAgentError):
+    """Allowlisted error code; never contains customer audio or gateway secrets."""
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
+
+
+_SOURCE_HTTP_ERRORS = frozenset((401, 403, 404, 409, 429, 500, 502, 503, 504))
+_SOURCE_RETRY_HTTP = frozenset((429, 500, 502, 503, 504))
+_SOURCE_RANGE_BYTES = 8 * 1024 * 1024
+_SOURCE_RETRIES = 3
+
+
+def _source_http_error(code):
+    return "SOURCE_HTTP_" + str(code) if code in _SOURCE_HTTP_ERRORS else "SOURCE_NETWORK_ERROR"
+
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
@@ -251,30 +268,75 @@ def save_bytes(data, name, folder):
 
 
 def download_source(job, lease, endpoint, name, folder, source_format='wav'):
-    """Stream long private WAVs directly to disk; never hold 512 MiB in RAM."""
+    """Bounded 8 MiB HTTP Range reads from private R2, retrying only transient errors.
+
+    The R2 Worker returns 206 + Content-Range; strict validation prevents a
+    partial or duplicated audio stream being passed into Demucs/ACE-Step.
+    """
     if source_format not in SOURCE_FORMATS:
-        raise ProAgentError("Source format not permitted")
+        raise SourceTransferError("SOURCE_INVALID_AUDIO")
     name = name + "." + source_format
     path = f"/api/sonara-relay/pro-job/{job}/source/{endpoint}"
     headers = {**token_headers(),
                "User-Agent": "SONARA-Remix-Pro-Agent/1.0 (+https://sonaraenterprise.com)",
-               "Accept": "audio/wav", "X-Sonara-Pro-Lease": lease}
+               "Accept": "application/octet-stream", "X-Sonara-Pro-Lease": lease}
     url = BASE.removesuffix("/api/sonara-relay") + path
-    req = urllib.request.Request(url, method="GET", headers=headers)
     target = folder / name
-    total = 0
+    offset = 0
+    total = None
     try:
-        with CLIENT.open(req, timeout=180) as response, target.open("xb") as handle:
-            while True:
-                chunk = response.read(1024 * 1024)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > MAX_WAV_BYTES:
-                    raise ProAgentError("Private source exceeds 512 MiB")
-                handle.write(chunk)
+        with target.open("xb") as handle:
+            while total is None or offset < total:
+                stop = offset + _SOURCE_RANGE_BYTES - 1
+                last_error = None
+                for attempt in range(_SOURCE_RETRIES):
+                    request_headers = {**headers, "Range": f"bytes={offset}-{stop}"}
+                    req = urllib.request.Request(url, method="GET", headers=request_headers)
+                    try:
+                        with CLIENT.open(req, timeout=90) as response:
+                            if response.status != 206:
+                                raise SourceTransferError("SOURCE_TRANSFER_INVALID")
+                            content_range = str(response.headers.get("Content-Range") or "")
+                            match = re.fullmatch(r"bytes (\\d+)-(\\d+)/(\\d+)", content_range)
+                            if not match:
+                                raise SourceTransferError("SOURCE_TRANSFER_INVALID")
+                            begin, end, remote_total = (int(x) for x in match.groups())
+                            if not (44 <= remote_total <= MAX_WAV_BYTES):
+                                raise SourceTransferError("SOURCE_OVERSIZE" if remote_total > MAX_WAV_BYTES else "SOURCE_TRANSFER_INVALID")
+                            if total is not None and remote_total != total:
+                                raise SourceTransferError("SOURCE_TRANSFER_INVALID")
+                            if begin != offset or end != min(stop, remote_total - 1):
+                                raise SourceTransferError("SOURCE_TRANSFER_INVALID")
+                            expected = end - begin + 1
+                            piece = response.read(expected + 1)
+                            if len(piece) != expected:
+                                raise OSError("Incomplete HTTP range")
+                            handle.write(piece)
+                            offset += expected
+                            total = remote_total
+                            last_error = None
+                            break
+                    except urllib.error.HTTPError as exc:
+                        code = int(exc.code)
+                        last_error = SourceTransferError(_source_http_error(code))
+                        if code not in _SOURCE_RETRY_HTTP:
+                            raise last_error from exc
+                    except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as exc:
+                        last_error = SourceTransferError("SOURCE_NETWORK_ERROR")
+                    if attempt + 1 < _SOURCE_RETRIES:
+                        time.sleep(attempt + 1)
+                if last_error is not None:
+                    raise last_error
         target.chmod(0o600)
-        return verify_audio_source(target, source_format)
+        try:
+            return verify_audio_source(target, source_format)
+        except ProAgentError as exc:
+            error = str(exc)
+            if "decoder not installed" in error.lower():
+                raise SourceTransferError("SOURCE_DECODER_UNAVAILABLE") from exc
+            if "decode" in error.lower():
+                raise SourceTransferError("SOURCE_DECODER_FAILED") from exc
+            raise SourceTransferError("SOURCE_INVALID_AUDIO") from exc
     except Exception:
         target.unlink(missing_ok=True)
         raise
@@ -382,15 +444,20 @@ def run_job(item, auth_mode):
     stem_cache = folder / "stem-cache"
     stem_cache.mkdir(mode=0o700)
     print("SONARA PRO job claimed:", job, flush=True)
+    failure_phase = "source_a"
     try:
         with Renewer(job, lease) as renewal:
             progress(job, lease, "downloading", renewal)
             original_a = download_source(job, lease, "a", "source-a", folder,
                                          item.get("sourceFormatA") or "wav")
+            failure_phase = "source_b"
             original_b = download_source(job, lease, "b", "source-b", folder,
                                          item.get("sourceFormatB") or "wav")
+            failure_phase = "normalize_a"
             a = normalized_audio_source(original_a, folder / "normalized-a.wav")
+            failure_phase = "normalize_b"
             b = normalized_audio_source(original_b, folder / "normalized-b.wav")
+            failure_phase = "processing"
             progress(job, lease, "analyzing", renewal)
             report_a = analyze_audio(a)
             report_b = analyze_audio(b)
@@ -456,12 +523,18 @@ def run_job(item, auth_mode):
         status("waiting_for_authorized_job", lastCompleted=job)
         print("SONARA PRO job completed:", job, flush=True)
     except Exception as error:
-        print("SONARA PRO job failed:", job, type(error).__name__, flush=True)
+        code = error.code if isinstance(error, SourceTransferError) else "REMIX_PROCESSING_ERROR"
+        if failure_phase in ("normalize_a", "normalize_b"):
+            code = "SOURCE_DECODER_FAILED" if "conversion" in str(error).lower() else code
+        print("SONARA PRO job failed:", job, code, failure_phase, flush=True)
         try:
-            request("POST",f"/api/sonara-relay/pro-job/{job}/fail",{},lease,timeout=30)
+            request("POST",f"/api/sonara-relay/pro-job/{job}/fail",
+                    {"errorCode":code,"failurePhase":failure_phase},lease,timeout=30)
         except Exception:
             pass
-        status("waiting_for_authorized_job", lastFailed=job, errorClass=type(error).__name__)
+        status("waiting_for_authorized_job", lastFailed=job,
+               errorClass=type(error).__name__, errorCode=code,
+               failurePhase=failure_phase)
     finally:
         shutil.rmtree(folder, ignore_errors=True)
 
