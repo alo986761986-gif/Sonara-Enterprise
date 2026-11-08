@@ -168,3 +168,41 @@ Remix classico. Non spostare il suo token in variabili client,
 non rendere il bucket pubblico e non utilizzare tunnel esterni.
 Non interpretare un heartbeat come prova di qualità musicale.
 
+
+
+## Collaudo reale GPU A+B, isolato dalla coda e dal billing
+
+Il runner `molab/sonara_remix_pro_live_qa.py` esegue un **vero** test end-to-end,
+senza ricorrere a finti WAV o job: separazione Demucs delle due sorgenti,
+un'unica traccia arrangiata A+B, un task cover ACE-Step sulla API locale
+già esistente, mastering misurato e audit WAV. Non avvia né riavvia ACE-Step,
+non scrive nel bucket R2 e non consuma quote utente sul sito.
+
+Eseguirlo solo in MoLab, nell'ambiente indipendente
+`/marimo/SONARA-REMIX-PRO/.venv`, dopo aver collocato **due WAV reali con
+licenza/autorizzazione** sotto `/marimo`. I path reali devono essere passati
+dall'operatore; nessun audio dimostrativo viene generato o scaricato.
+
+```sh
+/marimo/SONARA-REMIX-PRO/.venv/bin/python \
+  /marimo/SONARA-REMIX-PRO/sonara_remix_pro_live_qa.py \
+  --source-a /marimo/INPUT_A_AUTORIZZATO.wav \
+  --source-b /marimo/INPUT_B_AUTORIZZATO.wav \
+  --rights-confirmed \
+  --prompt "Fuse the authentic melodic identity of A with the natural groove of B into one coherent remix" \
+  --bpm-a 120 --bpm-b 122 \
+  --duration 30 --auth-mode required
+```
+
+La conferma dei diritti, la presenza delle sorgenti, la venv isolata e
+l'autenticazione locale sono obbligatorie. L'output è salvato in una
+nuova sottocartella privata `private-local-qa/qa_*` con `mastered.wav`
+e `qa-report.json` (nessuna sovrascrittura). Il risultato
+`SONARA_QA_AUDIO_TECHNICAL_PASS=True` prova soltanto che il file supera
+i controlli numerici; **non prova la qualità artistica o l'effettiva
+somiglianza/compatibilità delle sorgenti**. Verificare ascoltando voce,
+batteria, armonie, transizioni e artefatti prima dell'approvazione.
+
+Non attivare `SONARA_REMIX_PRO_ENABLED` o
+`SONARA_REMIX_PRO_BILLING_READY` prima dell'approvazione della politica
+di consumo, del test reale e della verifica del sito.
