@@ -265,9 +265,6 @@ jobs:
                 document.body.appendChild(old);
               });
               await jobTest.waitForSelector('[data-testid="sonara-remix-pro-v3"]',{state:'visible',timeout:14000});
-              await jobTest.waitForFunction(()=>
-                !document.querySelector('[data-testid="sonara-pro-v3-generate"]')?.disabled,
-                {timeout:14000});
               const wav=new Uint8Array(128);
               wav.set([82,73,70,70],0);
               wav.set([87,65,86,69],8);
@@ -277,6 +274,9 @@ jobs:
               await jobTest.locator('[data-testid="sonara-remix-pro-input-b"]').setInputFiles({
                 name:'source-B.wav',mimeType:'audio/wav',buffer:wavBuffer});
               await jobTest.locator('[data-testid="sonara-remix-pro-v3"] input[type="checkbox"]').check();
+              await jobTest.waitForFunction(()=>
+                !document.querySelector('[data-testid="sonara-pro-v3-generate"]')?.disabled,
+                null,{timeout:14000});
               await jobTest.locator('[data-testid="sonara-pro-v3-generate"]').click();
               await jobTest.waitForFunction(()=>(window.__sonaraTestDurationCalls||[]).some(x=>x.type==='job'),
                 {timeout:15000});
