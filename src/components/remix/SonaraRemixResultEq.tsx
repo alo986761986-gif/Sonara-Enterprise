@@ -27,7 +27,37 @@ export default function SonaraRemixResultEq({ audioUrl, label, onUse }: Props) {
   bandsRef.current = bands;
   enabledRef.current = enabled;
 
-  // Create one MediaElementAudioSourceNode per audio element, then recycle it.
+  // Audio graph is created on the first real play gesture, not in mount effects.
+  // This avoids duplicate MediaElementAudioSourceNode errors under React StrictMode.
+  const activateAudio = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (contextRef.current) {
+      void contextRef.current.resume();
+      return;
+    }
+    try {
+      const context = new AudioContext();
+      const source = context.createMediaElementSource(audio);
+      const initial = enabledRef.current ? bandsRef.current : REMIX_EQ_FLAT;
+      const filters = createEqNodes(context, initial);
+      source.connect(filters.low);
+      filters.preamp.connect(context.destination);
+      contextRef.current = context;
+      liveRef.current = filters;
+      void context.resume();
+    } catch {
+      setError('Anteprima equalizzata non disponibile in questo browser.');
+    }
+  };
+
+  useEffect(() => () => {
+    const context = contextRef.current;
+    liveRef.current = null;
+    contextRef.current = null;
+    void context?.close().catch(() => undefined);
+  }, []);
+
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -112,7 +142,7 @@ export default function SonaraRemixResultEq({ audioUrl, label, onUse }: Props) {
         preload="metadata"
         src={audioUrl}
         aria-label={'Anteprima audio equalizzata ' + label}
-        onPlay={() => { void contextRef.current?.resume(); }}
+        onPlay={activateAudio}
       />
       <div className="sonara-remix-eq-head">
         <span><SlidersHorizontal /> Mini EQ · 3 bande</span>
