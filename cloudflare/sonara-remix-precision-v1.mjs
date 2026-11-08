@@ -18,12 +18,12 @@ export function preparePreciseRemixPayload(configured, body = {}) {
   const preset = modes[mode];
   const duration = Math.round(clamp(body.durationSec ?? body.audio_duration, 30, 10, 600));
   // Do not silently treat a default UI BPM as a measurement of source tempo.
-  const rawBpm = body.sonaraRemixRequestedBpm ?? body.bpm;
+  const rawBpm = body.sonaraRemixTempoMode === 'auto' ? null : (body.sonaraRemixRequestedBpm ?? body.bpm);
   const hasBpm = rawBpm !== null && rawBpm !== undefined && String(rawBpm).trim() !== '';
   const bpmNumber = Number(rawBpm);
   const bpm = hasBpm && Number.isFinite(bpmNumber) && bpmNumber >= 40 && bpmNumber <= 220
     ? Math.round(bpmNumber) : null;
-  const key = String(body.sonaraRemixRequestedKey ?? body.key ?? body.key_scale ?? '').trim().slice(0, 40);
+  const key = body.sonaraRemixKeyMode === 'auto' ? '' : String(body.sonaraRemixRequestedKey ?? body.key ?? body.key_scale ?? '').trim().slice(0, 40);
   const strength = clamp(body.audio_cover_strength, preset.strength, 0.35, 0.92);
   const noise = clamp(body.cover_noise_strength, preset.noise, 0.04, 0.30);
   const creatorPrompt = String(body.rawPrompt || body.prompt || '').trim().slice(0, 7000);
