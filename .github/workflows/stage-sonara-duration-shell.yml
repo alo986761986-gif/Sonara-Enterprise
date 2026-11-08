@@ -1,0 +1,142 @@
+name: SONARA Remix Pro - Stage Dedicated HTML Shell
+on:
+  push:
+    branches:
+      - fix/remix-pro-duration-preserve-20261108
+    paths:
+      - '.github/workflows/stage-sonara-duration-shell.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Clone exact live HTML into isolated Worker and test staging URL
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          const assert=(ok,reason)=>{if(!ok)throw Error(reason);};
+          const token=process.env.CLOUDFLARE_API_TOKEN;
+          assert(token?.length>20,'Cloudflare token unavailable');
+          const headers={Authorization:'Bearer '+token};
+          const root='https://api.cloudflare.com/client/v4';
+          const get=async path=>{
+            const r=await fetch(root+path,{headers,signal:AbortSignal.timeout(20000)});
+            const j=await r.json().catch(()=>({}));
+            assert(r.ok&&j.success!==false,'Cloudflare read failure '+r.status);
+            return j.result;
+          };
+          const zones=await get('/zones?name=sonaraenterprise.com&per_page=20');
+          const zone=zones.find(z=>z.name==='sonaraenterprise.com');
+          assert(zone,'SONARA DNS zone not found');
+          const account=process.env.CLOUDFLARE_ACCOUNT_ID||zone.account?.id;
+          assert(account,'Cloudflare account missing');
+          const scriptName='sonara-remix-duration-shell';
+          const routes=await get('/zones/'+zone.id+'/workers/routes');
+          assert(!routes.some(r=>r.script===scriptName),'Duration shell already has a production route');
+          const current=(await get('/accounts/'+account+'/workers/scripts/sonara-enterprise/deployments')).deployments?.[0];
+          const productionRevision=current?.versions?.[0]?.version_id;
+          assert(current?.versions?.length===1&&current.versions[0].percentage===100,
+            'Current production Worker has mixed versions');
+          const capabilities=await fetch('https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities',{
+            signal:AbortSignal.timeout(15000),headers:{Accept:'application/json'}});
+          assert(capabilities.ok,'Remix Pro API unavailable');
+          const cap=await capabilities.json();
+          assert(cap.expectedAgentRevision==='sonara-remix-pro-r2-agent-v3-dual-reference-fusion'&&cap.available===true,
+            'Production Remix Pro V3 mismatch');
+          const original=await fetch('https://sonaraenterprise.com/',{
+            headers:{Accept:'text/html','Cache-Control':'no-cache'},signal:AbortSignal.timeout(20000)});
+          assert(original.ok,'Production homepage not readable');
+          const type=String(original.headers.get('content-type')||'').toLowerCase();
+          assert(type.includes('text/html'),'Homepage is not HTML');
+          const html=await original.text();
+          assert(html.length>2000&&html.length<50000&&/<head\b/i.test(html)&&/<\/head>/i.test(html),
+            'Unexpected homepage; refuse to clone');
+          assert(!html.includes('sonara-remix-pro-duration-edge-v1')&&!html.includes('sonara-remix-pro-duration-edge-v2'),
+            'Homepage already has a duration lock');
+          const csp=original.headers.get('content-security-policy')||'';
+          if(csp){
+            const scriptDir=/script-src(?:-elem)?\s+([^;]+)/i.exec(csp)?.[1]||'';
+            assert(!scriptDir||scriptDir.includes("'unsafe-inline'"),
+              'Homepage CSP does not allow inline duration script');
+          }
+          const paths=[...html.matchAll(/(?:src|href)\s*=\s*["'](\/assets\/[^"'?#]+)["']/g)].map(m=>m[1]);
+          assert(paths.length>=1,'No hashed asset links in homepage');
+          for(const path of [...new Set(paths)].slice(0,8)){
+            const r=await fetch('https://sonaraenterprise.com'+path,{signal:AbortSignal.timeout(20000)});
+            const ct=String(r.headers.get('content-type')||'').toLowerCase();
+            assert(r.ok&&(ct.includes('javascript')||ct.includes('css')),
+              'Referenced live JS or CSS is unavailable: '+path);
+          }
+          const edge=readFileSync('cloudflare/sonara-remix-pro-duration-edge.mjs','utf8');
+          const lit=edge.match(/export const REMIX_PRO_DURATION_EDGE_SCRIPT = ("(?:[^"\\]|\\.)*");/);
+          assert(lit,'Cannot load built-in duration script');
+          const shim=JSON.parse(lit[1]);
+          assert(shim.includes('sonara-remix-pro-duration-edge-v1'),'Incorrect script identity');
+          const patched=html.replace(/<\/head>/i,shim+'</head>');
+          const sha=s=>createHash('sha256').update(s).digest('hex');
+          const responseHeaders={'content-type':'text/html; charset=UTF-8',
+            'cache-control':'no-store, max-age=0',
+            'x-content-type-options':original.headers.get('x-content-type-options')||'nosniff',
+            'referrer-policy':original.headers.get('referrer-policy')||'strict-origin-when-cross-origin',
+            'x-sonara-duration-shell':'stage-v1'};
+          for(const key of ['content-security-policy','permissions-policy','strict-transport-security','x-frame-options']){
+            const val=original.headers.get(key);
+            if(val)responseHeaders[key]=val;
+          }
+          const worker=[
+            'const html='+JSON.stringify(patched)+';',
+            'const headers='+JSON.stringify(responseHeaders)+';',
+            'export default {async fetch(req){',
+            "const u=new URL(req.url);",
+            "if(req.method!=='GET'&&req.method!=='HEAD')return new Response('Method not allowed',{status:405});",
+            "if(u.pathname!=='/'&&u.pathname!=='/index.html')return new Response('Not found',{status:404});",
+            "return new Response(req.method==='HEAD'?null:html,{status:200,headers});",
+            '}};'
+          ].join('\n');
+          const form=new FormData();
+          form.set('metadata',new Blob([JSON.stringify({
+            main_module:'duration-shell.mjs',compatibility_date:'2026-08-23',
+            annotations:{'workers/message':'SONARA duration HTML shell; no production route'}
+          })],{type:'application/json'}),'metadata.json');
+          form.set('duration-shell.mjs',new Blob([worker],{type:'application/javascript+module'}),'duration-shell.mjs');
+          const create=await fetch(root+'/accounts/'+account+'/workers/scripts/'+scriptName,{
+            method:'PUT',headers,body:form,signal:AbortSignal.timeout(35000)});
+          const creation=await create.json().catch(()=>({}));
+          assert(create.ok&&creation.success!==false,
+            'Isolated Worker upload failed HTTP '+create.status+
+            ' codes '+(creation.errors||[]).map(e=>e.code).join(','));
+          const subdomain=await get('/accounts/'+account+'/workers/subdomain');
+          const slug=subdomain?.subdomain;
+          const sub=await get('/accounts/'+account+'/workers/scripts/'+scriptName+'/subdomain');
+          let test={stagePreviewEnabled:sub.enabled===true,htmlVerified:false};
+          if(sub.enabled===true&&/^[a-z0-9-]+$/.test(slug||'')){
+            const url='https://'+scriptName+'.'+slug+'.workers.dev/';
+            const r=await fetch(url,{redirect:'manual',signal:AbortSignal.timeout(18000)});
+            const text=await r.text();
+            test={stagePreviewEnabled:true,status:r.status,hasShim:text.includes('sonara-remix-pro-duration-edge-v1'),
+              hasShellHeader:r.headers.get('x-sonara-duration-shell')==='stage-v1',
+              htmlVerified:r.ok&&text===patched};
+          }
+          const after=(await get('/accounts/'+account+'/workers/scripts/sonara-enterprise/deployments')).deployments?.[0];
+          assert(after?.versions?.[0]?.version_id===productionRevision,
+            'Main production Worker changed');
+          const routesAfter=await get('/zones/'+zone.id+'/workers/routes');
+          assert(!routesAfter.some(r=>r.script===scriptName),'Unexpected production route attachment');
+          console.log('SONARA_DURATION_SHELL',JSON.stringify({
+            state:'STAGED_NO_PRODUCTION_ROUTE',
+            originalHtmlSha256:sha(html),stageHtmlSha256:sha(patched),
+            stageScriptContainsDurationFix:true,productionWorkerUnchanged:true,
+            publicRoutesUnchanged:true,referenceAssetsVerified:paths.length,
+            ...test
+          }));
+          NODE
