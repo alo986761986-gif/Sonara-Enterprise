@@ -136,7 +136,7 @@ async function authorizeNativeMusicGeneration(request, env) {
         headers: { 'content-type': 'application/json; charset=UTF-8', 'cache-control': 'no-store' }
       });
     }
-    if (remainingSeconds > 0 && requestedSeconds > remainingSeconds) {
+    if (body?.sonaraRemixPro !== true && remainingSeconds > 0 && requestedSeconds > remainingSeconds) {
       return new Response(JSON.stringify({
         error: { code: 'USAGE_LIMIT_REACHED', message: 'Hai terminato i minuti inclusi nel piano corrente.' },
         planId: billing.planId,
@@ -270,15 +270,8 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
       if (!Number.isInteger(seconds) || seconds < 30 || seconds > 480) {
         return nativeGenerationError('INVALID_PRO_DURATION', 'Durata Remix Pro non valida.', 400);
       }
-      // Require a deliberate, duration-bound acknowledgement of the Studio
-      // 3x usage policy. A changed duration invalidates the previous consent.
-      if (source.sonaraRemixProUsageAccepted !== true ||
-          Number(source.sonaraRemixProUsageSecondsAccepted) !== seconds * 3) {
-        return nativeGenerationError('PRO_USAGE_CONSENT_REQUIRED',
-          'Accetta il consumo Studio di tre volte la durata del Remix Pro.', 400);
-      }
-      payload.usageConsentAccepted = true;
-      payload.usageSecondsAccepted = seconds * 3;
+      // Remix Pro does not deduct any Studio minutes; the authenticated
+      // private job reservation still prevents duplicate or cross-user jobs.
       proJobId = 'srpro_' + crypto.randomUUID();
       const reservation = await mutateRemixProUsage(request, env, 'reserve', proJobId, seconds, uid);
       if (!reservation.ok) return reservation;
@@ -305,7 +298,7 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
         recoveryPending: true,
         error: {
           code: 'REMIX_PRO_ENQUEUE_UNCONFIRMED',
-          message: 'Accodamento Remix Pro non confermato. La quota e temporaneamente riservata; il recupero automatico verifichera lo stato del job. ID: ' + proJobId
+          message: 'Accodamento Remix Pro non confermato. Il job privato resta in verifica automatica, senza consumo di minuti Studio. ID: ' + proJobId
         }
       }), { status: 503, headers: { 'content-type': 'application/json; charset=UTF-8', 'cache-control': 'no-store' } });
     }

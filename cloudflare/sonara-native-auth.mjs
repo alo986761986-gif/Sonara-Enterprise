@@ -1,8 +1,7 @@
 import { deriveRelayGatewayInternalKey } from './sonara-gateway-verifier.mjs';
 
-// Remix Pro meters three processing passes: source A, source B and final render.
-// Feature remains disabled until owner approval of this quota policy.
-const REMIX_PRO_QUOTA_MULTIPLIER = 3;
+// Remix Pro is unlimited with respect to Studio minute consumption.
+// Keep signed reservations for owner binding, single-active-job safety and settlement.
 const REMIX_PRO_USAGE_PATH = '/__sonara_internal/remix-pro-usage';
 const REMIX_PRO_ACTIVE_PREFIX = 'remix-pro:active:';
 const REMIX_PRO_JOB_PREFIX = 'relay-v1/pro/jobs/';
@@ -611,9 +610,10 @@ export class SonaraAuthStore {
           if (bill.planId !== 'studio') fault('PRO_STUDIO_PLAN_REQUIRED', 403);
           if (seconds > bill.maxTrackSeconds) fault('TRACK_DURATION_LIMIT', 403);
           if (user.proActiveJobId && user.proActiveJobId !== jobId) fault('PRO_JOB_ALREADY_ACTIVE', 409);
-          const chargedSeconds = seconds * REMIX_PRO_QUOTA_MULTIPLIER;
-          if (chargedSeconds > bill.remainingSeconds) fault('USAGE_LIMIT_REACHED', 402);
-          user.usageSeconds = bill.usedSeconds + chargedSeconds;
+          // New Pro jobs must never consume Studio minutes. Existing
+          // legacy reservations retain their historical chargedSeconds
+          // for correct idempotent settlement/refund.
+          const chargedSeconds = 0;
           user.proActiveJobId = jobId;
           await txn.put(record.userKey, user);
           await txn.put(ledgerKey, {

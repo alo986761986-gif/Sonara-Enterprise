@@ -121,8 +121,7 @@ const agent={'x-sonara-relay-token':TOKEN,'x-sonara-pro-agent-revision':PRO_AGEN
 const owner={'x-mock-user':USER};
 const gate={'x-sonara-internal-secret':SECRET,'x-sonara-user-uid':USER};
 const spec={jobId:JOB,sourceA:A,sourceB:B,rightsConfirmed:true,prompt:'Compose a coherent genre-true remix',
-  durationSec:30,bpmA:120,bpmB:122,bassFrom:'a',
-  usageConsentAccepted:true,usageSecondsAccepted:90};
+  durationSec:30,bpmA:120,bpmB:122,bassFrom:'a'};
 
 test('Remix Pro fails closed until both billing approval and GPU heartbeat',async()=>{
   const environment=env();
@@ -143,17 +142,10 @@ test('Remix Pro fails closed until both billing approval and GPU heartbeat',asyn
   assert.equal(denied.status,503);
 });
 
-test('Enqueue requires duration-matched, explicit 3x Studio usage consent',async()=>{
+test('Enqueue accepts unlimited Pro jobs without any Studio usage consent',async()=>{
   const e=env();
   await call(e,'POST','/api/sonara-relay/pro-heartbeat',{gpuReady:true},agent);
-  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',
-    {...spec,usageConsentAccepted:false},gate)).status,400);
-  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',
-    {...spec,usageSecondsAccepted:60},gate)).status,400);
-  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',
-    {...spec,usageSecondsAccepted:null},gate)).status,400);
-  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',
-    {...spec,usageSecondsAccepted:90},gate)).status,202);
+  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',spec,gate)).status,202);
 });
 
 test('Enqueue rejects unowned audio, missing rights and anonymous gateway',async()=>{
@@ -213,14 +205,14 @@ test('Two-source pro job stays private through lease, stem, output and completio
   assert.equal(e.__reservations.get(JOB).status,'committed');
 });
 
-test('Remix Pro refuses jobs without a matching durable quota reservation',async()=>{
+test('Remix Pro refuses jobs without a matching authenticated private reservation',async()=>{
   const e=env();
   await call(e,'POST','/api/sonara-relay/pro-heartbeat',{gpuReady:true},agent);
   const missing='srpro_44444444-4444-4444-8444-444444444444';
   assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',
     {...spec,jobId:missing},gate)).status,409);
   assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',
-    {...spec,durationSec:120,usageSecondsAccepted:360},gate)).status,409);
+    {...spec,durationSec:120},gate)).status,409);
   assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',
     {...spec,jobId:'bad-id'},gate)).status,400);
 });
@@ -253,7 +245,7 @@ test('Remix Pro supports 8-minute duration and long master via multipart',async(
   e.__reservations.set(JOB,{ownerUid:USER,seconds:480,status:'reserved'});
   await call(e,'POST','/api/sonara-relay/pro-heartbeat',{gpuReady:true},agent);
   assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',
-    {...spec,durationSec:480,usageSecondsAccepted:1440},gate)).status,202);
+    {...spec,durationSec:480},gate)).status,202);
   const claimed=await call(e,'POST','/api/sonara-relay/pro-claim',{},agent);
   assert.equal(claimed.status,200);
   const {jobId,leaseId,params}=await claimed.json();
