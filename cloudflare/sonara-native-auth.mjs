@@ -582,7 +582,7 @@ export class SonaraAuthStore {
         if (!record || !ownerUid || record.user.uid !== ownerUid) {
           return json({ ok: false, code: 'AUTH_REQUIRED' }, 401);
         }
-        if (!Number.isInteger(seconds) || seconds < 10 || seconds > 120) {
+        if (!Number.isInteger(seconds) || seconds < 30 || seconds > 480) {
           return json({ ok: false, code: 'INVALID_PRO_DURATION' }, 400);
         }
         await this.scheduleRemixProAlarm();
