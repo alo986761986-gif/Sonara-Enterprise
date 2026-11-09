@@ -64,12 +64,28 @@ class V4HandoffSafetyTests(unittest.TestCase):
              patch.object(handoff, "install_verified", side_effect=AssertionError("install")):
             handoff.main([])
 
-    def test_activate_requires_both_confirmations_before_any_io(self):
+    def test_activate_requires_maintenance_and_explicit_qa_choice(self):
         with patch.object(handoff, "env_read_only", side_effect=AssertionError("IO before approval")):
             with self.assertRaises(handoff.HandoffBlocked):
                 handoff.main(["--activate"])
             with self.assertRaises(handoff.HandoffBlocked):
                 handoff.main(["--activate", "--confirm-maintenance"])
+            with self.assertRaises(handoff.HandoffBlocked):
+                handoff.main(["--activate", "--confirm-maintenance",
+                              "--confirm-audio-qa", "--skip-audio-qa"])
+
+    def test_explicit_audio_qa_waiver_reaches_only_guarded_checks(self):
+        with patch.object(handoff, "env_read_only"), \
+             patch.object(handoff, "pro_pids", return_value=[]), \
+             patch.object(handoff, "installed_matches", return_value=False), \
+             patch.object(handoff, "verified_installer", return_value=b"verified"), \
+             patch.object(handoff, "public_capabilities",
+                          side_effect=handoff.HandoffBlocked("offline")), \
+             patch.object(handoff, "install_verified",
+                          side_effect=AssertionError("unsafe installation")):
+            with self.assertRaisesRegex(handoff.HandoffBlocked, "offline"):
+                handoff.main(["--activate", "--confirm-maintenance",
+                              "--skip-audio-qa", "--auth-mode", "none"])
 
     def test_no_unverified_worker_or_gateway_start(self):
         with patch.object(handoff, "env_read_only"), \
