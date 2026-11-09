@@ -7,6 +7,7 @@ Never shows tokens, file contents, user jobs, hostnames, or secret values.
 """
 from __future__ import annotations
 import json
+import importlib.util
 import os
 from pathlib import Path
 import shutil
@@ -130,7 +131,7 @@ def main():
     print("SONARA_PRIVATE_RUNTIME_VALID_PATH=" + yes(private_runtime))
     print("SONARA_VENV_DIR_PRESENT=" + yes((ROOT / ".venv").exists()))
     print("SONARA_PYTHON_VENV_MODULE_PRESENT=" +
-          yes(shutil.which("python3") or sys.executable))
+          yes(importlib.util.find_spec("venv") is not None))
     print("SONARA_UV_PRESENT=" + yes(shutil.which("uv")))
     print("SONARA_RELAY_TOKEN_FILE_PRESENT=" +
           yes((Path.home() / ".sonara/relay.token").is_file()))
