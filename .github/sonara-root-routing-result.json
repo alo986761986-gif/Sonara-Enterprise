@@ -1,0 +1,7 @@
+{
+  "success": false,
+  "worker_untouched": true,
+  "remix_untouched": true,
+  "redirect_rule_created": false,
+  "stage": "CLOUDFLARE_RULESET_READ_ERROR"
+}
