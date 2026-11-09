@@ -1,1 +1,3 @@
 Recovery request: install isolated Cloudflare route for only https://sonaraenterprise.com/ and www root; redirect to verified working query. Do not modify production worker or GPU.
+
+Read-only exact-route inspection retry to identify existing Worker script.
