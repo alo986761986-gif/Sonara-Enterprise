@@ -3,7 +3,8 @@ import { AudioWaveform, Check, Download, LoaderCircle, ShieldCheck, UploadCloud 
 
 type ProJob = {jobId?: string;status?: string;stage?: string;progress?: number;audioUrl?: string;
   stems?: {role:string;url:string}[];error?: string;
-  requestedDurationSeconds?:number;actualDurationSeconds?:number;};
+  requestedDurationSeconds?:number;actualDurationSeconds?:number;
+  v5Result?: {candidatesGenerated:number;candidatesAccepted:number;technicalScore:number;artisticListeningRequired:boolean};};
 const isJob = (id:string) => /^srpro_[0-9a-f-]{36}$/.test(id);
 const sleep=(ms:number)=>new Promise(resolve=>window.setTimeout(resolve,ms));
 const durationLabel=(seconds:number)=>`${Math.floor(seconds/60)}:${String(Math.round(seconds%60)).padStart(2,'0')}`;
@@ -17,6 +18,11 @@ const audioSuffix=(name:string)=>name.match(AUDIO_FORMATS)?.[1]?.toLowerCase()||
 
 export default function SonaraRemixProPanel() {
   const [available,setAvailable]=useState<boolean|null>(null);
+  const [v5Available,setV5Available]=useState(false);
+  const [genre,setGenre]=useState('auto');
+  const [bInfluence,setBInfluence]=useState(50);
+  const [candidateCount,setCandidateCount]=useState(2);
+  const [durationMode,setDurationMode]=useState<'auto'|'manual'>('auto');
   const [multiformatAvailable,setMultiformatAvailable]=useState(false);
   const [sourceA,setSourceA]=useState<File|null>(null);
   const [sourceB,setSourceB]=useState<File|null>(null);
@@ -62,7 +68,7 @@ export default function SonaraRemixProPanel() {
       setInfo('Recupero un job precedente. La sua durata potrebbe essere diversa dalla nuova selezione.');}
     fetch('/api/sonara-relay/pro-capabilities',{cache:'no-store',credentials:'include'})
       .then(r=>r.ok?r.json():{available:false})
-      .then(x=>{if(mounted.current){setAvailable(x.available===true);setMultiformatAvailable(x.multiformatAvailable===true);}})
+      .then(x=>{if(mounted.current){setAvailable(x.available===true);setMultiformatAvailable(x.multiformatAvailable===true);setV5Available(x.v5Available===true);}})
       .catch(()=>{if(mounted.current)setAvailable(false);});
     return()=>{mounted.current=false;};
   },[]);
@@ -190,7 +196,12 @@ export default function SonaraRemixProPanel() {
     if(sourceA===sourceB){setError('Le sorgenti A e B devono essere diverse.');return;}
     if(!rights){setError('Conferma di avere il diritto di utilizzare entrambi i brani.');return;}
     if(!prompt.trim()){setError('Inserisci le indicazioni musicali per il nuovo brano.');return;}
-    const requestedDuration=duration;
+    // Auto duration is chosen ONCE before enqueue, so the private job still
+    // carries an exact, verifiable duration: never change it during polling.
+    const requestedDuration=v5Available&&durationMode==='auto'
+      ? (3 + (crypto.getRandomValues(new Uint32Array(1))[0] % 4))*30
+      : duration;
+    const safeCandidateCount=Math.min(candidateCount,requestedDuration<=90?3:requestedDuration<=180?2:1);
     if(!validDuration(requestedDuration)){setError('Scegli una durata valida fra 0:30 e 8:00.');return;}
     setSubmittedDuration(requestedDuration);
     setSubmitting(true);setError('');setInfo('Caricamento privato del brano A…');
@@ -207,6 +218,13 @@ export default function SonaraRemixProPanel() {
           sonaraRemixProSourceA:a,
           sonaraRemixProSourceB:b,
           sonaraRemixProBassFrom:bassFrom,
+          ...(v5Available?{
+            sonaraRemixProV5:true,
+            sonaraRemixProGenre:genre,
+            sonaraRemixProBInfluence:bInfluence,
+            sonaraRemixProCandidates:safeCandidateCount,
+            sonaraRemixProDurationMode:durationMode
+          }:{}),
           ...(bpmA?{sonaraRemixProBpmA:Number(bpmA)}:{}),
           ...(bpmB?{sonaraRemixProBpmB:Number(bpmB)}:{}),
           durationSec:requestedDuration,
@@ -265,12 +283,16 @@ export default function SonaraRemixProPanel() {
   };
 
   return (
-    <div className="sonara-remix-pro" style={{padding:14,border:'1px solid #453257',borderRadius:12,background:'#121019',color:'#ddd9e8',display:'grid',gap:12}}>
+    <div className="sonara-remix-pro" data-sonara-remix-v5-studio="true" style={{padding:24,border:'1px solid #363145',borderRadius:22,background:'linear-gradient(160deg,#11111b 0%,#191428 55%,#101017 100%)',color:'#edeaf5',display:'grid',gap:18,boxShadow:'0 16px 45px rgba(0,0,0,.25)'}}>
       <div style={{display:'flex',gap:8,alignItems:'center',justifyContent:'space-between'}}>
-        <strong style={{display:'flex',alignItems:'center',gap:6}}><AudioWaveform size={16}/> SONARA REMIX PRO</strong>
+        <strong style={{display:'flex',alignItems:'center',gap:10,fontSize:18,letterSpacing:'.04em'}}><AudioWaveform size={19}/> SONARA REMIX PRO <span style={{fontSize:10,background:'#32234e',border:'1px solid #664c92',borderRadius:99,padding:'4px 8px'}}>V5 STUDIO</span></strong>
         <span style={{fontSize:10,color:available?'#97e5b8':'#d5b6ef'}}>{available?'GPU ONLINE':available===null?'CONNESSIONE…':'NON ANCORA ATTIVO'}</span>
       </div>
-      <small>Remix di due brani: voce e armonie A + batteria B, strumenti separati con Demucs e nuovo render ACE-Step. Audio privati e accessibili solo al proprietario. Carica WAV, MP3, FLAC, M4A, AAC, OGG, OPUS, AIFF, WebM e altri formati elencati (max 15 minuti e 512 MiB per file); Remix AI da 0:30 a 8:00.</small>
+      <small style={{color:'#b8adc8',lineHeight:1.6}}>Due brani, una nuova composizione. A porta il materiale armonico e melodico; B porta il groove e la tavolozza sonora. Separazione privata, rigenerazione ACE-Step e selezione tecnica del master migliore. La fusione artistica richiede comunque ascolto.</small>
+      <div role="status" style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+        <span style={{padding:'6px 11px',borderRadius:99,background:v5Available?'#15342c':'#382b21',color:v5Available?'#9eeac3':'#e6c38e',fontSize:11}}>{v5Available?'CREATIVE ENGINE V5 ATTIVO':'V5 IN ATTESA DEL WORKER GPU'}</span>
+        <small style={{color:'#9a91a9'}}>{v5Available?'Profili, più candidati e mastering adattivo disponibili':'Il motore V4.2 resta utilizzabile finché il worker V5 non è pronto'}</small>
+      </div>
       <div data-testid="sonara-remix-pro-uploaders" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,225px),1fr))',gap:12}}>
         <div data-sonara-pro-source="a" onDragOver={e=>{e.preventDefault();e.dataTransfer.dropEffect='copy';}}
           onDrop={e=>{e.preventDefault();chooseSource(e.dataTransfer.files?.[0]||null,'a');}}
@@ -311,16 +333,39 @@ export default function SonaraRemixProPanel() {
       </div>
       <small>Formati: WAV, MP3, FLAC, M4A/MP4 audio, AAC, OGG/OPUS, AIFF, WebM audio, WMA, CAF, AMR, AC3. Massimo 15 minuti e 512 MiB per file. La GPU verifica il codec e converte l'audio in WAV di lavoro privato, senza cambiare il file originale.</small>
       {!multiformatAvailable&&<small role="status">Decodifica multiformato non ancora pronta sull'agente MoLab. I WAV continuano a funzionare.</small>}
+      <section style={{border:'1px solid #3f3354',borderRadius:15,padding:16,display:'grid',gap:12,background:'rgba(255,255,255,.025)'}}>
+        <strong style={{fontSize:12,letterSpacing:'.1em',color:'#d6c2f0'}}>CREATIVE FUSION CONTROLS</strong>
+        <label style={{display:'grid',gap:6}}>Genere musicale
+          <select value={genre} disabled={!v5Available} onChange={e=>setGenre(e.target.value)} style={{padding:10,borderRadius:9,background:'#262032',color:'#fff',border:'1px solid #4e4164'}}>
+            <option value="auto">Automatico</option><option value="house">House</option>
+            <option value="tech-house">Tech House</option><option value="deep-house">Deep House</option>
+            <option value="jazz-fusion">Jazz Fusion</option><option value="hip-hop">Hip Hop / Rap</option>
+            <option value="latin-house">Latin / Brazilian House</option><option value="pop">Pop</option>
+          </select>
+        </label>
+        <label style={{display:'grid',gap:6}}>Influenza creativa: A {100-bInfluence}% · B {bInfluence}%
+          <input type="range" min={20} max={80} step={5} value={bInfluence} disabled={!v5Available} aria-label="Bilanciamento creativo brano A e B" onChange={e=>setBInfluence(Number(e.target.value))}/>
+        </label>
+        <label style={{display:'grid',gap:6}}>Candidati musicali
+          <select value={candidateCount} disabled={!v5Available} onChange={e=>setCandidateCount(Number(e.target.value))} style={{padding:9,borderRadius:9,background:'#262032',color:'#fff',border:'1px solid #4e4164'}}>
+            <option value={1}>1 candidato</option><option value={2}>2 candidati</option><option value={3}>3 candidati</option>
+          </select>
+          <small style={{color:'#a99db9'}}>Per durate oltre 3 minuti il sistema usa 1 candidato; fra 2 e 3 minuti fino a 2. Le versioni vengono valutate tecnicamente, non per gusto musicale.</small>
+        </label>
+      </section>
       <label>Direzione musicale<textarea rows={3} value={prompt} onChange={e=>setPrompt(e.target.value)} style={{width:'100%',marginTop:6,padding:8,borderRadius:6,background:'#1c1926',color:'#fff'}} /></label>
       <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:8}}>
         <label>Durata Remix AI (30 secondi – 8 minuti)
-          <input type="range" min={30} max={480} step={30} value={duration}
+          <select aria-label="Modalità durata Remix AI" disabled={!v5Available} value={v5Available?durationMode:'manual'} onChange={e=>setDurationMode(e.target.value==='manual'?'manual':'auto')}>
+            <option value="auto">Durata automatica V5 (1:30–3:00)</option><option value="manual">Durata manuale</option>
+          </select>
+          <input type="range" min={30} max={480} step={30} value={duration} disabled={v5Available&&durationMode==='auto'}
             data-testid="sonara-remix-pro-duration-slider"
             aria-label="Durata esatta del brano A+B da 30 secondi a 8 minuti"
             aria-valuetext={durationLabel(duration)}
             onChange={e=>changeDuration(Number(e.target.value))} style={{width:'100%'}}/>
-          <strong data-testid="sonara-remix-pro-duration-selected">Durata del NUOVO remix A+B: {durationLabel(duration)} minuti</strong>
-          <select data-testid="sonara-remix-pro-duration-select" value={duration} onChange={e=>changeDuration(Number(e.target.value))}>
+          <strong data-testid="sonara-remix-pro-duration-selected">{v5Available&&durationMode==='auto'?'Durata: scelta automaticamente all’avvio (1:30–3:00)':'Durata del NUOVO remix A+B: '+durationLabel(duration)+' minuti'}</strong>
+          <select disabled={v5Available&&durationMode==='auto'} data-testid="sonara-remix-pro-duration-select" value={duration} onChange={e=>changeDuration(Number(e.target.value))}>
             {Array.from({length:16},(_,i)=>(i+1)*30).map(sec=>
               <option key={sec} value={sec}>{Math.floor(sec/60)}:{String(sec%60).padStart(2,'0')}</option>
             )}
@@ -334,7 +379,7 @@ export default function SonaraRemixProPanel() {
         <input type="checkbox" checked={rights} onChange={e=>setRights(e.target.checked)} />
         <span>Confermo di possedere o avere i diritti di utilizzo di entrambi i brani.</span>
       </label>
-      <small role="status">Remix Pro crea UN SOLO WAV con la voce/armonia di A e il groove di B. La durata selezionata è quella effettiva del master (0:30–8:00), verificata sul server. Se gli audio sorgenti sono più brevi, l'arrangiamento riutilizza le frasi originali con transizioni; un render da 8:00 può richiedere più passaggi ACE-Step. Non consuma minuti Studio.</small>
+      <small role="status" style={{color:'#aba2bb'}}>Remix Pro realizza un unico WAV con sorgenti A e B separate. {v5Available&&durationMode==='auto'?'Con durata automatica, la scelta effettiva viene fissata prima del job e verificata dal server. ':'L’uscita mantiene la durata scelta.'} Un brano lungo può richiedere più passaggi ACE-Step. Nessun consumo di minuti Studio.</small>
       <button type="button" disabled={!available||submitting||job?.status==='PROCESSING'||!rights}
         onClick={()=>void begin()} style={{padding:11,borderRadius:9,background:'#6c3b9d',color:'white',fontWeight:800}}>
         {submitting?<LoaderCircle size={15}/>:<ShieldCheck size={15}/>} Crea Remix Pro reale
@@ -346,6 +391,7 @@ export default function SonaraRemixProPanel() {
         <small data-testid="sonara-remix-pro-job-duration">Durata del JOB {job.jobId?.slice(0,12)}: {Number(job.requestedDurationSeconds)>0?durationLabel(Number(job.requestedDurationSeconds)):'da recuperare dal server'}{Number(job.actualDurationSeconds)>0?' · WAV verificato: '+durationLabel(Number(job.actualDurationSeconds)):''}. {Number(job.requestedDurationSeconds)>0&&Number(job.requestedDurationSeconds)!==duration?'Questo è un job precedente: la nuova selezione '+durationLabel(duration)+' NON lo modifica.':''}</small>
         <progress value={Math.max(0,Math.min(100,job.progress||0))} max={100} style={{width:'100%'}} />
         {job.status==='FAILED'&&<small role="alert">{job.error||'Job non riuscito.'}</small>}
+        {job.v5Result&&<small role="status">V5: {job.v5Result.candidatesAccepted} candidati tecnicamente validi su {job.v5Result.candidatesGenerated}. Indicatore tecnico: {job.v5Result.technicalScore}/100 (non misura la qualità artistica). Ascolto consigliato prima della pubblicazione.</small>}
         {output&&<>
           <audio src={output} controls preload="metadata" style={{width:'100%'}} />
           <div style={{display:'flex',gap:8}}>
