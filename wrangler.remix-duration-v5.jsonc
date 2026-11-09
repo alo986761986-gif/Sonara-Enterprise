@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "sonara-remix-duration-gateway-v5",
+  "main": "cloudflare/sonara-remix-duration-gateway-v5.mjs",
+  "compatibility_date": "2026-08-23",
+  "workers_dev": true,
+  "keep_vars": true,
+  "services": [
+    {
+      "binding": "SONARA_MAIN",
+      "service": "sonara-enterprise"
+    }
+  ]
+}
