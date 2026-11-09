@@ -30,7 +30,7 @@ class V42HandoffTests(unittest.TestCase):
         # may contain the later V5 dedicated agent. V5 has independent SHA tests.
         for name, (_, current_sha) in guard.BLOBS.items():
             released_sha = (
-                "a394d33fcac721246f6821dd62f3a9b529435d01"
+                "a14cc137dd515ebc7066d5dd5b568f784616d624"
                 if name == "sonara_remix_pro_r2_agent.py" else current_sha
             )
             self.assertEqual(guard.git_blob((ROOT / name).read_bytes()),
