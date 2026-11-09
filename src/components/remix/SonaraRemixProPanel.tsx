@@ -364,7 +364,7 @@ export default function SonaraRemixProPanel() {
             aria-label="Durata esatta del brano A+B da 30 secondi a 8 minuti"
             aria-valuetext={durationLabel(duration)}
             onChange={e=>changeDuration(Number(e.target.value))} style={{width:'100%'}}/>
-          <strong data-testid="sonara-remix-pro-duration-selected">Durata del NUOVO remix A+B: {durationLabel(duration)} minuti</strong>
+          <strong data-testid="sonara-remix-pro-duration-selected">{v5Available&&durationMode==='auto'?'Durata: scelta automaticamente all’avvio (1:30–3:00)':'Durata del NUOVO remix A+B: '+durationLabel(duration)+' minuti'}</strong>
           <select disabled={v5Available&&durationMode==='auto'} data-testid="sonara-remix-pro-duration-select" value={duration} onChange={e=>changeDuration(Number(e.target.value))}>
             {Array.from({length:16},(_,i)=>(i+1)*30).map(sec=>
               <option key={sec} value={sec}>{Math.floor(sec/60)}:{String(sec%60).padStart(2,'0')}</option>
@@ -379,7 +379,7 @@ export default function SonaraRemixProPanel() {
         <input type="checkbox" checked={rights} onChange={e=>setRights(e.target.checked)} />
         <span>Confermo di possedere o avere i diritti di utilizzo di entrambi i brani.</span>
       </label>
-      <small role="status" style={{color:'#aba2bb'}}>Remix Pro realizza un unico WAV con sorgenti A e B separate. ${v5Available&&durationMode==='auto'?'Con durata automatica, la scelta effettiva viene fissata prima del job e verificata dal server. ':'L’uscita mantiene la durata scelta.'} Un brano lungo può richiedere più passaggi ACE-Step. Nessun consumo di minuti Studio.</small>
+      <small role="status" style={{color:'#aba2bb'}}>Remix Pro realizza un unico WAV con sorgenti A e B separate. {v5Available&&durationMode==='auto'?'Con durata automatica, la scelta effettiva viene fissata prima del job e verificata dal server. ':'L’uscita mantiene la durata scelta.'} Un brano lungo può richiedere più passaggi ACE-Step. Nessun consumo di minuti Studio.</small>
       <button type="button" disabled={!available||submitting||job?.status==='PROCESSING'||!rights}
         onClick={()=>void begin()} style={{padding:11,borderRadius:9,background:'#6c3b9d',color:'white',fontWeight:800}}>
         {submitting?<LoaderCircle size={15}/>:<ShieldCheck size={15}/>} Crea Remix Pro reale
