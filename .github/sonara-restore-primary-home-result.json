@@ -1,0 +1,54 @@
+{
+  "success": false,
+  "api_unmodified": true,
+  "music_worker_unmodified": true,
+  "gpu_unmodified": true,
+  "previous_routes": [
+    {
+      "host": "sonaraenterprise.com",
+      "id": "30017d4b24914283ac08595357ecd458",
+      "pattern": "sonaraenterprise.com",
+      "script": "sonara-remix-pro-contract-v4-shell"
+    },
+    {
+      "host": "www.sonaraenterprise.com",
+      "id": "a2a678e632f8481a8214282845cb115a",
+      "pattern": "www.sonaraenterprise.com",
+      "script": "sonara-remix-pro-contract-v4-shell"
+    }
+  ],
+  "changes": [
+    "sonaraenterprise.com",
+    "www.sonaraenterprise.com"
+  ],
+  "checks": [
+    {
+      "host": "sonaraenterprise.com",
+      "verified": false,
+      "home_status": 200,
+      "html_size": 4230,
+      "bundle": "/assets/index-CVPmYcq7.js",
+      "probe_http_error": 403
+    },
+    {
+      "host": "www.sonaraenterprise.com",
+      "verified": false,
+      "home_status": 200,
+      "html_size": 4230,
+      "bundle": "/assets/index-CVPmYcq7.js",
+      "probe_http_error": 403
+    }
+  ],
+  "rollback_attempted": true,
+  "rollback": [
+    {
+      "host": "sonaraenterprise.com",
+      "success": true
+    },
+    {
+      "host": "www.sonaraenterprise.com",
+      "success": true
+    }
+  ],
+  "stage": "ROOT_REPAIR_NOT_VERIFIED_ROLLBACK_ATTEMPTED"
+}
