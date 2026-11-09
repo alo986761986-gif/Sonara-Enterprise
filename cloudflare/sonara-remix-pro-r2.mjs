@@ -230,7 +230,7 @@ if(!(await proQuota(e,'verify',id,uid,duration)))return fail('Registrazione priv
   } catch { return fail('Job preparation failed',503); }
   return json({...publicStatus(j),model:'Demucs+ACE-Step-XL-Turbo'},202);
 }
-async function claim(e,b,ctx){
+async function claim(e,b,ctx,v5WorkerReady=false){
   const now=Date.now();
   async function tryObject(obj) {
     if(!obj)return null;
@@ -248,6 +248,8 @@ async function claim(e,b,ctx){
       return null;
     }
     if(!((j.status==='QUEUED')||expired)||j.attempts>=3)return null;
+    // Legacy V4.2 agents sharing this queue must not claim V5-only tasks.
+    if(j.params?.v5===true&&!v5WorkerReady)return null;
     const leaseId=crypto.randomUUID();
     const updated={...j,status:'LEASED',attempts:j.attempts+1,leaseId,
       leaseUntil:now+15*60*1000,updatedAt:now,stage:'downloading'};
@@ -312,7 +314,8 @@ export async function handleRemixPro(req,env,ctx,auth) {
   if(p==='/api/sonara-relay/pro-claim'&&req.method==='POST'){
     if(!(await auth.agent(req,env))||agentRevision(req)!==PRO_AGENT_REVISION)return fail('V3 agent required for fusion claims',401);
     if(!enabled(env))return fail('Remix Pro disabled',503);
-    return json(await claim(env,b,ctx));
+    const claimInfo=await req.json().catch(()=>({}));
+    return json(await claim(env,b,ctx,claimInfo?.v5Ready===true));
   }
   const match=p.match(/^\/api\/sonara-relay\/pro-job\/(srpro_[0-9a-f-]{36})(?:\/(.+))?$/);
   if(!match)return fail('Not found',404);
