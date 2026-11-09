@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 import unittest
+import tempfile
 from unittest import mock
 
 HERE = Path(__file__).resolve().parent
@@ -23,6 +24,27 @@ class InstallerV4Tests(unittest.TestCase):
                 data = (HERE / name).read_bytes()
                 self.assertEqual(installer.git_blob_sha(data), expected)
                 compile(data, name, "exec")
+
+    def test_live_agent_is_detected_without_relying_on_lock(self):
+        with tempfile.TemporaryDirectory() as d:
+            proc = Path(d)
+            valid = proc / "2019"
+            valid.mkdir()
+            (valid / "cmdline").write_bytes(
+                b"python\\0/marimo/SONARA-REMIX-PRO/sonara_remix_pro_r2_agent.py\\0"
+            )
+            (valid / "cwd").symlink_to(Path("/marimo/SONARA-REMIX-PRO"))
+            other = proc / "2020"
+            other.mkdir()
+            (other / "cmdline").write_bytes(b"python\\0/some/other_script.py\\0")
+            (other / "cwd").symlink_to(Path("/tmp"))
+            with mock.patch.object(installer, "ROOT", Path("/marimo/SONARA-REMIX-PRO")):
+                self.assertEqual(installer.active_pro_agent_pids(proc), [2019])
+
+    def test_missing_proctable_blocks_install_preflight(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaisesRegex(RuntimeError, "Cannot inspect"):
+                installer.active_pro_agent_pids(Path(d) / "missing")
 
     def test_no_mutable_branch_or_missing_checksums(self):
         self.assertNotIn("/main/", installer.URL_ROOT)
