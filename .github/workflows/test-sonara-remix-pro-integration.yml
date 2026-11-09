@@ -16,6 +16,8 @@ on:
       - 'src/components/remix/SonaraRemixProPanel.tsx'
       - 'src/components/remix/SonaraRemixSection.tsx'
       - 'molab/sonara_remix_pro_r2_agent.py'
+      - 'molab/sonara_remix_pro_fusion.py'
+      - 'molab/test_sonara_remix_pro_fusion.py'
       - 'molab/test_sonara_remix_pro_multiformat.py'
       - 'molab/test_sonara_remix_pro_import_path.py'
       - 'molab/test_sonara_remix_pro_r2_download.py'
@@ -47,6 +49,11 @@ jobs:
         run: node --test cloudflare/sonara-long-wav-upload.test.mjs
       - name: Legacy Remix R2 remains unchanged
         run: node --test cloudflare/sonara-remix-r2.test.mjs
+      - name: Verify V3 dual-reference fusion module offline
+        run: |
+          python3 -m pip install --user numpy soundfile
+          python3 -m py_compile molab/sonara_remix_pro_fusion.py molab/sonara_remix_pro_ace_bridge.py molab/sonara_remix_pro_r2_agent.py
+          python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_fusion.py' -v
       - name: MoLab Python syntax only (never downloads models)
         run: python3 -m py_compile molab/sonara_remix_pro_r2_agent.py
       - name: Install real FFmpeg audio decoder for non-skipped codec tests
