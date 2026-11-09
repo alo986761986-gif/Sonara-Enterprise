@@ -98,5 +98,62 @@ class TwoSourceFusionTests(unittest.TestCase):
                 fusion.make_structural_guide(source, source, 30)
 
 
+    def test_loop_seam_has_no_abrupt_discontinuity(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            sr = 22050
+            # A discontinuous loop: source starts at +0.5 and ends at -0.5.
+            a = np.linspace(0.5, -0.5, sr * 12, dtype=np.float32)
+            fa, out = root/"saw.wav", root/"guide.wav"
+            sf.write(fa, a, sr, subtype="PCM_16")
+            info = fusion.make_structural_guide(fa, out, 30)
+            self.assertEqual(info["source"], "a-only")
+            self.assertEqual(info["sourceRepetitions"], 2)
+            self.assertGreater(info["loopCrossfadeSeconds"], 0)
+            with sf.SoundFile(out) as wav:
+                self.assertEqual(wav.frames, 30 * sr)
+                wav.seek(sr * 12 - 1)
+                seam = wav.read(3, dtype="float32", always_2d=True)
+            self.assertLess(np.max(np.abs(np.diff(seam, axis=0))), 0.01)
+
+    def test_selects_steady_b_groove_passage_not_silent_intro(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            sr = 22050
+            duration = 90
+            t = np.arange(sr * duration, dtype=np.float32) / sr
+            # The original B contains musical material throughout.
+            b = (0.10 * np.sin(2*np.pi*220*t)).astype(np.float32)
+            # Demucs drum activity: clear sustained passage late in B.
+            drums = np.zeros(len(t), dtype=np.float32)
+            drums[48*sr:78*sr] = .3 * np.sin(2*np.pi*100*t[48*sr:78*sr])
+            fb, fd, out = root/"b.wav", root/"drums.wav", root/"bref.wav"
+            sf.write(fb, b, sr, subtype="PCM_16")
+            sf.write(fd, drums, sr, subtype="PCM_16")
+            picked = fusion.make_independent_style_reference(
+                fb, out, max_seconds=20, activity_audio_path=fd)
+            self.assertGreater(picked["startSeconds"], 35)
+            self.assertEqual(picked["activitySource"], "b-drums")
+            self.assertIs(picked["containsSourceA"], False)
+            with sf.SoundFile(out) as wav:
+                self.assertEqual(wav.frames, 20*sr)
+
+    def test_one_anchor_tempo_tonic_and_bass_source(self):
+        prompt = fusion.build_fusion_prompt(
+            "A musical, clean club remix with a recognizable theme.",
+            {"tempoBpm": 110, "tempoConfidence": .9,
+             "key": "C minor", "keyConfidence": .9},
+            {"tempoBpm": 126, "tempoConfidence": .9,
+             "key": "D minor", "keyConfidence": .9},
+            target_bpm=126, target_key="C minor", bass_from="b",
+            requested_seconds=240)
+        self.assertIn("ONE mandatory target tempo: 126.0 BPM", prompt)
+        self.assertIn("ONE mandatory tonal center: C minor", prompt)
+        self.assertIn("ONE recognizable main hook", prompt)
+        self.assertIn("bass timbre and rhythmic vocabulary from B", prompt)
+        self.assertIn("same", prompt.lower())
+        self.assertNotIn("DJ mix", prompt.split("Creator direction:")[-1])
+
+
 if __name__ == "__main__":
     unittest.main()
