@@ -16,6 +16,10 @@ on:
       - 'src/components/remix/SonaraRemixProPanel.tsx'
       - 'src/components/remix/SonaraRemixSection.tsx'
       - 'molab/sonara_remix_pro_r2_agent.py'
+      - 'molab/sonara_remix_pro_v5.py'
+      - 'molab/test_sonara_remix_pro_v5.py'
+      - 'molab/sonara_remix_pro_gpu_v5_handoff.py'
+      - 'molab/test_sonara_remix_gpu_v5_handoff.py'
       - 'molab/sonara_remix_pro_ace_bridge.py'
       - 'molab/sonara_remix_pro_gpu_v41_hotfix.py'
       - 'molab/test_sonara_remix_gpu_v41_diagnostics.py'
@@ -150,6 +154,12 @@ jobs:
           python3 -m py_compile molab/sonara_remix_pro_quality.py molab/sonara_remix_pro_r2_agent.py molab/sonara_remix_pro_gpu_v42_quality_hotfix.py
           python3 -m unittest discover -s molab -p 'test_sonara_remix_gpu_v42_quality_handoff.py' -v
           python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_quality.py' -v
+      - name: Validate Remix Pro V5 six pillars with real synthetic WAV
+        run: |
+          python3 -m pip install --user numpy soundfile scipy pyloudnorm
+          python3 -m py_compile molab/sonara_remix_pro_v5.py molab/sonara_remix_pro_r2_agent.py
+          python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_v5.py' -v
+          python3 -m unittest discover -s molab -p 'test_sonara_remix_gpu_v5_handoff.py' -v
       - name: Build actual SONARA site
         run: |
           npm install
