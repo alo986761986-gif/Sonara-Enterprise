@@ -1,0 +1,29 @@
+{
+  "success": true,
+  "main_worker_code_unchanged": true,
+  "api_routes_unchanged": true,
+  "gpu_unchanged": true,
+  "routes": [
+    {
+      "host": "www.sonaraenterprise.com",
+      "id": "a2a678e632f8481a8214282845cb115a",
+      "pattern": "www.sonaraenterprise.com",
+      "previous_script": "sonara-enterprise",
+      "http": 200,
+      "html_bytes": 4230,
+      "bundle": "/assets/index-CVPmYcq7.js",
+      "healthy_html": true
+    },
+    {
+      "host": "sonaraenterprise.com",
+      "id": "30017d4b24914283ac08595357ecd458",
+      "pattern": "sonaraenterprise.com",
+      "previous_script": "sonara-enterprise",
+      "http": 200,
+      "html_bytes": 4230,
+      "bundle": "/assets/index-CVPmYcq7.js",
+      "healthy_html": true
+    }
+  ],
+  "stage": "HEALTHY_MAIN_HOME_RETURNED"
+}
