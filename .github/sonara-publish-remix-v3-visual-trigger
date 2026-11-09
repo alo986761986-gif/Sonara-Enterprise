@@ -3,3 +3,5 @@ Authorized production release 2026-11-09: show professional Remix Pro V3 React i
 Second guarded release: staging React verified, replace automated live JS fetch with actual Chromium UI assertion before finalizing.
 
 Final rerun: verify production Chromium UI and save report with correct existing blob SHA.
+
+2026-11-09 actual Remix Pro active tab mounting fix + independent JS/CSS paths. Publish after real Chromium assertions.
