@@ -1,7 +1,7 @@
 name: SONARA - Publish Remix Pro V3 visual UI on Cloudflare, no Vercel
 on:
   push:
-    branches: [fix/remix-pro-v3-ui-live-overlay-20261109]
+    branches: [fix/remix-pro-v3-real-tab-and-assets-20261109]
     paths: [.github/sonara-publish-remix-v3-visual-trigger]
 permissions: {contents: write}
 concurrency: {group: sonara-remix-pro-visual-v3-rollout, cancel-in-progress: false}
@@ -59,7 +59,7 @@ jobs:
           import {chromium} from 'playwright';
           const path='.github/sonara-remix-v3-visual-result.json';
           const report={
-            release:'sonara-remix-pro-v3-visual-20261109',success:false,
+            release:'sonara-remix-pro-v3-real-tab-20261109',success:false,
             main_worker_unchanged:true,ace_step_untouched:true,
             remix_pro_gpu_untouched:true,vercel_used:false,
             customer_audio_uploaded:false,generated_jobs:0,
@@ -117,11 +117,11 @@ jobs:
             safe(stageHtml.includes('sonara-remix-v3-visual-js')&&
                  stageHtml.includes('sonara-remix-v3-visual-css')&&
                  stageHtml.includes('/assets/'),'Staging HTML or original SONARA app missing');
-            const app=await fetch(staging+'/?__sonara_remix_v3_visual_asset=js',{signal:AbortSignal.timeout(20000)});
+            const app=await fetch(staging+'/remix?__sonara_remix_v3_visual_asset=js',{signal:AbortSignal.timeout(20000)});
             const code=await app.text();
             safe(app.ok&&String(app.headers.get('content-type')).includes('javascript')&&
                  code.includes('sonara-remix-pro-v3'),'Staged React JavaScript missing or wrong MIME');
-            const style=await fetch(staging+'/?__sonara_remix_v3_visual_asset=css',{signal:AbortSignal.timeout(20000)});
+            const style=await fetch(staging+'/studio?__sonara_remix_v3_visual_asset=css',{signal:AbortSignal.timeout(20000)});
             safe(style.ok&&String(style.headers.get('content-type')).includes('text/css')&&
                  (await style.text()).includes('sonara-pro-v3__hero'),'Staged V3 CSS missing');
             report.staging_assets_verified=true;
@@ -132,16 +132,29 @@ jobs:
               page.on('pageerror',e=>jsErrors.push(String(e).slice(0,240)));
               await page.goto(staging+'/',{waitUntil:'domcontentloaded',timeout:35000});
               await page.evaluate(()=>{
-                let x=document.createElement('div');
-                x.className='sonara-remix-pro';
-                x.textContent='ORIGINAL SONARA REMIX PRO';
-                document.body.appendChild(x);
+                const shell=document.createElement('div');
+                shell.className='sonara-remix-shell';
+                const main=document.createElement('main');
+                main.className='sonara-remix-main sonara-remix-main--pro';
+                const source=document.createElement('section');
+                source.className='sonara-remix-source-panel';
+                const tabs=document.createElement('div');
+                tabs.className='sonara-remix-source-tabs';
+                const button=document.createElement('button');
+                button.textContent='Remix Pro';
+                button.setAttribute('data-active','true');
+                tabs.appendChild(button);
+                const legacy=document.createElement('div');
+                legacy.id='sonara-test-old-pro';
+                legacy.textContent='OLD REMIX PRO UI';
+                source.append(tabs,legacy);main.appendChild(source);shell.appendChild(main);
+                document.body.appendChild(shell);
               });
               await page.waitForSelector('[data-testid="sonara-remix-pro-v3"]',
                 {timeout:25000,state:'attached'});
               const ui=await page.evaluate(()=>{
                 const panel=document.querySelector('[data-testid="sonara-remix-pro-v3"]');
-                const old=document.querySelector('.sonara-remix-pro:not(.sonara-pro-v3)');
+                const old=document.querySelector('#sonara-test-old-pro');
                 return {
                   new_panel:!!panel,
                   old_hidden:old?getComputedStyle(old).display==='none':false,
@@ -218,10 +231,23 @@ jobs:
                     waitUntil:'domcontentloaded',timeout:40000});
                   safe(response?.ok(),'Production page failed to open in Chromium on '+hostname);
                   await page.evaluate(()=>{
-                    const old=document.createElement('div');
-                    old.className='sonara-remix-pro';
-                    old.textContent='PREVIOUS REMIX PRO UI';
-                    document.body.appendChild(old);
+                    const shell=document.createElement('div');
+                    shell.className='sonara-remix-shell';
+                    const main=document.createElement('main');
+                    main.className='sonara-remix-main sonara-remix-main--pro';
+                    const source=document.createElement('section');
+                    source.className='sonara-remix-source-panel';
+                    const tabs=document.createElement('div');
+                    tabs.className='sonara-remix-source-tabs';
+                    const button=document.createElement('button');
+                    button.textContent='Remix Pro';
+                    button.setAttribute('data-active','true');
+                    tabs.appendChild(button);
+                    const legacy=document.createElement('div');
+                    legacy.id='sonara-test-old-pro';
+                    legacy.textContent='OLD REMIX PRO UI';
+                    source.append(tabs,legacy);main.appendChild(source);shell.appendChild(main);
+                    document.body.appendChild(shell);
                   });
                   let shown=false;
                   try {
@@ -231,7 +257,7 @@ jobs:
                   }catch{}
                   const state=await page.evaluate(()=>{
                     const panel=document.querySelector('[data-testid="sonara-remix-pro-v3"]');
-                    const legacy=document.querySelector('.sonara-remix-pro:not(.sonara-pro-v3)');
+                    const legacy=document.querySelector('#sonara-test-old-pro');
                     return {
                       new_panel:!!panel,
                       old_hidden:legacy?getComputedStyle(legacy).display==='none':false,
