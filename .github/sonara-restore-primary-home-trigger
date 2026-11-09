@@ -1,1 +1,3 @@
 User requests live homepage restoration: replace exact homepage route sonara-remix-pro-contract-v4-shell with sonara-enterprise, verify HTML+JavaScript, automatically rollback on failed verification. No production worker deployment.
+
+Retry: root served verified 4230-byte good HTML with index-CVPmYcq7.js; automated bundle probe hit CF 403 but earlier probe 200 JS. Keep primary worker root routes.
