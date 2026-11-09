@@ -30,6 +30,7 @@ on:
       - 'molab/test_sonara_remix_pro_wavex.py'
       - 'molab/sonara_remix_pro_live_qa.py'
       - 'molab/test_sonara_remix_pro_live_qa.py'
+      - '.github/workflows/deploy-sonara-relay-pairing.yml'
       - '.github/workflows/test-sonara-remix-pro-integration.yml'
   workflow_dispatch:
 permissions:
@@ -72,6 +73,18 @@ jobs:
               console.log(label + "_REACHABLE=false");
             }
           }
+          NODE
+      - name: Guard Cloudflare release requires V3 fusion (no stale V2 gate)
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import assert from 'node:assert/strict';
+          const text = readFileSync('.github/workflows/deploy-sonara-relay-pairing.yml', 'utf8');
+          const guard = text.split('Verify live Remix Pro availability after deploy')[1] || '';
+          assert.match(guard, /s\.fusionAvailable===true/);
+          assert.match(guard, /s\.expectedAgentRevision==='sonara-remix-pro-r2-agent-v3-dual-reference-fusion'/);
+          assert.doesNotMatch(guard, /s\.expectedAgentRevision==='sonara-remix-pro-r2-agent-v2-longwav'/);
+          console.log('SONARA_CLOUDFLARE_RELEASE_V3_FUSION_GUARD=PASS');
           NODE
       - name: Pro billing and source ownership tests
         run: node --test cloudflare/sonara-remix-pro-r2.test.mjs
