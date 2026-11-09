@@ -1,0 +1,170 @@
+{
+  "utc": "2026-11-09T17:27:23.936216+00:00",
+  "pages": {
+    "google_apex": {
+      "http": 200,
+      "url": "https://sonaraenterprise.com/",
+      "type": "text/html; charset=UTF-8",
+      "cache": null,
+      "etag": null,
+      "sha": "aeb9861ddc8fd21954350d81",
+      "bytes": 318233,
+      "has_root": true,
+      "has_module": true,
+      "static_fallback": false,
+      "ts_unbuilt": false,
+      "scripts": [
+        "/assets/index-CScrz1mM.js",
+        "/sonara-sidebar-icons-v2.js?v=2",
+        "/sonara-video-ui-edge.js?v=3",
+        "/sonara-studio-pitch-key-network-fix-v1.js?v=1",
+        "/sonara-studio-pitch-key-dsp-v8.js?v=8",
+        "/sonara-studio-pitch-key-dsp-v6.js?v=6",
+        "/sonara-studio-wav-cleanup-v7.js?v=7",
+        "/sonara-studio-tempo-intonation-v9.js?v=9",
+        "/sonara-studio-timeline-audio-v12.js?v=12",
+        "https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092",
+        "https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092",
+        "https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092",
+        "https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092",
+        "https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092",
+        "https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092"
+      ]
+    },
+    "direct_apex": {
+      "http": 200,
+      "url": "https://sonaraenterprise.com/",
+      "type": "text/html; charset=UTF-8",
+      "cache": null,
+      "etag": null,
+      "sha": "aeb9861ddc8fd21954350d81",
+      "bytes": 318233,
+      "has_root": true,
+      "has_module": true,
+      "static_fallback": false,
+      "ts_unbuilt": false,
+      "scripts": [
+        "/assets/index-CScrz1mM.js",
+        "/sonara-sidebar-icons-v2.js?v=2",
+        "/sonara-video-ui-edge.js?v=3",
+        "/sonara-studio-pitch-key-network-fix-v1.js?v=1",
+        "/sonara-studio-pitch-key-dsp-v8.js?v=8",
+        "/sonara-studio-pitch-key-dsp-v6.js?v=6",
+        "/sonara-studio-wav-cleanup-v7.js?v=7",
+        "/sonara-studio-tempo-intonation-v9.js?v=9",
+        "/sonara-studio-timeline-audio-v12.js?v=12",
+        "https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092",
+        "https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092",
+        "https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092",
+        "https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092",
+        "https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092",
+        "https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092"
+      ]
+    },
+    "refresh_apex": {
+      "http": 200,
+      "url": "https://sonaraenterprise.com/?refresh=20261109",
+      "type": "text/html",
+      "cache": "HIT",
+      "etag": null,
+      "sha": "32c46847662735aeb9a048b7",
+      "bytes": 4242,
+      "has_root": true,
+      "has_module": true,
+      "static_fallback": false,
+      "ts_unbuilt": false,
+      "scripts": [
+        "/assets/index-CVPmYcq7.js",
+        "/sonara-sidebar-icons-v2.js?v=2",
+        "/sonara-video-ui-edge.js?v=3",
+        "/sonara-studio-pitch-key-network-fix-v1.js?v=1",
+        "/sonara-studio-pitch-key-dsp-v8.js?v=8",
+        "/sonara-studio-pitch-key-dsp-v6.js?v=6",
+        "/sonara-studio-wav-cleanup-v7.js?v=7",
+        "/sonara-studio-tempo-intonation-v9.js?v=9",
+        "/sonara-studio-timeline-audio-v12.js?v=12",
+        "https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092"
+      ]
+    },
+    "google_www": {
+      "http": 200,
+      "url": "https://www.sonaraenterprise.com/",
+      "type": "text/html; charset=UTF-8",
+      "cache": null,
+      "etag": null,
+      "sha": "aeb9861ddc8fd21954350d81",
+      "bytes": 318233,
+      "has_root": true,
+      "has_module": true,
+      "static_fallback": false,
+      "ts_unbuilt": false,
+      "scripts": [
+        "/assets/index-CScrz1mM.js",
+        "/sonara-sidebar-icons-v2.js?v=2",
+        "/sonara-video-ui-edge.js?v=3",
+        "/sonara-studio-pitch-key-network-fix-v1.js?v=1",
+        "/sonara-studio-pitch-key-dsp-v8.js?v=8",
+        "/sonara-studio-pitch-key-dsp-v6.js?v=6",
+        "/sonara-studio-wav-cleanup-v7.js?v=7",
+        "/sonara-studio-tempo-intonation-v9.js?v=9",
+        "/sonara-studio-timeline-audio-v12.js?v=12",
+        "https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092",
+        "https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092",
+        "https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092",
+        "https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092",
+        "https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092",
+        "https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092"
+      ]
+    },
+    "refresh_www": {
+      "http": 200,
+      "url": "https://www.sonaraenterprise.com/?refresh=20261109",
+      "type": "text/html",
+      "cache": "HIT",
+      "etag": null,
+      "sha": "32c46847662735aeb9a048b7",
+      "bytes": 4242,
+      "has_root": true,
+      "has_module": true,
+      "static_fallback": false,
+      "ts_unbuilt": false,
+      "scripts": [
+        "/assets/index-CVPmYcq7.js",
+        "/sonara-sidebar-icons-v2.js?v=2",
+        "/sonara-video-ui-edge.js?v=3",
+        "/sonara-studio-pitch-key-network-fix-v1.js?v=1",
+        "/sonara-studio-pitch-key-dsp-v8.js?v=8",
+        "/sonara-studio-pitch-key-dsp-v6.js?v=6",
+        "/sonara-studio-wav-cleanup-v7.js?v=7",
+        "/sonara-studio-tempo-intonation-v9.js?v=9",
+        "/sonara-studio-timeline-audio-v12.js?v=12",
+        "https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092"
+      ]
+    },
+    "pro": {
+      "http": 200,
+      "url": "https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities",
+      "type": "application/json; charset=utf-8",
+      "cache": null,
+      "etag": null,
+      "sha": "94bbde4d5c0dbf0f9c0d3c61",
+      "bytes": 412,
+      "has_root": false,
+      "has_module": false,
+      "static_fallback": false,
+      "ts_unbuilt": false,
+      "scripts": []
+    }
+  },
+  "cloudflare": {
+    "zone_found": true,
+    "sixth_fingerprint_binding": true,
+    "asset_binding": true
+  },
+  "assets": [
+    {
+      "path": "/assets/index-CScrz1mM.js",
+      "error": "HTTPError"
+    }
+  ]
+}
