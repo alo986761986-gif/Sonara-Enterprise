@@ -4,7 +4,6 @@ import relayRuntime from './sonara-r2-https-relay.mjs';
 import { proCapabilities } from './sonara-remix-pro-r2.mjs';
 import { prepareMolabR2RelayPayload } from './sonara-molab-xl-router.mjs';
 import { deriveRelayGatewayInternalKey } from './sonara-gateway-verifier.mjs';
-import { REMIX_PRO_DURATION_EDGE_SCRIPT } from './sonara-remix-pro-duration-edge.mjs';
 
 export { SonaraJobState, SonaraAuthStore };
 
@@ -89,7 +88,6 @@ function inject(response) {
     element(element) {
       element.append(AUTH_EMAIL_ONLY_SCRIPT, { html: true });
       element.append(AB_VISIBILITY_SCRIPT, { html: true });
-      element.append(REMIX_PRO_DURATION_EDGE_SCRIPT, { html: true });
     }
   }).transform(safe);
 }
@@ -234,6 +232,23 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
   catch { return nativeGenerationError('INVALID_JSON', 'Corpo JSON non valido.', 400); }
   if (!source || typeof source !== 'object' || Array.isArray(source)) {
     return nativeGenerationError('INVALID_JSON', 'Corpo JSON non valido.', 400);
+  }
+  if (source.sonaraRemixPro === true) {
+    // A public Remix Pro request must carry two independently consistent
+    // values. The selected UI duration is never silently replaced by 0:30.
+    const requested = Number(source.durationSec);
+    const expected = Number(source.expectedDurationSec);
+    const expectedHeader = request.headers.get('X-Sonara-Remix-Expected-Duration');
+    if (!Number.isInteger(requested) || requested < 30 || requested > 480 ||
+        requested % 30 !== 0 || !Number.isInteger(expected) ||
+        expected !== requested || (expectedHeader !== null &&
+        Number(expectedHeader) !== requested)) {
+      return nativeGenerationError(
+        'REMIX_PRO_DURATION_CONTRACT_MISMATCH',
+        'La durata scelta non coincide con quella inviata. Nessun nuovo job è stato creato.',
+        409
+      );
+    }
   }
   if (!env.SONARA_AUDIO_BUCKET || String(env.SONARA_RELAY_TOKEN || '').length < 32) {
     return nativeGenerationError('R2_RELAY_UNAVAILABLE', 'Collegamento MoLab R2 non disponibile.', 503);

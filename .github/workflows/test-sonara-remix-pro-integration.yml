@@ -14,6 +14,8 @@ on:
       - 'cloudflare/sonara-remix-pro-duration-edge.mjs'
       - 'cloudflare/sonara-remix-pro-duration-edge.test.mjs'
       - 'src/components/remix/SonaraRemixProPanel.tsx'
+      - 'src/components/remix/remixDuration.ts'
+      - 'src/components/remix/remixDuration.test.ts'
       - 'src/components/remix/SonaraRemixSection.tsx'
       - 'molab/sonara_remix_pro_r2_agent.py'
       - 'molab/install_sonara_remix_quality_v4.py'
@@ -135,6 +137,8 @@ jobs:
         run: |
           python3 -m py_compile molab/sonara_remix_pro_live_qa.py
           python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_live_qa.py' -v
+      - name: Verify automatic random duration range and deterministic cases
+        run: npx --yes tsx --test src/components/remix/remixDuration.test.ts
       - name: Build actual SONARA site
         run: |
           npm install

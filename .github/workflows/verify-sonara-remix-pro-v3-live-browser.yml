@@ -1,0 +1,70 @@
+name: SONARA Remix Pro V3 - Live React Visual Smoke
+on:
+  push:
+    branches: [feature/remix-pro-automatic-random-duration-nov09]
+    paths: ['.github/workflows/verify-sonara-remix-pro-v3-live-browser.yml']
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v4
+        with: {node-version: '24'}
+      - name: Install isolated Chromium tester
+        run: |
+          npm install --no-save --no-audit --no-fund playwright
+          npx playwright install --with-deps chromium
+      - name: Verify newly published React Remix Pro V3 on live public hosts
+        run: |
+          node --input-type=module <<'NODE'
+          import {chromium} from 'playwright';
+          const browser=await chromium.launch({headless:true});
+          const urls=['https://sonaraenterprise.com/','https://sonaraenterprise.com/studio',
+            'https://sonaraenterprise.com/remix','https://www.sonaraenterprise.com/'];
+          try{
+            for(const url of urls){
+              const page=await browser.newPage({viewport:{width:1440,height:900}});
+              const errors=[];
+              page.on('pageerror',e=>errors.push(String(e.message||e)));
+              const response=await page.goto(url,{waitUntil:'domcontentloaded',timeout:30000});
+              if(!response?.ok())throw Error('Live homepage inaccessible '+url);
+              await page.evaluate(()=>{
+                const old=document.createElement('div');
+                old.className='sonara-remix-pro';
+                old.textContent='Old Remix Pro panel';
+                document.body.appendChild(old);
+              });
+              await page.waitForSelector('[data-testid="sonara-remix-pro-v3"]',
+                {state:'visible',timeout:15000});
+              const state=await page.evaluate(()=>{
+                const panel=document.querySelector('[data-testid="sonara-remix-pro-v3"]');
+                const old=document.querySelector('.sonara-remix-pro');
+                const root=document.querySelector('[data-sonara-remix-v3-mount]');
+                const duration=panel?.querySelector('[data-testid="sonara-remix-pro-auto-duration"]');
+                const uploads=panel?.querySelectorAll('input[type="file"]');
+                return {
+                  v3Script:!!document.querySelector('#sonara-remix-pro-v3-app'),
+                  newHeading:panel?.textContent?.includes('Due brani.')||false,
+                  durationAutomatic:!!duration,
+                  twoSourceUploads:uploads?.length===2,
+                  noDurationSlider:!panel?.querySelector('[data-testid="sonara-remix-pro-duration-slider"]'),
+                  oldHidden:old?.style.display==='none',
+                  mounted:!!root,
+                  panelWidth:Math.round(panel?.getBoundingClientRect().width||0),
+                  primaryAction:!!panel?.querySelector('[data-testid="sonara-pro-v3-generate"]')
+                };
+              });
+              console.log('SONARA_LIVE_V3_VISUAL',JSON.stringify({url,status:response.status(),
+                state,errors:errors.slice(0,5)}));
+              if(!Object.values(state).every(v=>typeof v==='number'?v>=200:v===true)||
+                errors.some(e=>/process is not defined|React.*error|Minified React/i.test(e))){
+                throw Error('Real production React V3 visual regression '+url);
+              }
+              await page.close();
+            }
+          }finally{await browser.close();}
+          NODE

@@ -1,0 +1,198 @@
+name: SONARA Remix - Multi Route Automatic Duration V2
+on:
+  push:
+    branches: [feature/remix-pro-automatic-random-duration-nov09]
+    paths: ['.github/workflows/publish-sonara-remix-auto-duration.yml']
+  workflow_dispatch:
+permissions: {contents: read}
+concurrency:
+  group: sonara-remix-auto-homepage-release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v4
+        with: {node-version: '24'}
+      - name: Verify browser runtime
+        run: |
+          node --check cloudflare/sonara-remix-pro-auto-duration-runtime.js
+          node --test cloudflare/sonara-remix-pro-auto-duration-runtime.test.mjs
+      - name: Stage V2 and atomically switch selected HTML routes with rollback
+        run: |
+          node --input-type=module <<'NODE'
+          import {readFileSync} from 'node:fs';
+          const token=process.env.CLOUDFLARE_API_TOKEN||'';
+          if(token.length<20)throw Error('Cloudflare token missing');
+          const auth={Authorization:'Bearer '+token};
+          const root='https://api.cloudflare.com/client/v4';
+          const assert=(v,s)=>{if(!v)throw Error(s)};
+          const api=async(path,method='GET',body)=>{
+            const r=await fetch(root+path,{method,
+              headers:{...auth,...(body?{'content-type':'application/json'}:{})},
+              ...(body?{body:JSON.stringify(body)}:{}),
+              signal:AbortSignal.timeout(25000)});
+            const j=await r.json().catch(()=>({}));
+            assert(r.ok&&j.success!==false,
+              'Cloudflare '+method+' '+path+' HTTP '+r.status+' '+JSON.stringify((j.errors||[]).map(x=>x.code)));
+            return j.result;
+          };
+          const zone=(await api('/zones?name=sonaraenterprise.com'))?.find(z=>z.name==='sonaraenterprise.com');
+          assert(zone,'SONARA zone missing');
+          const account=process.env.CLOUDFLARE_ACCOUNT_ID||zone.account?.id;
+          assert(account,'Account missing');
+          const routePath='/zones/'+zone.id+'/workers/routes';
+          const original='sonara-remix-auto-duration-shell';
+          const next='sonara-remix-auto-duration-shell-v2';
+          const main='/accounts/'+account+'/workers/scripts/sonara-enterprise/deployments';
+          const rev=(await api(main)).deployments?.[0]?.versions?.[0]?.version_id;
+          assert(rev,'Main Worker revision unavailable');
+          const current=await api(routePath);
+          console.log('SONARA_EXACT_ROUTES',JSON.stringify(current.filter(x=>
+            x.pattern.includes('sonaraenterprise.com') &&
+            (x.pattern==='sonaraenterprise.com' || x.pattern==='sonaraenterprise.com/' ||
+              x.pattern==='sonaraenterprise.com/*' || x.pattern.includes('remix') ||
+              x.pattern.includes('studio'))).map(x=>({id:x.id,pattern:x.pattern,script:x.script}))));
+          const home=current.filter(x=>x.pattern==='sonaraenterprise.com');
+          assert(home.length===1&&home[0].script===original,'Current root shell differs; fail closed');
+          assert(current.some(x=>x.pattern==='sonaraenterprise.com/*'&&x.script==='sonara-enterprise'),
+            'Main wildcard SONARA route missing');
+          const extras=['sonaraenterprise.com/studio','sonaraenterprise.com/remix',
+            'www.sonaraenterprise.com','www.sonaraenterprise.com/studio',
+            'www.sonaraenterprise.com/remix'];
+          assert(extras.every(pattern=>!current.some(x=>x.pattern===pattern)),
+            'One of the intended exact routes is already occupied');
+          const capabilities=async()=>{
+            const r=await fetch('https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities',
+              {signal:AbortSignal.timeout(15000)});
+            assert(r.ok,'Remix Pro capabilities unreachable');
+            const c=await r.json();
+            assert(c.available===true&&c.fusionAvailable===true&&
+              c.expectedAgentRevision==='sonara-remix-pro-r2-agent-v3-dual-reference-fusion',
+              'Remix Pro GPU V3 unavailable');
+          };
+          await capabilities();
+          const homepage=await fetch('https://sonaraenterprise.com/',{
+            headers:{Accept:'text/html','Cache-Control':'no-store'},
+            signal:AbortSignal.timeout(20000)});
+          const html=await homepage.text();
+          assert(homepage.ok&&homepage.headers.get('x-sonara-duration-shell')==='auto-v1'&&
+            html.length>3000&&html.length<80000,'Existing V1 homepage unexpected');
+          const old=/<script\b[^>]*id=["']sonara-remix-auto-duration-v1["'][^>]*>[\s\S]*?<\/script>/gi;
+          assert([...html.matchAll(old)].length===1,'Current V1 script missing or duplicated');
+          const source=readFileSync('cloudflare/sonara-remix-pro-auto-duration-runtime.js','utf8');
+          assert(source.includes('data-sonara-auto-duration')&&source.includes('window.__sonaraRemixAutoDurationV1'),
+            'V2 user-visible browser script missing');
+          const modified=html.replace(old,'').replace(/<\/head>/i,
+            '<script id="sonara-remix-auto-duration-v2">'+source+'<\/script></head>');
+          assert(!modified.includes('sonara-remix-auto-duration-v1')&&
+            modified.includes('sonara-remix-auto-duration-v2'),'Failed patch');
+          const headers={'content-type':'text/html; charset=UTF-8',
+            'cache-control':'no-store, max-age=0',
+            'x-sonara-duration-shell':'auto-v2',
+            'x-content-type-options':'nosniff'};
+          for(const name of ['content-security-policy','permissions-policy','referrer-policy',
+            'x-frame-options','strict-transport-security']){
+            const value=homepage.headers.get(name);if(value)headers[name]=value;
+          }
+          const code=[
+            'const html='+JSON.stringify(modified)+';',
+            'const headers='+JSON.stringify(headers)+';',
+            'export default {async fetch(req){',
+            'const u=new URL(req.url);',
+            "if(req.method!=='GET'&&req.method!=='HEAD')return new Response('Method not allowed',{status:405});",
+            "if(!['/','/index.html','/studio','/remix'].includes(u.pathname))return new Response('Not found',{status:404});",
+            "return new Response(req.method==='HEAD'?null:html,{status:200,headers});",
+            '}};'
+          ].join('\n');
+          const form=new FormData();
+          form.set('metadata',new Blob([JSON.stringify({
+            main_module:'auto-v2.mjs',compatibility_date:'2026-08-23'})],
+            {type:'application/json'}),'metadata.json');
+          form.set('auto-v2.mjs',new Blob([code],{type:'application/javascript+module'}),'auto-v2.mjs');
+          const res=await fetch(root+'/accounts/'+account+'/workers/scripts/'+next,
+            {method:'PUT',headers:auth,body:form,signal:AbortSignal.timeout(35000)});
+          const payload=await res.json().catch(()=>({}));
+          assert(res.ok&&payload.success!==false,'Isolated stage upload failed '+res.status);
+          await api('/accounts/'+account+'/workers/scripts/'+next+'/subdomain',
+            'POST',{enabled:true,previews_enabled:false});
+          const subdomain=(await api('/accounts/'+account+'/workers/subdomain'))?.subdomain;
+          assert(/^[a-z0-9-]+$/.test(subdomain||''),'workers.dev domain missing');
+          const preview='https://'+next+'.'+subdomain+'.workers.dev/';
+          let good=false;
+          for(let i=0;i<6;i++){
+            if(i)await new Promise(r=>setTimeout(r,2000));
+            const r=await fetch(preview+'?verify='+i,{
+              headers:{'cache-control':'no-store'},signal:AbortSignal.timeout(15000)});
+            good=r.ok&&r.headers.get('x-sonara-duration-shell')==='auto-v2'&&
+              (await r.text())===modified;
+            if(good)break;
+          }
+          assert(good,'Isolated staging HTML mismatch; routes untouched');
+          assert((await api(main)).deployments?.[0]?.versions?.[0]?.version_id===rev,
+            'Main Worker changed during staging');
+          const before=await api(routePath);
+          assert(before.some(r=>r.id===home[0].id&&r.script===original)&&
+            extras.every(pattern=>!before.some(r=>r.pattern===pattern)),
+            'Production route collision before switch');
+          const created=[];
+          let changed=false,success=false;
+          try{
+            for(const pattern of extras){
+              const response=await api(routePath,'POST',{pattern,script:next});
+              assert(response?.id,'New route id missing');
+              created.push(response.id);
+            }
+            await api(routePath+'/'+home[0].id,'PUT',
+              {pattern:'sonaraenterprise.com',script:next});
+            changed=true;
+            await new Promise(r=>setTimeout(r,4500));
+            const verifyPaths=['https://sonaraenterprise.com/',
+              'https://sonaraenterprise.com/studio','https://sonaraenterprise.com/remix',
+              'https://www.sonaraenterprise.com/'];
+            for(const url of verifyPaths){
+              let valid=false;
+              for(let i=0;i<5;i++){
+                const r=await fetch(url,{headers:{'cache-control':'no-store',Accept:'text/html'},
+                  signal:AbortSignal.timeout(15000)});
+                const text=await r.text();
+                valid=r.ok&&r.headers.get('x-sonara-duration-shell')==='auto-v2'&&
+                  text.includes('sonara-remix-auto-duration-v2')&&!text.includes('sonara-remix-auto-duration-v1');
+                if(valid)break;
+                await new Promise(r=>setTimeout(r,1800));
+              }
+              console.log('SONARA_MULTI_ROUTE_VERIFY',JSON.stringify({url,valid}));
+              assert(valid,'Public route failed verification '+url);
+            }
+            await capabilities();
+            const health=await fetch('https://api.sonaraenterprise.com/api/health',
+              {signal:AbortSignal.timeout(15000)});
+            assert(health.ok,'SONARA API health failed');
+            assert((await api(main)).deployments?.[0]?.versions?.[0]?.version_id===rev,
+              'Main V3 Worker changed');
+            const final=await api(routePath);
+            assert(final.some(r=>r.pattern==='sonaraenterprise.com/*'&&r.script==='sonara-enterprise'),
+              'Main site wildcard missing');
+            success=true;
+            console.log('SONARA_MULTI_ROUTE_RELEASE',JSON.stringify({
+              published:true,paths:extras.length+1,version:'auto-v2',
+              mainWorkerUntouched:true,proV3Preserved:true}));
+          } finally {
+            if(!success){
+              if(changed)await api(routePath+'/'+home[0].id,'PUT',
+                {pattern:'sonaraenterprise.com',script:original});
+              for(const id of created.reverse())await api(routePath+'/'+id,'DELETE');
+              const restored=await api(routePath);
+              assert(restored.some(r=>r.id===home[0].id&&r.script===original)&&
+                extras.every(pattern=>!restored.some(r=>r.pattern===pattern)),
+                'CRITICAL: rollback was not complete');
+              console.log('SONARA_MULTI_ROUTE_RELEASE',JSON.stringify({rolledBack:true}));
+            }
+          }
+          NODE
