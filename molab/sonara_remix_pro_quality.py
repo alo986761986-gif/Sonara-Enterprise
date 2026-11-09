@@ -176,8 +176,9 @@ def release_gate(arranged, generated, master, *, expected_seconds, require_b_mot
         "master": reports[2],
         "perceptualFusionVerified": False,
         "humanListeningRequired": True,
-        "bMotifArranged": bool(require_b_motif),
-        "method": "post-cover-technical-veto-v1",
+        "bReferenceConditioningRequested": bool(require_b_motif),
+        "bReferenceInfluenceVerified": False,
+        "method": "post-cover-technical-veto-v2",
     }
 
 
