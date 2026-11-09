@@ -65,7 +65,7 @@ def worker_processes():
             if not pid.name.isdigit():
                 continue
             try:
-                argv = (pid / "cmdline").read_bytes().split(b"\\0")
+                argv = (pid / "cmdline").read_bytes().split(b"\0")
                 # Only match the exact module filename; never log raw args.
                 if any(Path(os.fsdecode(a)).name ==
                        "sonara_remix_pro_r2_agent.py" for a in argv[1:] if a):
