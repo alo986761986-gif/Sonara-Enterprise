@@ -1,0 +1,111 @@
+name: SONARA recover Google root by isolated exact-path Worker
+on:
+  push:
+    branches: [fix/sonara-black-screen-main-safe-20261109]
+    paths: [.github/sonara-root-worker-recovery-trigger]
+permissions: {contents: write}
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    env:
+      CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Publish isolated root-only redirect Worker and routes (never replace production worker)
+        run: |
+          python3 - <<'PY'
+          import os,json,urllib.request,urllib.error,time,sys
+          result={'success':False,'production_worker_untouched':True,'audio_untouched':True,'created_routes':[]}
+          def save(message,exitcode):
+            result['stage']=message
+            with open('.github/sonara-root-worker-result.json','w') as f:json.dump(result,f,indent=2)
+            print('SONARA_ROOT_WORKER='+json.dumps(result),flush=True)
+            sys.exit(exitcode)
+          token=os.getenv('CF_TOKEN','').strip()
+          if not token:save('CF_TOKEN_MISSING',1)
+          api='https://api.cloudflare.com/client/v4'
+          def call(path,method='GET',payload=None,raw=None,ctype='application/json'):
+            headers={'Authorization':'Bearer '+token,'Accept':'application/json','Content-Type':ctype}
+            data=raw if raw is not None else (json.dumps(payload).encode() if payload is not None else None)
+            request=urllib.request.Request(api+path,data=data,method=method,headers=headers)
+            try:
+              with urllib.request.urlopen(request,timeout=28) as response:
+                res=json.load(response)
+                return res if isinstance(res,dict) else {}
+            except urllib.error.HTTPError as e:
+              body=e.read(5000)
+              try:obj=json.loads(body)
+              except:obj={}
+              return {'success':False,'http':e.code,'codes':[v.get('code') for v in obj.get('errors',[]) if isinstance(v,dict)]}
+            except Exception as e:return {'success':False,'error':type(e).__name__}
+          zones=call('/zones?name=sonaraenterprise.com&per_page=10')
+          zone=next((z for z in zones.get('result',[]) if z.get('name')=='sonaraenterprise.com'),None)
+          if not zone:save('ZONE_NOT_FOUND',1)
+          zoneid=zone['id'];account=zone['account']['id']
+          paths=['sonaraenterprise.com','www.sonaraenterprise.com']
+          current=call('/zones/'+zoneid+'/workers/routes')
+          if current.get('success') is not True:
+            result['routes_read_http']=current.get('http')
+            save('ROUTES_READ_DENIED',1)
+          names=set(paths)
+          routes=current.get('result',[])
+          for host in paths:
+            colliding=[r for r in routes if r.get('pattern') in (host,host+'/')]
+            if colliding:
+              result['existing_exact_route']=host
+              save('EXACT_ROUTE_EXISTS_REFUSING_OVERWRITE',1)
+          script='sonara-home-root-redirect-20261109'
+          source=b"""addEventListener('fetch',event=>{const url=new URL(event.request.url);if((url.hostname==='sonaraenterprise.com'||url.hostname==='www.sonaraenterprise.com')&&url.pathname==='/'&&!url.search){event.respondWith(new Response(null,{status:302,headers:{Location:'https://sonaraenterprise.com/?refresh=20261109','Cache-Control':'no-store,max-age=0','X-Sonara-Home-Recovery':'root-js-rescue-v1'}}));}else{event.respondWith(new Response('SONARA root recovery: unexpected route', {status:404,headers:{'Cache-Control':'no-store'}}));}});"""
+          put=call('/accounts/'+account+'/workers/scripts/'+script,method='PUT',raw=source,ctype='application/javascript')
+          if put.get('success') is not True:
+            result['worker_create_http']=put.get('http');result['worker_create_errors']=put.get('codes')
+            save('ISOLATED_WORKER_UPLOAD_REJECTED',1)
+          result['isolated_worker_created']=True
+          for host in paths:
+            response=call('/zones/'+zoneid+'/workers/routes','POST',{'pattern':host,'script':script})
+            if response.get('success') is not True:
+              result['route_failure_host']=host;result['route_failure_http']=response.get('http')
+              result['route_failure_codes']=response.get('codes')
+              for previous in result['created_routes']:
+                call('/zones/'+zoneid+'/workers/routes/'+previous['id'],'DELETE')
+              result['created_routes']=[]
+              save('ROUTE_CREATION_FAILED_ROLLED_BACK',1)
+            route=response.get('result',{})
+            result['created_routes'].append({'host':host,'id':route.get('id')})
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self,req,fp,code,msg,headers,newurl):return None
+          opener=urllib.request.build_opener(NoRedirect())
+          observed=[]
+          for host in paths:
+            matched=False
+            for attempt in range(8):
+              req=urllib.request.Request('https://'+host+'/',headers={'User-Agent':'Mozilla/5.0','Cache-Control':'no-cache'})
+              try:
+                with opener.open(req,timeout=17) as r:code=r.status;location=r.headers.get('Location','')
+              except urllib.error.HTTPError as e:code=e.code;location=e.headers.get('Location','')
+              except Exception:code=0;location=''
+              if code==302 and location=='https://sonaraenterprise.com/?refresh=20261109':matched=True;break
+              time.sleep(2)
+            observed.append({'host':host,'redirect_302':matched})
+          result['tested']=observed
+          if not all(x['redirect_302'] for x in observed):
+            save('ROUTES_INSTALLED_BUT_PUBLIC_VERIFY_INCOMPLETE',1)
+          result['success']=True
+          save('ROOT_REDIRECT_LIVE_VERIFIED',0)
+          PY
+      - name: Persist outcome
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os,json,base64,urllib.request
+          path='.github/sonara-root-worker-result.json'
+          if not os.path.exists(path):raise SystemExit(0)
+          body={'message':'ops: record root-specific rescue Worker outcome','branch':os.environ['GITHUB_REF_NAME'],'content':base64.b64encode(open(path,'rb').read()).decode()}
+          req=urllib.request.Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/contents/'+path,method='PUT',data=json.dumps(body).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'})
+          try:
+            with urllib.request.urlopen(req,timeout=25) as r:print('REPORT_GITHUB_HTTP='+str(r.status))
+          except Exception as e:print('REPORT_SAVE_ERROR='+type(e).__name__)
+          PY
