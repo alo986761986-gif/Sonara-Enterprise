@@ -1,0 +1,6 @@
+{
+  "success": false,
+  "worker_unmodified": true,
+  "gpu_unmodified": true,
+  "stage": "HEALTHY_VARIANT_HTTP_FAILED_HTTPError"
+}
