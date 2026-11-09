@@ -62,7 +62,7 @@ def make_structural_guide(source_a, destination, seconds):
             # w+ enables a bounded in-place correction of the last 120ms;
             # no need to load the entire recording into GPU memory.
             with sf.SoundFile(str(dest), "w+", samplerate=sr,
-                              channels=2, subtype="PCM_16", format="WAV") as out:
+                              channels=2, subtype="PCM_24", format="WAV") as out:
                 src.seek(0)
                 while written < target_frames:
                     if src.tell() >= src.frames:
@@ -167,7 +167,7 @@ def make_independent_style_reference(source_b, destination, max_seconds=45,
                 data = np.repeat(data, 2, axis=1)
             if len(data) != frames or not np.isfinite(data).all() or np.max(np.abs(data)) < 1e-5:
                 raise FusionPlanError("Style reference B is silent or unreadable")
-            sf.write(str(dest), data, src.samplerate, subtype="PCM_16")
+            sf.write(str(dest), data, src.samplerate, subtype="PCM_24")
             return {"revision": FUSION_REVISION, "seconds": round(frames / src.samplerate, 2),
                     "startSeconds": round(start / src.samplerate, 2),
                     "activityBasedSelection": True,
