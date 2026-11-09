@@ -205,11 +205,48 @@ jobs:
                   safe(ok,'Live visual UI route validation failed on '+host+suffix);
                 }
               }
-              const checkJs=await fetch('https://sonaraenterprise.com/?__sonara_remix_v3_visual_asset=js',
-                {signal:AbortSignal.timeout(18000)});
-              safe(checkJs.ok&&String(checkJs.headers.get('content-type')).includes('javascript')&&
-                   (await checkJs.text()).includes('sonara-remix-pro-v3'),
-                   'Live V3 JS asset invalid');
+              // Cloudflare may challenge automated fetch() requests to JS with
+              // 403 even when normal Chrome clients load the same asset. Verify
+              // the real UI with a fresh Chromium browser, not with fetch alone.
+              const liveBrowser=await chromium.launch({headless:true});
+              try {
+                for(const hostname of paths){
+                  const page=await liveBrowser.newPage({viewport:{width:1440,height:900}});
+                  const errors=[];
+                  page.on('pageerror',e=>errors.push(String(e).slice(0,240)));
+                  const response=await page.goto('https://'+hostname+'/',{
+                    waitUntil:'domcontentloaded',timeout:40000});
+                  safe(response?.ok(),'Production page failed to open in Chromium on '+hostname);
+                  await page.evaluate(()=>{
+                    const old=document.createElement('div');
+                    old.className='sonara-remix-pro';
+                    old.textContent='PREVIOUS REMIX PRO UI';
+                    document.body.appendChild(old);
+                  });
+                  let shown=false;
+                  try {
+                    await page.waitForSelector('[data-testid="sonara-remix-pro-v3"]',{
+                      timeout:22000,state:'attached'});
+                    shown=true;
+                  }catch{}
+                  const state=await page.evaluate(()=>{
+                    const panel=document.querySelector('[data-testid="sonara-remix-pro-v3"]');
+                    const legacy=document.querySelector('.sonara-remix-pro:not(.sonara-pro-v3)');
+                    return {
+                      new_panel:!!panel,
+                      old_hidden:legacy?getComputedStyle(legacy).display==='none':false,
+                      file_a:!!panel?.querySelector('[data-testid="sonara-remix-pro-input-a"]'),
+                      file_b:!!panel?.querySelector('[data-testid="sonara-remix-pro-input-b"]'),
+                      auto_duration:!!panel?.querySelector('[data-testid="sonara-remix-pro-auto-duration"]')
+                    };
+                  });
+                  report.live_browser??=[];
+                  report.live_browser.push({hostname,shown,...state,errors:errors.slice(0,3)});
+                  await page.close();
+                  safe(shown&&Object.values(state).every(Boolean),
+                    'Production Remix V3 UI did not render correctly in Chromium on '+hostname);
+                }
+              }finally{await liveBrowser.close();}
               safe((await version())===originalVersion,'Main SONARA backend changed after UI release');
               await cap();
               report.success=true;
