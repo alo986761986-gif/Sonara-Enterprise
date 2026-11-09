@@ -1,7 +1,7 @@
 name: SONARA inspect current Remix V3 UI release run
 on:
   push:
-    branches: [fix/remix-pro-v3-ui-live-overlay-20261109]
+    branches: [fix/remix-pro-v3-real-tab-and-assets-20261109]
     paths: [.github/sonara-visual-run-audit-trigger]
 permissions: {contents: write, actions: read}
 jobs:
