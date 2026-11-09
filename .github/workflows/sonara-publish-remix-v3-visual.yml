@@ -1,0 +1,261 @@
+name: SONARA - Publish Remix Pro V3 visual UI on Cloudflare, no Vercel
+on:
+  push:
+    branches: [fix/remix-pro-v3-ui-live-overlay-20261109]
+    paths: [.github/sonara-publish-remix-v3-visual-trigger]
+permissions: {contents: write}
+concurrency: {group: sonara-remix-pro-visual-v3-rollout, cancel-in-progress: false}
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 24
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+      GH_TOKEN: ${{ github.token }}
+      VERCEL: '0'
+      WORKERS_CI: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v4
+        with: {node-version: '24'}
+      - name: Install npm dependencies and compile isolated V3 React UI
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund --ignore-scripts
+          npx tsx --test src/components/remix/remixDuration.test.ts
+          npx vite build --config vite.remixpro.config.ts
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const js=fs.readFileSync('dist-remix-v3/sonara-remix-v3.js','utf8');
+          const css=fs.readFileSync('dist-remix-v3/sonara-remix-v3.css','utf8');
+          if(js.length<15000||js.length>4_000_000||css.length<1000||css.length>150000)
+            throw Error('Invalid compiled standalone V3 asset size');
+          if(!js.includes('sonara-remix-pro-v3')||!js.includes('sonara-remix-pro-input-a')||
+             !js.includes('sonara-remix-pro-input-b')||!js.includes('expectedDurationSec')||
+             !css.includes('sonara-pro-v3__hero'))
+            throw Error('V3 front-end build is missing required real controls');
+          fs.writeFileSync('cloudflare/sonara-remix-pro-v3-built.mjs',
+            'export const REMIX_V3_JS='+JSON.stringify(js)+';\n'+
+            'export const REMIX_V3_CSS='+JSON.stringify(css)+';\n');
+          console.log('SONARA_V3_UI_BUILT=true');
+          console.log('SONARA_V3_REACT_BYTES='+js.length);
+          console.log('SONARA_V3_CSS_BYTES='+css.length);
+          NODE
+          node --check cloudflare/sonara-remix-pro-visual-v3-worker.mjs
+          node --check cloudflare/sonara-remix-pro-v3-built.mjs
+      - name: Deploy isolated visual Worker (no main-site release)
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN"
+          npx --yes wrangler@latest deploy --config wrangler.remix-pro-visual-v3.jsonc
+      - name: Staging browser + live release with full route rollback
+        run: |
+          npm install --no-save --ignore-scripts --no-audit --no-fund playwright
+          npx playwright install --with-deps chromium
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import {chromium} from 'playwright';
+          const path='.github/sonara-remix-v3-visual-result.json';
+          const report={
+            release:'sonara-remix-pro-v3-visual-20261109',success:false,
+            main_worker_unchanged:true,ace_step_untouched:true,
+            remix_pro_gpu_untouched:true,vercel_used:false,
+            customer_audio_uploaded:false,generated_jobs:0,
+            created_routes:[],changed_routes:[],old_routes:[],checks:[]
+          };
+          const persist=()=>{fs.writeFileSync(path,JSON.stringify(report,null,2));console.log('SONARA_V3_VISUAL_REPORT='+JSON.stringify(report));};
+          try{
+            const token=process.env.CLOUDFLARE_API_TOKEN||'';
+            const cf='https://api.cloudflare.com/client/v4';
+            const safe=(ok,reason)=>{if(!ok)throw Error(reason);};
+            async function api(endpoint,method='GET',value){
+              const r=await fetch(cf+endpoint,{method,
+                headers:{Authorization:'Bearer '+token,...(value===undefined?{}:{'Content-Type':'application/json'})},
+                ...(value===undefined?{}:{body:JSON.stringify(value)}),
+                signal:AbortSignal.timeout(25000)});
+              const body=await r.json().catch(()=>({}));
+              safe(r.ok&&body.success!==false,
+                'Cloudflare API error at '+endpoint.split('/').at(-1)+': HTTP '+r.status+' '+(body.errors||[]).map(e=>e.code).join(','));
+              return body.result;
+            }
+            safe(token.length>20,'Cloudflare API token absent');
+            const zone=(await api('/zones?name=sonaraenterprise.com&per_page=10')).find(z=>z.name==='sonaraenterprise.com');
+            safe(zone?.account?.id,'Production SONARA Cloudflare zone not available');
+            const account=process.env.CLOUDFLARE_ACCOUNT_ID||zone.account.id;
+            safe(account===zone.account.id,'Different Cloudflare account: refused');
+            const mainApi='/accounts/'+account+'/workers/scripts/sonara-enterprise/deployments';
+            const version=async()=>{
+              const x=await api(mainApi);
+              const id=x?.deployments?.[0]?.versions?.[0]?.version_id;
+              safe(id,'Production worker release ID unavailable');
+              return id;
+            };
+            const originalVersion=await version();
+            report.main_version_before=originalVersion;
+            const cap=async()=>{
+              const r=await fetch('https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities',
+                {headers:{'Cache-Control':'no-store'},signal:AbortSignal.timeout(20000)});
+              safe(r.ok,'Remix Pro capability API unavailable');
+              const body=await r.json();
+              safe(body.available===true&&body.fusionAvailable===true&&
+                   body.expectedAgentRevision==='sonara-remix-pro-r2-agent-v3-dual-reference-fusion',
+                   'RTX PRO 6000 / fusion A+B not ready: do not publish UI');
+              return body;
+            };
+            await cap();
+            report.remix_pro_gpu_preflight=true;
+            const sub=await api('/accounts/'+account+'/workers/subdomain');
+            safe(/^[a-z0-9-]+$/.test(sub?.subdomain||''),'Cloudflare staging subdomain missing');
+            const staging='https://sonara-remix-pro-visual-v3.'+sub.subdomain+'.workers.dev';
+            report.staging_host=staging;
+            const stageResp=await fetch(staging+'/',{signal:AbortSignal.timeout(25000)});
+            const stageHtml=await stageResp.text();
+            safe(stageResp.ok&&stageResp.headers.get('x-sonara-remix-visual')===report.release,
+                 'Staging did not return visual V3 Worker');
+            safe(stageHtml.includes('sonara-remix-v3-visual-js')&&
+                 stageHtml.includes('sonara-remix-v3-visual-css')&&
+                 stageHtml.includes('/assets/'),'Staging HTML or original SONARA app missing');
+            const app=await fetch(staging+'/?__sonara_remix_v3_visual_asset=js',{signal:AbortSignal.timeout(20000)});
+            const code=await app.text();
+            safe(app.ok&&String(app.headers.get('content-type')).includes('javascript')&&
+                 code.includes('sonara-remix-pro-v3'),'Staged React JavaScript missing or wrong MIME');
+            const style=await fetch(staging+'/?__sonara_remix_v3_visual_asset=css',{signal:AbortSignal.timeout(20000)});
+            safe(style.ok&&String(style.headers.get('content-type')).includes('text/css')&&
+                 (await style.text()).includes('sonara-pro-v3__hero'),'Staged V3 CSS missing');
+            report.staging_assets_verified=true;
+            const browser=await chromium.launch({headless:true});
+            try{
+              const page=await browser.newPage({viewport:{width:1440,height:900}});
+              const jsErrors=[];
+              page.on('pageerror',e=>jsErrors.push(String(e).slice(0,240)));
+              await page.goto(staging+'/',{waitUntil:'domcontentloaded',timeout:35000});
+              await page.evaluate(()=>{
+                let x=document.createElement('div');
+                x.className='sonara-remix-pro';
+                x.textContent='ORIGINAL SONARA REMIX PRO';
+                document.body.appendChild(x);
+              });
+              await page.waitForSelector('[data-testid="sonara-remix-pro-v3"]',
+                {timeout:25000,state:'attached'});
+              const ui=await page.evaluate(()=>{
+                const panel=document.querySelector('[data-testid="sonara-remix-pro-v3"]');
+                const old=document.querySelector('.sonara-remix-pro:not(.sonara-pro-v3)');
+                return {
+                  new_panel:!!panel,
+                  old_hidden:old?getComputedStyle(old).display==='none':false,
+                  source_a:!!panel?.querySelector('[data-testid="sonara-remix-pro-input-a"]'),
+                  source_b:!!panel?.querySelector('[data-testid="sonara-remix-pro-input-b"]'),
+                  random_duration:!!panel?.querySelector('[data-testid="sonara-remix-pro-auto-duration"]'),
+                  generate:!!panel?.querySelector('[data-testid="sonara-pro-v3-generate"]'),
+                  title:panel?.textContent?.includes('Due brani.')||false
+                };
+              });
+              report.staging_browser=ui;
+              report.staging_browser_errors=jsErrors.slice(0,4);
+              safe(Object.values(ui).every(Boolean),'React Remix Pro V3 failed real browser mount');
+            }finally{await browser.close();}
+            safe((await version())===originalVersion,'Main SONARA Worker changed during staging');
+            const routePath='/zones/'+zone.id+'/workers/routes';
+            const originals=await api(routePath);
+            const paths=['sonaraenterprise.com','www.sonaraenterprise.com'];
+            const patterns=paths.flatMap(host=>[host,host+'/studio',host+'/remix']);
+            const allowed=new Set(['sonara-enterprise','sonara-remix-pro-contract-v4-shell',
+              'sonara-remix-pro-design-v3-shell','sonara-remix-pro-visual-v3']);
+            for(const pattern of patterns){
+              const matches=originals.filter(row=>row.pattern===pattern);
+              safe(matches.length<=1,'Duplicate route, refusing to overwrite: '+pattern);
+              const row=matches[0];
+              safe(!row||allowed.has(row.script),'Unrecognized route owner: '+pattern);
+              report.old_routes.push({pattern,id:row?.id||null,script:row?.script||null});
+            }
+            let changes=[];
+            try{
+              for(const old of report.old_routes){
+                if(old.script==='sonara-remix-pro-visual-v3')continue;
+                const method=old.id?'PUT':'POST';
+                const endpoint=routePath+(old.id?'/'+old.id:'');
+                const row=await api(endpoint,method,{pattern:old.pattern,script:'sonara-remix-pro-visual-v3'});
+                safe(row?.id||old.id,'Route did not confirm updated id '+old.pattern);
+                changes.push({...old,id:old.id||row.id});
+                if(!old.id)report.created_routes.push(old.pattern);
+                else report.changed_routes.push(old.pattern);
+              }
+              for(const host of paths){
+                for(const suffix of ['/','/studio','/remix']){
+                  const url='https://'+host+suffix;
+                  let ok=false,meta={host,suffix};
+                  for(let attempt=0;attempt<6;attempt++){
+                    if(attempt)await new Promise(resolve=>setTimeout(resolve,1500));
+                    try {
+                      const r=await fetch(url,{headers:{Accept:'text/html','Cache-Control':'no-store'},
+                          signal:AbortSignal.timeout(18000)});
+                      const html=await r.text();
+                      meta={host,suffix,status:r.status,bytes:html.length,
+                        visual:r.headers.get('x-sonara-remix-visual'),
+                        injected:html.includes('sonara-remix-v3-visual-js'),
+                        original_home_bundle:html.includes('/assets/index-CVPmYcq7.js')};
+                      ok=r.ok&&meta.visual===report.release&&meta.injected&&
+                         meta.original_home_bundle&&html.length<18000;
+                      if(ok)break;
+                    }catch(e){meta.error=String(e).slice(0,130)}
+                  }
+                  report.checks.push({...meta,ok});
+                  safe(ok,'Live visual UI route validation failed on '+host+suffix);
+                }
+              }
+              const checkJs=await fetch('https://sonaraenterprise.com/?__sonara_remix_v3_visual_asset=js',
+                {signal:AbortSignal.timeout(18000)});
+              safe(checkJs.ok&&String(checkJs.headers.get('content-type')).includes('javascript')&&
+                   (await checkJs.text()).includes('sonara-remix-pro-v3'),
+                   'Live V3 JS asset invalid');
+              safe((await version())===originalVersion,'Main SONARA backend changed after UI release');
+              await cap();
+              report.success=true;
+              report.stage='LIVE_V3_VISUAL_VERIFIED';
+              report.main_version_after=await version();
+            }finally{
+              if(!report.success){
+                report.rollback_attempted=true;
+                report.rollback=[];
+                for(const change of [...changes].reverse()){
+                  try{
+                    if(change.script){
+                      await api(routePath+'/'+change.id,'PUT',{pattern:change.pattern,script:change.script});
+                    }else{
+                      await api(routePath+'/'+change.id,'DELETE');
+                    }
+                    report.rollback.push({pattern:change.pattern,success:true});
+                  }catch(e){report.rollback.push({pattern:change.pattern,success:false,error:String(e).slice(0,120)})}
+                }
+              }
+            }
+          }catch(e){
+            report.stage=report.stage||'RELEASE_FAILED';
+            report.error=String(e?.message||e).slice(0,380);
+          }
+          persist();
+          if(!report.success)process.exitCode=1;
+          NODE
+      - name: Record release outcome to repository without leaking tokens
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os,base64,json,urllib.request
+          p='.github/sonara-remix-v3-visual-result.json'
+          if not os.path.isfile(p):raise SystemExit(0)
+          payload={'message':'ops: record SONARA isolated V3 remix visual live deployment outcome',
+                   'branch':os.environ['GITHUB_REF_NAME'],
+                   'content':base64.b64encode(open(p,'rb').read()).decode()}
+          req=urllib.request.Request(
+            'https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/contents/'+p,
+            method='PUT',data=json.dumps(payload).encode(),
+            headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],
+                     'Accept':'application/vnd.github+json','Content-Type':'application/json'})
+          try:
+            with urllib.request.urlopen(req,timeout=25) as r:
+              print('SONARA_V3_RESULT_SAVED='+str(r.status))
+          except Exception as e:print('SONARA_V3_RESULT_SAVE_ERROR='+type(e).__name__)
+          PY
