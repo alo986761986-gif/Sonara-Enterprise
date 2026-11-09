@@ -1,0 +1,43 @@
+name: Test Dedicated SONARA Remix Pro V4 Pairing
+on:
+  push:
+    branches:
+      - hotfix/remix-pro-v4-dedicated-token-pairing-20261109
+    paths:
+      - 'cloudflare/sonara-r2-https-relay.mjs'
+      - 'cloudflare/sonara-r2-https-relay.test.mjs'
+      - 'wrangler.jsonc'
+      - '.github/workflows/test-remix-pro-v4-pairing.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check source and pairing regression tests
+        run: |
+          node --check cloudflare/sonara-r2-https-relay.mjs
+          node --test cloudflare/sonara-r2-https-relay.test.mjs
+          node --test cloudflare/sonara-remix-pro-r2.test.mjs
+      - name: Check dedicated fingerprint, preserve four legacy fingerprints
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import {readFileSync} from 'node:fs';
+          const vars=JSON.parse(readFileSync('wrangler.jsonc','utf8')).vars;
+          assert.equal(vars.SONARA_REMIX_PRO_TOKEN_SHA256,
+            '58f411a2e21e6a55b1c5678e89590a399d9d014206b05d8aab46a9c23346d845');
+          for (const name of ['SONARA_RELAY_TOKEN_SHA256',
+              'SONARA_RELAY_TOKEN_SHA256_SECONDARY',
+              'SONARA_RELAY_TOKEN_SHA256_TERTIARY',
+              'SONARA_RELAY_TOKEN_SHA256_QUATERNARY']) {
+            assert.match(vars[name], /^[0-9a-f]{64}$/);
+          }
+          console.log('SONARA_V4_PRO_DEDICATED_PAIRING=PASS');
+          NODE

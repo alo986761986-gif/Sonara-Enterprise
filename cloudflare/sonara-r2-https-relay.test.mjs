@@ -63,3 +63,69 @@ test('existing Worker-only secret remains valid separately', async () => {
   const response = await authenticate(secret, { SONARA_RELAY_TOKEN: secret });
   assert.equal(response.status, 200);
 });
+
+
+test('dedicated V4 Pro fingerprint authenticates only matching V3 agent, no legacy relay', async () => {
+  const proToken = 'new-independent-sonara-pro-notebook-credential-for-testing';
+  const fingerprint = hashToken(proToken);
+  const env = {
+    ...pairingEnv,
+    SONARA_REMIX_PRO_ENABLED: 'true',
+    SONARA_REMIX_PRO_BILLING_READY: 'true',
+    SONARA_REMIX_PRO_TOKEN_SHA256: fingerprint,
+    SONARA_AUDIO_BUCKET: {
+      store: new Map(),
+      async put(key, data) { this.store.set(key, data); return {etag:'mock'}; },
+      async get(key) {
+        const val=this.store.get(key);
+        return val===undefined?null:{json:async()=>JSON.parse(val)};
+      }
+    }
+  };
+  const heartbeat = (token, revision) => runtime.fetch(new Request(
+    'https://api.sonaraenterprise.com/api/sonara-relay/pro-heartbeat', {
+      method:'POST',
+      headers:{
+        'x-sonara-relay-token':token,
+        'x-sonara-pro-agent-revision':revision,
+        'content-type':'application/json'
+      },
+      body:JSON.stringify({gpuReady:true,formatsReady:true})
+    }), env, {});
+  const rev='sonara-remix-pro-r2-agent-v3-dual-reference-fusion';
+  assert.equal((await heartbeat(proToken, rev)).status,200);
+  const caps=await runtime.fetch(new Request(
+    'https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities'),env,{});
+  assert.equal(caps.status,200);
+  const data=await caps.json();
+  assert.equal(data.available,true);
+  assert.equal(data.fusionAvailable,true);
+  assert.equal((await heartbeat(proToken+'x', rev)).status,401);
+  assert.equal((await heartbeat(proToken,'sonara-remix-pro-r2-agent-v2-longwav')).status,401);
+  assert.equal((await authenticate(proToken,env)).status,401);
+  assert.equal((await authenticate(primary,env)).status,200);
+});
+
+test('dedicated Pro fingerprint is disabled if missing, malformed or not matching', async () => {
+  const token='independent-pro-agent-token-test-with-sufficient-length';
+  const makeEnv = expected => ({
+    SONARA_RELAY_TOKEN_SHA256:hashToken(primary),
+    SONARA_REMIX_PRO_TOKEN_SHA256: expected,
+    SONARA_REMIX_PRO_ENABLED:'true',
+    SONARA_REMIX_PRO_BILLING_READY:'true',
+    SONARA_R2_RELAY_ENABLED:'true',
+    SONARA_AUDIO_BUCKET:{async put(){throw Error('must not reach storage')}}
+  });
+  const send = (expected, text=token) => runtime.fetch(new Request(
+    'https://api.sonaraenterprise.com/api/sonara-relay/pro-heartbeat',{
+      method:'POST',headers:{
+        'X-Sonara-Relay-Token':text,
+        'X-Sonara-Pro-Agent-Revision':'sonara-remix-pro-r2-agent-v3-dual-reference-fusion',
+        'Content-Type':'application/json'},
+      body:'{"gpuReady":true}'
+    }),makeEnv(expected),{});
+  assert.equal((await send(undefined)).status,401);
+  assert.equal((await send('invalid')).status,401);
+  assert.equal((await send(hashToken(token),token+'x')).status,401);
+  assert.equal((await send(hashToken(token),'short')).status,401);
+});

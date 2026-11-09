@@ -53,6 +53,27 @@ const hasWorkerAuth = async (r,e) => {
   }
   return accepted!==0;
 };
+// Dedicated MoLab Remix Pro pairing. This fingerprint only authorizes Pro
+// endpoints, never the main ACE-Step relay, legacy audio queue or site billing.
+// Existing four agent fingerprints and Worker-only secret remain valid.
+const hasRemixProAuth = async (request, env) => {
+  if (await hasWorkerAuth(request, env)) return true;
+  if (request.headers.get('X-Sonara-Pro-Agent-Revision') !==
+      'sonara-remix-pro-r2-agent-v3-dual-reference-fusion') return false;
+  const supplied = bearer(request);
+  if (supplied.length < 32 || supplied.length > 512 ||
+      ![...supplied].every(char => char.charCodeAt(0) >= 33 && char.charCodeAt(0) <= 126)) return false;
+  const expected = String(env.SONARA_REMIX_PRO_TOKEN_SHA256 || '').trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(expected)) return false;
+  const bytes = new Uint8Array(await crypto.subtle.digest(
+    'SHA-256', new TextEncoder().encode(supplied)));
+  const actual = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+  let diff = 0;
+  for (let index = 0; index < 64; index++) {
+    diff |= actual.charCodeAt(index) ^ expected.charCodeAt(index);
+  }
+  return diff === 0;
+};
 const hasSubmitAuth = (r,e) => Boolean(e.SONARA_INTERNAL_PROXY_SECRET) && r.headers.get('X-Sonara-Internal-Secret')===e.SONARA_INTERNAL_PROXY_SECRET;
 // This metadata is accepted only with the server-side gateway credential.
 const ownerUid = r => {
@@ -158,7 +179,7 @@ export default {
   // never enter this namespace and are not affected if Pro is disabled.
   if(p==='/api/sonara-relay/pro-capabilities'||p.startsWith('/api/sonara-relay/pro-')){
     return handleRemixPro(request,env,ctx,{
-      gateway:hasSubmitAuth,gatewayOwner:ownerUid,user:nativeUser,agent:hasWorkerAuth
+      gateway:hasSubmitAuth,gatewayOwner:ownerUid,user:nativeUser,agent:hasRemixProAuth
     });
   }
   // Read-only authentication probe. No queue claims, storage writes or generation.
