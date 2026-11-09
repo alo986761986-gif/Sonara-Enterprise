@@ -45,7 +45,7 @@ from sonara_remix_pro_toolkit import (
     analyze_audio, combine_two_songs, separate_stems, transparent_master
 )
 from sonara_remix_pro_ace_bridge import render_long_remix as ace_cover
-from sonara_remix_pro_quality import audit_wav
+from sonara_remix_pro_quality import audit_wav, release_gate
 import soundfile as sf
 
 ROOT = Path("/marimo/SONARA-REMIX-PRO")
@@ -545,6 +545,15 @@ def run_job(item, auth_mode):
             master_file = folder / "mastered.wav"
             sf.write(str(master_file), mastered, sr, subtype="PCM_24")
             audit = audit_wav(master_file)
+            # Block technically degraded model results before R2 publication.
+            # Do not claim that signal statistics can prove artistic fusion.
+            gate = release_gate(
+                arranged, generated, master_file,
+                expected_seconds=requested_seconds,
+                require_b_motif=bool(plan.get("bMelodicMotifRole")),
+            )
+            if not gate["acceptedTechnical"]:
+                raise ProAgentError("Post-cover audio quality gate rejected the result")
             if abs(float(audit.get("durationSeconds") or 0) - requested_seconds) > 0.1:
                 raise SourceTransferError("REMIX_DURATION_MISMATCH")
             if audit.get("integratedLufs") is None or audit.get("approxTruePeakDbTp", 0) > -0.8:
