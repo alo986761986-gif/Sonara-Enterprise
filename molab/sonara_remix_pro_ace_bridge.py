@@ -73,7 +73,7 @@ def _status(value):
     text = str(value).lower().strip()
     if text in ("1", "success", "completed", "succeeded", "done", "finished"):
         return "complete"
-    if text in ("-1", "failed", "failure", "error", "cancelled", "canceled"):
+    if text in ("2", "-1", "failed", "failure", "error", "cancelled", "canceled"):
         return "failed"
     return "pending"
 
