@@ -748,6 +748,7 @@ def main(argv=None):
         print("PRO_AGENT_AUTHENTICATED=True",flush=True)
         print("PRO_AGENT_REVISION="+REVISION,flush=True)
         print("PRO_SITE_GENERATION_AVAILABLE="+str(caps.get("available") is True),flush=True)
+        print("PRO_V5_AVAILABLE="+str(caps.get("v5Available") is True),flush=True)
         print("PRO_BILLING_GATE_STILL_REQUIRED="+str(caps.get("available") is not True),flush=True)
         print("PRO_JOBS_CLAIMED=0",flush=True)
         print("ACE_STEP_UNMODIFIED=True",flush=True)
