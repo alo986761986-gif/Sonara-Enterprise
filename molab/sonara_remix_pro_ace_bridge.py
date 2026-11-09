@@ -110,8 +110,8 @@ def _result_path(task):
     return find(raw)
 
 
-def render(audio_path, output_path, prompt, *, mode="required", strength=0.76,
-           noise=0.14, timeout_seconds=1600, bpm=None, key=None):
+def render(audio_path, output_path, prompt, *, mode="required", strength=0.86,
+           noise=0.0, timeout_seconds=1600, bpm=None, key=None):
     """Use one real local ACE-Step task to reimagine the combined 2-song stem mix."""
     source = pathlib.Path(audio_path).expanduser().resolve(strict=True)
     output = pathlib.Path(output_path).expanduser().resolve()
@@ -119,7 +119,7 @@ def render(audio_path, output_path, prompt, *, mode="required", strength=0.76,
         raise ACEBridgeError("Real WAV source required, under 512 MiB")
     if not str(prompt).strip():
         raise ACEBridgeError("An explicit musical remix instruction is required")
-    if not 0.35 <= strength <= 0.92 or not 0.04 <= noise <= 0.30:
+    if not 0.35 <= strength <= 0.92 or not 0.0 <= noise <= 0.30:
         raise ACEBridgeError("Invalid cover conditioning strength")
     if bpm is not None and not 40 <= bpm <= 220:
         raise ACEBridgeError("BPM outside verified range")
@@ -185,7 +185,7 @@ def render(audio_path, output_path, prompt, *, mode="required", strength=0.76,
 
 
 def render_long_remix(audio_path, output_path, prompt, *, mode="required",
-                      strength=0.76, noise=0.14, bpm=None, key=None,
+                      strength=0.86, noise=0.0, bpm=None, key=None,
                       segment_seconds=90, crossfade_seconds=2,
                       timeout_seconds=3600):
     """Render an exact-duration A+B remix as ONE stitched WAV.
@@ -261,7 +261,7 @@ def render_long_remix(audio_path, output_path, prompt, *, mode="required",
             n = len(segments)
             source_chunk = tmp / ("source-%03d.wav" % n)
             rendered_chunk = tmp / ("rendered-%03d.wav" % n)
-            sf.write(str(source_chunk), audio, sr, subtype="PCM_16")
+            sf.write(str(source_chunk), audio, sr, subtype="PCM_24")
             remaining = timeout_seconds - (time.monotonic() - start_wall)
             if remaining < 120:
                 raise ACEBridgeError("Long-form ACE-Step timeout before all sections finished")
