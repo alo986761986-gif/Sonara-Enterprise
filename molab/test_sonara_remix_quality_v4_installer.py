@@ -19,10 +19,20 @@ class InstallerV4Tests(unittest.TestCase):
         self.assertEqual(len(installer.EXPECTED), 5)
         self.assertEqual(len(installer.PINNED_COMMIT), 40)
         self.assertIn(installer.PINNED_COMMIT, installer.URL_ROOT)
+        # The original pinned V4 installer stays immutable. V4.1 intentionally
+        # updates only the agent and ACE bridge using its separate pinned guard.
+        from sonara_remix_pro_gpu_v41_hotfix import BLOBS as V41_BLOBS
+        self.assertEqual(len(V41_BLOBS), 2)
         for name, expected in installer.EXPECTED.items():
             with self.subTest(name=name):
                 data = (HERE / name).read_bytes()
-                self.assertEqual(installer.git_blob_sha(data), expected)
+                actual = installer.git_blob_sha(data)
+                if name in V41_BLOBS:
+                    old, new = V41_BLOBS[name]
+                    self.assertEqual(old, expected)
+                    self.assertEqual(actual, new)
+                else:
+                    self.assertEqual(actual, expected)
                 compile(data, name, "exec")
 
     def test_live_agent_is_detected_without_relying_on_lock(self):
