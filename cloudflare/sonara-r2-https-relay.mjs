@@ -62,7 +62,7 @@ const hasRemixProAuth = async (request, env) => {
       'sonara-remix-pro-r2-agent-v3-dual-reference-fusion') return false;
   const supplied = bearer(request);
   if (supplied.length < 32 || supplied.length > 512 ||
-      /[^\\x21-\\x7e]/.test(supplied)) return false;
+      ![...supplied].every(char => char.charCodeAt(0) >= 33 && char.charCodeAt(0) <= 126)) return false;
   const expected = String(env.SONARA_REMIX_PRO_TOKEN_SHA256 || '').trim().toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(expected)) return false;
   const bytes = new Uint8Array(await crypto.subtle.digest(
