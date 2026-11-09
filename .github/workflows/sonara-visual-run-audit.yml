@@ -17,7 +17,7 @@ jobs:
         shell: bash
         run: |
           python3 - <<'PY'
-          import os,urllib.request,json,base64
+          import os,urllib.request,urllib.error,json,base64
           repo=os.environ['GITHUB_REPOSITORY'];branch=os.environ['GITHUB_REF_NAME']
           token=os.environ['GH_TOKEN']
           req=urllib.request.Request('https://api.github.com/repos/'+repo+'/actions/runs?branch='+branch+'&per_page=40',
@@ -32,6 +32,12 @@ jobs:
           path='.github/sonara-visual-run-audit-result.json'
           payload={'message':'diag: record current V3 React UI release run status',
             'branch':branch,'content':base64.b64encode(json.dumps({'runs':runs},indent=2).encode()).decode()}
+          prior='https://api.github.com/repos/'+repo+'/contents/'+path+'?ref='+branch
+          try:
+            with urllib.request.urlopen(urllib.request.Request(prior,headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json'}),timeout=20) as r:
+              payload['sha']=json.load(r)['sha']
+          except urllib.error.HTTPError as error:
+            if error.code!=404:raise
           rq=urllib.request.Request('https://api.github.com/repos/'+repo+'/contents/'+path,
             data=json.dumps(payload).encode(),method='PUT',headers={
             'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','Content-Type':'application/json'})
