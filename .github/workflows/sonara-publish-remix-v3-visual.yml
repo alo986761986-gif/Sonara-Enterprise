@@ -43,7 +43,7 @@ jobs:
           console.log('SONARA_V3_REACT_BYTES='+js.length);
           console.log('SONARA_V3_CSS_BYTES='+css.length);
           NODE
-          node --check cloudflare/sonara-remix-pro-visual-v3-fixed-worker.mjs
+          node --check cloudflare/sonara-remix-pro-visual-v3-worker.mjs
           node --check cloudflare/sonara-remix-pro-v3-built.mjs
       - name: Deploy isolated visual Worker (no main-site release)
         run: |
