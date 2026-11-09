@@ -6,7 +6,7 @@ import wave
 from pathlib import Path
 from unittest.mock import patch
 
-from sonara_remix_pro_quality import audit_wav, audit_remix
+from sonara_remix_pro_quality import audit_wav, audit_remix, release_gate
 
 
 def make_wave(path, level=0.3):
@@ -50,6 +50,32 @@ class AudioAuditTests(unittest.TestCase):
             self.assertTrue(result["humanListeningRequired"])
             self.assertIn("tempo-alignment-not-verified",result["reviewFlags"])
             self.assertIn("tonal-center-not-verified",result["reviewFlags"])
+
+    def test_release_gate_accepts_normal_clean_audio(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            arranged, generated, master = (root/"arranged.wav",
+                                           root/"generated.wav",
+                                           root/"master.wav")
+            for path in (arranged, generated, master):
+                make_wave(path, level=0.25)
+            verdict = release_gate(arranged, generated, master, expected_seconds=2)
+            self.assertTrue(verdict["acceptedTechnical"], verdict["failures"])
+            self.assertFalse(verdict["perceptualFusionVerified"])
+            self.assertTrue(verdict["humanListeningRequired"])
+
+    def test_release_gate_rejects_silent_generated_audio(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            arranged, generated, master = (root/"arranged.wav",
+                                           root/"generated.wav",
+                                           root/"master.wav")
+            make_wave(arranged, level=0.25)
+            make_wave(generated, level=0.0)
+            make_wave(master, level=0.0)
+            verdict = release_gate(arranged, generated, master, expected_seconds=2)
+            self.assertFalse(verdict["acceptedTechnical"])
+            self.assertIn("generated-excessive-silence", verdict["failures"])
 
     def test_bad_high_peaks_are_not_reported_as_professional_master(self):
         with tempfile.TemporaryDirectory() as d:
