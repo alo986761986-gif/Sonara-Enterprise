@@ -1,0 +1,111 @@
+name: SONARA restore root route to primary worker with auto rollback
+on:
+  push:
+    branches: [fix/sonara-black-screen-main-safe-20261109]
+    paths: [.github/sonara-restore-primary-home-trigger]
+permissions: {contents: write}
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Switch homepage route off broken shell, verify JS, rollback if needed
+        run: |
+          python3 - <<'PY'
+          import os,json,sys,time,re,urllib.request,urllib.error
+          result={'success':False,'api_unmodified':True,'music_worker_unmodified':True,'gpu_unmodified':True,'previous_routes':[],'changes':[],'checks':[]}
+          def finish(stage,exitcode=1):
+            result['stage']=stage
+            with open('.github/sonara-restore-primary-home-result.json','w') as f:json.dump(result,f,indent=2)
+            print('SONARA_PRIMARY_HOME_RECOVERY='+json.dumps(result),flush=True)
+            sys.exit(exitcode)
+          token=os.getenv('CLOUDFLARE_API_TOKEN','')
+          if not token:finish('CF_TOKEN_MISSING')
+          def api(path,method='GET',body=None):
+            req=urllib.request.Request('https://api.cloudflare.com/client/v4'+path,method=method,data=json.dumps(body).encode() if isinstance(body,dict) else None,headers={'Authorization':'Bearer '+token,'Content-Type':'application/json','Accept':'application/json'})
+            try:
+              with urllib.request.urlopen(req,timeout=28) as r:return json.load(r)
+            except urllib.error.HTTPError as e:
+              try:err=json.loads(e.read(3000))
+              except:err={}
+              return {'success':False,'http':e.code,'errors':[v.get('code') for v in err.get('errors',[]) if isinstance(v,dict)]}
+            except Exception as e:return {'success':False,'error':type(e).__name__}
+          zone=next((z for z in api('/zones?name=sonaraenterprise.com&per_page=5').get('result',[]) if z.get('name')=='sonaraenterprise.com'),None)
+          if not zone:finish('ZONE_NOT_FOUND')
+          prefix='/zones/'+zone['id']+'/workers/routes'
+          listing=api(prefix)
+          if not listing.get('success'):finish('ROOT_ROUTES_READ_DENIED')
+          targets=['sonaraenterprise.com','www.sonaraenterprise.com']
+          for host in targets:
+            routes=[r for r in listing.get('result',[]) if r.get('pattern') in (host,host+'/')]
+            if len(routes)!=1:
+              result['unmatched_host']=host
+              finish('EXACT_HOST_ROUTE_NOT_UNIQUE')
+            route=routes[0]
+            result['previous_routes'].append({'host':host,'id':route.get('id'),'pattern':route.get('pattern'),'script':route.get('script')})
+          allowed={'sonara-enterprise','sonara-remix-pro-contract-v4-shell'}
+          if any(not r['id'] or r['script'] not in allowed for r in result['previous_routes']):
+            finish('UNEXPECTED_ROUTE_OWNER_REFUSE')
+          # Same-zone dynamic services, API and all non-root paths remain untouched.
+          for route in result['previous_routes']:
+            if route['script']=='sonara-enterprise':continue
+            change=api(prefix+'/'+route['id'],'PUT',{'pattern':route['pattern'],'script':'sonara-enterprise'})
+            if not change.get('success'):
+              result['update_http']=change.get('http')
+              finish('ROOT_ROUTE_UPDATE_DENIED')
+            result['changes'].append(route['host'])
+          # A successful root response must load a genuine JS bundle, not SPA fallback HTML.
+          for host in targets:
+            verified=False
+            last={}
+            for attempt in range(7):
+              try:
+                rq=urllib.request.Request('https://'+host+'/',headers={'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/116 Safari/537.36','Cache-Control':'no-cache'})
+                with urllib.request.urlopen(rq,timeout=20) as res:
+                  html=res.read(100000).decode('utf8','replace')
+                  code=res.status
+                match=re.search(r'/assets/index-[\w-]+\.js',html)
+                last={'home_status':code,'html_size':len(html),'bundle':match.group(0) if match else None}
+                if code==200 and match:
+                  with urllib.request.urlopen('https://'+host+match.group(0),timeout=22) as js:
+                    first=js.read(1024)
+                    jtype=js.headers.get('content-type','').lower()
+                    last['asset_status']=js.status
+                    last['asset_type']=jtype
+                    if js.status==200 and ('javascript' in jtype) and not first.lstrip().startswith(b'<!DOCTYPE html'):
+                      verified=True;break
+              except urllib.error.HTTPError as e:
+                last['probe_http_error']=e.code
+              except Exception as e:last['probe_error']=type(e).__name__
+              time.sleep(2)
+            result['checks'].append({'host':host,'verified':verified,**last})
+          result['success']=all(x['verified'] for x in result['checks'])
+          if not result['success']:
+            result['rollback_attempted']=True
+            restored=[]
+            for route in result['previous_routes']:
+              if route['host'] not in result['changes']:continue
+              r=api(prefix+'/'+route['id'],'PUT',{'pattern':route['pattern'],'script':route['script']})
+              restored.append({'host':route['host'],'success':r.get('success') is True})
+            result['rollback']=restored
+            finish('ROOT_REPAIR_NOT_VERIFIED_ROLLBACK_ATTEMPTED')
+          finish('SONARA_GOOGLE_HOMEPAGE_RESTORED',0)
+          PY
+      - name: Save result to GitHub branch
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os,base64,urllib.request,json
+          path='.github/sonara-restore-primary-home-result.json'
+          if not os.path.exists(path):raise SystemExit(0)
+          payload={'message':'ops: record verified homepage routing and rollback status','branch':os.environ['GITHUB_REF_NAME'],'content':base64.b64encode(open(path,'rb').read()).decode()}
+          req=urllib.request.Request('https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/contents/'+path,method='PUT',data=json.dumps(payload).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'})
+          try:
+            with urllib.request.urlopen(req,timeout=25) as r:print('SONARA_RESULT_GITHUB_HTTP='+str(r.status))
+          except Exception as e:print('SONARA_RESULT_GITHUB_ERROR='+type(e).__name__)
+          PY
