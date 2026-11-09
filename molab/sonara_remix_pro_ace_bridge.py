@@ -229,15 +229,17 @@ def _continuous_section_prompt(master_prompt, index, start_frame, end_frame, tot
         role = "develop the established hook with a controlled new instrumental variation"
     else:
         role = "contrast briefly then return towards the SAME hook and rhythmic foundation"
-    return (
-        str(master_prompt).strip() +
-        " CONTINUOUS ARRANGEMENT SECTION " + str(index + 1) +
+    direction = (
+        "CONTINUOUS ARRANGEMENT SECTION " + str(index + 1) +
         ": " + role + ". Keep one stable BPM, key, vocal identity, drum kit, "
         "bass line style, acoustic space and overall mix balance from adjacent "
         "sections. No unrelated new song, no reset to a fresh intro, no "
         "random melodies. Maintain expressive fills and natural movement. "
-        "Finish phrases musically at the boundary; preserve motif identity."
-    )[:9000]
+        "Finish phrases musically at the boundary; preserve motif identity. "
+    )
+    # Prepend the section direction: otherwise a 9000-char creator prompt can
+    # truncate every section instruction, repeating the same intro.
+    return (direction + str(master_prompt).strip())[:9000]
 
 
 def render_long_remix(audio_path, output_path, prompt, *, mode="required",
