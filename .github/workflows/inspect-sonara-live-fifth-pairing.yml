@@ -44,6 +44,8 @@ jobs:
           console.log('SONARA_CLOUDFLARE_AUTH_CONFIGURED=true');
           console.log('SONARA_FIFTH_BINDING_PRESENT='+fingerprintPresent);
           console.log('SONARA_FIFTH_BINDING_FORMAT_VALID='+fingerprintShape);
+          const expected='d16e2f8c083467d407ae583fb6caa45936b52ab6ccd78688dddcdb6ddbf50d84';
+          console.log('SONARA_FIFTH_FINGERPRINT_MATCH='+String(fifth?.text===expected));
           console.log('SONARA_PRIOR_RELAY_BINDINGS_COUNT='+oldCount);
           console.log('SONARA_RELAY_BINDING_TYPE='+String(fifth?.type||'absent'));
           console.log('SONARA_WORKER_MAIN_WITHOUT_CHANGES=true');
