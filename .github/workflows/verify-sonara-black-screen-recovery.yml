@@ -1,0 +1,49 @@
+name: SONARA frontend black screen recovery - validate only
+on:
+  push:
+    branches:
+      - fix/sonara-google-black-screen-20261109
+    paths:
+      - 'src/main.tsx'
+      - 'src/components/auth/BootAuth.tsx'
+      - 'index.html'
+      - '.github/workflows/verify-sonara-black-screen-recovery.yml'
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install pinned project dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Guard against empty startup and endless auth blank screen
+        run: |
+          node - <<'NODE'
+          const fs=require('node:fs');
+          const html=fs.readFileSync('index.html','utf8');
+          const auth=fs.readFileSync('src/components/auth/BootAuth.tsx','utf8');
+          const main=fs.readFileSync('src/main.tsx','utf8');
+          if(!html.includes('id="sonara-static-startup"'))throw Error('Static first paint missing');
+          if(!auth.includes('AUTH_BOOT_TIMEOUT_MS'))throw Error('Auth timeout missing');
+          if(!auth.includes('data-sonara-session-loading="true"'))throw Error('Auth loading UI missing');
+          if(!main.includes('SonaraBootErrorBoundary'))throw Error('React error boundary missing');
+          console.log('SONARA_BLACK_SCREEN_SOURCE_GUARDS=PASS');
+          NODE
+      - name: Build real Vite assets, no deployment
+        env:
+          WORKERS_CI: '1'
+          VERCEL: '0'
+        run: npm run build
+      - name: Verify generated asset references
+        run: |
+          test -s dist/index.html
+          grep -q 'assets/' dist/index.html
+          grep -q 'sonara-static-startup' dist/index.html
+          echo 'SONARA_BLACK_SCREEN_BUILD=PASS'
