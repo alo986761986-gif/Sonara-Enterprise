@@ -1,0 +1,41 @@
+name: SONARA Remix Pro - safe isolated Python recovery tests
+on:
+  push:
+    branches: [feature/remix-pro-musical-coherence-v2-20261109]
+    paths:
+      - 'molab/recover_sonara_remix_pro_private_runtime.py'
+      - 'molab/test_recover_sonara_remix_pro_private_runtime.py'
+      - '.github/workflows/verify-sonara-remix-private-runtime-recovery.yml'
+  pull_request:
+    paths:
+      - 'molab/recover_sonara_remix_pro_private_runtime.py'
+      - 'molab/test_recover_sonara_remix_pro_private_runtime.py'
+permissions: {contents: read}
+jobs:
+  readonly-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.13'}
+      - name: Verify code without touching GPU, tokens or jobs
+        run: |
+          set -euo pipefail
+          python -m py_compile molab/recover_sonara_remix_pro_private_runtime.py
+          python -m unittest discover -s molab -p 'test_recover_sonara_remix_pro_private_runtime.py' -v
+          python - <<'PY'
+          from pathlib import Path
+          source=Path('molab/recover_sonara_remix_pro_private_runtime.py').read_text()
+          assert 'torch==2.9.1' in source
+          assert 'torchaudio==2.9.1' in source
+          assert 'demucs==4.1.0' in source
+          assert '3.12' in source
+          assert 'SONARA_AGENT_NOT_STARTED=True' in source
+          assert 'def restricted_gpu' in source
+          assert 'def candidates' in source
+          assert 'os.O_EXCL' in source
+          assert '/marimo/SONARA-REMIX-PRO' in source
+          print('SONARA_PRIVATE_RECOVERY_CI_SAFETY=PASS')
+          PY
