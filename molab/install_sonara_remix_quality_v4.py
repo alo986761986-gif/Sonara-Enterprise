@@ -81,7 +81,7 @@ def main():
         print("SONARA_PINNED_COMMIT=" + PINNED_COMMIT)
         print("SONARA_MAIN_ACE_STEP_UNTOUCHED=True")
         print("SONARA_MAIN_RELAY_UNTOUCHED=True")
-        print("SONARA_PRO_AGENT_NOT_RUNNING=True")
+        print("SONARA_PRO_AGENT_EXCLUSIVE_LOCK_ACQUIRED=True")
         if not args.install:
             print("SONARA_INSTALLATION_PERFORMED=False")
             print("SONARA_NEXT_ACTION=RUN_WITH_INSTALL_FLAG")
