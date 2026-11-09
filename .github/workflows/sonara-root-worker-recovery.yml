@@ -56,6 +56,7 @@ jobs:
             colliding=[r for r in routes if r.get('pattern') in (host,host+'/')]
             if colliding:
               result['existing_exact_route']=host
+              result['existing_exact_route_info']=[{'pattern':r.get('pattern'),'script':r.get('script'),'id':r.get('id')} for r in colliding]
               save('EXACT_ROUTE_EXISTS_REFUSING_OVERWRITE',1)
           script='sonara-home-root-redirect-20261109'
           source=b"""addEventListener('fetch',event=>{const url=new URL(event.request.url);if((url.hostname==='sonaraenterprise.com'||url.hostname==='www.sonaraenterprise.com')&&url.pathname==='/'&&!url.search){event.respondWith(new Response(null,{status:302,headers:{Location:'https://sonaraenterprise.com/?refresh=20261109','Cache-Control':'no-store,max-age=0','X-Sonara-Home-Recovery':'root-js-rescue-v1'}}));}else{event.respondWith(new Response('SONARA root recovery: unexpected route', {status:404,headers:{'Cache-Control':'no-store'}}));}});"""
