@@ -1,0 +1,95 @@
+{
+  "success": true,
+  "production_worker_code_unchanged": true,
+  "gpu_untouched": true,
+  "created_music_jobs": 0,
+  "routes_changed": [
+    "sonaraenterprise.com",
+    "sonaraenterprise.com/studio",
+    "sonaraenterprise.com/remix",
+    "www.sonaraenterprise.com",
+    "www.sonaraenterprise.com/studio",
+    "www.sonaraenterprise.com/remix"
+  ],
+  "previous_routes": [
+    {
+      "pattern": "sonaraenterprise.com",
+      "id": "30017d4b24914283ac08595357ecd458",
+      "script": "sonara-enterprise"
+    },
+    {
+      "pattern": "sonaraenterprise.com/studio",
+      "id": "40748b50f47e482885f5d663d8b0147d",
+      "script": "sonara-remix-pro-contract-v4-shell"
+    },
+    {
+      "pattern": "sonaraenterprise.com/remix",
+      "id": "4fddb0abd1274de6b0dd8274191cdb0a",
+      "script": "sonara-remix-pro-contract-v4-shell"
+    },
+    {
+      "pattern": "www.sonaraenterprise.com",
+      "id": "a2a678e632f8481a8214282845cb115a",
+      "script": "sonara-enterprise"
+    },
+    {
+      "pattern": "www.sonaraenterprise.com/studio",
+      "id": "50bdc0b5df404031864a6c3ccade6dbd",
+      "script": "sonara-remix-pro-contract-v4-shell"
+    },
+    {
+      "pattern": "www.sonaraenterprise.com/remix",
+      "id": "4dab046200a9473eb94b1507eb006cff",
+      "script": "sonara-remix-pro-contract-v4-shell"
+    }
+  ],
+  "checks": [
+    {
+      "url": "https://sonaraenterprise.com/",
+      "http": 200,
+      "bytes": 4445,
+      "ui_header": "sonara-remix-pro-v3-visual-20261109",
+      "healthy": true
+    },
+    {
+      "url": "https://sonaraenterprise.com/studio",
+      "http": 200,
+      "bytes": 4445,
+      "ui_header": "sonara-remix-pro-v3-visual-20261109",
+      "healthy": true
+    },
+    {
+      "url": "https://sonaraenterprise.com/remix",
+      "http": 200,
+      "bytes": 4445,
+      "ui_header": "sonara-remix-pro-v3-visual-20261109",
+      "healthy": true
+    },
+    {
+      "url": "https://www.sonaraenterprise.com/",
+      "http": 200,
+      "bytes": 4445,
+      "ui_header": "sonara-remix-pro-v3-visual-20261109",
+      "healthy": true
+    },
+    {
+      "url": "https://www.sonaraenterprise.com/studio",
+      "http": 200,
+      "bytes": 4445,
+      "ui_header": "sonara-remix-pro-v3-visual-20261109",
+      "healthy": true
+    },
+    {
+      "url": "https://www.sonaraenterprise.com/remix",
+      "http": 200,
+      "bytes": 4445,
+      "ui_header": "sonara-remix-pro-v3-visual-20261109",
+      "healthy": true
+    }
+  ],
+  "main_version_before": "e5a42372-1544-4278-8927-5d6f843aec36",
+  "staged_v3_asset_verified": true,
+  "pro_gpu_still_ready": true,
+  "main_version_after": "e5a42372-1544-4278-8927-5d6f843aec36",
+  "stage": "REMIX_V3_NEW_UI_PUBLISHED"
+}
