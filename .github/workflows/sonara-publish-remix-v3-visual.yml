@@ -280,17 +280,23 @@ jobs:
         shell: bash
         run: |
           python3 - <<'PY'
-          import os,base64,json,urllib.request
+          import os,base64,json,urllib.request,urllib.error
           p='.github/sonara-remix-v3-visual-result.json'
           if not os.path.isfile(p):raise SystemExit(0)
           payload={'message':'ops: record SONARA isolated V3 remix visual live deployment outcome',
                    'branch':os.environ['GITHUB_REF_NAME'],
                    'content':base64.b64encode(open(p,'rb').read()).decode()}
+          uri='https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/contents/'+p
+          headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],
+                   'Accept':'application/vnd.github+json','Content-Type':'application/json'}
+          try:
+            existing=urllib.request.Request(uri,headers=headers)
+            with urllib.request.urlopen(existing,timeout=15) as response:
+              payload['sha']=json.load(response)['sha']
+          except urllib.error.HTTPError as error:
+            if error.code!=404:raise
           req=urllib.request.Request(
-            'https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/contents/'+p,
-            method='PUT',data=json.dumps(payload).encode(),
-            headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],
-                     'Accept':'application/vnd.github+json','Content-Type':'application/json'})
+            uri,method='PUT',data=json.dumps(payload).encode(),headers=headers)
           try:
             with urllib.request.urlopen(req,timeout=25) as r:
               print('SONARA_V3_RESULT_SAVED='+str(r.status))
