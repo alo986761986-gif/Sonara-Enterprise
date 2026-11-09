@@ -1,1 +1,3 @@
 Explicit request to restore SONARA homepage from Google to already functioning cached HTML variant, 2026-11-09. No worker or GPU changes.
+
+Retry after verified 2026-11-09 17:53 UTC: known-good JavaScript /assets/index-CVPmYcq7.js HTTP 200 text/javascript.
