@@ -4,7 +4,7 @@ on:
     branches: [fix/remix-pro-v3-real-tab-and-assets-20261109]
     paths: [.github/sonara-publish-remix-v3-visual-trigger]
 permissions: {contents: write}
-concurrency: {group: sonara-remix-pro-visual-v3-fixed-rollout, cancel-in-progress: false}
+concurrency: {group: sonara-remix-pro-visual-v3-fixed2-rollout, cancel-in-progress: false}
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -57,9 +57,9 @@ jobs:
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           import {chromium} from 'playwright';
-          const path='.github/sonara-v3-assets-v2-result.json';
+          const path='.github/sonara-v3-assets-v3-result.json';
           const report={
-            release:'sonara-remix-pro-v3-assets-v2-20261109',success:false,
+            release:'sonara-remix-pro-v3-assets-v3-20261109',success:false,
             main_worker_unchanged:true,ace_step_untouched:true,
             remix_pro_gpu_untouched:true,vercel_used:false,
             customer_audio_uploaded:false,generated_jobs:0,
@@ -108,7 +108,7 @@ jobs:
             report.remix_pro_gpu_preflight=true;
             const sub=await api('/accounts/'+account+'/workers/subdomain');
             safe(/^[a-z0-9-]+$/.test(sub?.subdomain||''),'Cloudflare staging subdomain missing');
-            const staging='https://sonara-remix-pro-visual-v3-fixed.'+sub.subdomain+'.workers.dev';
+            const staging='https://sonara-remix-pro-visual-v3-fixed2.'+sub.subdomain+'.workers.dev';
             report.staging_host=staging;
             const stageResp=await fetch(staging+'/',{signal:AbortSignal.timeout(25000)});
             const stageHtml=await stageResp.text();
@@ -117,11 +117,11 @@ jobs:
             safe(stageHtml.includes('sonara-remix-v3-visual-js')&&
                  stageHtml.includes('sonara-remix-v3-visual-css')&&
                  stageHtml.includes('/assets/'),'Staging HTML or original SONARA app missing');
-            const app=await fetch(staging+'/__sonara-remix-pro-v3.js',{signal:AbortSignal.timeout(20000)});
+            const app=await fetch(staging+'/__sonara-remix-pro-v3-20261109.js',{signal:AbortSignal.timeout(20000)});
             const code=await app.text();
             safe(app.ok&&String(app.headers.get('content-type')).includes('javascript')&&
                  code.includes('sonara-remix-pro-v3'),'Staged React JavaScript missing or wrong MIME');
-            const style=await fetch(staging+'/__sonara-remix-pro-v3.css',{signal:AbortSignal.timeout(20000)});
+            const style=await fetch(staging+'/__sonara-remix-pro-v3-20261109.css',{signal:AbortSignal.timeout(20000)});
             safe(style.ok&&String(style.headers.get('content-type')).includes('text/css')&&
                  (await style.text()).includes('sonara-pro-v3__hero'),'Staged V3 CSS missing');
             report.staging_assets_verified=true;
@@ -174,10 +174,10 @@ jobs:
             const originals=await api(routePath);
             const paths=['sonaraenterprise.com','www.sonaraenterprise.com'];
             const patterns=paths.flatMap(host=>[host,host+'/studio',host+'/remix',
-                host+'/__sonara-remix-pro-v3.js',host+'/__sonara-remix-pro-v3.css']);
+                host+'/__sonara-remix-pro-v3-20261109.js',host+'/__sonara-remix-pro-v3-20261109.css']);
             const allowed=new Set(['sonara-enterprise','sonara-remix-pro-contract-v4-shell',
               'sonara-remix-pro-design-v3-shell','sonara-remix-pro-visual-v3',
-              'sonara-remix-pro-visual-v3-fixed']);
+              'sonara-remix-pro-visual-v3-fixed2']);
             for(const pattern of patterns){
               const matches=originals.filter(row=>row.pattern===pattern);
               safe(matches.length<=1,'Duplicate route, refusing to overwrite: '+pattern);
@@ -188,15 +188,17 @@ jobs:
             let changes=[];
             try{
               for(const old of report.old_routes){
-                if(old.script==='sonara-remix-pro-visual-v3-fixed')continue;
+                if(old.script==='sonara-remix-pro-visual-v3-fixed2')continue;
                 const method=old.id?'PUT':'POST';
                 const endpoint=routePath+(old.id?'/'+old.id:'');
-                const row=await api(endpoint,method,{pattern:old.pattern,script:'sonara-remix-pro-visual-v3-fixed'});
+                const row=await api(endpoint,method,{pattern:old.pattern,script:'sonara-remix-pro-visual-v3-fixed2'});
                 safe(row?.id||old.id,'Route did not confirm updated id '+old.pattern);
                 changes.push({...old,id:old.id||row.id});
                 if(!old.id)report.created_routes.push(old.pattern);
                 else report.changed_routes.push(old.pattern);
               }
+              // Allow exact routes to propagate across Cloudflare edges before browser validation.
+              await new Promise(resolve=>setTimeout(resolve,7000));
               for(const host of paths){
                 for(const suffix of ['/','/studio','/remix']){
                   const url='https://'+host+suffix;
@@ -221,8 +223,8 @@ jobs:
                 }
               }
               for(const hostname of paths){
-                for(const [name,type] of [['__sonara-remix-pro-v3.js','javascript'],
-                                          ['__sonara-remix-pro-v3.css','text/css']]){
+                for(const [name,type] of [['__sonara-remix-pro-v3-20261109.js','javascript'],
+                                          ['__sonara-remix-pro-v3-20261109.css','text/css']]){
                   const asset=await fetch('https://'+hostname+'/'+name,{
                     headers:{'User-Agent':'Mozilla/5.0 (SONARA Production Asset Verification)'},
                     signal:AbortSignal.timeout(18000)});
@@ -330,7 +332,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import os,base64,json,urllib.request,urllib.error
-          p='.github/sonara-v3-assets-v2-result.json'
+          p='.github/sonara-v3-assets-v3-result.json'
           if not os.path.isfile(p):raise SystemExit(0)
           payload={'message':'ops: record SONARA isolated V3 remix visual live deployment outcome',
                    'branch':os.environ['GITHUB_REF_NAME'],
