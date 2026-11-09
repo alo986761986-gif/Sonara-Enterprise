@@ -177,8 +177,8 @@ if(!(await proQuota(e,'verify',id,uid,duration)))return fail('Registrazione priv
       bpmA:body.bpmA===null||body.bpmA===undefined||body.bpmA===''?null:finite(body.bpmA,null,55,200),
       bpmB:body.bpmB===null||body.bpmB===undefined||body.bpmB===''?null:finite(body.bpmB,null,55,200),
       bassFrom:body.bassFrom==='b'?'b':'a',
-      coverStrength:finite(body.coverStrength,.76,.35,.92),
-      coverNoise:finite(body.coverNoise,.14,.04,.3),
+      coverStrength:finite(body.coverStrength,.86,.35,.92),
+      coverNoise:finite(body.coverNoise,0,0,.3),
       key:String(body.key||'').slice(0,40)
     }};
   if(!j.params.prompt)return fail('Scrivi il prompt del Remix Pro.');
