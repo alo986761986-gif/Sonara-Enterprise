@@ -1,0 +1,9 @@
+{
+  "success": false,
+  "main_worker_untouched": true,
+  "gpu_untouched": true,
+  "prior_routes": [],
+  "updated_routes": [],
+  "unexpected_root_script": "sonara-remix-pro-contract-v4-shell",
+  "stage": "UNEXPECTED_EXACT_ROUTE_SCRIPT"
+}
