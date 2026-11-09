@@ -16,6 +16,10 @@ on:
       - 'src/components/remix/SonaraRemixProPanel.tsx'
       - 'src/components/remix/SonaraRemixSection.tsx'
       - 'molab/sonara_remix_pro_r2_agent.py'
+      - 'molab/sonara_remix_pro_ace_bridge.py'
+      - 'molab/sonara_remix_pro_gpu_v41_hotfix.py'
+      - 'molab/test_sonara_remix_gpu_v41_diagnostics.py'
+      - 'molab/test_sonara_remix_gpu_v41_handoff.py'
       - 'molab/install_sonara_remix_quality_v4.py'
       - 'molab/test_sonara_remix_quality_v4_installer.py'
       - 'molab/activate_sonara_remix_pro_v4.py'
@@ -135,6 +139,11 @@ jobs:
         run: |
           python3 -m py_compile molab/sonara_remix_pro_live_qa.py
           python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_live_qa.py' -v
+      - name: Validate detailed V4.1 GPU errors and isolated hotfix without audio generation
+        run: |
+          python3 -m py_compile molab/sonara_remix_pro_gpu_v41_hotfix.py
+          python3 -m unittest discover -s molab -p 'test_sonara_remix_gpu_v41_diagnostics.py' -v
+          python3 -m unittest discover -s molab -p 'test_sonara_remix_gpu_v41_handoff.py' -v
       - name: Build actual SONARA site
         run: |
           npm install

@@ -44,6 +44,14 @@ const FAILURE_NOTICES=Object.freeze({
   SOURCE_TRANSFER_INVALID:'Download audio incompleto o non valido, senza riutilizzare file parziali.',
   REMIX_INVALID_DURATION:'Durata Remix non valida: seleziona da 0:30 a 8:00 in passi da 30 secondi.',
   REMIX_DURATION_MISMATCH:'Il motore non ha prodotto un unico brano A+B della durata scelta. Nessun risultato incompleto è stato pubblicato.',
+  REMIX_ANALYSIS_FAILED:'Analisi dei due brani non riuscita sul worker MoLab. Nessun remix incompleto è stato pubblicato.',
+  REMIX_DEMUCS_FAILED:'Separazione strumenti Demucs non riuscita sulla GPU. Controllare il modello e i codec audio su MoLab.',
+  REMIX_FUSION_PLAN_FAILED:'Impossibile preparare la fusione A+B: i riferimenti musicali non sono utilizzabili.',
+  REMIX_ACE_STEP_FAILED:'La rigenerazione ACE-Step del nuovo brano A+B non è riuscita. Il motore potrebbe aver rifiutato il task.',
+  REMIX_MASTERING_FAILED:'Mastering audio non riuscito sul worker MoLab.',
+  REMIX_AUDIO_QUALITY_REJECTED:'Il remix generato non ha superato i controlli tecnici di qualità; il file non è stato pubblicato.',
+  REMIX_UPLOAD_FAILED:'Il remix è stato elaborato ma il trasferimento audio privato in Cloudflare R2 non è riuscito.',
+  REMIX_COMPLETION_FAILED:'Il master non è stato confermato dal gateway prima della scadenza del lavoro.',
   REMIX_PROCESSING_ERROR:'Errore durante l’elaborazione audio GPU. Verifica lo stato dell’agente MoLab.'
 });
 const FAILURE_PHASES=new Set(['source_a','source_b','normalize_a','normalize_b','processing']);
