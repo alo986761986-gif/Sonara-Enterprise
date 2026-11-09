@@ -31,12 +31,12 @@ class InstallerV4Tests(unittest.TestCase):
             valid = proc / "2019"
             valid.mkdir()
             (valid / "cmdline").write_bytes(
-                b"python\\0/marimo/SONARA-REMIX-PRO/sonara_remix_pro_r2_agent.py\\0"
+                b"python" + bytes([0]) + b"/marimo/SONARA-REMIX-PRO/sonara_remix_pro_r2_agent.py" + bytes([0])
             )
             (valid / "cwd").symlink_to(Path("/marimo/SONARA-REMIX-PRO"))
             other = proc / "2020"
             other.mkdir()
-            (other / "cmdline").write_bytes(b"python\\0/some/other_script.py\\0")
+            (other / "cmdline").write_bytes(b"python" + bytes([0]) + b"/some/other_script.py" + bytes([0]))
             (other / "cwd").symlink_to(Path("/tmp"))
             with mock.patch.object(installer, "ROOT", Path("/marimo/SONARA-REMIX-PRO")):
                 self.assertEqual(installer.active_pro_agent_pids(proc), [2019])
