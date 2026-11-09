@@ -26,10 +26,10 @@ HOME = Path.home() / ".sonara"
 STATE = HOME / "remix-pro-agent-status.json"
 LOG = HOME / "remix-pro-v4-agent.log"
 REVISION = "sonara-remix-pro-r2-agent-v3-dual-reference-fusion"
-PINNED_COMMIT = "c08a76b51c161eb3097ab597ff146e3388981355"
+PINNED_COMMIT = "2a0a8c53bb2f1bc29ea761648b84326a97b8ec11"
 BLOBS = {
     "sonara_remix_pro_r2_agent.py": ("c0e5392a458139bda3d1d3b7297e5b2cb0085dfb",
-                                     "a394d33fcac721246f6821dd62f3a9b529435d01"),
+                                     "a14cc137dd515ebc7066d5dd5b568f784616d624"),
     "sonara_remix_pro_v5.py": (None,
                                "49649c941ba7465fb9ae4b63c3033fd330bfdb9b"),
 }
