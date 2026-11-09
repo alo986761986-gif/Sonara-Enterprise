@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "sonara-remix-pro-visual-v3",
+  "name": "sonara-remix-pro-visual-v3-fixed",
   "main": "cloudflare/sonara-remix-pro-visual-v3-worker.mjs",
   "compatibility_date": "2026-11-08",
   "workers_dev": true,
