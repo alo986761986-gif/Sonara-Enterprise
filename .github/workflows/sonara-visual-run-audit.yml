@@ -1,0 +1,39 @@
+name: SONARA inspect current Remix V3 UI release run
+on:
+  push:
+    branches: [fix/remix-pro-v3-ui-live-overlay-20261109]
+    paths: [.github/sonara-visual-run-audit-trigger]
+permissions: {contents: write, actions: read}
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Capture release workflow execution state
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os,urllib.request,json,base64
+          repo=os.environ['GITHUB_REPOSITORY'];branch=os.environ['GITHUB_REF_NAME']
+          token=os.environ['GH_TOKEN']
+          req=urllib.request.Request('https://api.github.com/repos/'+repo+'/actions/runs?branch='+branch+'&per_page=40',
+            headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json'})
+          with urllib.request.urlopen(req,timeout=20) as r:
+            data=json.load(r)
+          runs=[{'id':x.get('id'),'name':x.get('name'),'status':x.get('status'),
+            'conclusion':x.get('conclusion'),'url':x.get('html_url'),
+            'created_at':x.get('created_at')} for x in data.get('workflow_runs',[])
+            if 'remix' in x.get('name','').lower() or 'visual' in x.get('name','').lower()][:12]
+          print('SONARA_REACT_V3_RUNS='+json.dumps(runs)[:4000])
+          path='.github/sonara-visual-run-audit-result.json'
+          payload={'message':'diag: record current V3 React UI release run status',
+            'branch':branch,'content':base64.b64encode(json.dumps({'runs':runs},indent=2).encode()).decode()}
+          rq=urllib.request.Request('https://api.github.com/repos/'+repo+'/contents/'+path,
+            data=json.dumps(payload).encode(),method='PUT',headers={
+            'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','Content-Type':'application/json'})
+          with urllib.request.urlopen(rq,timeout=25) as r:print('SONARA_RUN_AUDIT_SAVED='+str(r.status))
+          PY
