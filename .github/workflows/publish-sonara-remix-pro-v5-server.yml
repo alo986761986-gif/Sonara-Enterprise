@@ -1,0 +1,185 @@
+name: SONARA Remix Pro - Guarded V5 Server Duration Gateway (No Vercel)
+on:
+  push:
+    branches: [fix/remix-pro-v5-cloudflare-server-20261109]
+    paths: ['.github/workflows/publish-sonara-remix-pro-v5-server.yml']
+  workflow_dispatch:
+permissions: {contents: read}
+concurrency:
+  group: sonara-remix-pro-v5-server-gateway-release
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v4
+        with: {node-version: '24'}
+      - name: Verify exact server contract and public route specificity
+        run: |
+          set -euo pipefail
+          node --check cloudflare/sonara-remix-duration-gateway-v5.mjs
+          node --test cloudflare/sonara-remix-duration-gateway-v5.test.mjs
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const c=JSON.parse(fs.readFileSync('wrangler.remix-duration-v5.jsonc'));
+          if(c.name!=='sonara-remix-duration-gateway-v5'||
+             c.main!=='cloudflare/sonara-remix-duration-gateway-v5.mjs'||
+             c.services?.length!==1||c.services[0].service!=='sonara-enterprise'||
+             c.services[0].binding!=='SONARA_MAIN')
+            throw Error('Unsafe service binding configuration');
+          console.log('SONARA_V5_CONFIG_SAFE=true');
+          NODE
+      - name: Verify production Cloudflare account before any write
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_API_TOKEN}"
+          node --input-type=module <<'NODE'
+          const url='https://api.cloudflare.com/client/v4';
+          const token=process.env.CLOUDFLARE_API_TOKEN;
+          const r=await fetch(url+'/zones?name=sonaraenterprise.com&per_page=20',
+            {headers:{Authorization:'Bearer '+token}});
+          const q=await r.json();
+          if(!r.ok||!q.success)throw Error('Cloudflare zone unavailable');
+          const z=q.result.find(z=>z.name==='sonaraenterprise.com');
+          if(!z?.account?.id)throw Error('SONARA zone has no account');
+          const account=process.env.CLOUDFLARE_ACCOUNT_ID||z.account.id;
+          if(account!==z.account.id)throw Error('Wrong Cloudflare account');
+          const fs=await import('node:fs');
+          fs.appendFileSync(process.env.GITHUB_ENV,
+            'CLOUDFLARE_ACCOUNT_ID='+account+'\nSONARA_CF_ZONE_ID='+z.id+'\n');
+          console.log('SONARA_V5_ZONE_VALIDATED=true');
+          NODE
+      - name: Deploy only isolated gateway Worker, never replace SONARA main
+        run: npx --yes wrangler@latest deploy --config wrangler.remix-duration-v5.jsonc
+      - name: Stage, check unchanged main, attach two precise routes, verify, rollback on failure
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const must=(value,reason)=>{if(!value)throw Error(reason)};
+          const token=process.env.CLOUDFLARE_API_TOKEN,zone=process.env.SONARA_CF_ZONE_ID,
+            account=process.env.CLOUDFLARE_ACCOUNT_ID;
+          const base='https://api.cloudflare.com/client/v4';
+          const auth={Authorization:'Bearer '+token};
+          const api=async(path,method='GET',data)=>{
+            const response=await fetch(base+path,{
+              method,headers:{...auth,...(data===undefined?{}:{'Content-Type':'application/json'})},
+              ...(data===undefined?{}:{body:JSON.stringify(data)}),
+              signal:AbortSignal.timeout(25000)
+            });
+            const x=await response.json().catch(()=>({}));
+            must(response.ok&&x.success!==false,
+              'Cloudflare '+method+' request failed HTTP '+response.status+' '+(x.errors||[]).map(e=>e.code).join(','));
+            return x.result;
+          };
+          const routePath='/zones/'+zone+'/workers/routes';
+          const mainPath='/accounts/'+account+'/workers/scripts/sonara-enterprise/deployments';
+          const mainVersion=async()=>{
+            const result=await api(mainPath);
+            const id=result?.deployments?.[0]?.versions?.[0]?.version_id;
+            must(id,'SONARA main backend revision missing');
+            return id;
+          };
+          const before=await mainVersion();
+          const routes=await api(routePath);
+          const patterns=[
+            'sonaraenterprise.com/api/billing/generate*',
+            'www.sonaraenterprise.com/api/billing/generate*'
+          ];
+          const script='sonara-remix-duration-gateway-v5';
+          must(routes.some(r=>r.pattern==='sonaraenterprise.com/*'&&r.script==='sonara-enterprise'),
+            'SONARA main worker wildcard not detected');
+          must(routes.some(r=>r.pattern==='www.sonaraenterprise.com/*'&&r.script==='sonara-enterprise'),
+            'SONARA www main worker wildcard not detected');
+          must(!patterns.some(pattern=>routes.some(r=>r.pattern===pattern)),
+            'An exact duration route already exists: refuse to overwrite a different release');
+          const site=await api('/accounts/'+account+'/workers/subdomain');
+          must(/^[a-z0-9-]+$/.test(site?.subdomain||''),'Missing staging workers.dev subdomain');
+          const staging='https://'+script+'.'+site.subdomain+'.workers.dev';
+          let healthy=false;
+          for(let i=0;i<8;i++){
+            if(i)await new Promise(resolve=>setTimeout(resolve,1750));
+            try{
+              const r=await fetch(staging+'/__sonara_remix_duration_health',{
+                signal:AbortSignal.timeout(18000),headers:{'Cache-Control':'no-store'}});
+              const q=await r.json();
+              healthy=r.ok&&q.service===script&&q.staging===true&&
+                q.minSeconds===120&&q.maxSeconds===300&&q.stepSeconds===30;
+              if(healthy)break;
+            }catch{}
+          }
+          must(healthy,'Isolated V5 staging health failed: no production route changed');
+          const blocked=await fetch(staging+'/api/billing/generate',{method:'POST',
+            headers:{'content-type':'application/json'},body:'{}',signal:AbortSignal.timeout(17000)});
+          must(blocked.status===404,'Staging could bypass origin authentication');
+          const proHealth=await fetch('https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities',
+            {signal:AbortSignal.timeout(18000),headers:{'Cache-Control':'no-cache'}});
+          must(proHealth.ok,'Original V3 Pro capabilities unavailable');
+          const caps=await proHealth.json();
+          must(caps.available===true&&caps.fusionAvailable===true&&
+            caps.expectedAgentRevision==='sonara-remix-pro-r2-agent-v3-dual-reference-fusion',
+            'V3 agent revision changed unexpectedly');
+          must((await mainVersion())===before,'Main Worker changed before route creation');
+          const created=[];
+          let complete=false;
+          try {
+            for(const pattern of patterns){
+              const r=await api(routePath,'POST',{pattern,script});
+              must(r?.id,'Cloudflare route creation did not return route id');
+              created.push({id:r.id,pattern});
+            }
+            // Only unauthenticated probes are issued: billing rejects them
+            // before any quota reservation or GPU job can be created.
+            for(const hostname of ['sonaraenterprise.com','www.sonaraenterprise.com']){
+              let good=false;
+              for(let i=0;i<8;i++){
+                if(i)await new Promise(resolve=>setTimeout(resolve,1300));
+                const response=await fetch('https://'+hostname+'/api/billing/generate',{
+                  method:'POST',headers:{'Content-Type':'application/json',
+                    'X-Sonara-Remix-Expected-Duration':'240','Cache-Control':'no-store'},
+                  body:JSON.stringify({sonaraRemixPro:true,durationSec:30,
+                    expectedDurationSec:240,sonaraRemixProSourceA:'probe-a',
+                    sonaraRemixProSourceB:'probe-b'}),
+                  signal:AbortSignal.timeout(19000)});
+                const mark=response.headers.get('x-sonara-remix-duration-gateway');
+                const seconds=response.headers.get('x-sonara-remix-duration-seconds');
+                good=mark==='v5'&&seconds==='240'&&
+                  response.status>=400&&response.status<500&&response.status!==409;
+                console.log('SONARA_V5_UNAUTHENTICATED_PROBE',JSON.stringify({
+                  hostname,status:response.status,mark,seconds,good}));
+                if(good)break;
+              }
+              must(good,'Live V5 gateway did not preserve normalized duration on '+hostname);
+            }
+            must((await mainVersion())===before,'SONARA main backend was changed');
+            const after=await api(routePath);
+            must(created.every(row=>after.some(r=>r.id===row.id&&r.pattern===row.pattern&&r.script===script)),
+              'Route mismatch after publication');
+            const check=await fetch('https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities',{
+              signal:AbortSignal.timeout(19000)});
+            must(check.ok&&(await check.json()).expectedAgentRevision===
+              'sonara-remix-pro-r2-agent-v3-dual-reference-fusion','V3 Pro capabilities regression');
+            complete=true;
+            console.log('SONARA_REMIX_PRO_V5_SERVER_RELEASE',JSON.stringify({
+              published:true,script,routeCount:created.length,mainBackendPreserved:true,
+              v3GpuPreserved:true,normalizedSeconds:240,unauthenticatedProbesOnly:true,
+              musicJobsCreated:0}));
+          } finally {
+            if(!complete){
+              for(const r of created.reverse()){
+                try {await api(routePath+'/'+r.id,'DELETE');}
+                catch(e){console.error('CRITICAL_ROUTE_ROLLBACK_FAILED',r.id,String(e));}
+              }
+              const after=await api(routePath);
+              must(!created.some(row=>after.some(x=>x.id===row.id)),
+                'CRITICAL: rollback incomplete; inspect Cloudflare routes immediately');
+              console.log('SONARA_REMIX_PRO_V5_SERVER_RELEASE',JSON.stringify({rolledBack:true}));
+            }
+          }
+          NODE
