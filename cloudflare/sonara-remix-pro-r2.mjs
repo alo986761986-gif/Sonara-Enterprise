@@ -306,7 +306,7 @@ export async function handleRemixPro(req,env,ctx,auth) {
     // During rollout, an older agent may still heartbeat. Never label an
     // old V2 process as fusion-ready merely because gateway code is V3.
     await b.put(heartbeatKey,JSON.stringify({revision:agentRevision(req),gpuReady:true,
-      formatsReady:payload?.formatsReady===true,lastSeen:Date.now()}));
+      formatsReady:payload?.formatsReady===true,v5Ready:payload?.v5Ready===true,lastSeen:Date.now()}));
     return json({authenticated:true,revision:agentRevision(req)});
   }
   if(p==='/api/sonara-relay/pro-claim'&&req.method==='POST'){
