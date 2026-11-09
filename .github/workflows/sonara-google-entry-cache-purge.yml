@@ -1,0 +1,117 @@
+name: SONARA - Google entry cache remediation (Cloudflare only)
+on:
+  push:
+    branches:
+      - fix/sonara-black-screen-main-safe-20261109
+    paths:
+      - .github/sonara-google-entry-purge-now
+  workflow_dispatch:
+permissions:
+  contents: read
+  statuses: write
+concurrency:
+  group: sonara-google-entry-cache-purge
+  cancel-in-progress: false
+jobs:
+  purge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      GH_STATUS_TOKEN: ${{ github.token }}
+    steps:
+      - name: Purge only SONARA homepage cache on both hostnames
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os, sys, urllib.request, urllib.error
+          api='https://api.cloudflare.com/client/v4'
+          token=os.environ.get('CLOUDFLARE_API_TOKEN','').strip()
+          if not token:
+              print('SONARA_CLOUDFLARE_TOKEN_AVAILABLE=False',flush=True)
+              sys.exit(2)
+          headers={'Authorization':f'Bearer {token}','Accept':'application/json'}
+          def call(path,method='GET',payload=None):
+              request=urllib.request.Request(
+                  api+path,method=method,
+                  data=json.dumps(payload).encode() if payload is not None else None,
+                  headers={**headers,'Content-Type':'application/json'})
+              with urllib.request.urlopen(request,timeout=25) as response:
+                  data=json.load(response)
+              if not data.get('success'):
+                  raise RuntimeError('Cloudflare API rejected '+path.split('/')[-1])
+              return data
+          zones=call('/zones?name=sonaraenterprise.com&per_page=20').get('result',[])
+          zone=next((z for z in zones if z.get('name')=='sonaraenterprise.com'),None)
+          if not zone or not zone.get('id'):
+              raise RuntimeError('SONARA zone not found; no changes')
+          urls=['https://sonaraenterprise.com/','https://www.sonaraenterprise.com/']
+          result=call('/zones/'+zone['id']+'/purge_cache','POST',{'files':urls})
+          print('SONARA_CLOUDFLARE_HOME_PURGE_ACCEPTED=True')
+          print('SONARA_PURGED_HOSTS=apex,www')
+          print('SONARA_MUSIC_RELAY_UNTOUCHED=True')
+          print('SONARA_REMIX_PRO_UNTOUCHED=True')
+          print('SONARA_NO_WORKER_DEPLOY=True')
+          print('SONARA_NO_VERCEL=True')
+          PY
+      - name: Inspect Google-referrer homepage responses without authenticating
+        if: success()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib,urllib.request,urllib.error
+          urls=[
+            ('apex','https://sonaraenterprise.com/'),
+            ('www','https://www.sonaraenterprise.com/'),
+            ('refresh','https://sonaraenterprise.com/?refresh=20261109')]
+          for name,url in urls:
+              try:
+                  req=urllib.request.Request(url,headers={
+                      'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36',
+                      'Referer':'https://www.google.com/',
+                      'Accept':'text/html,application/xhtml+xml',
+                      'Cache-Control':'no-cache'})
+                  with urllib.request.urlopen(req,timeout=20) as r:
+                      body=r.read(300000)
+                      print('SONARA_HOME_'+name.upper()+'_HTTP='+str(r.status))
+                      print('SONARA_HOME_'+name.upper()+'_CONTENT_TYPE='+str(r.headers.get('content-type',''))[:90])
+                      print('SONARA_HOME_'+name.upper()+'_CACHE='+str(r.headers.get('cf-cache-status','unknown'))[:40])
+                      print('SONARA_HOME_'+name.upper()+'_SIZE='+str(len(body)))
+                      print('SONARA_HOME_'+name.upper()+'_HTML_SHA256='+hashlib.sha256(body).hexdigest()[:20])
+              except urllib.error.HTTPError as e:
+                  print('SONARA_HOME_'+name.upper()+'_HTTP='+str(e.code))
+              except Exception as e:
+                  print('SONARA_HOME_'+name.upper()+'_FETCH_FAILED='+type(e).__name__)
+          PY
+      - name: Record precise Cloudflare purge outcome
+        if: always()
+        shell: bash
+        env:
+          PURGE_OUTCOME: ${{ steps.purge.outcome }}
+        run: |
+          python3 - <<'PY'
+          import json,os,urllib.request
+          token=os.getenv('GH_STATUS_TOKEN','')
+          repo=os.getenv('GITHUB_REPOSITORY','')
+          sha=os.getenv('GITHUB_SHA','')
+          if not token or not repo or not sha:
+              print('SONARA_GITHUB_STATUS_NOT_AVAILABLE=True')
+              raise SystemExit(0)
+          # The job itself must have completed the purge step; GitHub reports
+          # the outcome of prior steps in the live job conclusion.
+          # This marker certifies execution only, never visual browser repair.
+          payload={
+            'state':'success' if os.getenv('PURGE_OUTCOME')=='success' else 'failure',
+            'context':'sonara/google-entry-cache-purge',
+            'description':('Cloudflare homepage cache purge accepted; verify browser' if os.getenv('PURGE_OUTCOME')=='success' else 'Cloudflare cache purge unavailable'),
+            'target_url':f'https://github.com/{repo}/actions'}
+          req=urllib.request.Request(
+              'https://api.github.com/repos/'+repo+'/statuses/'+sha,
+              data=json.dumps(payload).encode(),method='POST',
+              headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','Content-Type':'application/json'})
+          try:
+              with urllib.request.urlopen(req,timeout=20) as r:
+                  print('SONARA_GITHUB_STATUS_HTTP='+str(r.status))
+          except Exception as error:
+              print('SONARA_GITHUB_STATUS_ERROR='+type(error).__name__)
+          PY
