@@ -18,6 +18,8 @@ on:
       - 'molab/sonara_remix_pro_r2_agent.py'
       - 'molab/install_sonara_remix_quality_v4.py'
       - 'molab/test_sonara_remix_quality_v4_installer.py'
+      - 'molab/activate_sonara_remix_pro_v4.py'
+      - 'molab/test_activate_sonara_remix_pro_v4.py'
       - 'molab/sonara_remix_pro_v3_gpu_qa.py'
       - 'molab/test_sonara_remix_pro_v3_gpu_qa.py'
       - 'molab/sonara_remix_pro_fusion.py'
@@ -66,6 +68,10 @@ jobs:
         run: |
           python3 -m py_compile molab/sonara_remix_pro_v3_gpu_qa.py
           python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_v3_gpu_qa.py' -v
+      - name: Verify guarded V3-to-V4 worker handoff without GPU or network
+        run: |
+          python3 -m py_compile molab/activate_sonara_remix_pro_v4.py
+          python3 -m unittest discover -s molab -p 'test_activate_sonara_remix_pro_v4.py' -v
       - name: MoLab Python syntax only (never downloads models)
         run: python3 -m py_compile molab/sonara_remix_pro_r2_agent.py
       - name: Install real FFmpeg audio decoder for non-skipped codec tests
