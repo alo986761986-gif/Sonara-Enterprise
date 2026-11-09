@@ -104,6 +104,87 @@ def audit_remix(original, remix):
     }
 
 
+
+def release_gate(arranged, generated, master, *, expected_seconds, require_b_motif=False):
+    """Conservative technical veto after model inference, before publishing.
+
+    This detects silent/corrupt, highly compressed or spectrally collapsed
+    exports, but does NOT certify artistic quality or semantic A/B identity.
+    Its results are local-only; no customer waveform is logged.
+    """
+    import numpy as np
+    import soundfile as sf
+    from scipy.signal import resample_poly
+
+    inputs = [source_file(p) for p in (arranged, generated, master)]
+    reports = [audit_wav(p) for p in inputs]
+    reasons = []
+    for name, report in zip(("arranged", "generated", "master"), reports):
+        if abs(report["durationSeconds"] - expected_seconds) > 0.12:
+            reasons.append(name + "-duration-mismatch")
+        if report["nearSilenceFrameRatio"] > 0.22:
+            reasons.append(name + "-excessive-silence")
+        if report["clippedFrameRatio"] > 0.0001:
+            reasons.append(name + "-sample-clipping")
+        if report["crestFactorDb"] < 3.0:
+            reasons.append(name + "-overcompressed")
+        # The guide and raw model output may legitimately peak above
+        # the final mastering ceiling. Enforce true-peak headroom only on
+        # the mastered export; clipping and silence checks still run on all.
+        if name == "master" and report["approxTruePeakDbTp"] > -0.7:
+            reasons.append(name + "-true-peak-too-high")
+
+    def band_energy(path):
+        """Welch-like FFT energy bands from the opening 15 seconds.
+
+        Conservative monitoring only: not a learned perceptual score.
+        """
+        with sf.SoundFile(str(path)) as f:
+            sample = f.read(frames=min(f.frames, 15 * f.samplerate),
+                            dtype="float32", always_2d=True)
+            sr = f.samplerate
+        if sample.shape[0] < sr:
+            return None
+        mono = np.mean(sample, axis=1)
+        mono = resample_poly(mono, 1, max(1, sr // 11025)) if sr > 22050 else mono
+        rate = sr / (max(1, sr // 11025)) if sr > 22050 else sr
+        segment = min(8192, len(mono))
+        f = np.fft.rfftfreq(segment, 1 / rate)
+        bands = [(30, 180), (180, 1200), (1200, 7000)]
+        accum = np.zeros(3, dtype=np.float64)
+        frames = 0
+        for pos in range(0, len(mono) - segment + 1, segment):
+            spectrum = np.abs(np.fft.rfft(mono[pos:pos+segment] * np.hanning(segment)))**2
+            for i, (low, high) in enumerate(bands):
+                mask = (f >= low) & (f < high)
+                accum[i] += float(np.sum(spectrum[mask]))
+            frames += 1
+        if not frames or float(np.max(accum)) <= 1e-12:
+            return None
+        return (accum / frames).tolist()
+
+    before, after = band_energy(inputs[0]), band_energy(inputs[2])
+    if before is None or after is None:
+        reasons.append("missing-useful-spectral-data")
+    else:
+        # A whole band losing >24 dB is suspicious, even allowing creative EQ.
+        for i, (ref, got) in enumerate(zip(before, after)):
+            if ref > 1e-9 and got < ref * 0.00398:
+                reasons.append("spectral-band-%d-collapsed" % i)
+    # Provenance at the arranger level is not evidence that ACE-Step
+    # preserved both references: human listening remains mandatory.
+    return {
+        "acceptedTechnical": not reasons,
+        "failures": reasons,
+        "master": reports[2],
+        "perceptualFusionVerified": False,
+        "humanListeningRequired": True,
+        "bReferenceConditioningRequested": bool(require_b_motif),
+        "bReferenceInfluenceVerified": False,
+        "method": "post-cover-technical-veto-v2",
+    }
+
+
 def main(argv=None):
     p=argparse.ArgumentParser(description="Measure SONARA Remix Pro quality vs original; never claim a fake audio-quality score")
     p.add_argument("--original",required=True)

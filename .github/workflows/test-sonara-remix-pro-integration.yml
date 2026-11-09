@@ -16,12 +16,21 @@ on:
       - 'src/components/remix/SonaraRemixProPanel.tsx'
       - 'src/components/remix/SonaraRemixSection.tsx'
       - 'molab/sonara_remix_pro_r2_agent.py'
+      - 'molab/install_sonara_remix_quality_v4.py'
+      - 'molab/test_sonara_remix_quality_v4_installer.py'
+      - 'molab/activate_sonara_remix_pro_v4.py'
+      - 'molab/test_activate_sonara_remix_pro_v4.py'
+      - 'molab/sonara_remix_pro_v3_gpu_qa.py'
+      - 'molab/test_sonara_remix_pro_v3_gpu_qa.py'
+      - 'molab/sonara_remix_pro_fusion.py'
+      - 'molab/test_sonara_remix_pro_fusion.py'
       - 'molab/test_sonara_remix_pro_multiformat.py'
       - 'molab/test_sonara_remix_pro_import_path.py'
       - 'molab/test_sonara_remix_pro_r2_download.py'
       - 'molab/test_sonara_remix_pro_wavex.py'
       - 'molab/sonara_remix_pro_live_qa.py'
       - 'molab/test_sonara_remix_pro_live_qa.py'
+      - '.github/workflows/deploy-sonara-relay-pairing.yml'
       - '.github/workflows/test-sonara-remix-pro-integration.yml'
   workflow_dispatch:
 permissions:
@@ -37,6 +46,46 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Read-only Cloudflare public status snapshot (non-blocking)
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          for (const [label, url] of [
+            ["SONARA_PUBLIC_WEB", "https://sonaraenterprise.com/"],
+            ["SONARA_PUBLIC_PRO", "https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities"]
+          ]) {
+            try {
+              const response = await fetch(url, {
+                headers: { "accept": "application/json,text/html", "cache-control": "no-cache",
+                           "user-agent": "SONARA-Remix-Pro-ReadOnly-Health/1.0" },
+                redirect: "manual",
+                signal: AbortSignal.timeout(12000),
+              });
+              console.log(label + "_HTTP=" + response.status);
+              if (label === "SONARA_PUBLIC_PRO" && response.ok) {
+                const data = await response.json().catch(() => ({}));
+                console.log("SONARA_PUBLIC_EXPECTED_V3=" +
+                  String(data?.expectedAgentRevision === "sonara-remix-pro-r2-agent-v3-dual-reference-fusion"));
+                console.log("SONARA_PUBLIC_PRO_AVAILABLE=" + String(data?.available === true));
+                console.log("SONARA_PUBLIC_FUSION_AVAILABLE=" + String(data?.fusionAvailable === true));
+              }
+            } catch {
+              console.log(label + "_REACHABLE=false");
+            }
+          }
+          NODE
+      - name: Guard Cloudflare release requires V3 fusion (no stale V2 gate)
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import assert from 'node:assert/strict';
+          const text = readFileSync('.github/workflows/deploy-sonara-relay-pairing.yml', 'utf8');
+          const guard = text.split('Verify live Remix Pro availability after deploy')[1] || '';
+          assert.match(guard, /s\.fusionAvailable===true/);
+          assert.match(guard, /s\.expectedAgentRevision==='sonara-remix-pro-r2-agent-v3-dual-reference-fusion'/);
+          assert.doesNotMatch(guard, /s\.expectedAgentRevision==='sonara-remix-pro-r2-agent-v2-longwav'/);
+          console.log('SONARA_CLOUDFLARE_RELEASE_V3_FUSION_GUARD=PASS');
+          NODE
       - name: Pro billing and source ownership tests
         run: node --test cloudflare/sonara-remix-pro-r2.test.mjs
       - name: Durable Remix Pro native quota accounting tests
@@ -47,6 +96,23 @@ jobs:
         run: node --test cloudflare/sonara-long-wav-upload.test.mjs
       - name: Legacy Remix R2 remains unchanged
         run: node --test cloudflare/sonara-remix-r2.test.mjs
+      - name: Verify V3 dual-reference fusion module offline
+        run: |
+          python3 -m pip install --user numpy soundfile
+          python3 -m py_compile molab/sonara_remix_pro_fusion.py molab/sonara_remix_pro_ace_bridge.py molab/sonara_remix_pro_r2_agent.py
+          python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_fusion.py' -v
+      - name: Verify pinned V4 installer without installing or contacting MoLab
+        run: |
+          python3 -m py_compile molab/install_sonara_remix_quality_v4.py
+          python3 -m unittest discover -s molab -p 'test_sonara_remix_quality_v4_installer.py' -v
+      - name: Validate read-only V3 GPU acceptance runner
+        run: |
+          python3 -m py_compile molab/sonara_remix_pro_v3_gpu_qa.py
+          python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_v3_gpu_qa.py' -v
+      - name: Verify guarded V3-to-V4 worker handoff without GPU or network
+        run: |
+          python3 -m py_compile molab/activate_sonara_remix_pro_v4.py
+          python3 -m unittest discover -s molab -p 'test_activate_sonara_remix_pro_v4.py' -v
       - name: MoLab Python syntax only (never downloads models)
         run: python3 -m py_compile molab/sonara_remix_pro_r2_agent.py
       - name: Install real FFmpeg audio decoder for non-skipped codec tests
