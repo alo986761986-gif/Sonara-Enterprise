@@ -526,6 +526,13 @@ def run_job(item, auth_mode):
                 b, style, activity_audio_path=source_b / "drums.wav")
             if guide_report.get("containsSourceB") is not False or style_report.get("containsSourceA") is not False:
                 raise ProAgentError("A/B source independence was not verified")
+            # Check actual B reference audio before incurring a GPU job.
+            # This verifies an audible reference, never proves stylistic fusion.
+            style_audit = audit_wav(style)
+            if (style_audit.get("integratedLufs") is None
+                    or style_audit.get("nearSilenceFrameRatio", 1) > 0.70
+                    or style_audit.get("rmsDbFs", -120) < -52):
+                raise ProAgentError("B style reference is too quiet for reliable conditioning")
             prompt = build_fusion_prompt(
                 str(params.get("prompt") or ""), report_a, report_b,
                 target_bpm=bpm_a, target_key=params.get("key") or report_a.get("key"),
