@@ -355,7 +355,7 @@ test('V5 is fail-closed until live GPU explicitly advertises the module',async()
   for(const bad of [
     {...offered,genre:'nonexistent'},
     {...offered,bInfluence:91},
-    {...offered,candidateCount:3},
+    {...offered,candidateCount:4},
     {...offered,durationMode:'surprise'}
   ]) {
     assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',bad,gate)).status,400);
