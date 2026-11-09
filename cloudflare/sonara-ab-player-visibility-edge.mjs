@@ -256,7 +256,12 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
           bassFrom: source.sonaraRemixProBassFrom,
           coverStrength: source.audio_cover_strength,
           coverNoise: source.cover_noise_strength,
-          key: source.key_scale
+          key: source.key_scale,
+          v5: source.sonaraRemixProV5 === true,
+          genre: source.sonaraRemixProGenre,
+          bInfluence: source.sonaraRemixProBInfluence,
+          candidateCount: source.sonaraRemixProCandidates,
+          durationMode: source.sonaraRemixProDurationMode
         }
       : await prepareMolabR2RelayPayload({ ...source, sonaraUserUid: uid });
     // Rebuild the internal request: client-supplied owner and gateway headers
