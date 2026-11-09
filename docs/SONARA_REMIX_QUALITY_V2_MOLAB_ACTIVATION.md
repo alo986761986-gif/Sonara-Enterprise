@@ -22,7 +22,7 @@ def verifica_sonara_remix_pro():
     with build_opener(ProxyHandler({})).open(req, timeout=20) as response:
         codice = response.read(200001)
     sha = hashlib.sha1(b"blob " + str(len(codice)).encode("ascii") +
-                       b"\\0" + codice).hexdigest()
+                       b"\0" + codice).hexdigest()
     assert len(codice) < 200000 and sha == sha_atteso, "Diagnosi non verificata"
     exec(compile(codice.decode("utf-8"), "sonara_readonly_diagnostic.py", "exec"),
          {"__name__": "__main__"})
