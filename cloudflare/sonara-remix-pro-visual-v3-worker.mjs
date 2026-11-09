@@ -2,7 +2,7 @@
 // Build job supplies the actual compiled, versioned React app/CSS constants.
 import { REMIX_V3_JS, REMIX_V3_CSS } from './sonara-remix-pro-v3-built.mjs';
 
-const RELEASE='sonara-remix-pro-v3-visual-20261109';
+const RELEASE='sonara-remix-pro-v3-real-tab-20261109';
 const TOKEN='__sonara_remix_v3_visual_asset';
 const EXACT_ROUTES=new Set(['/','/studio','/remix']);
 const HOSTS=new Set(['sonaraenterprise.com','www.sonaraenterprise.com']);
@@ -33,9 +33,9 @@ export default {
     if(!validHost) return new Response('Unexpected host',{status:404});
     if(!env.SONARA_MAIN?.fetch) return new Response('Upstream unavailable',{status:503});
     if(!EXACT_ROUTES.has(url.pathname)) return new Response('Not found',{status:404});
-    if(url.pathname==='/' && request.method==='GET' && url.searchParams.get(TOKEN)==='js')
+    if(url.pathname==='/remix' && request.method==='GET' && url.searchParams.get(TOKEN)==='js')
       return asset(REMIX_V3_JS,'text/javascript; charset=UTF-8');
-    if(url.pathname==='/' && request.method==='GET' && url.searchParams.get(TOKEN)==='css')
+    if(url.pathname==='/studio' && request.method==='GET' && url.searchParams.get(TOKEN)==='css')
       return asset(REMIX_V3_CSS,'text/css; charset=UTF-8');
     const original=staging?new URL(url.pathname+url.search,'https://sonaraenterprise.com'):url;
     const upstreamRequest=staging?new Request(original.toString(),request):request;
@@ -54,8 +54,8 @@ export default {
     const safe=new Response(response.body,{status:response.status,statusText:response.statusText,headers});
     return new HTMLRewriter()
       .on('head',{element(el){
-        el.append('<link id="sonara-remix-v3-visual-css" rel="stylesheet" href="/?'+TOKEN+'=css">', {html:true});
-        el.append('<script id="sonara-remix-v3-visual-js" type="module" src="/?'+TOKEN+'=js"></script>', {html:true});
+        el.append('<link id="sonara-remix-v3-visual-css" rel="stylesheet" href="/studio?'+TOKEN+'=css">', {html:true});
+        el.append('<script id="sonara-remix-v3-visual-js" type="module" src="/remix?'+TOKEN+'=js"></script>', {html:true});
       }})
       .transform(safe);
   }
