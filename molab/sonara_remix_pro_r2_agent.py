@@ -302,7 +302,13 @@ def normalized_audio_source(source, destination):
         raise SourceTransferError("SOURCE_DECODER_FAILED") from exc
 
 def pro_heartbeat_payload():
-    return {"gpuReady": True, "formatsReady": multiformat_ready()}
+    # Advertise V5 only if the isolated module can be imported.
+    try:
+        import sonara_remix_pro_v5 as v5
+        ready = callable(v5.render_candidates)
+    except (ImportError, AttributeError):
+        ready = False
+    return {"gpuReady": True, "formatsReady": multiformat_ready(), "v5Ready": ready}
 
 
 def validate_wav(path):
@@ -584,50 +590,75 @@ def run_job(item, auth_mode):
             )
             failure_step = "ace_step"
             progress(job, lease, "regenerating", renewal)
-            generated = folder / "generated.wav"
-            result = ace_cover(
-                guide, generated, prompt,
-                mode=auth_mode,
-                strength=float(params.get("coverStrength") if params.get("coverStrength") is not None else .72),
-                noise=float(params.get("coverNoise") if params.get("coverNoise") is not None else 0.0),
-                bpm=bpm_a,
-                key=params.get("key") or report_a.get("key") or None,
-                reference_audio_path=style,
-            )
-            if result.get("durationVerified") is not True or result.get("oneContinuousOutput") is not True:
-                raise SourceTransferError("REMIX_DURATION_MISMATCH")
-            if result.get("status")!="completed":
-                raise ProAgentError("Local ACE-Step did not complete the job")
-            failure_step = "mastering"
-            progress(job, lease, "mastering", renewal)
-            sample, sr = sf.read(str(generated), dtype="float32", always_2d=True)
-            if sr < 22050 or sr > 96000 or abs(len(sample) / sr - requested_seconds) > 0.1:
-                raise SourceTransferError("REMIX_DURATION_MISMATCH")
-            import numpy as np
-            if sample.shape[1] == 1:
-                sample = np.repeat(sample, 2, axis=1)
-            elif sample.shape[1] > 2:
-                raise ProAgentError("Only stereo WAV output is supported")
-            mastered, metrics = transparent_master(sample, sr=sr)
-            master_file = folder / "mastered.wav"
-            sf.write(str(master_file), mastered, sr, subtype="PCM_24")
-            audit = audit_wav(master_file)
-            failure_step = "quality_gate"
-            gate = release_gate(
-                guide, generated, master_file,
-                expected_seconds=requested_seconds,
-                require_b_motif=True,
-            )
-            if not gate["acceptedTechnical"]:
-                # Safe fixed-code QC diagnostics only. Never log user audio, tokens,
-                # prompts, private source paths or the customer waveform.
-                print("SONARA PRO quality failure codes:",
-                      ",".join(gate["failures"]), flush=True)
-                raise ProAgentError("Post-cover audio quality gate rejected the result")
-            if abs(float(audit.get("durationSeconds") or 0) - requested_seconds) > 0.1:
-                raise SourceTransferError("REMIX_DURATION_MISMATCH")
-            if audit.get("integratedLufs") is None or audit.get("approxTruePeakDbTp", 0) > -0.8:
-                raise ProAgentError("Mastering verification failed")
+            if params.get("v5") is True:
+                from sonara_remix_pro_v5 import render_candidates, v5_controls, V5QualityRejected
+                v5_controls(params, requested_seconds)
+                try:
+                    choice = render_candidates(
+                        guide=guide, style=style, folder=folder,
+                        base_prompt=prompt, params=params,
+                        b_drums=source_b / "drums.wav", engine=ace_cover,
+                        mode=auth_mode, bpm=bpm_a,
+                        key=params.get("key") or report_a.get("key") or None,
+                        lease_check=lambda step: renewal.verify(),
+                    )
+                except V5QualityRejected:
+                    failure_step = "quality_gate"
+                    raise
+                master_file, audit = choice["master"], choice["audit"]
+                v5_metadata = {
+                    "candidateCount": choice["candidatesGenerated"],
+                    "acceptedCandidates": choice["candidatesAccepted"],
+                    "technicalScore": choice["technicalScore"],
+                    "artisticListeningRequired": True,
+                }
+            else:
+                failure_step = "ace_step"
+                progress(job, lease, "regenerating", renewal)
+                generated = folder / "generated.wav"
+                result = ace_cover(
+                    guide, generated, prompt,
+                    mode=auth_mode,
+                    strength=float(params.get("coverStrength") if params.get("coverStrength") is not None else .72),
+                    noise=float(params.get("coverNoise") if params.get("coverNoise") is not None else 0.0),
+                    bpm=bpm_a,
+                    key=params.get("key") or report_a.get("key") or None,
+                    reference_audio_path=style,
+                )
+                if result.get("durationVerified") is not True or result.get("oneContinuousOutput") is not True:
+                    raise SourceTransferError("REMIX_DURATION_MISMATCH")
+                if result.get("status")!="completed":
+                    raise ProAgentError("Local ACE-Step did not complete the job")
+                failure_step = "mastering"
+                progress(job, lease, "mastering", renewal)
+                sample, sr = sf.read(str(generated), dtype="float32", always_2d=True)
+                if sr < 22050 or sr > 96000 or abs(len(sample) / sr - requested_seconds) > 0.1:
+                    raise SourceTransferError("REMIX_DURATION_MISMATCH")
+                import numpy as np
+                if sample.shape[1] == 1:
+                    sample = np.repeat(sample, 2, axis=1)
+                elif sample.shape[1] > 2:
+                    raise ProAgentError("Only stereo WAV output is supported")
+                mastered, metrics = transparent_master(sample, sr=sr)
+                master_file = folder / "mastered.wav"
+                sf.write(str(master_file), mastered, sr, subtype="PCM_24")
+                audit = audit_wav(master_file)
+                failure_step = "quality_gate"
+                gate = release_gate(
+                    guide, generated, master_file,
+                    expected_seconds=requested_seconds,
+                    require_b_motif=True,
+                )
+                if not gate["acceptedTechnical"]:
+                    # Safe fixed-code QC diagnostics only. Never log user audio, tokens,
+                    # prompts, private source paths or the customer waveform.
+                    print("SONARA PRO quality failure codes:",
+                          ",".join(gate["failures"]), flush=True)
+                    raise ProAgentError("Post-cover audio quality gate rejected the result")
+                if abs(float(audit.get("durationSeconds") or 0) - requested_seconds) > 0.1:
+                    raise SourceTransferError("REMIX_DURATION_MISMATCH")
+                if audit.get("integratedLufs") is None or audit.get("approxTruePeakDbTp", 0) > -0.8:
+                    raise ProAgentError("Mastering verification failed")
             failure_step = "upload"
             progress(job, lease, "uploading", renewal)
             # All stems must be authentic model outputs, not synthesized silence.
@@ -642,7 +673,8 @@ def run_job(item, auth_mode):
             failure_step = "completion"
             response = request("POST",f"/api/sonara-relay/pro-job/{job}/complete",
                                {"actualDurationSeconds": float(audit["durationSeconds"]),
-                                "singleTrack": True, "twoSources": True},lease)
+                                "singleTrack": True, "twoSources": True,
+                                **(v5_metadata if params.get("v5") is True else {})},lease)
             if response.get("ok") is not True:
                 raise ProAgentError("Gateway completion not acknowledged")
         status("waiting_for_authorized_job", lastCompleted=job, lastFailureCode=None)
