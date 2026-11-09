@@ -341,3 +341,43 @@ test('Unknown agent error text never reaches the customer through a FAILED job',
   assert.equal(status.status,'FAILED');
   assert.equal(JSON.stringify(status).includes('do not disclose'),false);
 });
+
+test('V5 is fail-closed until live GPU explicitly advertises the module',async()=>{
+  const e=env();
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',{gpuReady:true,formatsReady:true},agent);
+  const offered={...spec,v5:true,genre:'house',bInfluence:60,
+    candidateCount:2,durationMode:'auto'};
+  assert.equal((await proCapabilities(e)).v5Available,false);
+  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',offered,gate)).status,503);
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',
+    {gpuReady:true,formatsReady:true,v5Ready:true},agent);
+  assert.equal((await proCapabilities(e)).v5Available,true);
+  for(const bad of [
+    {...offered,genre:'nonexistent'},
+    {...offered,bInfluence:91},
+    {...offered,candidateCount:3},
+    {...offered,durationMode:'surprise'}
+  ]) {
+    assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',bad,gate)).status,400);
+  }
+  const response=await call(e,'POST','/api/sonara-relay/pro-enqueue',offered,gate);
+  assert.equal(response.status,202);
+  const claimed=await call(e,'POST','/api/sonara-relay/pro-claim',{},agent);
+  const data=await claimed.json();
+  assert.equal(data.params.v5,true);
+  assert.equal(data.params.genre,'house');
+  assert.equal(data.params.bInfluence,60);
+  assert.equal(data.params.candidateCount,2);
+  const uri='/api/sonara-relay/pro-job/'+data.jobId;
+  const leaseHeaders={...agent,'x-sonara-pro-lease':data.leaseId};
+  assert.equal((await call(e,'PUT',uri+'/audio',wav(),leaseHeaders)).status,200);
+  assert.equal((await call(e,'POST',uri+'/complete',{
+    actualDurationSeconds:30,singleTrack:true,twoSources:true,
+    candidateCount:2,acceptedCandidates:1,technicalScore:87.4
+  },leaseHeaders)).status,200);
+  const result=await (await call(e,'GET',uri,undefined,owner)).json();
+  assert.equal(result.v5Result.candidatesGenerated,2);
+  assert.equal(result.v5Result.candidatesAccepted,1);
+  assert.equal(result.v5Result.technicalScore,87.4);
+  assert.equal(result.v5Result.artisticListeningRequired,true);
+});
