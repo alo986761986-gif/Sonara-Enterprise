@@ -168,6 +168,42 @@ class SONARARemixProTests(unittest.TestCase):
             self.assertIn("drumsB", plan["stemRoles"])
             self.assertIn("vocalsA", plan["stemRoles"])
 
+    def test_dual_source_arrangement_recomposes_b_melodic_answer(self):
+        import numpy as np
+        import soundfile as sf
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            a, b = root/"a.wav", root/"b.wav"
+            fixture(a, seconds=3, frequency=330)
+            fixture(b, seconds=3, frequency=440)
+            sa, sb = root/"stem-a", root/"stem-b"
+            sa.mkdir(); sb.mkdir()
+            for source, folder in ((a, sa), (b, sb)):
+                (folder/"stems-manifest.json").write_text(json.dumps({
+                    "sourceSha256": audio_hash(source),
+                    "separationModel": "htdemucs", "stemsVerified": True
+                }))
+                for name in STEM_NAMES:
+                    sf.write(str(folder/(name+".wav")),
+                             np.full((44100*3, 2), .04, dtype=np.float32), 44100)
+            def fake_stem(folder, name, sr=44100):
+                return np.full((sr*3, 2), .04, dtype=np.float32)
+            with (mock.patch("sonara_remix_pro_toolkit.analyze_audio",
+                    return_value={"tempoBpm":120,"key":None,"beatTimesSeconds":[]}),
+                  mock.patch("sonara_remix_pro_toolkit._load_stem", side_effect=fake_stem),
+                  mock.patch("sonara_remix_pro_toolkit.transparent_master",
+                    side_effect=lambda audio, **kw: (audio, {"testOnly": True}))):
+                result = combine_two_songs(
+                    a, b, sa, sb, root/"out.wav", bpm_a=120, bpm_b=120,
+                    max_seconds=30)
+            self.assertEqual(result["bMelodicMotifRole"], "other")
+            self.assertIn("motifBOther", result["stemRoles"])
+            self.assertEqual(result["creativeArrangement"],
+                             "A-lead/B-answer-16beat-phrases-v1")
+            with sf.SoundFile(str(root/"out.wav")) as out:
+                self.assertEqual(out.frames, 30*44100)
+
+
     def test_reject_same_music_even_if_uploaded_as_two_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
