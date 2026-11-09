@@ -1,1 +1,3 @@
 Diagnose production JS and Cloudflare worker for SONARA broken Google homepage, 2026-11-09.
+
+Post-fix check: Google homepage now returns primary Worker HTML /assets/index-CVPmYcq7.js. Check status after route repair.
