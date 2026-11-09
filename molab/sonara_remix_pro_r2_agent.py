@@ -522,10 +522,16 @@ def run_job(item, auth_mode):
             guide = folder / "structural-guide-a.wav"
             style = folder / "style-reference-b.wav"
             guide_report = make_structural_guide(a, guide, requested_seconds)
-            style_report = make_independent_style_reference(b, style)
+            style_report = make_independent_style_reference(
+                b, style, activity_audio_path=source_b / "drums.wav")
             if guide_report.get("containsSourceB") is not False or style_report.get("containsSourceA") is not False:
                 raise ProAgentError("A/B source independence was not verified")
-            prompt = build_fusion_prompt(str(params.get("prompt") or ""), report_a, report_b)
+            prompt = build_fusion_prompt(
+                str(params.get("prompt") or ""), report_a, report_b,
+                target_bpm=bpm_a, target_key=params.get("key") or report_a.get("key"),
+                bass_from=params.get("bassFrom") or "a",
+                requested_seconds=requested_seconds,
+            )
             progress(job, lease, "regenerating", renewal)
             generated = folder / "generated.wav"
             result = ace_cover(
