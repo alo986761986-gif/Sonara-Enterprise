@@ -67,14 +67,14 @@ def active_pro_agent_pids(proc_root=Path("/proc")):
     agent = (ROOT / "sonara_remix_pro_r2_agent.py").resolve()
     try:
         entries = list(proc_root.iterdir())
-    except OSError as exc:
-        fail("Cannot inspect running processes safely") 
+    except OSError:
+        fail("Cannot inspect running processes safely")
     found = []
     for entry in entries:
         if not entry.name.isdigit():
             continue
         try:
-            argv = (entry / "cmdline").read_bytes().split(b"\\0")
+            argv = (entry / "cmdline").read_bytes().split(bytes([0]))
             cwd = (entry / "cwd").resolve()
         except (OSError, RuntimeError):
             continue
@@ -93,7 +93,7 @@ def active_pro_agent_pids(proc_root=Path("/proc")):
 
 
 def main():
-    p = argparse.ArgumentParser(description="Install isolated, pinned SONARA two-reference fusion V3")
+    p = argparse.ArgumentParser(description="Install isolated, pinned SONARA V4 quality modules")
     p.add_argument("--install", action="store_true", help="Install ONLY if the dedicated Pro agent is stopped; backup first")
     args = p.parse_args()
     if Path(sys.executable).resolve() != VENV_PYTHON.resolve():
