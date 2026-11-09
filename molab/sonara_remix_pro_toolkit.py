@@ -366,7 +366,7 @@ def _creative_phrase_envelope(audio, bpm, *, role, sr=44100):
                 audio[lo:lo+n] *= (1 + (1/target-1)*(1-ramp))[:, None]
                 audio[hi-n:hi] *= (1 + (1/target-1)*ramp)[:, None]
 
-def combine_two_songs(a, b, stems_a, stems_b, destination, *
+def combine_two_songs(a, b, stems_a, stems_b, destination, *,
                       bpm_a=None, bpm_b=None, bass_from="a", max_seconds=180):
     """Create ONE real A+B remix WAV with the exact creator-selected duration.
 
