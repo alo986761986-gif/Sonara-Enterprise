@@ -53,7 +53,7 @@ class OfflineMultiFormatTests(unittest.TestCase):
     def test_agent_syntax_and_verified_heartbeat_contract(self):
         f=source_functions()
         self.assertIn("multiformat_ready",f)
-        self.assertEqual(set(f["pro_heartbeat_payload"]().keys()),{"gpuReady","formatsReady"})
+        self.assertEqual(set(f["pro_heartbeat_payload"]().keys()),{"gpuReady","formatsReady","v5Ready"})
         self.assertTrue(f["pro_heartbeat_payload"]()["gpuReady"])
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
