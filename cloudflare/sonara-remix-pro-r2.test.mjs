@@ -362,7 +362,9 @@ test('V5 is fail-closed until live GPU explicitly advertises the module',async()
   }
   const response=await call(e,'POST','/api/sonara-relay/pro-enqueue',offered,gate);
   assert.equal(response.status,202);
-  const claimed=await call(e,'POST','/api/sonara-relay/pro-claim',{},agent);
+  const olderWorker=await call(e,'POST','/api/sonara-relay/pro-claim',{},agent);
+  assert.equal((await olderWorker.json()).jobId,null);
+  const claimed=await call(e,'POST','/api/sonara-relay/pro-claim',{v5Ready:true},agent);
   const data=await claimed.json();
   assert.equal(data.params.v5,true);
   assert.equal(data.params.genre,'house');
