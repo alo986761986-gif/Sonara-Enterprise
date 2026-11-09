@@ -29,7 +29,7 @@ class ACEBridgeTests(unittest.TestCase):
                 calls.append((path,data,kwargs))
                 if path == "/release_task":
                     self.assertEqual(data["task_type"], "cover")
-                    self.assertEqual(data["audio_cover_strength"], .76)
+                    self.assertEqual(data["audio_cover_strength"], .86)
                     self.assertEqual(data["batch_size"], 1)
                     self.assertEqual(data["audio_duration"], 10)
                     self.assertTrue(Path(data["src_audio_path"]).is_file())
