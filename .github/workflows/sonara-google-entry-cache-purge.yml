@@ -21,6 +21,7 @@ jobs:
       GH_STATUS_TOKEN: ${{ github.token }}
     steps:
       - name: Purge only SONARA homepage cache on both hostnames
+        id: purge
         shell: bash
         run: |
           python3 - <<'PY'
