@@ -204,7 +204,7 @@ def probe_audio_source(path):
     if duration > 900:
         raise SourceTransferError("SOURCE_DURATION_TOO_LONG")
     # Accept bounded genuine multichannel/high-rate input only for controlled
-    # downmix/resample into a normal PCM16 stereo WAV before model inference.
+    # downmix/resample into a high-resolution PCM24 stereo WAV before model inference.
     if not 1 <= channels <= 8:
         raise SourceTransferError("SOURCE_CHANNELS_UNSUPPORTED")
     if not 8000 <= rate <= 192000:
@@ -249,7 +249,7 @@ def normalized_audio_source(source, destination):
             ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
              "-protocol_whitelist", "file",
              "-i", str(source), "-map", "0:a:0", "-vn", "-sn", "-dn",
-             "-ac", "2", "-ar", "44100", "-c:a", "pcm_s16le",
+             "-ac", "2", "-ar", "44100", "-c:a", "pcm_s24le",
              "-f", "wav", "-n", str(destination)],
             check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
             timeout=300
@@ -523,8 +523,8 @@ def run_job(item, auth_mode):
             result = ace_cover(
                 arranged,generated,str(params.get("prompt") or "").strip(),
                 mode=auth_mode,
-                strength=float(params.get("coverStrength") or .76),
-                noise=float(params.get("coverNoise") or .14),
+                strength=float(params.get("coverStrength") if params.get("coverStrength") is not None else .86),
+                noise=float(params.get("coverNoise") if params.get("coverNoise") is not None else 0.0),
                 bpm=float(bpm_a),
                 key=params.get("key") or None
             )
