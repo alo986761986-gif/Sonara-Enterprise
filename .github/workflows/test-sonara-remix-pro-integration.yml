@@ -16,6 +16,8 @@ on:
       - 'src/components/remix/SonaraRemixProPanel.tsx'
       - 'src/components/remix/SonaraRemixSection.tsx'
       - 'molab/sonara_remix_pro_r2_agent.py'
+      - 'molab/install_sonara_remix_quality_v4.py'
+      - 'molab/test_sonara_remix_quality_v4_installer.py'
       - 'molab/sonara_remix_pro_fusion.py'
       - 'molab/test_sonara_remix_pro_fusion.py'
       - 'molab/test_sonara_remix_pro_multiformat.py'
@@ -54,6 +56,10 @@ jobs:
           python3 -m pip install --user numpy soundfile
           python3 -m py_compile molab/sonara_remix_pro_fusion.py molab/sonara_remix_pro_ace_bridge.py molab/sonara_remix_pro_r2_agent.py
           python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_fusion.py' -v
+      - name: Verify pinned V4 installer without installing or contacting MoLab
+        run: |
+          python3 -m py_compile molab/install_sonara_remix_quality_v4.py
+          python3 -m unittest discover -s molab -p 'test_sonara_remix_quality_v4_installer.py' -v
       - name: MoLab Python syntax only (never downloads models)
         run: python3 -m py_compile molab/sonara_remix_pro_r2_agent.py
       - name: Install real FFmpeg audio decoder for non-skipped codec tests
