@@ -1,36 +1,28 @@
 {
   "runs": [
     {
-      "id": 42677160757,
+      "id": 42677632719,
       "name": "SONARA inspect current Remix V3 UI release run",
       "status": "in_progress",
       "conclusion": null,
-      "url": "https://github.com/alo986761986-gif/Sonara-Enterprise/actions/runs/42677160757",
-      "created_at": "2026-11-09T18:47:28Z"
+      "url": "https://github.com/alo986761986-gif/Sonara-Enterprise/actions/runs/42677632719",
+      "created_at": "2026-11-09T18:50:32Z"
     },
     {
-      "id": 42677000039,
+      "id": 42677425715,
       "name": "SONARA - Publish Remix Pro V3 visual UI on Cloudflare, no Vercel",
       "status": "in_progress",
       "conclusion": null,
-      "url": "https://github.com/alo986761986-gif/Sonara-Enterprise/actions/runs/42677000039",
-      "created_at": "2026-11-09T18:46:28Z"
+      "url": "https://github.com/alo986761986-gif/Sonara-Enterprise/actions/runs/42677425715",
+      "created_at": "2026-11-09T18:49:11Z"
     },
     {
-      "id": 42676814193,
+      "id": 42677160757,
       "name": "SONARA inspect current Remix V3 UI release run",
       "status": "completed",
       "conclusion": "success",
-      "url": "https://github.com/alo986761986-gif/Sonara-Enterprise/actions/runs/42676814193",
-      "created_at": "2026-11-09T18:45:19Z"
-    },
-    {
-      "id": 42676722106,
-      "name": "SONARA inspect current Remix V3 UI release run",
-      "status": "completed",
-      "conclusion": "failure",
-      "url": "https://github.com/alo986761986-gif/Sonara-Enterprise/actions/runs/42676722106",
-      "created_at": "2026-11-09T18:44:45Z"
+      "url": "https://github.com/alo986761986-gif/Sonara-Enterprise/actions/runs/42677160757",
+      "created_at": "2026-11-09T18:47:28Z"
     }
   ]
 }
