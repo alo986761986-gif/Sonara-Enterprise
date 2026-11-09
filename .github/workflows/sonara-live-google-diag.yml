@@ -1,0 +1,67 @@
+name: SONARA - diagnose live Google entry without publishing
+on:
+  push:
+    branches: [fix/sonara-black-screen-main-safe-20261109]
+    paths: [.github/workflows/sonara-live-google-diag.yml, .github/sonara-live-google-diag-trigger]
+permissions: {contents: write}
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Compare real public home pages and deployed assets
+        run: |
+          python3 - <<'PY'
+          import json,urllib.request,urllib.error,hashlib,re,os,datetime
+          out={'utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'pages':{},'cloudflare':{}}
+          targets={'google_apex':'https://sonaraenterprise.com/','direct_apex':'https://sonaraenterprise.com/','refresh_apex':'https://sonaraenterprise.com/?refresh=20261109','google_www':'https://www.sonaraenterprise.com/','refresh_www':'https://www.sonaraenterprise.com/?refresh=20261109','pro':'https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities'}
+          for name,url in targets.items():
+            try:
+              headers={'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36','Accept':'text/html,application/xhtml+xml,*/*'}
+              if name.startswith('google'):headers['Referer']='https://www.google.com/search?q=sonara+enterprise'
+              with urllib.request.urlopen(urllib.request.Request(url,headers=headers),timeout=18) as r:
+                b=r.read(500000)
+                out['pages'][name]={'http':r.status,'url':r.geturl(),'type':r.headers.get('content-type'),'cache':r.headers.get('cf-cache-status'),'etag':r.headers.get('etag'),'sha':hashlib.sha256(b).hexdigest()[:24],'bytes':len(b),'has_root':b'id="root"' in b,'has_module':b'/assets/' in b,'static_fallback':b'sonara-static-startup' in b,'ts_unbuilt':b'/src/main.tsx' in b,'scripts':[x.decode('utf8','replace')[:160] for x in re.findall(b'<script[^>]+src="([^"]+)"',b)[:18]]}
+            except urllib.error.HTTPError as e:out['pages'][name]={'http':e.code}
+            except Exception as e:out['pages'][name]={'error':type(e).__name__}
+          for s in out['pages'].get('google_apex',{}).get('scripts',[]):
+            if not s.startswith('/assets/'):continue
+            try:
+              with urllib.request.urlopen('https://sonaraenterprise.com'+s,timeout=15) as r:
+                out.setdefault('assets',[]).append({'path':s,'http':r.status,'type':r.headers.get('content-type')})
+            except Exception as e:out.setdefault('assets',[]).append({'path':s,'error':type(e).__name__})
+          token=os.environ.get('CLOUDFLARE_API_TOKEN','')
+          if token:
+            def cf(path):
+              rq=urllib.request.Request('https://api.cloudflare.com/client/v4'+path,headers={'Authorization':'Bearer '+token,'Accept':'application/json'})
+              with urllib.request.urlopen(rq,timeout=20) as r:return json.load(r)
+            try:
+              zones=cf('/zones?name=sonaraenterprise.com&per_page=5')['result']
+              zone=next((z for z in zones if z.get('name')=='sonaraenterprise.com'),None)
+              out['cloudflare']['zone_found']=bool(zone)
+              if zone:
+                account=os.environ.get('CLOUDFLARE_ACCOUNT_ID') or zone['account']['id']
+                cfg=cf('/accounts/'+account+'/workers/scripts/sonara-enterprise/settings')
+                binds=cfg['result'].get('bindings',[])
+                out['cloudflare']['sixth_fingerprint_binding']=any(b.get('name')=='SONARA_RELAY_TOKEN_SHA256_SIXTH' for b in binds)
+                out['cloudflare']['asset_binding']=any(b.get('name')=='ASSETS' for b in binds)
+            except Exception as e:out['cloudflare']['error']=type(e).__name__
+          with open('.github/sonara-live-google-diag.json','w') as f:json.dump(out,f,indent=2)
+          print('SONARA_PUBLIC_DIAG='+json.dumps(out)[:7000])
+          PY
+      - name: Persist safe diagnostics to GitHub branch for review
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          python3 - <<'PY'
+          import os,urllib.request,base64,json
+          path='.github/sonara-live-google-diag.json'
+          repo=os.environ['GITHUB_REPOSITORY'];branch=os.environ['GITHUB_REF_NAME']
+          payload={'message':'docs(diag): capture live public homepage and assets','branch':branch,'content':base64.b64encode(open(path,'rb').read()).decode()}
+          req=urllib.request.Request('https://api.github.com/repos/'+repo+'/contents/'+path,method='PUT',data=json.dumps(payload).encode(),headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'})
+          with urllib.request.urlopen(req,timeout=30) as r:print('DIAGNOSTIC_SAVED_HTTP='+str(r.status))
+          PY
