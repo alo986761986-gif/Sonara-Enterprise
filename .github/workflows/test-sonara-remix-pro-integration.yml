@@ -144,6 +144,11 @@ jobs:
           python3 -m py_compile molab/sonara_remix_pro_gpu_v41_hotfix.py
           python3 -m unittest discover -s molab -p 'test_sonara_remix_gpu_v41_diagnostics.py' -v
           python3 -m unittest discover -s molab -p 'test_sonara_remix_gpu_v41_handoff.py' -v
+      - name: Validate V4.2 quality gate false-rejection regression and pinned isolated handoff
+        run: |
+          python3 -m py_compile molab/sonara_remix_pro_quality.py molab/sonara_remix_pro_r2_agent.py molab/sonara_remix_pro_gpu_v42_quality_hotfix.py
+          python3 -m unittest discover -s molab -p 'test_sonara_remix_gpu_v42_quality_handoff.py' -v
+          python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_quality.py' -v
       - name: Build actual SONARA site
         run: |
           npm install
