@@ -16,7 +16,7 @@ spec.loader.exec_module(guard)
 
 class V5GuardTests(unittest.TestCase):
     def test_pinned_sources_match_current_verified_content(self):
-        self.assertEqual(guard.PINNED_COMMIT, "c08a76b51c161eb3097ab597ff146e3388981355")
+        self.assertEqual(guard.PINNED_COMMIT, "2a0a8c53bb2f1bc29ea761648b84326a97b8ec11")
         self.assertEqual(guard.BLOBS["sonara_remix_pro_r2_agent.py"][0],
                          "c0e5392a458139bda3d1d3b7297e5b2cb0085dfb")
         self.assertIsNone(guard.BLOBS["sonara_remix_pro_v5.py"][0])
