@@ -5,3 +5,5 @@ Second guarded release: staging React verified, replace automated live JS fetch 
 Final rerun: verify production Chromium UI and save report with correct existing blob SHA.
 
 2026-11-09 actual Remix Pro active tab mounting fix + independent JS/CSS paths. Publish after real Chromium assertions.
+
+Release V3 static assets v2 on dedicated Cloudflare JS and CSS paths, tested in real browser with actual active tab. New isolated Worker and rollback.
