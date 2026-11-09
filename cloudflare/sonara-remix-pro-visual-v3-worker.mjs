@@ -2,9 +2,9 @@
 // Build job supplies the actual compiled, versioned React app/CSS constants.
 import { REMIX_V3_JS, REMIX_V3_CSS } from './sonara-remix-pro-v3-built.mjs';
 
-const RELEASE='sonara-remix-pro-v3-assets-v2-20261109';
-const JS_PATH='/__sonara-remix-pro-v3.js';
-const CSS_PATH='/__sonara-remix-pro-v3.css';
+const RELEASE='sonara-remix-pro-v3-assets-v3-20261109';
+const JS_PATH='/__sonara-remix-pro-v3-20261109.js';
+const CSS_PATH='/__sonara-remix-pro-v3-20261109.css';
 const EXACT_ROUTES=new Set(['/','/studio','/remix',JS_PATH,CSS_PATH]);
 const HOSTS=new Set(['sonaraenterprise.com','www.sonaraenterprise.com']);
 const MAX_JS_BYTES=4_000_000;
