@@ -119,18 +119,22 @@ def release_gate(arranged, generated, master, *, expected_seconds, require_b_mot
     inputs = [source_file(p) for p in (arranged, generated, master)]
     reports = [audit_wav(p) for p in inputs]
     reasons = []
+    reference_warnings = []
     for name, report in zip(("arranged", "generated", "master"), reports):
+        # Wrong duration is a hard error even for the reference guide.
         if abs(report["durationSeconds"] - expected_seconds) > 0.12:
             reasons.append(name + "-duration-mismatch")
+        # The A-only structural guide is NOT the published output. Quiet intros,
+        # clipped source recordings or dynamic limiting in A cannot by themselves
+        # veto a clean regenerated master. Report these as warnings instead.
+        target = reference_warnings if name == "arranged" else reasons
         if report["nearSilenceFrameRatio"] > 0.22:
-            reasons.append(name + "-excessive-silence")
+            target.append(name + "-excessive-silence")
         if report["clippedFrameRatio"] > 0.0001:
-            reasons.append(name + "-sample-clipping")
+            target.append(name + "-sample-clipping")
         if report["crestFactorDb"] < 3.0:
-            reasons.append(name + "-overcompressed")
-        # The guide and raw model output may legitimately peak above
-        # the final mastering ceiling. Enforce true-peak headroom only on
-        # the mastered export; clipping and silence checks still run on all.
+            target.append(name + "-overcompressed")
+        # Only the final mastered WAV must comply with the true-peak ceiling.
         if name == "master" and report["approxTruePeakDbTp"] > -0.7:
             reasons.append(name + "-true-peak-too-high")
 
@@ -164,24 +168,38 @@ def release_gate(arranged, generated, master, *, expected_seconds, require_b_mot
         return (accum / frames).tolist()
 
     before, after = band_energy(inputs[0]), band_energy(inputs[2])
-    if before is None or after is None:
-        reasons.append("missing-useful-spectral-data")
+    if after is None:
+        reasons.append("missing-useful-output-spectral-data")
+    elif before is None:
+        # An unusual input cannot disqualify measurable, valid output by itself.
+        reference_warnings.append("missing-useful-reference-spectral-data")
     else:
-        # A whole band losing >24 dB is suspicious, even allowing creative EQ.
-        for i, (ref, got) in enumerate(zip(before, after)):
-            if ref > 1e-9 and got < ref * 0.00398:
-                reasons.append("spectral-band-%d-collapsed" % i)
+        # Compare spectral PROPORTIONS, not absolute energy: a quieter master
+        # must not fail merely because its overall level is below source A.
+        source_total, output_total = float(sum(before)), float(sum(after))
+        if source_total <= 1e-12:
+            reference_warnings.append("missing-useful-reference-spectral-data")
+        elif output_total <= 1e-12:
+            reasons.append("missing-useful-output-spectral-data")
+        else:
+            for i, (ref, got) in enumerate(zip(before, after)):
+                ref_share = ref / source_total
+                got_share = got / output_total
+                # Ignore bands that were negligible in A to begin with.
+                if ref_share > 0.02 and got_share < ref_share * 0.00398:
+                    reasons.append("spectral-band-%d-collapsed" % i)
     # Provenance at the arranger level is not evidence that ACE-Step
     # preserved both references: human listening remains mandatory.
     return {
         "acceptedTechnical": not reasons,
         "failures": reasons,
+        "referenceWarnings": reference_warnings,
         "master": reports[2],
         "perceptualFusionVerified": False,
         "humanListeningRequired": True,
         "bReferenceConditioningRequested": bool(require_b_motif),
         "bReferenceInfluenceVerified": False,
-        "method": "post-cover-technical-veto-v2",
+        "method": "post-cover-technical-veto-v3-source-aware",
     }
 
 
