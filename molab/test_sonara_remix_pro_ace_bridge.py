@@ -102,7 +102,7 @@ class ACEBridgeTests(unittest.TestCase):
             sf.write(str(src), np.full((180*sr, 2), 0.1, dtype=np.float32), sr)
             submissions = []
             def fake_cover(segment, output, prompt, **kwargs):
-                submissions.append((segment, output))
+                submissions.append((segment, output, prompt))
                 with sf.SoundFile(str(segment)) as audio:
                     data = audio.read(dtype="float32", always_2d=True)
                     fs = audio.samplerate
@@ -115,6 +115,10 @@ class ACEBridgeTests(unittest.TestCase):
             self.assertTrue(result["oneContinuousOutput"])
             self.assertTrue(result["durationVerified"])
             self.assertEqual(len(submissions), 2)
+            self.assertIn("establish the main groove", submissions[0][2])
+            self.assertIn("SAME central hook", submissions[1][2])
+            self.assertIn("ONE full A+B song", submissions[0][2])
+            self.assertIn("ONE full A+B song", submissions[1][2])
             with sf.SoundFile(str(dst)) as output:
                 self.assertEqual(output.frames, 180*sr)
                 self.assertEqual(output.channels, 2)
@@ -136,6 +140,13 @@ class ACEBridgeTests(unittest.TestCase):
                 with self.assertRaisesRegex(ACEBridgeError, "shorter than requested"):
                     render_long_remix(src, dst, "Original A+B", mode="none")
             self.assertFalse(dst.exists())
+
+    def test_long_prompt_cannot_hide_musical_section_direction(self):
+        from sonara_remix_pro_ace_bridge import _continuous_section_prompt
+        direction=_continuous_section_prompt("x" * 9000, 1, 90, 180, 180)
+        self.assertTrue(direction.startswith("CONTINUOUS ARRANGEMENT SECTION 2:"))
+        self.assertIn("SAME central hook", direction)
+        self.assertEqual(len(direction), 9000)
 
     def test_no_remote_result_urls(self):
         self.assertIsNone(_result_path({"result":[{"url":"https://attacker.example/path.wav"}]}))
