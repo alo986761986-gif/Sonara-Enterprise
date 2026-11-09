@@ -1,0 +1,140 @@
+name: SONARA finalize verified standalone Remix Pro V3 UI routes
+on:
+  push:
+    branches: [fix/remix-pro-v3-ui-live-overlay-20261109]
+    paths: [.github/sonara-finalize-v3-visual-trigger]
+permissions: {contents: write}
+concurrency: {group: sonara-remix-pro-visual-v3-rollout, cancel-in-progress: false}
+jobs:
+  switch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - name: Route only six existing UI paths to staged and verified React V3 Worker
+        run: |
+          python3 - <<'PY'
+          import os,json,sys,urllib.request,urllib.error,time
+          report={'success':False,'production_worker_code_unchanged':True,'gpu_untouched':True,'created_music_jobs':0,'routes_changed':[],'previous_routes':[],'checks':[]}
+          def done(stage,rc):
+            report['stage']=stage
+            with open('.github/sonara-final-v3-ui-live-result.json','w') as f:json.dump(report,f,indent=2)
+            print('SONARA_V3_LIVE_SWITCH='+json.dumps(report),flush=True)
+            sys.exit(rc)
+          token=os.getenv('CF_TOKEN','')
+          if not token:done('CLOUDFLARE_TOKEN_MISSING',1)
+          base='https://api.cloudflare.com/client/v4'
+          def cf(path,method='GET',data=None):
+            req=urllib.request.Request(base+path,method=method,data=json.dumps(data).encode() if data is not None else None,headers={'Authorization':'Bearer '+token,'Accept':'application/json','Content-Type':'application/json'})
+            try:
+              with urllib.request.urlopen(req,timeout=25) as r:return json.load(r)
+            except urllib.error.HTTPError as e:return {'success':False,'http':e.code}
+            except Exception as e:return {'success':False,'error':type(e).__name__}
+          z=next((v for v in cf('/zones?name=sonaraenterprise.com&per_page=10').get('result',[]) if v.get('name')=='sonaraenterprise.com'),None)
+          if not z:done('SONARA_ZONE_UNAVAILABLE',1)
+          account=z['account']['id'];zp='/zones/'+z['id']
+          worker='sonara-remix-pro-visual-v3'
+          def version():
+            r=cf('/accounts/'+account+'/workers/scripts/sonara-enterprise/deployments')
+            return r.get('result',{}).get('deployments',[{}])[0].get('versions',[{}])[0].get('version_id')
+          original=version()
+          if not original:done('MAIN_BACKEND_VERSION_NOT_AVAILABLE',1)
+          report['main_version_before']=original
+          def cap():
+            req=urllib.request.Request('https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities',
+              headers={'User-Agent':'Mozilla/5.0','Cache-Control':'no-store'})
+            with urllib.request.urlopen(req,timeout=20) as r:return json.load(r)
+          try:
+            c=cap()
+            if not(c.get('available') is True and c.get('fusionAvailable') is True and c.get('expectedAgentRevision')=='sonara-remix-pro-r2-agent-v3-dual-reference-fusion'):done('GPU_PRO_V3_NOT_AVAILABLE',1)
+          except Exception:done('PRO_GPU_PREFLIGHT_FAILED',1)
+          sub=cf('/accounts/'+account+'/workers/subdomain')
+          domain=sub.get('result',{}).get('subdomain')
+          if not domain:done('STAGING_SUBDOMAIN_MISSING',1)
+          try:
+            req=urllib.request.Request('https://'+worker+'.'+domain+'.workers.dev/?__sonara_remix_v3_visual_asset=js',headers={'User-Agent':'Mozilla/5.0'})
+            with urllib.request.urlopen(req,timeout=20) as r:
+              code=r.read(2000000)
+              if r.status!=200 or 'javascript' not in r.headers.get('content-type','').lower() or b'sonara-remix-pro-v3' not in code:
+                done('STAGED_V3_JS_INVALID',1)
+            report['staged_v3_asset_verified']=True
+          except Exception as e:
+            report['staging_error']=type(e).__name__
+            done('STAGING_WORKER_UNREACHABLE',1)
+          routeurl=zp+'/workers/routes'
+          listed=cf(routeurl)
+          if listed.get('success') is not True:done('ROUTE_READ_FAILED',1)
+          routes=listed['result']
+          targets=['sonaraenterprise.com','www.sonaraenterprise.com']
+          patterns=[host+suffix for host in targets for suffix in ('','/studio','/remix')]
+          allowed={'sonara-enterprise','sonara-remix-pro-contract-v4-shell','sonara-remix-pro-design-v3-shell',worker}
+          for pattern in patterns:
+            found=[x for x in routes if x.get('pattern')==pattern]
+            if len(found)!=1:done('EXACT_UI_ROUTE_MISSING_OR_DUPLICATE',1)
+            row=found[0]
+            if row.get('script') not in allowed:done('UNEXPECTED_EXISTING_UI_ROUTE',1)
+            report['previous_routes'].append({'pattern':pattern,'id':row['id'],'script':row['script']})
+          updated=[]
+          for row in report['previous_routes']:
+            if row['script']==worker:continue
+            change=cf(routeurl+'/'+row['id'],'PUT',{'pattern':row['pattern'],'script':worker})
+            if change.get('success') is not True:
+              report['change_http']=change.get('http')
+              report['stage']='ROUTE_WRITE_FAILED'
+              break
+            updated.append(row)
+            report['routes_changed'].append(row['pattern'])
+          else:
+            for host in targets:
+              for suffix in ('/','/studio','/remix'):
+                url='https://'+host+suffix
+                check={'url':url,'healthy':False}
+                for attempt in range(5):
+                  try:
+                    req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0','Cache-Control':'no-store','Accept':'text/html'})
+                    with urllib.request.urlopen(req,timeout=20) as r:
+                      data=r.read(18000)
+                      check={'url':url,'http':r.status,'bytes':len(data),
+                        'ui_header':r.headers.get('x-sonara-remix-visual'),
+                        'healthy':r.status==200 and r.headers.get('x-sonara-remix-visual')=='sonara-remix-pro-v3-visual-20261109' and b'sonara-remix-v3-visual-js' in data and b'/assets/index-CVPmYcq7.js' in data}
+                    if check['healthy']:break
+                  except Exception as e:check={'url':url,'error':type(e).__name__,'healthy':False}
+                  time.sleep(1)
+                report['checks'].append(check)
+            if all(x['healthy'] for x in report['checks']) and version()==original:
+              try:
+                c=cap()
+                report['pro_gpu_still_ready']=c.get('available') is True and c.get('fusionAvailable') is True
+              except Exception:report['pro_gpu_still_ready']=False
+              if report['pro_gpu_still_ready']:
+                report['success']=True
+                report['main_version_after']=version()
+                done('REMIX_V3_NEW_UI_PUBLISHED',0)
+          # Restore original owners if any partial write, content mismatch, or GPU issue.
+          report['rollback']=[]
+          for row in reversed(updated):
+            r=cf(routeurl+'/'+row['id'],'PUT',{'pattern':row['pattern'],'script':row['script']})
+            report['rollback'].append({'pattern':row['pattern'],'success':r.get('success') is True})
+          done(report.get('stage') or 'LIVE_V3_VALIDATION_FAILED_AND_ROLLED_BACK',1)
+          PY
+      - name: Save exact live outcome in GitHub with overwrite support
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import urllib.request,urllib.error,json,base64,os
+          p='.github/sonara-final-v3-ui-live-result.json'
+          if not os.path.isfile(p):raise SystemExit(0)
+          url='https://api.github.com/repos/'+os.environ['GITHUB_REPOSITORY']+'/contents/'+p
+          h={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'}
+          data={'message':'ops: record SONARA Remix Pro V3 visual route publication','branch':os.environ['GITHUB_REF_NAME'],'content':base64.b64encode(open(p,'rb').read()).decode()}
+          try:
+            with urllib.request.urlopen(urllib.request.Request(url,headers=h),timeout=20) as r:data['sha']=json.load(r)['sha']
+          except urllib.error.HTTPError as e:
+            if e.code!=404:raise
+          rq=urllib.request.Request(url,method='PUT',data=json.dumps(data).encode(),headers=h)
+          with urllib.request.urlopen(rq,timeout=25) as r:print('SONARA_FINAL_V3_REPORT_HTTP='+str(r.status))
+          PY
