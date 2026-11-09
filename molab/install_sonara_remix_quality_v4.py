@@ -57,6 +57,41 @@ def receive_file(name, expected):
     return data
 
 
+
+def active_pro_agent_pids(proc_root=Path("/proc")):
+    """Detect actual dedicated Remix Pro processes even if the lock is absent.
+
+    This is a second independent safety guard; it does not send signals or
+    inspect customer payloads. If process enumeration is unavailable, refuse.
+    """
+    agent = (ROOT / "sonara_remix_pro_r2_agent.py").resolve()
+    try:
+        entries = list(proc_root.iterdir())
+    except OSError as exc:
+        fail("Cannot inspect running processes safely") 
+    found = []
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        try:
+            argv = (entry / "cmdline").read_bytes().split(b"\\0")
+            cwd = (entry / "cwd").resolve()
+        except (OSError, RuntimeError):
+            continue
+        for raw in argv[1:]:
+            if not raw or b"sonara_remix_pro_r2_agent.py" not in raw:
+                continue
+            try:
+                path = Path(os.fsdecode(raw))
+                candidate = (path if path.is_absolute() else cwd / path).resolve()
+            except (OSError, ValueError, RuntimeError):
+                continue
+            if candidate == agent:
+                found.append(int(entry.name))
+                break
+    return found
+
+
 def main():
     p = argparse.ArgumentParser(description="Install isolated, pinned SONARA two-reference fusion V3")
     p.add_argument("--install", action="store_true", help="Install ONLY if the dedicated Pro agent is stopped; backup first")
@@ -77,6 +112,10 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             fail("Active Remix Pro agent holds lock: do not modify while processing jobs")
+        # An idle dedicated worker is still a running process: never replace its
+        # imported modules while it is online, even if its lock was lost.
+        if active_pro_agent_pids():
+            fail("Dedicated Remix Pro agent is still running: safe handoff required")
         print("SONARA_FUSION_INSTALLER=V4_PINNED")
         print("SONARA_PINNED_COMMIT=" + PINNED_COMMIT)
         print("SONARA_MAIN_ACE_STEP_UNTOUCHED=True")
