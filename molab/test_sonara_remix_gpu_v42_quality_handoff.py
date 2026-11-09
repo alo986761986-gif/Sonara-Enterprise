@@ -26,9 +26,15 @@ class V42HandoffTests(unittest.TestCase):
                 "496428a8af25492246f49d5bf25d281781d17315",
                 "d31e42a4ba52e15fee08436f997f95b0b7561054"),
         })
+        # Keep the V4.2 installer pinned and immutable, while the repository
+        # may contain the later V5 dedicated agent. V5 has independent SHA tests.
         for name, (_, current_sha) in guard.BLOBS.items():
+            released_sha = (
+                "a394d33fcac721246f6821dd62f3a9b529435d01"
+                if name == "sonara_remix_pro_r2_agent.py" else current_sha
+            )
             self.assertEqual(guard.git_blob((ROOT / name).read_bytes()),
-                             current_sha)
+                             released_sha)
         self.assertEqual(guard.REVISION,
                          "sonara-remix-pro-r2-agent-v3-dual-reference-fusion")
 
