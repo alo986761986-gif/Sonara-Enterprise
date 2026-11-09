@@ -1,0 +1,156 @@
+{
+  "release": "sonara-remix-pro-v3-visual-20261109",
+  "success": false,
+  "main_worker_unchanged": true,
+  "ace_step_untouched": true,
+  "remix_pro_gpu_untouched": true,
+  "vercel_used": false,
+  "customer_audio_uploaded": false,
+  "generated_jobs": 0,
+  "created_routes": [],
+  "changed_routes": [
+    "sonaraenterprise.com",
+    "sonaraenterprise.com/studio",
+    "sonaraenterprise.com/remix",
+    "www.sonaraenterprise.com",
+    "www.sonaraenterprise.com/studio",
+    "www.sonaraenterprise.com/remix"
+  ],
+  "old_routes": [
+    {
+      "pattern": "sonaraenterprise.com",
+      "id": "30017d4b24914283ac08595357ecd458",
+      "script": "sonara-enterprise"
+    },
+    {
+      "pattern": "sonaraenterprise.com/studio",
+      "id": "40748b50f47e482885f5d663d8b0147d",
+      "script": "sonara-remix-pro-contract-v4-shell"
+    },
+    {
+      "pattern": "sonaraenterprise.com/remix",
+      "id": "4fddb0abd1274de6b0dd8274191cdb0a",
+      "script": "sonara-remix-pro-contract-v4-shell"
+    },
+    {
+      "pattern": "www.sonaraenterprise.com",
+      "id": "a2a678e632f8481a8214282845cb115a",
+      "script": "sonara-enterprise"
+    },
+    {
+      "pattern": "www.sonaraenterprise.com/studio",
+      "id": "50bdc0b5df404031864a6c3ccade6dbd",
+      "script": "sonara-remix-pro-contract-v4-shell"
+    },
+    {
+      "pattern": "www.sonaraenterprise.com/remix",
+      "id": "4dab046200a9473eb94b1507eb006cff",
+      "script": "sonara-remix-pro-contract-v4-shell"
+    }
+  ],
+  "checks": [
+    {
+      "host": "sonaraenterprise.com",
+      "suffix": "/",
+      "status": 200,
+      "bytes": 4433,
+      "visual": "sonara-remix-pro-v3-visual-20261109",
+      "injected": true,
+      "original_home_bundle": true,
+      "ok": true
+    },
+    {
+      "host": "sonaraenterprise.com",
+      "suffix": "/studio",
+      "status": 200,
+      "bytes": 4433,
+      "visual": "sonara-remix-pro-v3-visual-20261109",
+      "injected": true,
+      "original_home_bundle": true,
+      "ok": true
+    },
+    {
+      "host": "sonaraenterprise.com",
+      "suffix": "/remix",
+      "status": 200,
+      "bytes": 4433,
+      "visual": "sonara-remix-pro-v3-visual-20261109",
+      "injected": true,
+      "original_home_bundle": true,
+      "ok": true
+    },
+    {
+      "host": "www.sonaraenterprise.com",
+      "suffix": "/",
+      "status": 200,
+      "bytes": 4433,
+      "visual": "sonara-remix-pro-v3-visual-20261109",
+      "injected": true,
+      "original_home_bundle": true,
+      "ok": true
+    },
+    {
+      "host": "www.sonaraenterprise.com",
+      "suffix": "/studio",
+      "status": 200,
+      "bytes": 4433,
+      "visual": "sonara-remix-pro-v3-visual-20261109",
+      "injected": true,
+      "original_home_bundle": true,
+      "ok": true
+    },
+    {
+      "host": "www.sonaraenterprise.com",
+      "suffix": "/remix",
+      "status": 200,
+      "bytes": 4433,
+      "visual": "sonara-remix-pro-v3-visual-20261109",
+      "injected": true,
+      "original_home_bundle": true,
+      "ok": true
+    }
+  ],
+  "main_version_before": "e5a42372-1544-4278-8927-5d6f843aec36",
+  "remix_pro_gpu_preflight": true,
+  "staging_host": "https://sonara-remix-pro-visual-v3.alo986761986.workers.dev",
+  "staging_assets_verified": true,
+  "staging_browser": {
+    "new_panel": true,
+    "old_hidden": true,
+    "source_a": true,
+    "source_b": true,
+    "random_duration": true,
+    "generate": true,
+    "title": true
+  },
+  "staging_browser_errors": [],
+  "rollback_attempted": true,
+  "rollback": [
+    {
+      "pattern": "www.sonaraenterprise.com/remix",
+      "success": true
+    },
+    {
+      "pattern": "www.sonaraenterprise.com/studio",
+      "success": true
+    },
+    {
+      "pattern": "www.sonaraenterprise.com",
+      "success": true
+    },
+    {
+      "pattern": "sonaraenterprise.com/remix",
+      "success": true
+    },
+    {
+      "pattern": "sonaraenterprise.com/studio",
+      "success": true
+    },
+    {
+      "pattern": "sonaraenterprise.com",
+      "success": true
+    }
+  ],
+  "stage": "RELEASE_FAILED",
+  "error": "Live V3 JS asset invalid"
+}
