@@ -619,6 +619,10 @@ def run_job(item, auth_mode):
                 require_b_motif=True,
             )
             if not gate["acceptedTechnical"]:
+                # Safe fixed-code QC diagnostics only. Never log user audio, tokens,
+                # prompts, private source paths or the customer waveform.
+                print("SONARA PRO quality failure codes:",
+                      ",".join(gate["failures"]), flush=True)
                 raise ProAgentError("Post-cover audio quality gate rejected the result")
             if abs(float(audit.get("durationSeconds") or 0) - requested_seconds) > 0.1:
                 raise SourceTransferError("REMIX_DURATION_MISMATCH")

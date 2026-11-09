@@ -79,6 +79,47 @@ class AudioAuditTests(unittest.TestCase):
             self.assertNotIn("arranged-true-peak-too-high", verdict["failures"])
             self.assertNotIn("generated-true-peak-too-high", verdict["failures"])
 
+    def test_loud_or_clipped_a_guide_does_not_veto_clean_output(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            arranged, generated, master = (
+                root/"arranged.wav", root/"generated.wav", root/"master.wav")
+            make_wave(arranged, level=1.0)
+            make_wave(generated, level=0.2)
+            make_wave(master, level=0.2)
+            verdict = release_gate(arranged, generated, master, expected_seconds=2)
+            self.assertTrue(verdict["acceptedTechnical"], verdict["failures"])
+            self.assertTrue(any(reason.startswith("arranged-")
+                                for reason in verdict["referenceWarnings"]))
+            self.assertFalse(verdict["perceptualFusionVerified"])
+
+    def test_quieter_clean_master_does_not_cause_spectral_false_positive(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            arranged, generated, master = (
+                root/"arranged.wav", root/"generated.wav", root/"master.wav")
+            make_wave(arranged, level=0.8)
+            make_wave(generated, level=0.012)
+            make_wave(master, level=0.012)
+            verdict = release_gate(arranged, generated, master, expected_seconds=2)
+            self.assertTrue(verdict["acceptedTechnical"], verdict["failures"])
+            self.assertNotIn("spectral-band-0-collapsed", verdict["failures"])
+            self.assertNotIn("spectral-band-1-collapsed", verdict["failures"])
+            self.assertNotIn("spectral-band-2-collapsed", verdict["failures"])
+
+    def test_silent_reference_warns_but_never_certifies_fusion(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            arranged, generated, master = (
+                root/"arranged.wav", root/"generated.wav", root/"master.wav")
+            make_wave(arranged, level=0.0)
+            make_wave(generated, level=0.25)
+            make_wave(master, level=0.25)
+            verdict = release_gate(arranged, generated, master, expected_seconds=2)
+            self.assertTrue(verdict["acceptedTechnical"], verdict["failures"])
+            self.assertIn("arranged-excessive-silence", verdict["referenceWarnings"])
+            self.assertFalse(verdict["bReferenceInfluenceVerified"])
+
     def test_master_overs_is_rejected(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
