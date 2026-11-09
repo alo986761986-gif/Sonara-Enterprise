@@ -1,0 +1,1 @@
+User-authorized emergency homepage recovery: reassign exact sonaraenterprise.com and www root from broken shell to primary sonara-enterprise Worker, preserving API/GPU. Verification compares clean HTML with known-good main bundle.
