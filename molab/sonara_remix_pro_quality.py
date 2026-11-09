@@ -128,7 +128,10 @@ def release_gate(arranged, generated, master, *, expected_seconds, require_b_mot
             reasons.append(name + "-sample-clipping")
         if report["crestFactorDb"] < 3.0:
             reasons.append(name + "-overcompressed")
-        if report["approxTruePeakDbTp"] > -0.7:
+        # The guide and raw model output may legitimately peak above
+        # the final mastering ceiling. Enforce true-peak headroom only on
+        # the mastered export; clipping and silence checks still run on all.
+        if name == "master" and report["approxTruePeakDbTp"] > -0.7:
             reasons.append(name + "-true-peak-too-high")
 
     def band_energy(path):
