@@ -427,6 +427,15 @@ def combine_two_songs(a, b, stems_a, stems_b, destination, *,
     beat_b = report_b["beatTimesSeconds"][0] if report_b["beatTimesSeconds"] else 0
     drum_offset = round((beat_a - beat_b / ratio) * 44100)
     motif_name = _choose_b_motif(stems_b)
+    # Do not introduce a confidently incompatible melodic motif. A neural
+    # dual-reference harmonic adapter is still needed for arbitrary keys.
+    if (motif_name and report_a.get("key") and report_b.get("key")
+            and report_a["key"] != report_b["key"]
+            and report_a.get("keyConfidence", 0) >= 0.5
+            and report_b.get("keyConfidence", 0) >= 0.5):
+        raise RemixProError(
+            "Brani con tonalita incompatibili: serve una trasposizione armonica "
+            "verificata prima della fusione melodica A+B")
     assigned = (
         ("vocalsA", vocals, 0, 0.90),
         ("harmoniesA", harmony, 0, 0.62),
