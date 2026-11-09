@@ -29,6 +29,19 @@ jobs:
                 out['pages'][name]={'http':r.status,'url':r.geturl(),'type':r.headers.get('content-type'),'cache':r.headers.get('cf-cache-status'),'etag':r.headers.get('etag'),'sha':hashlib.sha256(b).hexdigest()[:24],'bytes':len(b),'has_root':b'id="root"' in b,'has_module':b'/assets/' in b,'static_fallback':b'sonara-static-startup' in b,'ts_unbuilt':b'/src/main.tsx' in b,'scripts':[x.decode('utf8','replace')[:160] for x in re.findall(b'<script[^>]+src="([^"]+)"',b)[:18]]}
             except urllib.error.HTTPError as e:out['pages'][name]={'http':e.code}
             except Exception as e:out['pages'][name]={'error':type(e).__name__}
+          # Probe both old Google and refresh bundles with precise status codes.
+          for label in ['google_apex','refresh_apex']:
+            scripts=out['pages'].get(label,{}).get('scripts',[])
+            for s in scripts:
+              if not s.startswith('/assets/'):continue
+              try:
+                request=urllib.request.Request('https://sonaraenterprise.com'+s,headers={'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/116.0.0.0 Safari/537.36','Accept':'*/*','Referer':'https://sonaraenterprise.com/'})
+                with urllib.request.urlopen(request,timeout=15) as r:
+                  out.setdefault('asset_probes',[]).append({'source':label,'path':s,'http':r.status,'type':r.headers.get('content-type'),'bytes':len(r.read(4096))})
+              except urllib.error.HTTPError as e:
+                out.setdefault('asset_probes',[]).append({'source':label,'path':s,'http':e.code,'type':e.headers.get('content-type')})
+              except Exception as e:
+                out.setdefault('asset_probes',[]).append({'source':label,'path':s,'error':type(e).__name__})
           for s in out['pages'].get('google_apex',{}).get('scripts',[]):
             if not s.startswith('/assets/'):continue
             try:
