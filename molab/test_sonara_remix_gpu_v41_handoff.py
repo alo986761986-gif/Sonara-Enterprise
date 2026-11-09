@@ -41,16 +41,7 @@ class V41HandoffTests(unittest.TestCase):
                     guard.activate()
 
     def test_process_check_requires_exact_agent_identity(self):
-        with tempfile.TemporaryDirectory() as d:
-            proc=Path(d)
-            pid=456
-            folder=proc/str(pid)
-            folder.mkdir()
-            (folder/"cwd").symlink_to(proc)
-            (folder/"cmdline").write_bytes(b"python\0/not-an-agent/sonara_remix_pro_r2_agent.py\0")
-            with patch.object(guard.Path, "__new__", wraps=Path.__new__):
-                # Static verification only: never trust a filename match without resolve.
-                self.assertIn("resolve() == AGENT.resolve()", FILE.read_text())
+        self.assertIn("resolve() == AGENT.resolve()", FILE.read_text())
 
     def test_no_generic_kill_and_explicit_consent(self):
         source = FILE.read_text()
