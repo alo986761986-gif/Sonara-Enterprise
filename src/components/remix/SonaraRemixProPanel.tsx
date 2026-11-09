@@ -356,7 +356,7 @@ export default function SonaraRemixProPanel() {
       <label>Direzione musicale<textarea rows={3} value={prompt} onChange={e=>setPrompt(e.target.value)} style={{width:'100%',marginTop:6,padding:8,borderRadius:6,background:'#1c1926',color:'#fff'}} /></label>
       <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:8}}>
         <label>Durata Remix AI (30 secondi – 8 minuti)
-          <select aria-label="Modalità durata Remix AI" disabled={!v5Available} value={durationMode} onChange={e=>setDurationMode(e.target.value==='manual'?'manual':'auto')}>
+          <select aria-label="Modalità durata Remix AI" disabled={!v5Available} value={v5Available?durationMode:'manual'} onChange={e=>setDurationMode(e.target.value==='manual'?'manual':'auto')}>
             <option value="auto">Durata automatica V5 (1:30–3:00)</option><option value="manual">Durata manuale</option>
           </select>
           <input type="range" min={30} max={480} step={30} value={duration} disabled={v5Available&&durationMode==='auto'}
