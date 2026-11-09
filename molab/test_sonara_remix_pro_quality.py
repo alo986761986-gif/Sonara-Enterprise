@@ -62,6 +62,7 @@ class AudioAuditTests(unittest.TestCase):
             verdict = release_gate(arranged, generated, master, expected_seconds=2)
             self.assertTrue(verdict["acceptedTechnical"], verdict["failures"])
             self.assertFalse(verdict["perceptualFusionVerified"])
+            self.assertFalse(verdict["bReferenceInfluenceVerified"])
             self.assertTrue(verdict["humanListeningRequired"])
 
     def test_release_gate_rejects_silent_generated_audio(self):
