@@ -286,6 +286,7 @@ def main(argv=None):
             print("SONARA_QA_AUDIO_GENERATED=False")
             return 0
         _require(args.run, "Use --preflight or explicit --run")
+        check_params(args)
         result = run(args)
         return 0 if result["technicalPass"] else 2
     except (V3QAFailure, OSError, ValueError) as exc:
