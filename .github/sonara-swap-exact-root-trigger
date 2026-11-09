@@ -1,0 +1,1 @@
+User-authorized SONARA homepage recovery: switch existing exact-host root-only routes to independent redirect worker; keep production worker, APIs and GPU unchanged.
