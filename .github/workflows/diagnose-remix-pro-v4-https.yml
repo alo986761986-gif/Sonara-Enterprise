@@ -1,0 +1,57 @@
+name: Diagnose SONARA Remix Pro V4 HTTPS Connection
+on:
+  push:
+    branches:
+      - hotfix/remix-pro-live-connection-diagnostics-20261109
+    paths:
+      - '.github/workflows/diagnose-remix-pro-v4-https.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    name: Read-only Cloudflare live response (no tokens, no audio)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: GET public PRO endpoint and health with two user agents
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const endpoints = [
+            ["pro", "https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities"],
+            ["health", "https://api.sonaraenterprise.com/api/health"],
+            ["web", "https://sonaraenterprise.com/"]
+          ];
+          for (const [label, url] of endpoints) {
+            for (const agent of ["SONARA-Remix-Pro-Agent/1.0 (+https://sonaraenterprise.com)",
+                                  "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36"]) {
+              const type = agent.startsWith("Mozilla") ? "browser" : "agent";
+              try {
+                const response = await fetch(url,{
+                  redirect:"manual",
+                  headers:{"user-agent":agent,"cache-control":"no-cache","accept":"application/json,text/html"},
+                  signal:AbortSignal.timeout(12000)
+                });
+                const status = response.status;
+                const ctype = response.headers.get("content-type")||"";
+                const server = response.headers.get("server")||"";
+                const mitigation = response.headers.get("cf-mitigated")||"none";
+                console.log(label+"_"+type+"_HTTP="+status+" TYPE="+ctype.slice(0,65)+
+                    " SERVER="+server.slice(0,45)+" MITIGATED="+mitigation.slice(0,45));
+                if(label==="pro" && response.ok && ctype.includes("json")) {
+                  const data=await response.json().catch(()=>({}));
+                  for(const field of ["available","fusionAvailable","expectedAgentRevision","multiformatAvailable"]) {
+                    console.log("pro_"+type+"_"+field+"="+String(data?.[field]??"absent"));
+                  }
+                } else if (label==="pro") {
+                  const msg=(await response.text()).slice(0,800);
+                  // Only known Cloudflare error codes; do not log raw HTML or secrets.
+                  console.log("pro_"+type+"_CF_ERROR="+((msg.match(/(?:Error|error)\\s*(1010|1020|403|429|5\\d\\d)/)||[])[1]||"undetermined"));
+                }
+              } catch (e) {
+                console.log(label+"_"+type+"_ERROR="+String(e?.name||"NetworkError"));
+              }
+            }
+          }
+          NODE
