@@ -208,6 +208,38 @@ def render(audio_path, output_path, prompt, *, mode="required", strength=0.76,
             pathlib.Path(ref_tmp).unlink(missing_ok=True)
 
 
+def _continuous_section_prompt(master_prompt, index, start_frame, end_frame, total_frames):
+    """Keep one recognizable hook across long ACE-Step cover chunks.
+
+    Sections are performance directions, not fake song data. Only the actual
+    generator writes the audio; each output is independently audited.
+    """
+    if total_frames <= 0 or end_frame <= start_frame:
+        raise ACEBridgeError("Invalid arrangement section bounds")
+    first = start_frame == 0
+    last = end_frame >= total_frames
+    position = start_frame / total_frames
+    if first and last:
+        role = "single complete musical statement with a resolved final cadence"
+    elif first:
+        role = "introduce the central motif immediately and establish the main groove"
+    elif last:
+        role = "bring back the SAME central hook with a confident musical resolution"
+    elif position < .50:
+        role = "develop the established hook with a controlled new instrumental variation"
+    else:
+        role = "contrast briefly then return towards the SAME hook and rhythmic foundation"
+    return (
+        str(master_prompt).strip() +
+        " CONTINUOUS ARRANGEMENT SECTION " + str(index + 1) +
+        ": " + role + ". Keep one stable BPM, key, vocal identity, drum kit, "
+        "bass line style, acoustic space and overall mix balance from adjacent "
+        "sections. No unrelated new song, no reset to a fresh intro, no "
+        "random melodies. Maintain expressive fills and natural movement. "
+        "Finish phrases musically at the boundary; preserve motif identity."
+    )[:9000]
+
+
 def render_long_remix(audio_path, output_path, prompt, *, mode="required",
                       strength=0.76, noise=0.14, bpm=None, key=None,
                       segment_seconds=90, crossfade_seconds=2,
@@ -291,7 +323,9 @@ def render_long_remix(audio_path, output_path, prompt, *, mode="required",
             remaining = timeout_seconds - (time.monotonic() - start_wall)
             if remaining < 120:
                 raise ACEBridgeError("Long-form ACE-Step timeout before all sections finished")
-            result = render(source_chunk, rendered_chunk, prompt,
+            section_prompt = _continuous_section_prompt(
+                prompt, n, cursor, end, source_frames)
+            result = render(source_chunk, rendered_chunk, section_prompt,
                             mode=mode, strength=strength, noise=noise,
                             bpm=bpm, key=key,
                             timeout_seconds=min(1600, int(remaining)),
