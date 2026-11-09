@@ -9,3 +9,5 @@ Final rerun: verify production Chromium UI and save report with correct existing
 Release V3 static assets v2 on dedicated Cloudflare JS and CSS paths, tested in real browser with actual active tab. New isolated Worker and rollback.
 
 Retry static asset v2 release after correcting Worker module source filepath. No previous production changes.
+
+Final immutable assets v3: bypass stale www JavaScript-as-HTML Cloudflare cache; route propagation and Chromium verify both hostnames.
