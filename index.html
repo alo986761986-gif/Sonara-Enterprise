@@ -49,7 +49,17 @@
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <!-- Visible first paint even if the JavaScript bundle fails to load.
+         React replaces this content immediately when the app mounts. -->
+    <div id="root">
+      <main id="sonara-static-startup" role="status" aria-live="polite" style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;background:#050914;color:#f8fafc;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center;padding:24px;box-sizing:border-box">
+        <img src="/sonara-brand-icon.svg" alt="SONARA" width="72" height="72" style="border-radius:18px">
+        <h1 style="font-size:26px;margin:4px 0 0;font-weight:750;letter-spacing:.03em">SONARA Enterprise</h1>
+        <p style="font-size:14px;color:#cbd5e1;margin:0">Apertura della piattaforma musicale…</p>
+        <p style="font-size:12px;color:#a5b4fc;margin:0">Se l'accesso non compare, ricarica la pagina.</p>
+      </main>
+    </div>
+    <noscript><div style="background:#050914;color:white;padding:24px;font-family:system-ui">SONARA richiede JavaScript attivo nel browser. Abilitalo e ricarica la pagina.</div></noscript>
     <script src="/sonara-sidebar-icons-v2.js?v=2" defer></script>
     <script src="/sonara-video-ui-edge.js?v=3" defer></script>
     <script src="/sonara-studio-pitch-key-network-fix-v1.js?v=1" defer></script>
