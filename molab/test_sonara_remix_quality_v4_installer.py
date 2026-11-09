@@ -15,24 +15,32 @@ SPEC.loader.exec_module(installer)
 
 
 class InstallerV4Tests(unittest.TestCase):
-    def test_exact_pinned_files_match_repository(self):
+    def test_original_v4_immutable_pins_and_later_verified_modules(self):
         self.assertEqual(len(installer.EXPECTED), 5)
         self.assertEqual(len(installer.PINNED_COMMIT), 40)
         self.assertIn(installer.PINNED_COMMIT, installer.URL_ROOT)
-        # The original pinned V4 installer stays immutable. V4.1 intentionally
-        # updates only the agent and ACE bridge using its separate pinned guard.
+        # The V4 installer MUST keep installing its historical, immutable
+        # five-file snapshot. It must never silently install a newer QA patch.
+        # The separate V4.1/V4.2 handoffs verify their own SHA-pinned files.
         from sonara_remix_pro_gpu_v41_hotfix import BLOBS as V41_BLOBS
         self.assertEqual(len(V41_BLOBS), 2)
-        for name, expected in installer.EXPECTED.items():
+        self.assertEqual(V41_BLOBS["sonara_remix_pro_r2_agent.py"][0],
+                         installer.EXPECTED["sonara_remix_pro_r2_agent.py"])
+        self.assertEqual(installer.EXPECTED["sonara_remix_pro_quality.py"],
+                         "496428a8af25492246f49d5bf25d281781d17315")
+        released_updates = {
+            "sonara_remix_pro_r2_agent.py":
+                "c0e5392a458139bda3d1d3b7297e5b2cb0085dfb",
+            "sonara_remix_pro_quality.py":
+                "d31e42a4ba52e15fee08436f997f95b0b7561054",
+        }
+        for name, pinned in installer.EXPECTED.items():
             with self.subTest(name=name):
                 data = (HERE / name).read_bytes()
-                actual = installer.git_blob_sha(data)
-                if name in V41_BLOBS:
-                    old, new = V41_BLOBS[name]
-                    self.assertEqual(old, expected)
-                    self.assertEqual(actual, new)
-                else:
-                    self.assertEqual(actual, expected)
+                self.assertEqual(installer.git_blob_sha(data),
+                                 released_updates.get(
+                                     name, V41_BLOBS[name][1] if name in V41_BLOBS
+                                     else pinned))
                 compile(data, name, "exec")
 
     def test_live_agent_is_detected_without_relying_on_lock(self):
