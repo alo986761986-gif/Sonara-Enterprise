@@ -111,7 +111,8 @@ def _result_path(task):
 
 
 def render(audio_path, output_path, prompt, *, mode="required", strength=0.86,
-           noise=0.0, timeout_seconds=1600, bpm=None, key=None):
+           noise=0.0, timeout_seconds=1600, bpm=None, key=None,
+           reference_audio_path=None):
     """Use one real local ACE-Step task to reimagine the combined 2-song stem mix."""
     source = pathlib.Path(audio_path).expanduser().resolve(strict=True)
     output = pathlib.Path(output_path).expanduser().resolve()
@@ -129,6 +130,20 @@ def render(audio_path, output_path, prompt, *, mode="required", strength=0.86,
         raise ACEBridgeError("Remix Pro cover duration outside 10-600 seconds")
     if output == source or output.exists():
         raise ACEBridgeError("Output must be new; original and existing files are protected")
+    style_reference = None
+    if reference_audio_path is not None:
+        try:
+            style_reference = pathlib.Path(reference_audio_path).expanduser().resolve(strict=True)
+        except (OSError, RuntimeError) as exc:
+            raise ACEBridgeError("B style reference WAV is unavailable") from exc
+        if (not style_reference.is_file() or style_reference.suffix.lower() != ".wav"
+                or style_reference in (source, output)
+                or not 44 <= style_reference.stat().st_size <= MAX_BYTES):
+            raise ACEBridgeError("A distinct local B style WAV is required")
+        with wave.open(str(style_reference), "rb") as wav:
+            if (wav.getnchannels() not in (1, 2)
+                    or not 10 <= wav.getnframes() / wav.getframerate() <= 900):
+                raise ACEBridgeError("B reference WAV has unsupported channels or duration")
     fd, tmp = tempfile.mkstemp(prefix="sonara_pro_cover_", suffix=".wav")
     try:
         with os.fdopen(fd, "wb") as out, source.open("rb") as inp:
@@ -143,6 +158,7 @@ def render(audio_path, output_path, prompt, *, mode="required", strength=0.86,
             "audio_duration": round(duration, 2), "batch_size": 1,
             "audio_cover_strength": float(strength), "cover_noise_strength": float(noise),
             "audio_format": "wav",
+            **({"reference_audio_path": str(style_reference)} if style_reference else {}),
             **({"bpm": int(bpm)} if bpm is not None else {}),
             **({"key_scale": str(key)[:40]} if key else {}),
         }
@@ -176,6 +192,8 @@ def render(audio_path, output_path, prompt, *, mode="required", strength=0.86,
                     "sourceDurationSeconds": round(duration, 2),
                     "outputPath": str(output), "bytes": len(raw),
                     "model": "existing-local-ACE-Step-cover",
+                    "bStyleReferenceRequested": bool(style_reference),
+                    "styleReferenceActuallyAppliedUnverified": bool(style_reference),
                     "noFakeAudio": True
                 }
             time.sleep(2)
@@ -186,6 +204,7 @@ def render(audio_path, output_path, prompt, *, mode="required", strength=0.86,
 
 def render_long_remix(audio_path, output_path, prompt, *, mode="required",
                       strength=0.86, noise=0.0, bpm=None, key=None,
+                      reference_audio_path=None,
                       segment_seconds=90, crossfade_seconds=2,
                       timeout_seconds=3600):
     """Render an exact-duration A+B remix as ONE stitched WAV.
@@ -224,6 +243,7 @@ def render_long_remix(audio_path, output_path, prompt, *, mode="required",
     if source_frames / sr <= segment_seconds:
         result = render(src, final, prompt, mode=mode, strength=strength,
                         noise=noise, bpm=bpm, key=key,
+                        reference_audio_path=reference_audio_path,
                         timeout_seconds=min(timeout_seconds, 1600))
         with sf.SoundFile(str(final)) as got:
             if abs((got.frames / got.samplerate) - source_frames/sr) > 2:
@@ -268,6 +288,7 @@ def render_long_remix(audio_path, output_path, prompt, *, mode="required",
             result = render(source_chunk, rendered_chunk, prompt,
                             mode=mode, strength=strength, noise=noise,
                             bpm=bpm, key=key,
+                            reference_audio_path=reference_audio_path,
                             timeout_seconds=min(1600, int(remaining)))
             if result.get("status") != "completed":
                 raise ACEBridgeError("An ACE-Step long-form section did not complete")
@@ -340,7 +361,10 @@ def render_long_remix(audio_path, output_path, prompt, *, mode="required",
                 "bytes": final.stat().st_size, "sourceDurationSeconds": round(source_frames/sr,2),
                 "segmentCount": len(segments), "longForm": True,
                 "oneContinuousOutput": True, "durationVerified": True,
-                "model": "local-ACE-Step-cover-multi-section", "noFakeAudio": True}
+                "model": "local-ACE-Step-cover-multi-section",
+                "bStyleReferenceRequested": reference_audio_path is not None,
+                "styleReferenceActuallyAppliedUnverified": reference_audio_path is not None,
+                "noFakeAudio": True}
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="SONARA Remix Pro ACE-Step local cover bridge")
@@ -348,15 +372,17 @@ def main(argv=None):
     parser.add_argument("--output", required=True)
     parser.add_argument("--prompt", required=True)
     parser.add_argument("--auth-mode", choices=("none","required"), default="required")
-    parser.add_argument("--strength", type=float, default=0.76)
-    parser.add_argument("--noise", type=float, default=0.14)
+    parser.add_argument("--strength", type=float, default=0.86)
+    parser.add_argument("--noise", type=float, default=0.0)
+    parser.add_argument("--style-reference", help="Optional local B WAV used for style conditioning")
     parser.add_argument("--bpm", type=float)
     parser.add_argument("--key")
     args = parser.parse_args(argv)
     try:
         result = render(args.audio, args.output, args.prompt,
                         mode=args.auth_mode, strength=args.strength, noise=args.noise,
-                        bpm=args.bpm, key=args.key)
+                        bpm=args.bpm, key=args.key,
+                        reference_audio_path=args.style_reference)
         print(json.dumps(result, indent=2))
         return 0
     except (ACEBridgeError, OSError, ValueError) as exc:
