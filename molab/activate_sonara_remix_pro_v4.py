@@ -1,7 +1,8 @@
 """Guarded V3 -> V4 SONARA Remix Pro handoff (MoLab only; no Vercel).
 
 The default action is READ ONLY. --activate requires a confirmed maintenance
-window and completed private GPU/audio listening review. It can stop ONLY one
+window and either verified private audio QA or an explicit user-authorized
+waiver (--skip-audio-qa). A waived QA NEVER certifies audio fidelity. It can stop ONLY one
 verified idle dedicated Remix Pro V3 worker; it never kills ACE-Step or the
 main relay. It uses SHA-pinned GitHub installer bytes and fails closed.
 
@@ -160,6 +161,8 @@ def public_capabilities():
         raise HandoffBlocked("Cloudflare capabilities unavailable") from exc
     require(isinstance(data, dict) and data.get("expectedAgentRevision") == REVISION,
             "Cloudflare gateway is not compatible with the V3 agent revision")
+    require(data.get("available") is True and data.get("fusionAvailable") is True,
+            "Public Cloudflare fusion heartbeat is not available")
     return data
 
 
@@ -246,7 +249,7 @@ def wait_ready(proc, started):
                 and snapshot.get("state") in IDLE
                 and int(snapshot.get("updatedAt") or 0) >= int(started)):
             caps = public_capabilities()
-            if caps.get("available") is True:
+            if caps.get("available") is True and caps.get("fusionAvailable") is True:
                 return
         time.sleep(3)
     raise HandoffBlocked("V4 worker did not establish a fresh authenticated heartbeat")
@@ -257,12 +260,17 @@ def main(argv=None):
     parser.add_argument("--preflight", action="store_true", help="Read-only inspection, default")
     parser.add_argument("--activate", action="store_true", help="Deliberate guarded update")
     parser.add_argument("--confirm-maintenance", action="store_true")
-    parser.add_argument("--confirm-audio-qa", action="store_true")
+    parser.add_argument("--confirm-audio-qa", action="store_true",
+                        help="Only if real A+B audio QA was actually completed")
+    parser.add_argument("--skip-audio-qa", action="store_true",
+                        help="Explicitly waive A+B listening QA, never claim audio quality")
     parser.add_argument("--auth-mode", choices=("auto", "none", "required"), default="auto")
     opts = parser.parse_args(argv)
     if opts.activate:
-        require(opts.confirm_maintenance and opts.confirm_audio_qa,
-                "No activation without approved GPU QA and confirmed maintenance window")
+        require(opts.confirm_maintenance,
+                "No activation without a confirmed maintenance window")
+        require(opts.confirm_audio_qa != opts.skip_audio_qa,
+                "Select either actually completed audio QA or explicit --skip-audio-qa waiver")
     env_read_only()
     running = pro_pids()
     require(len(running) <= 1, "Multiple dedicated workers detected")
@@ -274,6 +282,9 @@ def main(argv=None):
         return
     if installed_matches():
         raise HandoffBlocked("V4 is already present on disk: runtime verification required")
+    if opts.skip_audio_qa:
+        print("SONARA_V4_AUDIO_QA_WAIVED_BY_USER=True", flush=True)
+        print("SONARA_V4_ARTISTIC_QUALITY_NOT_VERIFIED=True", flush=True)
     # Verify BOTH the immutable bytes and public gateway BEFORE touching worker.
     payload = verified_installer()
     public_capabilities()
@@ -281,6 +292,9 @@ def main(argv=None):
     mode = opts.auth_mode if opts.auth_mode != "auto" else prior
     require(mode in ("required", "none"),
             "Cannot infer local ACE-Step auth mode; provide --auth-mode")
+    if prior is not None:
+        require(mode == prior,
+                "Requested auth mode differs from the active worker; refusing unsafe handoff")
     if running:
         stop_if_confirmed_idle(running[0])
     require(not pro_pids(), "Dedicated worker is still running; install refused")
