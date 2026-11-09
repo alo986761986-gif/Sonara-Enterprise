@@ -1,0 +1,129 @@
+{
+  "time": "2026-11-09T17:53:11.409889+00:00",
+  "pages": {
+    "root": {
+      "status": 200,
+      "bytes": 318233,
+      "sha256": "aeb9861ddc8fd21954350d81",
+      "cache": null,
+      "main_js": "/assets/index-CScrz1mM.js",
+      "html_start": "<!DOCTYPE html>\n<html lang=\"it\">\n  <head>\n    <meta charset=\"UTF-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n    <title>SONARA AI MUSIC PLATFORM</title>\n    <meta name=\"description\" content=\"SONARA AI MUSIC PLATFORM \u00e8 l\u2019ecosistema creativo di Sonara Enterprise: genera musica e video con intelligenza artificiale, strumenti professionali e workflow avanzati.\" />\n    <meta name=\"robots\" content=\"index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1\" />\n    <link rel=\"canonical\" href=\"https://sonaraenterprise.com/\" />\n    <meta name=\"theme-color\" content=\"#02050b\" />\n    <meta name=\"sonara-studio-release\" content=\"sonara-studio-v2.0-production\" />\n    <meta name=\"sonara-studio-engine\" content=\"sonara-studio-real-engine-v2\" />\n    <meta name=\"sonara-studio-video\" content=\"sonara-studio-video-v1\" />\n    <meta name=\"sonara-sessions-release\" content=\"sonara-sessions-2-0\" />\n\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"/sonara-brand-icon.svg?v=20260829-2\" />\n    <link rel=\"shortcut icon\" href=\"/sonara-brand-icon.svg?v=20260829-2\" />\n    <link rel=\"apple-touch-icon\" href=\"/sonara-brand-icon.svg?v=20260829-2\" />\n    <link rel=\"manifest\" href=\"/site.webmanifest?v=20260829-2\" />\n\n    <meta property=\"og:site_name\" content=\"SONARA",
+      "script_count": 18,
+      "head_count": 1,
+      "root_count": 1,
+      "no_boot_marker": false
+    },
+    "fresh": {
+      "status": 200,
+      "bytes": 4242,
+      "sha256": "32c46847662735aeb9a048b7",
+      "cache": "HIT",
+      "main_js": "/assets/index-CVPmYcq7.js",
+      "html_start": "<!DOCTYPE html>\n<html lang=\"it\">\n  <head>\n    <meta charset=\"UTF-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n    <title>SONARA AI MUSIC PLATFORM</title>\n    <meta name=\"description\" content=\"SONARA AI MUSIC PLATFORM \u00e8 l\u2019ecosistema creativo di Sonara Enterprise: genera musica e video con intelligenza artificiale, strumenti professionali e workflow avanzati.\" />\n    <meta name=\"robots\" content=\"index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1\" />\n    <link rel=\"canonical\" href=\"https://sonaraenterprise.com/\" />\n    <meta name=\"theme-color\" content=\"#02050b\" />\n    <meta name=\"sonara-studio-release\" content=\"sonara-studio-v2.0-production\" />\n    <meta name=\"sonara-studio-engine\" content=\"sonara-studio-real-engine-v2\" />\n    <meta name=\"sonara-studio-video\" content=\"sonara-studio-video-v1\" />\n    <meta name=\"sonara-sessions-release\" content=\"sonara-sessions-2-0\" />\n\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"/sonara-brand-icon.svg?v=20260829-2\" />\n    <link rel=\"shortcut icon\" href=\"/sonara-brand-icon.svg?v=20260829-2\" />\n    <link rel=\"apple-touch-icon\" href=\"/sonara-brand-icon.svg?v=20260829-2\" />\n    <link rel=\"manifest\" href=\"/site.webmanifest?v=20260829-2\" />\n\n    <meta property=\"og:site_name\" content=\"SONARA",
+      "script_count": 11,
+      "head_count": 1,
+      "root_count": 1,
+      "no_boot_marker": false
+    },
+    "www": {
+      "status": 200,
+      "bytes": 318233,
+      "sha256": "aeb9861ddc8fd21954350d81",
+      "cache": null,
+      "main_js": "/assets/index-CScrz1mM.js",
+      "html_start": "<!DOCTYPE html>\n<html lang=\"it\">\n  <head>\n    <meta charset=\"UTF-8\" />\n    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n    <title>SONARA AI MUSIC PLATFORM</title>\n    <meta name=\"description\" content=\"SONARA AI MUSIC PLATFORM \u00e8 l\u2019ecosistema creativo di Sonara Enterprise: genera musica e video con intelligenza artificiale, strumenti professionali e workflow avanzati.\" />\n    <meta name=\"robots\" content=\"index,follow,max-image-preview:large,max-snippet:-1,max-video-preview:-1\" />\n    <link rel=\"canonical\" href=\"https://sonaraenterprise.com/\" />\n    <meta name=\"theme-color\" content=\"#02050b\" />\n    <meta name=\"sonara-studio-release\" content=\"sonara-studio-v2.0-production\" />\n    <meta name=\"sonara-studio-engine\" content=\"sonara-studio-real-engine-v2\" />\n    <meta name=\"sonara-studio-video\" content=\"sonara-studio-video-v1\" />\n    <meta name=\"sonara-sessions-release\" content=\"sonara-sessions-2-0\" />\n\n    <link rel=\"icon\" type=\"image/svg+xml\" href=\"/sonara-brand-icon.svg?v=20260829-2\" />\n    <link rel=\"shortcut icon\" href=\"/sonara-brand-icon.svg?v=20260829-2\" />\n    <link rel=\"apple-touch-icon\" href=\"/sonara-brand-icon.svg?v=20260829-2\" />\n    <link rel=\"manifest\" href=\"/site.webmanifest?v=20260829-2\" />\n\n    <meta property=\"og:site_name\" content=\"SONARA",
+      "script_count": 18,
+      "head_count": 1,
+      "root_count": 1,
+      "no_boot_marker": false
+    }
+  },
+  "assets": {
+    "/assets/index-CScrz1mM.js chrome": {
+      "status": 200,
+      "type": "text/html",
+      "cache": "HIT",
+      "length": null,
+      "start": "<!DOCTYPE html>\n<html lang=\"it\">\n  <head>\n    <meta charset=\"UTF-8\" />\n    <meta name=\"viewport\" content=\"width=device-w"
+    },
+    "/assets/index-CScrz1mM.js default": {
+      "status": 200,
+      "type": "text/html",
+      "cache": "HIT",
+      "length": null,
+      "start": "<!DOCTYPE html>\n<html lang=\"it\">\n  <head>\n    <meta charset=\"UTF-8\" />\n    <meta name=\"viewport\" content=\"width=device-w"
+    },
+    "/assets/index-CVPmYcq7.js chrome": {
+      "status": 200,
+      "type": "text/javascript",
+      "cache": "MISS",
+      "length": "1334481",
+      "start": "const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=[\"assets/AccountSettingsCenter-Bv7HmRma.js\",\"assets/PricingAndUs"
+    },
+    "/assets/index-CVPmYcq7.js default": {
+      "status": 200,
+      "type": "text/javascript",
+      "cache": "HIT",
+      "length": "1334481",
+      "start": "const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=[\"assets/AccountSettingsCenter-Bv7HmRma.js\",\"assets/PricingAndUs"
+    }
+  },
+  "worker": {
+    "bindings": [
+      {
+        "name": "ASSETS",
+        "type": "assets"
+      },
+      {
+        "name": "SONARA_AUDIO_BUCKET",
+        "type": "r2_bucket"
+      },
+      {
+        "name": "SONARA_RELAY_TOKEN_SHA256",
+        "type": "plain_text"
+      },
+      {
+        "name": "SONARA_RELAY_TOKEN_SHA256_QUATERNAR",
+        "type": "plain_text"
+      },
+      {
+        "name": "SONARA_RELAY_TOKEN_SHA256_QUATERNARY",
+        "type": "plain_text"
+      },
+      {
+        "name": "SONARA_RELAY_TOKEN_SHA256_QUINARY",
+        "type": "plain_text"
+      },
+      {
+        "name": "SONARA_RELAY_TOKEN_SHA256_SECONDARY",
+        "type": "plain_text"
+      },
+      {
+        "name": "SONARA_RELAY_TOKEN_SHA256_SIXTH",
+        "type": "plain_text"
+      },
+      {
+        "name": "SONARA_RELAY_TOKEN_SHA256_TERTIARY",
+        "type": "plain_text"
+      }
+    ],
+    "settings_keys": [
+      "placement",
+      "compatibility_date",
+      "compatibility_flags",
+      "usage_model",
+      "tags",
+      "tail_consumers",
+      "logpush",
+      "annotations",
+      "bindings"
+    ],
+    "metadata": [
+      {
+        "id": "sonara-enterprise",
+        "modified_on": "2026-11-09T17:30:10.614293Z",
+        "created_on": "2026-08-23T19:52:08.098906Z"
+      }
+    ]
+  }
+}
