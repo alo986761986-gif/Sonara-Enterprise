@@ -1,0 +1,77 @@
+name: SONARA precise asset and deployed worker diagnosis
+on:
+  push:
+    branches: [fix/sonara-black-screen-main-safe-20261109]
+    paths: [.github/sonara-asset-probe-trigger]
+permissions: {contents: write}
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    env:
+      CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Diagnose homepage, asset requests and deployed worker without writing Cloudflare
+        run: |
+          python3 - <<'PY'
+          import json,urllib.request,urllib.error,datetime,os,hashlib,re
+          out={'time':datetime.datetime.now(datetime.timezone.utc).isoformat(),'pages':{},'assets':{},'worker':{}}
+          urls={'root':'https://sonaraenterprise.com/','fresh':'https://sonaraenterprise.com/?refresh=20261109','www':'https://www.sonaraenterprise.com/'}
+          for name,url in urls.items():
+            try:
+              rq=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/116 Safari/537.36','Referer':'https://www.google.com/search?q=sonara+enterprise','Accept':'text/html,application/xhtml+xml'})
+              with urllib.request.urlopen(rq,timeout=17) as r:
+                b=r.read(500000)
+                out['pages'][name]={'status':r.status,'bytes':len(b),'sha256':hashlib.sha256(b).hexdigest()[:24],'cache':r.headers.get('cf-cache-status'),'main_js':(re.search(rb'/assets/index-[\w-]+\.js',b) or [b''])[0].decode(),'html_start':b[:1300].decode('utf8','replace'),'script_count':b.count(b'<script'),'head_count':b.count(b'<head'),'root_count':b.count(b'id="root"'),'no_boot_marker':b'sonara-no-boot-edge-v2' in b}
+            except Exception as e:
+              out['pages'][name]={'error':type(e).__name__,'status':getattr(e,'code',None)}
+          assets={v['main_js'] for v in out['pages'].values() if v.get('main_js')}
+          assets.add('/assets/index-CScrz1mM.js')
+          assets.add('/assets/index-CVPmYcq7.js')
+          for path in sorted(assets):
+            for suffix,ua in [('chrome','Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/116 Safari/537.36'),('default','SONARA-Fix/1.0')]:
+              key=path+' '+suffix
+              rq=urllib.request.Request('https://sonaraenterprise.com'+path,headers={'User-Agent':ua,'Accept':'*/*','Referer':'https://sonaraenterprise.com/'})
+              try:
+                with urllib.request.urlopen(rq,timeout=20) as r:
+                  b=r.read(8000)
+                  out['assets'][key]={'status':r.status,'type':r.headers.get('content-type'),'cache':r.headers.get('cf-cache-status'),'length':r.headers.get('content-length'),'start':b[:120].decode('utf8','replace')}
+              except urllib.error.HTTPError as e:
+                out['assets'][key]={'status':e.code,'type':e.headers.get('content-type'),'cf_ray':bool(e.headers.get('cf-ray')),'start':e.read(400).decode('utf8','replace')}
+              except Exception as e:
+                out['assets'][key]={'error':type(e).__name__}
+          token=os.getenv('CF_TOKEN','')
+          if token:
+            try:
+              def cf(path):
+                req=urllib.request.Request('https://api.cloudflare.com/client/v4'+path,headers={'Authorization':'Bearer '+token,'Accept':'application/json'})
+                with urllib.request.urlopen(req,timeout=20) as r:
+                  return json.load(r)
+              zone=next(z for z in cf('/zones?name=sonaraenterprise.com&per_page=10')['result'] if z.get('name')=='sonaraenterprise.com')
+              account=zone['account']['id']
+              base='/accounts/'+account+'/workers/scripts/sonara-enterprise'
+              settings=cf(base+'/settings')
+              out['worker']['bindings']=[{'name':x.get('name'),'type':x.get('type')} for x in settings.get('result',{}).get('bindings',[]) if x.get('type') in ('assets','kv_namespace','r2_bucket') or 'RELAY_TOKEN_SHA256' in x.get('name','')]
+              out['worker']['settings_keys']=list(settings.get('result',{}).keys())
+              resp=cf('/accounts/'+account+'/workers/scripts')
+              scripts=resp.get('result',[])
+              if isinstance(scripts,list):
+                out['worker']['metadata']=[{'id':x.get('id'),'modified_on':x.get('modified_on'),'created_on':x.get('created_on')} for x in scripts if x.get('id')=='sonara-enterprise']
+            except Exception as e:out['worker']['error']=type(e).__name__
+          with open('.github/sonara-asset-probe-result.json','w') as f:json.dump(out,f,indent=2)
+          print('SONARA_ASSET_PROBE='+json.dumps(out)[:10000])
+          PY
+      - name: Save public diagnosis to branch
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os,json,base64,urllib.request
+          path='.github/sonara-asset-probe-result.json'
+          if not os.path.isfile(path):raise SystemExit(0)
+          repo=os.getenv('GITHUB_REPOSITORY');branch=os.getenv('GITHUB_REF_NAME');token=os.getenv('GH_TOKEN')
+          body={'message':'diagnosis: exact live homepage and JS response status','branch':branch,'content':base64.b64encode(open(path,'rb').read()).decode()}
+          req=urllib.request.Request('https://api.github.com/repos/'+repo+'/contents/'+path,data=json.dumps(body).encode(),method='PUT',headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','Content-Type':'application/json'})
+          with urllib.request.urlopen(req,timeout=25) as r:print('DIAGNOSTIC_COMMIT_HTTP='+str(r.status))
+          PY
