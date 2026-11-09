@@ -128,7 +128,10 @@ def render(audio_path, output_path, prompt, *, mode="required", strength=0.72,
         duration = wav.getnframes() / wav.getframerate()
     if not 10 <= duration <= 600:
         raise ACEBridgeError("Remix Pro cover duration outside 10-600 seconds")
-    reference = pathlib.Path(reference_audio_path).expanduser().resolve(strict=True) if reference_audio_path else None
+    try:
+        reference = pathlib.Path(reference_audio_path).expanduser().resolve(strict=True) if reference_audio_path else None
+    except (OSError, RuntimeError) as exc:
+        raise ACEBridgeError("B style reference is missing or unavailable") from exc
     if reference is not None:
         if reference == source or reference.suffix.lower() != ".wav" or reference.stat().st_size > MAX_BYTES:
             raise ACEBridgeError("B must be a distinct genuine WAV style reference")
