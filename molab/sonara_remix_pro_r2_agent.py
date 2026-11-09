@@ -767,7 +767,8 @@ def main(argv=None):
                 time.sleep(20)
                 continue
             last_gate_pending = False
-            response = request("POST","/api/sonara-relay/pro-claim",{})
+            response = request("POST","/api/sonara-relay/pro-claim",
+                               {"v5Ready": pro_heartbeat_payload().get("v5Ready") is True})
             if response.get("jobId"):
                 run_job(response,args.auth_mode)
             else:
