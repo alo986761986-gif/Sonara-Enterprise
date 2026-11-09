@@ -80,7 +80,8 @@ async function gpuState(b){
   const fresh=Boolean(d?.gpuReady===true&&age>=0&&age<30_000);
   return {ready:fresh&&d?.revision===PRO_AGENT_REVISION,
     legacyReady:fresh&&d?.revision===LEGACY_AGENT_REVISION,
-    formatsReady:d?.formatsReady===true};
+    formatsReady:d?.formatsReady===true,
+    v5Ready:fresh&&d?.v5Ready===true&&d?.revision===PRO_AGENT_REVISION};
 }
 async function beat(b){
   const d=b?await readJson(await b.get(heartbeatKey)):null;
@@ -91,7 +92,7 @@ export async function proCapabilities(env) {
   const available=Boolean(env.SONARA_AUDIO_BUCKET)&&enabled(env)&&await beat(env.SONARA_AUDIO_BUCKET);
   const gpu=await gpuState(env.SONARA_AUDIO_BUCKET);
   return {mode:'remix-pro-private-2-source',available,
-    fusionAvailable:available&&gpu.ready,engine:'Demucs 4.1 + ACE-Step XL Turbo',
+    fusionAvailable:available&&gpu.ready,v5Available:available&&gpu.v5Ready,engine:'Demucs 4.1 + ACE-Step XL Turbo',
     model:'htdemucs',expectedAgentRevision:PRO_AGENT_REVISION,
     multiformatAvailable:available&&gpu.formatsReady,
     formats:['wav','mp3','flac','m4a','mp4','aac','ogg','oga','opus','aif','aiff','aifc','webm','wma','caf','amr','ac3'],
@@ -116,6 +117,7 @@ function publicStatus(j){
     stage:String(j.stage||'queued'),error:j.status==='FAILED'?failureExplanation(j):null,
     ...(j.status==='FAILED'&&FAILURE_NOTICES[j.failureCode]?{errorCode:j.failureCode,failurePhase:j.failurePhase}:{}),
     audioUrl:j.status==='COMPLETE'?'/api/sonara-relay/pro-job/'+id+'/audio':null,
+    ...(j.status==='COMPLETE'&&j.v5Result?{v5Result:j.v5Result}:{}),
     stems:j.status==='COMPLETE'?Object.keys(j.stems||{}).filter(k=>ROLES.has(k)).map(role=>({
       role,url:'/api/sonara-relay/pro-job/'+id+'/stem/'+role
     })):[]};
@@ -173,6 +175,19 @@ async function enqueue(req,e,auth,b) {
   // The job id must be allocated by the authenticated native billing gateway.
   if(await b.head(jobKey(id)))return fail('Job gia accodato.',409);
   if(body.rightsConfirmed!==true)return fail('Conferma i diritti di utilizzo dei due brani.');
+  const v5=body.v5===true;
+  if(v5) {
+    if(!(await gpuState(b)).v5Ready)return fail('Remix Pro V5 richiede un worker MoLab V5 verificato.',503);
+    if(!['auto','house','tech-house','deep-house','jazz-fusion','hip-hop','latin-house','pop'].includes(body.genre))
+      return fail('Genere V5 non supportato.',400);
+    if(!Number.isInteger(body.bInfluence)||body.bInfluence<20||body.bInfluence>80)
+      return fail('Bilanciamento A/B V5 non valido.',400);
+    if(!['manual','auto'].includes(body.durationMode))return fail('Modalita durata V5 non valida.',400);
+    const count=Number(body.candidateCount);
+    const limit=duration<=90?3:duration<=180?2:1;
+    if(!Number.isInteger(count)||count<1||count>limit)
+      return fail('Numero di candidati V5 non supportato per questa durata.',400);
+  }
   const a=String(body.sourceA||''),c=String(body.sourceB||'');
   if(a===c)return fail('Seleziona due sorgenti differenti.');
   const refs=await Promise.all([ownedReference(b,a,uid),ownedReference(b,c,uid)]);
@@ -199,7 +214,9 @@ if(!(await proQuota(e,'verify',id,uid,duration)))return fail('Registrazione priv
       bassFrom:body.bassFrom==='b'?'b':'a',
       coverStrength:finite(body.coverStrength,.72,.35,.92),
       coverNoise:finite(body.coverNoise,0,0,.3),
-      key:String(body.key||'').slice(0,40)
+      key:String(body.key||'').slice(0,40),
+      ...(v5?{v5:true,genre:body.genre,bInfluence:body.bInfluence,
+               candidateCount:Number(body.candidateCount),durationMode:body.durationMode}:{})
     }};
   if(!j.params.prompt)return fail('Scrivi il prompt del Remix Pro.');
   const saved=await save(b,j);
@@ -417,6 +434,14 @@ export async function handleRemixPro(req,env,ctx,auth) {
     // New agents provide measured duration. A mismatch rejects completion.
     // Omission is allowed for older in-flight jobs during guarded rollout.
     const claimedDuration=Number(reported?.actualDurationSeconds);
+    const v5Result=j.params?.v5===true && action==='complete' &&
+      Number.isInteger(reported?.candidateCount)&&reported.candidateCount>=1&&reported.candidateCount<=3 &&
+      Number.isInteger(reported?.acceptedCandidates)&&reported.acceptedCandidates>=1 &&
+      reported.acceptedCandidates<=reported.candidateCount &&
+      Number.isFinite(Number(reported?.technicalScore)) &&
+      Number(reported.technicalScore)>=0&&Number(reported.technicalScore)<=100
+      ? {candidatesGenerated:reported.candidateCount,candidatesAccepted:reported.acceptedCandidates,
+         technicalScore:Number(reported.technicalScore),artisticListeningRequired:true} : null;
     const selectedDuration=Number(j.durationSeconds||j.params?.durationSec);
     if(action==='complete' && reported?.actualDurationSeconds!==undefined &&
        (!Number.isFinite(claimedDuration) ||
@@ -434,7 +459,8 @@ export async function handleRemixPro(req,env,ctx,auth) {
       leaseId:null,updatedAt:Date.now(),params:null,sourceA:null,sourceB:null,
       ...(action==='complete'&&reported?.actualDurationSeconds!==undefined
          ? {actualDurationSeconds:claimedDuration} : {}),
-      ...(action==='fail'?{failureCode,failurePhase}:{})};
+      ...(action==='fail'?{failureCode,failurePhase}:{}),
+      ...(v5Result?{v5Result}:{})};
     const sources=[j.sourceA,j.sourceB];
     const ok=await save(b,next,obj.etag);
     if(!ok)return fail('Retry completion',409);
