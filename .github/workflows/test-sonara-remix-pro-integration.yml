@@ -45,6 +45,34 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Read-only Cloudflare public status snapshot (non-blocking)
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          for (const [label, url] of [
+            ["SONARA_PUBLIC_WEB", "https://sonaraenterprise.com/"],
+            ["SONARA_PUBLIC_PRO", "https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities"]
+          ]) {
+            try {
+              const response = await fetch(url, {
+                headers: { "accept": "application/json,text/html", "cache-control": "no-cache",
+                           "user-agent": "SONARA-Remix-Pro-ReadOnly-Health/1.0" },
+                redirect: "manual",
+                signal: AbortSignal.timeout(12000),
+              });
+              console.log(label + "_HTTP=" + response.status);
+              if (label === "SONARA_PUBLIC_PRO" && response.ok) {
+                const data = await response.json().catch(() => ({}));
+                console.log("SONARA_PUBLIC_EXPECTED_V3=" +
+                  String(data?.expectedAgentRevision === "sonara-remix-pro-r2-agent-v3-dual-reference-fusion"));
+                console.log("SONARA_PUBLIC_PRO_AVAILABLE=" + String(data?.available === true));
+                console.log("SONARA_PUBLIC_FUSION_AVAILABLE=" + String(data?.fusionAvailable === true));
+              }
+            } catch {
+              console.log(label + "_REACHABLE=false");
+            }
+          }
+          NODE
       - name: Pro billing and source ownership tests
         run: node --test cloudflare/sonara-remix-pro-r2.test.mjs
       - name: Durable Remix Pro native quota accounting tests
