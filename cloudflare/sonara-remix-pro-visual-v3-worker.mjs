@@ -2,9 +2,10 @@
 // Build job supplies the actual compiled, versioned React app/CSS constants.
 import { REMIX_V3_JS, REMIX_V3_CSS } from './sonara-remix-pro-v3-built.mjs';
 
-const RELEASE='sonara-remix-pro-v3-real-tab-20261109';
-const TOKEN='__sonara_remix_v3_visual_asset';
-const EXACT_ROUTES=new Set(['/','/studio','/remix']);
+const RELEASE='sonara-remix-pro-v3-assets-v2-20261109';
+const JS_PATH='/__sonara-remix-pro-v3.js';
+const CSS_PATH='/__sonara-remix-pro-v3.css';
+const EXACT_ROUTES=new Set(['/','/studio','/remix',JS_PATH,CSS_PATH]);
 const HOSTS=new Set(['sonaraenterprise.com','www.sonaraenterprise.com']);
 const MAX_JS_BYTES=4_000_000;
 const MAX_CSS_BYTES=150_000;
@@ -20,7 +21,8 @@ const asset=(body,type)=>new Response(body,{
     'Cache-Control':'no-store, max-age=0',
     'X-Content-Type-Options':'nosniff',
     'X-Sonara-Remix-Visual':RELEASE,
-    'Cross-Origin-Resource-Policy':'same-origin'
+    'Cross-Origin-Resource-Policy':'same-origin',
+    'CDN-Cache-Control':'no-store'
   }
 });
 export default {
@@ -33,9 +35,9 @@ export default {
     if(!validHost) return new Response('Unexpected host',{status:404});
     if(!env.SONARA_MAIN?.fetch) return new Response('Upstream unavailable',{status:503});
     if(!EXACT_ROUTES.has(url.pathname)) return new Response('Not found',{status:404});
-    if(url.pathname==='/remix' && request.method==='GET' && url.searchParams.get(TOKEN)==='js')
+    if(url.pathname===JS_PATH && request.method==='GET')
       return asset(REMIX_V3_JS,'text/javascript; charset=UTF-8');
-    if(url.pathname==='/studio' && request.method==='GET' && url.searchParams.get(TOKEN)==='css')
+    if(url.pathname===CSS_PATH && request.method==='GET')
       return asset(REMIX_V3_CSS,'text/css; charset=UTF-8');
     const original=staging?new URL(url.pathname+url.search,'https://sonaraenterprise.com'):url;
     const upstreamRequest=staging?new Request(original.toString(),request):request;
@@ -54,8 +56,8 @@ export default {
     const safe=new Response(response.body,{status:response.status,statusText:response.statusText,headers});
     return new HTMLRewriter()
       .on('head',{element(el){
-        el.append('<link id="sonara-remix-v3-visual-css" rel="stylesheet" href="/studio?'+TOKEN+'=css">', {html:true});
-        el.append('<script id="sonara-remix-v3-visual-js" type="module" src="/remix?'+TOKEN+'=js"></script>', {html:true});
+        el.append('<link id="sonara-remix-v3-visual-css" rel="stylesheet" href="'+CSS_PATH+'">', {html:true});
+        el.append('<script id="sonara-remix-v3-visual-js" type="module" src="'+JS_PATH+'"></script>', {html:true});
       }})
       .transform(safe);
   }
