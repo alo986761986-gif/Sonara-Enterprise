@@ -31,6 +31,7 @@ type AuthMode = 'login' | 'register' | 'reset';
 
 const LANGUAGE_KEY = 'sonara.language';
 const LEGACY_GUEST_KEY = 'sonara.guest.session';
+const AUTH_BOOT_TIMEOUT_MS = 10000;
 
 function brandSonara(value: unknown): string {
   return String(value ?? '')
@@ -42,7 +43,10 @@ function brandSonara(value: unknown): string {
 }
 
 function initialLanguage(): LanguageCode {
-  const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(LANGUAGE_KEY) : null;
+  // Chrome privacy settings and embedded browsers may deny storage access.
+  let saved: string | null = null;
+  try { saved = typeof localStorage !== 'undefined' ? localStorage.getItem(LANGUAGE_KEY) : null; }
+  catch { /* Use the device language without blocking app boot. */ }
   if (saved && (SUPPORTED_LANGUAGES as readonly string[]).includes(saved)) return saved as LanguageCode;
   return detectDeviceLanguage();
 }
@@ -61,6 +65,7 @@ function friendlyAuthError(error: unknown): string {
 export default function BootAuth({ children }: { children: React.ReactNode }) {
   const [language, setLanguage] = useState<LanguageCode>(initialLanguage);
   const [authReady, setAuthReady] = useState(false);
+  const [authDelayed, setAuthDelayed] = useState(false);
   const [allowed, setAllowed] = useState(false);
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
@@ -74,16 +79,35 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     document.documentElement.lang = language;
     document.documentElement.dir = RTL_LANGUAGES.includes(language) ? 'rtl' : 'ltr';
-    localStorage.setItem(LANGUAGE_KEY, language);
+    try { localStorage.setItem(LANGUAGE_KEY, language); } catch { /* Storage is optional. */ }
     window.dispatchEvent(new CustomEvent('sonara:language', { detail: language }));
   }, [language]);
 
   useEffect(() => {
-    sessionStorage.removeItem(LEGACY_GUEST_KEY);
-    const unsubscribe = watchSonaraUser(user => {
-      setAllowed(Boolean(user));
+    // Do not expose any authenticated workspace until the server confirms
+    // the session. If the network stalls, show the login rather than a black
+    // page; a late session response can still safely restore the account.
+    try { sessionStorage.removeItem(LEGACY_GUEST_KEY); } catch {}
+    const timeout = window.setTimeout(() => {
+      setAuthDelayed(true);
+      setAllowed(false);
       setAuthReady(true);
-    });
+    }, AUTH_BOOT_TIMEOUT_MS);
+
+    let unsubscribe = () => {};
+    try {
+      unsubscribe = watchSonaraUser(user => {
+        window.clearTimeout(timeout);
+        setAuthDelayed(false);
+        setAllowed(Boolean(user));
+        setAuthReady(true);
+      });
+    } catch (error) {
+      window.clearTimeout(timeout);
+      console.error('[SONARA] Session initialization failed', error);
+      setAuthDelayed(true);
+      setAuthReady(true);
+    }
 
     const logoutHandler = async () => {
       try { await logoutSonara(); } catch {}
@@ -94,6 +118,7 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
 
     window.addEventListener('sonara:logout', logoutHandler);
     return () => {
+      window.clearTimeout(timeout);
       unsubscribe();
       window.removeEventListener('sonara:logout', logoutHandler);
     };
@@ -136,9 +161,20 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // No boot animation or splash screen: once Firebase resolves the session,
-  // authenticated users go directly to the SONARA violet landing page.
-  if (!authReady) return null;
+  // A pending auth request must never render a completely empty page.
+  if (!authReady) return (
+    <div
+      role="status"
+      aria-live="polite"
+      data-sonara-session-loading="true"
+      className="flex min-h-screen flex-col items-center justify-center gap-5 bg-[#050914] px-6 text-center text-white"
+    >
+      <img src="/sonara-brand-icon.svg" alt="SONARA" className="h-16 w-16 rounded-2xl" />
+      <h1 className="text-2xl font-bold tracking-wide">SONARA Enterprise</h1>
+      <div className="h-7 w-7 animate-spin rounded-full border-2 border-violet-400 border-t-transparent" aria-hidden="true" />
+      <p className="text-sm text-slate-300">Verifica sicura della sessione in corso…</p>
+    </div>
+  );
 
   if (allowed) return <>{children}</>;
 
@@ -201,7 +237,12 @@ export default function BootAuth({ children }: { children: React.ReactNode }) {
                 </label>
               )}
 
-              {message && <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[11px] leading-5 text-amber-200">{message}</div>}
+              {authDelayed && (
+              <div role="alert" className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-200">
+                La verifica della sessione non ha risposto. Puoi riprovare ad accedere; il tuo account e i tuoi brani restano protetti.
+              </div>
+            )}
+            {message && <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[11px] leading-5 text-amber-200">{message}</div>}
 
               <button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 px-4 py-3 text-sm font-bold disabled:opacity-60">
                 {busy && <Loader2 className="h-4 w-4 animate-spin" />}
