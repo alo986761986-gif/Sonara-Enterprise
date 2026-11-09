@@ -526,7 +526,8 @@ def run_job(item, auth_mode):
                 strength=float(params.get("coverStrength") if params.get("coverStrength") is not None else .86),
                 noise=float(params.get("coverNoise") if params.get("coverNoise") is not None else 0.0),
                 bpm=float(bpm_a),
-                key=params.get("key") or None
+                key=params.get("key") or None,
+                reference_audio_path=b
             )
             if result.get("durationVerified") is not True or result.get("oneContinuousOutput") is not True:
                 raise SourceTransferError("REMIX_DURATION_MISMATCH")
