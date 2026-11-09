@@ -309,7 +309,64 @@ def transparent_master(audio, sr=44100, lufs=-14.0, peak_ceiling=-1.0):
     return np.asarray(result, dtype=np.float32), metadata
 
 
-def combine_two_songs(a, b, stems_a, stems_b, destination, *,
+
+def _choose_b_motif(stems_b, sr=44100):
+    """Select a measurable B melodic/vocal stem without inventing instruments.
+
+    We do not claim note/chord detection: the B phrase plays in its own response
+    space while A's competing pitched parts are ducked.
+    """
+    _, _, sf, _ = _deps()
+    root = Path(stems_b).expanduser().resolve()
+    for name in ("other", "vocals"):
+        path = root / (name + ".wav")
+        if not path.is_file():
+            continue
+        with sf.SoundFile(str(path)) as wav:
+            sample = wav.read(frames=min(wav.frames, int(12 * wav.samplerate)),
+                              dtype="float32", always_2d=True)
+        if len(sample) and float((sample.astype("float64")**2).mean())**0.5 > 0.0007:
+            return name
+    return None
+
+
+def _creative_phrase_envelope(audio, bpm, *, role, sr=44100):
+    """Phrase-wise call and response. Never layer two full pitched song beds.
+
+    A leads three of four 16-beat phrases; B answers during the second phrase.
+    Short cosine tapers avoid unnatural clicks and protect drum transients.
+    This is a stem-based recomposition, not a multi-reference neural model.
+    """
+    np, _, _, _ = _deps()
+    if role not in ("a_voice", "a_harmony", "a_bass", "b_motif"):
+        return
+    phrase = max(1, round(16 * 60 / bpm * sr))
+    cycle = 4 * phrase
+    fade = max(1, round(0.32 * sr))
+    target = {"a_voice": 0.12, "a_harmony": 0.24,
+              "a_bass": 0.26, "b_motif": 1.0}[role]
+    for base in range(0, len(audio), cycle):
+        lo = min(len(audio), base + phrase)
+        hi = min(len(audio), base + 2 * phrase)
+        end = min(len(audio), base + cycle)
+        if role == "b_motif":
+            audio[base:lo] = 0
+            audio[hi:end] = 0
+            if hi > lo:
+                n = min(fade, (hi - lo)//2)
+                if n:
+                    curve = np.sin(np.linspace(0, np.pi/2, n, dtype=np.float32))**2
+                    audio[lo:lo+n] *= curve[:, None]
+                    audio[hi-n:hi] *= curve[::-1, None]
+        elif hi > lo:
+            n = min(fade, (hi-lo)//2)
+            audio[lo:hi] *= target
+            if n:
+                ramp = np.sin(np.linspace(0, np.pi/2, n, dtype=np.float32))**2
+                audio[lo:lo+n] *= (1 + (1/target-1)*(1-ramp))[:, None]
+                audio[hi-n:hi] *= (1 + (1/target-1)*ramp)[:, None]
+
+def combine_two_songs(a, b, stems_a, stems_b, destination, *
                       bpm_a=None, bpm_b=None, bass_from="a", max_seconds=180):
     """Create ONE real A+B remix WAV with the exact creator-selected duration.
 
@@ -369,6 +426,7 @@ def combine_two_songs(a, b, stems_a, stems_b, destination, *,
     beat_a = report_a["beatTimesSeconds"][0] if report_a["beatTimesSeconds"] else 0
     beat_b = report_b["beatTimesSeconds"][0] if report_b["beatTimesSeconds"] else 0
     drum_offset = round((beat_a - beat_b / ratio) * 44100)
+    motif_name = _choose_b_motif(stems_b)
     assigned = (
         ("vocalsA", vocals, 0, 0.90),
         ("harmoniesA", harmony, 0, 0.62),
@@ -380,6 +438,13 @@ def combine_two_songs(a, b, stems_a, stems_b, destination, *,
     for role, stem, offset, gain in assigned:
         aligned, count = _phrase_loop_stem(stem, frames, tempo_a, offset=offset)
         loop_counts[role] = count
+        if motif_name:
+            if role == "vocalsA":
+                _creative_phrase_envelope(aligned, tempo_a, role="a_voice")
+            elif role == "harmoniesA":
+                _creative_phrase_envelope(aligned, tempo_a, role="a_harmony")
+            elif role == "bassA":
+                _creative_phrase_envelope(aligned, tempo_a, role="a_bass")
         # Genuine stem-based arrangement: real A melody + B rhythmic identity.
         # A subtle sectional structure opens space for verses, breakdowns and
         # chorus/drop variation without manufacturing or faking audio sources.
@@ -396,6 +461,21 @@ def combine_two_songs(a, b, stems_a, stems_b, destination, *,
         rendered += aligned * gain
         del aligned
     del vocals, harmony, bass, drums
+    # B's pitched identity is *recomposed* into answer phrases, not merely mixed
+    # over A's vocal/harmonic passages. B drums are the rhythmic foundation.
+    if motif_name:
+        motif = _stretch_stereo(_load_stem(stems_b, motif_name), ratio)
+        aligned_b, motif_loops = _phrase_loop_stem(motif, frames, tempo_a,
+                                                  offset=drum_offset)
+        del motif
+        _creative_phrase_envelope(aligned_b, tempo_a, role="b_motif")
+        motif_energy = float(np.sqrt(np.mean(np.square(aligned_b.astype(np.float64)))))
+        if motif_energy >= 0.00015:
+            rendered += aligned_b * 0.67
+            loop_counts["motifB" + motif_name.capitalize()] = motif_loops
+        else:
+            motif_name = None
+        del aligned_b
 
     if not np.isfinite(rendered).all() or np.max(np.abs(rendered)) < 0.0001:
         raise RemixProError("Authentic A+B stem arrangement contained no usable music")
@@ -421,7 +501,9 @@ def combine_two_songs(a, b, stems_a, stems_b, destination, *,
         "bpmSourceB": "manual" if bpm_b else "measured",
         "sourceKeyA": report_a["key"], "sourceKeyB": report_b["key"],
         "beatOffsetMethod": "first-measured-beat-not-downbeat",
-        "stemRoles": [row[0] for row in assigned],
+        "stemRoles": [row[0] for row in assigned] + (["motifB" + motif_name.capitalize()] if motif_name else []),
+        "creativeArrangement": "A-lead/B-answer-16beat-phrases-v1" if motif_name else "A-harmony/B-groove-v1",
+        "bMelodicMotifRole": motif_name,
         "requestedSeconds": seconds, "seconds": round(frames / 44100, 3),
         "durationVerified": True, "realSourceAUsed": True,
         "realSourceBUsed": True, "oneContinuousOutput": True,
@@ -429,7 +511,8 @@ def combine_two_songs(a, b, stems_a, stems_b, destination, *,
         "stretchRatioB": round(ratio, 4), "master": loudness,
         "warnings": ["Shorter original source passages repeat on the 16-beat grid when extended.",
                      "No automatic chord transcription or phrase-preserving composition.",
-                     "Human listening required for artistic quality."]
+                     "Human listening required for artistic quality.",
+                     "Stem recomposition is not proof of a perceptually successful AI dual-reference fusion."]
     }
     destination.with_suffix(".report.json").write_text(json.dumps(result, indent=2))
     return result
