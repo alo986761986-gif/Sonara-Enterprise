@@ -1,0 +1,64 @@
+name: SONARA - Inspect Live Fifth Relay Pairing (Read Only)
+on:
+  push:
+    branches: [fix/remix-pro-v3-pair-fifth-notebook-20261109]
+    paths: ['.github/workflows/inspect-sonara-live-fifth-pairing.yml']
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+    steps:
+      - name: Inspect current production Workers configuration without any writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const token=process.env.CLOUDFLARE_API_TOKEN;
+          if(!token){console.log('SONARA_CLOUDFLARE_AUTH_CONFIGURED=false');process.exitCode=2;process.exit();}
+          const base='https://api.cloudflare.com/client/v4';
+          const headers={Authorization:'Bearer '+token,Accept:'application/json'};
+          async function api(path){
+            const r=await fetch(base+path,{headers,signal:AbortSignal.timeout(20000)});
+            const d=await r.json().catch(()=>null);
+            if(!r.ok||!d?.success){throw Error('Cloudflare read failed HTTP '+r.status+' at '+path.split('/').at(-1));}
+            return d.result;
+          }
+          const zones=await api('/zones?name=sonaraenterprise.com&per_page=20');
+          const zone=zones.find(z=>z.name==='sonaraenterprise.com');
+          if(!zone?.account?.id)throw Error('SONARA zone unavailable');
+          const account=process.env.CLOUDFLARE_ACCOUNT_ID||zone.account.id;
+          if(account!==zone.account.id)throw Error('Wrong Cloudflare account, refusing to inspect');
+          const worker='/accounts/'+account+'/workers/scripts/sonara-enterprise';
+          const settings=await api(worker+'/settings');
+          const bindings=Array.isArray(settings?.bindings)?settings.bindings:[];
+          const fifth=bindings.find(x=>x.name==='SONARA_RELAY_TOKEN_SHA256_QUINARY');
+          const old=['SONARA_RELAY_TOKEN_SHA256','SONARA_RELAY_TOKEN_SHA256_SECONDARY','SONARA_RELAY_TOKEN_SHA256_TERTIARY','SONARA_RELAY_TOKEN_SHA256_QUATERNARY'];
+          const oldCount=old.filter(name=>bindings.some(x=>x.name===name)).length;
+          const fingerprintPresent=!!fifth;
+          const fingerprintShape=typeof fifth?.text==='string'&&/^[a-f0-9]{64}$/.test(fifth.text);
+          console.log('SONARA_CLOUDFLARE_AUTH_CONFIGURED=true');
+          console.log('SONARA_FIFTH_BINDING_PRESENT='+fingerprintPresent);
+          console.log('SONARA_FIFTH_BINDING_FORMAT_VALID='+fingerprintShape);
+          console.log('SONARA_PRIOR_RELAY_BINDINGS_COUNT='+oldCount);
+          console.log('SONARA_RELAY_BINDING_TYPE='+String(fifth?.type||'absent'));
+          console.log('SONARA_WORKER_MAIN_WITHOUT_CHANGES=true');
+          const codeResponse=await fetch(base+worker,{
+            headers:{Authorization:'Bearer '+token,Accept:'*/*'},
+            signal:AbortSignal.timeout(25000)});
+          console.log('SONARA_WORKER_READ_HTTP='+codeResponse.status);
+          if(codeResponse.ok){
+            const data=await codeResponse.arrayBuffer();
+            if(data.byteLength>12000000)throw Error('Unexpected source size; skip inspection');
+            const code=new TextDecoder().decode(data);
+            console.log('SONARA_LIVE_SOURCE_FIFTH_SUPPORT='+code.includes('SONARA_RELAY_TOKEN_SHA256_QUINARY'));
+            console.log('SONARA_LIVE_SOURCE_FOURTH_SUPPORT='+code.includes('SONARA_RELAY_TOKEN_SHA256_QUATERNARY'));
+            console.log('SONARA_LIVE_SOURCE_IS_MULTIPART='+String((codeResponse.headers.get('content-type')||'').includes('multipart/')));
+          }
+          console.log('SONARA_NO_CLOUDFLARE_WRITES=true');
+          console.log('SONARA_NO_GPU_JOBS_CREATED=true');
+          NODE
