@@ -52,6 +52,45 @@ class ACEBridgeTests(unittest.TestCase):
                 render(input_wav,output_wav,"No overwrites",mode="none")
 
 
+    def test_style_reference_b_passed_into_cover_request(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            source, style, output = root/"a-arrangement.wav", root/"b-style.wav", root/"result.wav"
+            wav_source(source)
+            wav_source(style)
+            sent = []
+            def fake_request(path, data=None, **kwargs):
+                if path == "/release_task":
+                    sent.append(data)
+                    return {"data": {"task_id": "dual-test"}}
+                if path == "/query_result":
+                    return {"data": [{"status": 1, "result": [{"audio_path": "/tmp/mock.wav"}]}]}
+                if path.startswith("/v1/audio?"):
+                    return source.read_bytes()
+                raise AssertionError("Unexpected network path")
+            with patch("sonara_remix_pro_ace_bridge._request", side_effect=fake_request):
+                report = render(source, output, "Fuse melodic A and style B",
+                                mode="none", reference_audio_path=style)
+            self.assertEqual(len(sent), 1)
+            self.assertEqual(sent[0]["src_audio_path"] != str(style), True)
+            self.assertEqual(sent[0]["reference_audio_path"], str(style.resolve()))
+            self.assertTrue(report["bStyleReferenceRequested"])
+            self.assertTrue(source.exists())
+            self.assertTrue(style.exists())
+
+    def test_style_reference_cannot_reuse_original_or_missing_audio(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            src, dst = root/"source.wav", root/"out.wav"
+            wav_source(src)
+            with patch("sonara_remix_pro_ace_bridge._request",
+                       side_effect=AssertionError("No local API call expected")):
+                with self.assertRaises(ACEBridgeError):
+                    render(src, dst, "test", mode="none", reference_audio_path=src)
+                with self.assertRaises(ACEBridgeError):
+                    render(src, dst, "test", mode="none",
+                           reference_audio_path=root/"missing.wav")
+
     def test_long_form_multiple_real_sections_become_one_exact_length_wav(self):
         import soundfile as sf
         import numpy as np
