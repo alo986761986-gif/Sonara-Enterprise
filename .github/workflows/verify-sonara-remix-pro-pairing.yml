@@ -1,0 +1,33 @@
+name: SONARA Remix Pro - safe fingerprint pairing QA
+on:
+  push:
+    branches: [feature/remix-pro-musical-coherence-v2-20261109]
+    paths:
+      - 'molab/prepare_sonara_remix_pro_pairing.py'
+      - 'molab/test_prepare_sonara_remix_pro_pairing.py'
+      - '.github/workflows/verify-sonara-remix-pro-pairing.yml'
+permissions: {contents: read}
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Run security checks without Cloudflare secrets
+        run: |
+          python -m py_compile molab/prepare_sonara_remix_pro_pairing.py
+          python -m unittest discover -s molab -p 'test_prepare_sonara_remix_pro_pairing.py' -v
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('molab/prepare_sonara_remix_pro_pairing.py').read_text()
+          assert 'token_urlsafe(48)' in s
+          assert 'O_EXCL' in s
+          assert 'X-Sonara-Relay-Token' in s
+          assert 'queue-status' in s
+          assert 'print(value)' not in s
+          assert 'token_secret=' not in s
+          print('SONARA_PRO_PAIRING_QA=PASS')
+          PY

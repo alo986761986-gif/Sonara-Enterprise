@@ -1,0 +1,40 @@
+name: SONARA Remix Pro Quality V2 - GitHub-only public readiness check
+on:
+  push:
+    branches: [feature/remix-pro-musical-coherence-v2-20261109]
+    paths: ['.github/workflows/sonara-remix-quality-v2-github-readiness.yml']
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  check-live-public-remix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check public SONARA GPU V3 capability, no user account needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const url='https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities';
+          const response=await fetch(url+'?probe='+Date.now(),{
+            headers:{'Cache-Control':'no-store','Accept':'application/json'},
+            signal:AbortSignal.timeout(18000)
+          });
+          if(!response.ok)throw Error('SONARA_CAPABILITIES_HTTP='+response.status);
+          const payload=await response.json();
+          const expected='sonara-remix-pro-r2-agent-v3-dual-reference-fusion';
+          console.log('SONARA_GATEWAY_HTTP_200=true');
+          console.log('SONARA_EXPECTED_REVISION_V3='+String(payload.expectedAgentRevision===expected));
+          console.log('SONARA_PRO_AVAILABLE='+String(payload.available===true));
+          console.log('SONARA_FUSION_AVAILABLE='+String(payload.fusionAvailable===true));
+          console.log('SONARA_SITE_INTEGRATED='+String(payload.siteIntegrated===true));
+          console.log('SONARA_UPDATE_ELIGIBLE='+String(
+            payload.available===true&&payload.fusionAvailable===true&&
+            payload.expectedAgentRevision===expected
+          ));
+          console.log('SONARA_RUN_READ_ONLY=true');
+          console.log('SONARA_GPU_JOB_CREATED=false');
+          console.log('SONARA_MOLAB_FILES_CHANGED=false');
+          console.log('SONARA_TINYFISH_USED=false');
+          console.log('SONARA_VERCEL_USED=false');
+          NODE

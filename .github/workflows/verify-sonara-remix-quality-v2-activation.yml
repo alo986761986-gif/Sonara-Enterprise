@@ -1,0 +1,44 @@
+name: SONARA Remix Pro Quality V2 - Safe Activation QA
+on:
+  push:
+    branches: [feature/remix-pro-musical-coherence-v2-20261109]
+    paths:
+      - 'molab/activate_sonara_remix_quality_v2.py'
+      - 'molab/install_sonara_remix_quality_v2.py'
+      - 'molab/test_sonara_remix_quality_v2_activation.py'
+      - '.github/workflows/verify-sonara-remix-quality-v2-activation.yml'
+  pull_request:
+    paths:
+      - 'molab/activate_sonara_remix_quality_v2.py'
+      - 'molab/install_sonara_remix_quality_v2.py'
+      - 'molab/test_sonara_remix_quality_v2_activation.py'
+permissions: {contents: read}
+jobs:
+  safe-activation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: Syntax and pure offline activation tests
+        run: |
+          python -m py_compile molab/activate_sonara_remix_quality_v2.py molab/install_sonara_remix_quality_v2.py
+          python -m unittest discover -s molab -p 'test_sonara_remix_quality_v2_activation.py' -v
+          python -m unittest discover -s molab -p 'test_sonara_remix_fusion_installer.py' -v
+      - name: Verify actual quality modules' immutable hashes
+        run: |
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          base=Path('molab')
+          s=importlib.util.spec_from_file_location('installer',base/'install_sonara_remix_quality_v2.py')
+          m=importlib.util.module_from_spec(s)
+          s.loader.exec_module(m)
+          for name,expected in m.EXPECTED.items():
+            content=(base/name).read_bytes()
+            assert m.git_blob_sha(content)==expected, name
+            compile(content,name,'exec')
+          print('SONARA_QUALITY_V2_IMMUTABLE_MODULES_VERIFIED=True')
+          PY
