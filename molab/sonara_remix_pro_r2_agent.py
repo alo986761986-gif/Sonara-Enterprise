@@ -140,9 +140,44 @@ def request(method, path, data=None, lease=None, *, binary=False, timeout=120):
         raise ProAgentError("SONARA Remix Pro gateway HTTP " + str(exc.code)) from exc
 
 
+FAILURE_STEPS = frozenset((
+    "download_a", "download_b", "normalize_a", "normalize_b",
+    "analysis", "demucs_a", "demucs_b", "fusion_plan",
+    "ace_step", "mastering", "quality_gate", "upload", "completion",
+))
+FAILURE_CODES = {
+    "analysis": "REMIX_ANALYSIS_FAILED",
+    "demucs_a": "REMIX_DEMUCS_FAILED",
+    "demucs_b": "REMIX_DEMUCS_FAILED",
+    "fusion_plan": "REMIX_FUSION_PLAN_FAILED",
+    "ace_step": "REMIX_ACE_STEP_FAILED",
+    "mastering": "REMIX_MASTERING_FAILED",
+    "quality_gate": "REMIX_AUDIO_QUALITY_REJECTED",
+    "upload": "REMIX_UPLOAD_FAILED",
+    "completion": "REMIX_COMPLETION_FAILED",
+}
+FAILURE_CODE_SET = frozenset(FAILURE_CODES.values()) | frozenset((
+    "REMIX_PROCESSING_ERROR", "REMIX_DURATION_MISMATCH", "REMIX_INVALID_DURATION",
+    "SOURCE_DECODER_FAILED",
+))
+
 def status(state, **safe):
     HOME.mkdir(mode=0o700, exist_ok=True)
     safe_data = {"revision": REVISION, "state": state, "updatedAt": int(time.time()), **safe}
+    # Preserve only a fixed, non-sensitive failure code between idle polls.
+    # Never retain a user ID, job ID, source path, token, prompt or traceback.
+    if "lastFailureCode" not in safe and state != "processing":
+        try:
+            previous = json.loads(STATUS_FILE.read_text(encoding="utf-8"))
+            if (isinstance(previous, dict)
+                    and previous.get("lastFailureCode") in FAILURE_CODE_SET
+                    and previous.get("lastFailureStep") in FAILURE_STEPS
+                    and time.time() - float(previous.get("lastFailureAt") or 0) < 86400):
+                safe_data["lastFailureCode"] = previous["lastFailureCode"]
+                safe_data["lastFailureStep"] = previous["lastFailureStep"]
+                safe_data["lastFailureAt"] = previous["lastFailureAt"]
+        except (OSError, ValueError, TypeError):
+            pass
     path = STATUS_FILE.with_suffix(".tmp")
     path.write_text(json.dumps(safe_data))
     path.chmod(0o600)
@@ -480,20 +515,25 @@ def run_job(item, auth_mode):
     stem_cache.mkdir(mode=0o700)
     print("SONARA PRO job claimed:", job, flush=True)
     failure_phase = "source_a"
+    failure_step = "download_a"
     try:
         with Renewer(job, lease) as renewal:
             progress(job, lease, "downloading", renewal)
             original_a = download_source(job, lease, "a", "source-a", folder,
                                          item.get("sourceFormatA") or "wav")
             failure_phase = "source_b"
+            failure_step = "download_b"
             original_b = download_source(job, lease, "b", "source-b", folder,
                                          item.get("sourceFormatB") or "wav")
             failure_phase = "normalize_a"
+            failure_step = "normalize_a"
             a = normalized_audio_source(original_a, folder / "normalized-a.wav")
             failure_phase = "normalize_b"
+            failure_step = "normalize_b"
             b = normalized_audio_source(original_b, folder / "normalized-b.wav")
             ensure_distinct_sources(a, b)
             failure_phase = "processing"
+            failure_step = "analysis"
             progress(job, lease, "analyzing", renewal)
             report_a = analyze_audio(a)
             report_b = analyze_audio(b)
@@ -506,10 +546,13 @@ def run_job(item, auth_mode):
             env_cache = ROOT / "model-cache"
             os.environ["TORCH_HOME"] = str(env_cache)
             os.environ["XDG_CACHE_HOME"] = str(ROOT / "private-cache")
+            failure_step = "demucs_a"
             manifest_a = separate_stems(a, stem_cache, device="cuda")
+            failure_step = "demucs_b"
             manifest_b = separate_stems(b, stem_cache, device="cuda")
             source_a = stem_cache / manifest_a["sourceSha256"][:20]
             source_b = stem_cache / manifest_b["sourceSha256"][:20]
+            failure_step = "fusion_plan"
             progress(job, lease, "arranging", renewal)
             requested_seconds = int(params.get("durationSec") or 60)
             if requested_seconds not in range(30, 481, 30):
@@ -539,6 +582,7 @@ def run_job(item, auth_mode):
                 bass_from=params.get("bassFrom") or "a",
                 requested_seconds=requested_seconds,
             )
+            failure_step = "ace_step"
             progress(job, lease, "regenerating", renewal)
             generated = folder / "generated.wav"
             result = ace_cover(
@@ -554,6 +598,7 @@ def run_job(item, auth_mode):
                 raise SourceTransferError("REMIX_DURATION_MISMATCH")
             if result.get("status")!="completed":
                 raise ProAgentError("Local ACE-Step did not complete the job")
+            failure_step = "mastering"
             progress(job, lease, "mastering", renewal)
             sample, sr = sf.read(str(generated), dtype="float32", always_2d=True)
             if sr < 22050 or sr > 96000 or abs(len(sample) / sr - requested_seconds) > 0.1:
@@ -567,6 +612,7 @@ def run_job(item, auth_mode):
             master_file = folder / "mastered.wav"
             sf.write(str(master_file), mastered, sr, subtype="PCM_24")
             audit = audit_wav(master_file)
+            failure_step = "quality_gate"
             gate = release_gate(
                 guide, generated, master_file,
                 expected_seconds=requested_seconds,
@@ -578,6 +624,7 @@ def run_job(item, auth_mode):
                 raise SourceTransferError("REMIX_DURATION_MISMATCH")
             if audit.get("integratedLufs") is None or audit.get("approxTruePeakDbTp", 0) > -0.8:
                 raise ProAgentError("Mastering verification failed")
+            failure_step = "upload"
             progress(job, lease, "uploading", renewal)
             # All stems must be authentic model outputs, not synthesized silence.
             for source,remote in ((source_a/"vocals.wav","vocals-a"),
@@ -588,18 +635,20 @@ def run_job(item, auth_mode):
                 upload(job,lease,"stem/"+remote,source)
             upload(job,lease,"audio",master_file)
             renewal.verify()
+            failure_step = "completion"
             response = request("POST",f"/api/sonara-relay/pro-job/{job}/complete",
                                {"actualDurationSeconds": float(audit["durationSeconds"]),
                                 "singleTrack": True, "twoSources": True},lease)
             if response.get("ok") is not True:
                 raise ProAgentError("Gateway completion not acknowledged")
-        status("waiting_for_authorized_job", lastCompleted=job)
+        status("waiting_for_authorized_job", lastCompleted=job, lastFailureCode=None)
         print("SONARA PRO job completed:", job, flush=True)
     except Exception as error:
-        code = error.code if isinstance(error, SourceTransferError) else "REMIX_PROCESSING_ERROR"
-        if failure_phase in ("normalize_a", "normalize_b"):
-            code = "SOURCE_DECODER_FAILED" if "conversion" in str(error).lower() else code
-        print("SONARA PRO job failed:", job, code, failure_phase, flush=True)
+        code = (error.code if isinstance(error, SourceTransferError)
+                else FAILURE_CODES.get(failure_step, "REMIX_PROCESSING_ERROR"))
+        if failure_phase in ("normalize_a", "normalize_b") and not isinstance(error, SourceTransferError):
+            code = "SOURCE_DECODER_FAILED"
+        print("SONARA PRO job failed:", job, code, failure_phase, failure_step, flush=True)
         try:
             request("POST",f"/api/sonara-relay/pro-job/{job}/fail",
                     {"errorCode":code,"failurePhase":failure_phase},lease,timeout=30)
@@ -607,7 +656,8 @@ def run_job(item, auth_mode):
             pass
         status("waiting_for_authorized_job", lastFailed=job,
                errorClass=type(error).__name__, errorCode=code,
-               failurePhase=failure_phase)
+               failurePhase=failure_phase, lastFailureCode=code,
+               lastFailureStep=failure_step, lastFailureAt=int(time.time()))
     finally:
         shutil.rmtree(folder, ignore_errors=True)
 
