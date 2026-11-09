@@ -160,7 +160,7 @@ def separate_stems(path, output_root, *, device="cpu", timeout_seconds=3600):
     scratch = destination / "demucs-working"
     cmd = [
         sys.executable, "-m", "demucs.separate", "-n", "htdemucs",
-        "--device", device, "--shifts", "1", "--overlap", "0.1",
+        "--device", device, "--shifts", "2", "--overlap", "0.25",
         "--out", str(scratch), str(path)
     ]
     try:
