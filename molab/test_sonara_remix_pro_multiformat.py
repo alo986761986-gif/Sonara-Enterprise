@@ -54,7 +54,7 @@ class OfflineMultiFormatTests(unittest.TestCase):
         f=source_functions()
         self.assertIn("multiformat_ready",f)
         self.assertEqual(set(f["pro_heartbeat_payload"]().keys()),
-                         {"gpuReady","formatsReady","v5Ready","v6Ready"})
+                         {"gpuReady","formatsReady","v5Ready","v6Ready","v6ExplosiveReady"})
         self.assertIsInstance(f["pro_heartbeat_payload"]()["v6Ready"], bool)
         self.assertTrue(f["pro_heartbeat_payload"]()["gpuReady"])
 
