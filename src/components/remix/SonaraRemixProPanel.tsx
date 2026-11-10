@@ -293,15 +293,15 @@ export default function SonaraRemixProPanel() {
   };
 
   return (
-    <div className="sonara-remix-pro" data-sonara-remix-v5-studio="true" style={{padding:24,border:'1px solid #363145',borderRadius:22,background:'linear-gradient(160deg,#11111b 0%,#191428 55%,#101017 100%)',color:'#edeaf5',display:'grid',gap:18,boxShadow:'0 16px 45px rgba(0,0,0,.25)'}}>
+    <div className="sonara-remix-pro" data-sonara-remix-v5-studio="true" data-sonara-remix-v6-primary="true" style={{padding:24,border:'1px solid #363145',borderRadius:22,background:'linear-gradient(160deg,#11111b 0%,#191428 55%,#101017 100%)',color:'#edeaf5',display:'grid',gap:18,boxShadow:'0 16px 45px rgba(0,0,0,.25)'}}>
       <div style={{display:'flex',gap:8,alignItems:'center',justifyContent:'space-between'}}>
-        <strong style={{display:'flex',alignItems:'center',gap:10,fontSize:18,letterSpacing:'.04em'}}><AudioWaveform size={19}/> SONARA REMIX PRO <span style={{fontSize:10,background:'#32234e',border:'1px solid #664c92',borderRadius:99,padding:'4px 8px'}}>V5 STUDIO</span></strong>
+        <strong style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',fontSize:18,letterSpacing:'.04em'}}><AudioWaveform size={19}/> SONARA REMIX PRO <span style={{fontSize:10,background:'#32234e',border:'1px solid #664c92',borderRadius:99,padding:'5px 9px'}}>V6 · CREATIVE DNA FUSION</span></strong>
         <span style={{fontSize:10,color:available?'#97e5b8':'#d5b6ef'}}>{available?'GPU ONLINE':available===null?'CONNESSIONE…':'NON ANCORA ATTIVO'}</span>
       </div>
-      <small style={{color:'#b8adc8',lineHeight:1.6}}>Due brani, una nuova composizione. A porta il materiale armonico e melodico; B porta il groove e la tavolozza sonora. Separazione privata, rigenerazione ACE-Step e selezione tecnica del master migliore. La fusione artistica richiede comunque ascolto.</small>
+      <small style={{color:'#b8adc8',lineHeight:1.6}}>Unisci due brani A+B in una nuova composizione: analisi musicale, direzione artistica, groove naturale, selezione tecnica e mastering. V6 quando la GPU lo conferma; il motore V5 resta disponibile in sicurezza.</small>
       <div role="status" style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
-        <span style={{padding:'6px 11px',borderRadius:99,background:v5Available?'#15342c':'#382b21',color:v5Available?'#9eeac3':'#e6c38e',fontSize:11}}>{v5Available?'CREATIVE ENGINE V5 ATTIVO':'V5 IN ATTESA DEL WORKER GPU'}</span>
-        <small style={{color:'#9a91a9'}}>{v5Available?'Profili, più candidati e mastering adattivo disponibili':'Il motore V4.2 resta utilizzabile finché il worker V5 non è pronto'}</small>
+        <span style={{padding:'6px 11px',borderRadius:99,background:v6Available?'#15342c':'#382b21',color:v6Available?'#9eeac3':'#e6c38e',fontSize:11}}>{v6Available?'CREATIVE DNA V6 GPU PRONTO':v5Available?'MOTORE V5 DISPONIBILE':'GPU IN ATTESA'}</span>
+        <small style={{color:'#9a91a9'}}>{v6Available?'Fusione V6 attivabile · V5 disponibile come ripiego':v5Available?'Anteprima Creative DNA sul motore V5; GPU V6 non confermata':'In attesa del motore privato Remix Pro'}</small>
       </div>
       <div data-testid="sonara-remix-pro-uploaders" style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,225px),1fr))',gap:12}}>
         <div data-sonara-pro-source="a" onDragOver={e=>{e.preventDefault();e.dataTransfer.dropEffect='copy';}}
