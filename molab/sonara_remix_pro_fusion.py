@@ -108,6 +108,160 @@ def make_structural_guide(source_a, destination, seconds):
         raise
 
 
+
+def make_dual_hook_conditioning_guide(source_a, source_b, destination, seconds, *,
+                                      vocals_a=None, vocals_b=None):
+    """Prepare A/B motif *conditioning*, never a deliverable mashup.
+
+    Only the subsequent ACE-Step cover creates the publishable music. The
+    private guide exposes substantial, non-overlaid A and B phrases so B's
+    melodic/vocal material is not reduced to drum style alone. Phrase
+    selection is an energy proxy, NOT verified chorus or lyric recognition.
+    Model faithfulness to either phrase must be assessed by listening.
+    """
+    from scipy.signal import resample_poly
+    a = _input_audio(source_a)
+    b = _input_audio(source_b)
+    if a == b:
+        raise FusionPlanError("Dual-hook conditioning requires distinct sources")
+    if not isinstance(seconds, int) or seconds < 30 or seconds > 480 or seconds % 30:
+        raise FusionPlanError("Invalid dual-hook duration")
+    dest = _destination(destination, (a, b))
+    vocal_paths = {}
+    for role, source, candidate in (("a", a, vocals_a), ("b", b, vocals_b)):
+        if candidate is None:
+            continue
+        stem = _input_audio(candidate)
+        with sf.SoundFile(str(source)) as song, sf.SoundFile(str(stem)) as voice:
+            if abs(song.frames / song.samplerate - voice.frames / voice.samplerate) > 1:
+                raise FusionPlanError("Vocal stem and music duration do not agree")
+        vocal_paths[role] = stem
+    # Three phrases in short edits, five for full productions. Each role is
+    # an independent original excerpt; not a sum of incompatible A/B tracks.
+    weights = (("a", .34), ("b", .33), ("a", .33)) if seconds <= 60 else (
+        ("a", .20), ("b", .22), ("a", .17), ("b", .23), ("a", .18)
+    )
+    with sf.SoundFile(str(a)) as info_a:
+        sr = info_a.samplerate
+    total_frames = sr * seconds
+    roles = [role for role, _ in weights]
+    lengths = [int(total_frames * portion) for _, portion in weights[:-1]]
+    lengths.append(total_frames - sum(lengths))
+    if any(x < sr * 6 for x in lengths):
+        raise FusionPlanError("Dual-hook sections are too short")
+
+    def best_excerpt(song_path, vocals_path, required_frames):
+        with sf.SoundFile(str(song_path)) as song:
+            length = song.frames / song.samplerate
+            excerpt_seconds = min(length, max(10., min(45., required_frames / sr)))
+        available = max(0., length - excerpt_seconds)
+        positions = sorted(set(round(available * i / 8, 3) for i in range(9)))
+        voice_activity = False
+        if vocals_path:
+            with sf.SoundFile(str(vocals_path)) as vocals:
+                # A Demucs vocal stem is only a signal proxy: leakage is
+                # possible, so never assert a singer or words were detected.
+                vocals.seek(max(0, (vocals.frames - vocals.samplerate * 10) // 2))
+                sample = vocals.read(min(vocals.samplerate * 10, vocals.frames),
+                                      dtype="float32", always_2d=True)
+                voice_activity = (len(sample) > 0 and
+                                  float(np.sqrt(np.mean(sample.astype(np.float64) ** 2))) > .003)
+        ranked = []
+        for position in positions:
+            music = _reference_activity_score(song_path, position, excerpt_seconds)
+            voice = (_reference_activity_score(vocals_path, position, excerpt_seconds)
+                     if vocals_path and voice_activity else music)
+            ranked.append((.75 * voice + .25 * music, -abs(position - available / 2), position))
+        start = max(ranked)[2]
+        with sf.SoundFile(str(song_path)) as song:
+            song.seek(min(song.frames - 1, int(start * song.samplerate)))
+            length_frames = min(song.frames - song.tell(),
+                                max(1, int(excerpt_seconds * song.samplerate)))
+            audio = song.read(length_frames, dtype="float32", always_2d=True)
+            source_sr = song.samplerate
+            if song.channels == 1:
+                audio = np.repeat(audio, 2, axis=1)
+        if not len(audio) or not np.isfinite(audio).all():
+            raise FusionPlanError("Selected A/B conditioning phrase is invalid")
+        if source_sr != sr:
+            divisor = math.gcd(sr, source_sr)
+            audio = resample_poly(audio, sr // divisor, source_sr // divisor, axis=0).astype(np.float32)
+        rms = float(np.sqrt(np.mean(audio.astype(np.float64) ** 2)))
+        if not math.isfinite(rms) or rms < 1e-5:
+            raise FusionPlanError("Selected A/B conditioning phrase is silent")
+        # Match reference loudness gently; do not alter either user upload.
+        gain = min(2.5, max(.35, .12 / rms))
+        audio = np.clip(audio * gain, -.95, .95).astype(np.float32)
+        return audio, start, voice_activity
+
+    def extended_phrase(excerpt, frames):
+        """Repeat private conditioning phrases with 120-ms smoothed seams."""
+        count = int(math.ceil(frames / len(excerpt)))
+        piece = np.tile(excerpt, (count, 1))[:frames].copy()
+        fade = min(int(sr * .12), max(2, len(excerpt) // 12))
+        for seam in range(len(excerpt), frames, len(excerpt)):
+            n = min(fade, seam, frames - seam)
+            if n > 1:
+                # A crossfade over the original timeline, not artificial
+                # silence or copied output used as a model result.
+                blend = (0.5 - 0.5 * np.cos(
+                    np.linspace(0, math.pi, n * 2, dtype=np.float32)
+                ))[:, None]
+                old = piece[seam-n:seam].copy()
+                new = piece[seam:seam+n].copy()
+                piece[seam-n:seam+n] = (
+                    np.concatenate((old, old), axis=0) * (1 - blend) +
+                    np.concatenate((new, new), axis=0) * blend
+                )
+        return piece
+
+    selected = {}
+    try:
+        for role, path, required in (("a", a, max(lengths)), ("b", b, max(lengths))):
+            selected[role] = best_excerpt(path, vocal_paths.get(role), required)
+        fade = min(int(sr * .35), min(lengths) // 8)
+        written = 0
+        with sf.SoundFile(str(dest), "w+", samplerate=sr, channels=2,
+                          subtype="PCM_24", format="WAV") as output:
+            for index, (role, nominal) in enumerate(zip(roles, lengths)):
+                excerpt, _, _ = selected[role]
+                piece = extended_phrase(excerpt, nominal + (fade if index else 0))
+                if index:
+                    output.flush()
+                    output.seek(written - fade)
+                    previous = output.read(fade, dtype="float32", always_2d=True)
+                    if len(previous) != fade:
+                        raise FusionPlanError("Cannot join A/B conditioning phrases")
+                    alpha = (0.5 - 0.5 * np.cos(
+                        np.linspace(0, math.pi, fade, dtype=np.float32)
+                    ))[:, None]
+                    output.seek(written - fade)
+                    output.write(previous * (1 - alpha) + piece[:fade] * alpha)
+                    output.seek(written)
+                    output.write(piece[fade:])
+                else:
+                    output.write(piece)
+                written += nominal
+            output.flush()
+        with sf.SoundFile(str(dest)) as check:
+            if check.frames != total_frames or check.channels != 2 or check.samplerate != sr:
+                raise FusionPlanError("Dual-hook conditioning duration mismatch")
+        return {
+            "revision": "sonara-v6-dual-hook-reference-v1",
+            "source": "a-b-alternating-conditioning-only",
+            "seconds": seconds, "frames": total_frames,
+            "containsSourceB": True, "containsSourceA": True,
+            "sections": roles,
+            "selection": "measured-stem-energy-not-chorus-transcription",
+            "vocalStemActivityA": bool(selected["a"][2]),
+            "vocalStemActivityB": bool(selected["b"][2]),
+            "publishableAudio": False,
+        }
+    except BaseException:
+        dest.unlink(missing_ok=True)
+        raise
+
+
 def _reference_activity_score(source_path, start_seconds, seconds):
     """Measured sustained source activity, not an invented genre or quality score."""
     with sf.SoundFile(str(source_path)) as src:
