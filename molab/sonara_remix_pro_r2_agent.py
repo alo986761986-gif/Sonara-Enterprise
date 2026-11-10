@@ -210,6 +210,7 @@ QUALITY_REASON_CODES = frozenset(
     "spectral-band-1-collapsed",
     "spectral-band-2-collapsed",
     "mastering-safety",
+    "master-too-quiet",
     "explosive-unwanted-rhythmic-break",
 ))
 
