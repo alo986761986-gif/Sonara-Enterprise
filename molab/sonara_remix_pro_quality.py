@@ -120,23 +120,44 @@ def release_gate(arranged, generated, master, *, expected_seconds, require_b_mot
     reports = [audit_wav(p) for p in inputs]
     reasons = []
     reference_warnings = []
+    generation_warnings = []
     for name, report in zip(("arranged", "generated", "master"), reports):
-        # Wrong duration is a hard error even for the reference guide.
+        # All three files must have the exact job duration.
         if abs(report["durationSeconds"] - expected_seconds) > 0.12:
             reasons.append(name + "-duration-mismatch")
-        # The A-only structural guide is NOT the published output. Quiet intros,
-        # clipped source recordings or dynamic limiting in A cannot by themselves
-        # veto a clean regenerated master. Report these as warnings instead.
-        target = reference_warnings if name == "arranged" else reasons
+        if name == "arranged":
+            # A+B structural conditioning is NOT publishable. Deliberately
+            # alternating two songs may have their original limiting / silence.
+            # Judge the final mastered recording, not the raw source guide.
+            target = reference_warnings
+        else:
+            target = reasons
         if report["nearSilenceFrameRatio"] > 0.22:
             target.append(name + "-excessive-silence")
-        if report["clippedFrameRatio"] > 0.0001:
-            target.append(name + "-sample-clipping")
-        if report["crestFactorDb"] < 3.0:
-            target.append(name + "-overcompressed")
-        # Only the final mastered WAV must comply with the true-peak ceiling.
+        clipping = report["clippedFrameRatio"]
+        crest = report["crestFactorDb"]
+        if name == "generated":
+            # ACE-Step's *unmastered* intermediate can contain a few clipped
+            # samples or a marginal crest value while the final master is safe.
+            # More than 0.5% clipped frames or heavily flattened dynamics
+            # remain hard failures; mastering cannot restore destroyed audio.
+            if clipping > 0.005:
+                reasons.append("generated-sample-clipping")
+            elif clipping > 0.0001:
+                generation_warnings.append("generated-minor-clipping")
+            if crest < 2.5:
+                reasons.append("generated-overcompressed")
+            elif crest < 3.0:
+                generation_warnings.append("generated-limited-dynamics")
+        else:
+            if clipping > 0.0001:
+                target.append(name + "-sample-clipping")
+            if crest < 3.0:
+                target.append(name + "-overcompressed")
         if name == "master" and report["approxTruePeakDbTp"] > -0.7:
-            reasons.append(name + "-true-peak-too-high")
+            reasons.append("master-true-peak-too-high")
+        if name == "master" and report["rmsDbFs"] < -45:
+            reasons.append("master-too-quiet")
 
     def band_energy(path):
         """Welch-like FFT energy bands from the opening 15 seconds.
@@ -187,20 +208,69 @@ def release_gate(arranged, generated, master, *, expected_seconds, require_b_mot
                 got_share = got / output_total
                 # Ignore bands that were negligible in A to begin with.
                 if ref_share > 0.02 and got_share < ref_share * 0.00398:
-                    reasons.append("spectral-band-%d-collapsed" % i)
+                    # Relative divergence from a *two-song guide* is not a
+                    # verified frequency-loss defect: instruments and key are
+                    # intentionally recomposed, so flag for review rather
+                    # than rejecting a full-range, non-silent final master.
+                    reference_warnings.append("spectral-band-%d-collapsed" % i)
     # Provenance at the arranger level is not evidence that ACE-Step
     # preserved both references: human listening remains mandatory.
     return {
         "acceptedTechnical": not reasons,
         "failures": reasons,
         "referenceWarnings": reference_warnings,
+        "generationWarnings": generation_warnings,
         "master": reports[2],
         "perceptualFusionVerified": False,
         "humanListeningRequired": True,
         "bReferenceConditioningRequested": bool(require_b_motif),
         "bReferenceInfluenceVerified": False,
-        "method": "post-cover-technical-veto-v3-source-aware",
+        "method": "post-cover-technical-veto-v4-master-first",
     }
+
+
+def recover_peak_safe_master(generated, destination, *, lufs=-14.0):
+    """One private, non-destructive DSP recovery; not a new generated song.
+
+    Only for an otherwise-valid cover whose mastering introduced excessive
+    intersample peaks or slightly clipped samples. Does not manufacture
+    silence, instrumentation, vocals, or repair severely clipped source audio.
+    Always run release_gate again on the recovered WAV before publication.
+    """
+    import numpy as np
+    import soundfile as sf
+    from sonara_remix_pro_toolkit import transparent_master
+
+    source = source_file(generated)
+    output = Path(destination).expanduser().resolve()
+    if output == source or output.exists():
+        raise RemixProError("Refusing to overwrite audio during peak recovery")
+    if not isinstance(lufs, (int, float)) or not math.isfinite(lufs) or not -18 <= lufs <= -10:
+        raise RemixProError("Invalid recovery loudness target")
+    with sf.SoundFile(str(source)) as audio:
+        sr = audio.samplerate
+        raw = audio.read(dtype="float32", always_2d=True)
+    if not 22050 <= sr <= 96000 or raw.shape[1] not in (1, 2):
+        raise RemixProError("Invalid generated audio format for peak recovery")
+    if not np.isfinite(raw).all() or len(raw) < sr:
+        raise RemixProError("Corrupted generated audio cannot be repaired")
+    if raw.shape[1] == 1:
+        raw = np.repeat(raw, 2, axis=1)
+    fixed, _ = transparent_master(raw, sr=sr, lufs=float(lufs), peak_ceiling=-1.6)
+    if not np.isfinite(fixed).all():
+        raise RemixProError("Peak recovery produced invalid samples")
+    try:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        sf.write(str(output), fixed, sr, format="WAV", subtype="PCM_24")
+        result = audit_wav(output)
+        if (result["approxTruePeakDbTp"] > -0.9 or
+                result["clippedFrameRatio"] > 0.0001 or
+                result["integratedLufs"] is None):
+            raise RemixProError("Peak recovery did not meet mastering safety")
+        return result
+    except BaseException:
+        output.unlink(missing_ok=True)
+        raise
 
 
 def main(argv=None):
