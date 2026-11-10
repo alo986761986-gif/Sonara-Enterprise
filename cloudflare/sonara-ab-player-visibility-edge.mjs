@@ -2,6 +2,7 @@ import runtime, { SonaraJobState } from './sonara-studio-ai-router.mjs';
 import { SonaraAuthStore, handleSonaraNativeAuth } from './sonara-native-auth.mjs';
 import relayRuntime from './sonara-r2-https-relay.mjs';
 import { proCapabilities } from './sonara-remix-pro-r2.mjs';
+import { parseV6Controls, v6PreviewBrief } from './sonara-remix-pro-v6-controls.mjs';
 import { prepareMolabR2RelayPayload } from './sonara-molab-xl-router.mjs';
 import { deriveRelayGatewayInternalKey } from './sonara-gateway-verifier.mjs';
 import { REMIX_PRO_DURATION_EDGE_SCRIPT } from './sonara-remix-pro-duration-edge.mjs';
@@ -228,11 +229,15 @@ async function mutateRemixProUsage(request, env, action, jobId, seconds, ownerUi
 
 async function forwardVerifiedRelayGeneration(request, env, ctx) {
   // Remix Pro has its own heartbeat and does not depend on the classic relay.
-  const proRequested=(await request.clone().json().catch(()=>({})))?.sonaraRemixPro===true;
+  const requested=(await request.clone().json().catch(()=>({})));
+  const proRequested=requested?.sonaraRemixPro===true;
   if(proRequested) {
     const caps=await proCapabilities(env);
     if(!caps.available)return nativeGenerationError(
       'REMIX_PRO_NOT_ENABLED', 'Remix Pro non ancora disponibile: quote o GPU da verificare.',503);
+    if(requested.sonaraRemixProV6===true && !caps.v6Available)
+      return nativeGenerationError('REMIX_V6_WORKER_NOT_READY',
+        'Il nuovo motore V6 non e ancora installato su MoLab. Usa la modalita V5 Creative DNA Preview.',503);
   } else if (!(await relayAgentAvailable(env))) {
     return nativeGenerationError(
       'MOLAB_RELAY_OFFLINE',
@@ -274,6 +279,15 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
   try {
     const internalSecret = await deriveRelayGatewayInternalKey(env);
     const isPro = source.sonaraRemixPro === true;
+    let creativeControls=null;
+    if(isPro && source.sonaraRemixProV5===true && source.sonaraRemixProV6Controls!==undefined) {
+      try { creativeControls=parseV6Controls(source.sonaraRemixProV6Controls); }
+      catch {return nativeGenerationError('REMIX_V6_CONTROLS_INVALID',
+        'Controlli Creative DNA V6 non validi.',400);}
+    }
+    if(isPro && source.sonaraRemixProV6===true && !creativeControls)
+      return nativeGenerationError('REMIX_V6_CONTROLS_REQUIRED',
+        'Controlli Creative DNA V6 obbligatori.',400);
     // Existing billing entitlement and duration checks ran before this point.
     // Pro uses a separate, feature-flagged R2 queue; nothing can bypass billing.
     const payload = isPro
@@ -281,7 +295,9 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
           sourceA: source.sonaraRemixProSourceA,
           sourceB: source.sonaraRemixProSourceB,
           rightsConfirmed: source.sonaraRemixProRightsConfirmed === true,
-          prompt: String(source.prompt || '').slice(0, 6500),
+          prompt: (String(source.prompt || '').slice(0, 4300) +
+            (creativeControls && source.sonaraRemixProV6!==true
+              ? '\n' + v6PreviewBrief(creativeControls) : '')).slice(0, 6500),
           durationSec: source.durationSec,
           bpmA: source.sonaraRemixProBpmA,
           bpmB: source.sonaraRemixProBpmB,
@@ -290,6 +306,8 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
           coverNoise: source.cover_noise_strength,
           key: source.key_scale,
           v5: source.sonaraRemixProV5 === true,
+          v6: source.sonaraRemixProV6 === true,
+          ...(creativeControls ? {v6Controls:creativeControls} : {}),
           genre: source.sonaraRemixProGenre,
           bInfluence: source.sonaraRemixProBInfluence,
           candidateCount: source.sonaraRemixProCandidates,
