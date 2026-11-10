@@ -119,7 +119,6 @@ def make_dual_hook_conditioning_guide(source_a, source_b, destination, seconds, 
     selection is an energy proxy, NOT verified chorus or lyric recognition.
     Model faithfulness to either phrase must be assessed by listening.
     """
-    from scipy.signal import resample_poly
     a = _input_audio(source_a)
     b = _input_audio(source_b)
     if a == b:
@@ -184,6 +183,7 @@ def make_dual_hook_conditioning_guide(source_a, source_b, destination, seconds, 
         if not len(audio) or not np.isfinite(audio).all():
             raise FusionPlanError("Selected A/B conditioning phrase is invalid")
         if source_sr != sr:
+            from scipy.signal import resample_poly
             divisor = math.gcd(sr, source_sr)
             audio = resample_poly(audio, sr // divisor, source_sr // divisor, axis=0).astype(np.float32)
         rms = float(np.sqrt(np.mean(audio.astype(np.float64) ** 2)))
