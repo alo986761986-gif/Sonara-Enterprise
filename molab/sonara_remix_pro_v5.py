@@ -230,10 +230,18 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
     from sonara_remix_pro_quality import audit_wav, release_gate
 
     controls = v5_controls(params, int(params["durationSec"]))
+    v6 = None
+    dna = None
+    if params.get("v6") is True:
+        from sonara_remix_pro_v6 import v6_controls, musical_dna
+        v6 = v6_controls(params)
     try:
         groove = drum_activity(b_drums)
     except (OSError, ValueError):
         groove = {"confidence": "low"}
+    if v6 is not None:
+        from sonara_remix_pro_v6 import musical_dna
+        dna = musical_dna(params.get("sourceReportA"), params.get("sourceReportB"), groove)
     valid = []
     rejection_codes = []
     for index in range(controls["candidateCount"]):
@@ -242,6 +250,10 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
         mastered_path = Path(folder) / ("v5-master-%d.wav" % index)
         prompt = build_v5_brief(base_prompt, controls, drum_measurement=groove,
                                 candidate_index=index)
+        if v6 is not None:
+            from sonara_remix_pro_v6 import compose_direction
+            prompt = (prompt + "\n" + compose_direction(v6, dna, index,
+                      controls["candidateCount"]))[:9000]
         result = engine(
             guide, generated, prompt, mode=mode,
             strength=float(params.get("coverStrength") if params.get("coverStrength") is not None else .72),
@@ -257,7 +269,11 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
             raise V5ControlError("V5 output contains invalid samples")
         if sample.shape[1] == 1:
             sample = np.repeat(sample, 2, axis=1)
-        mastered, _ = professional_master(sample, sr, genre=controls["genre"])
+        if v6 is None:
+            mastered, _ = professional_master(sample, sr, genre=controls["genre"])
+        else:
+            from sonara_remix_pro_v6 import master_v6
+            mastered, _ = master_v6(sample, sr, v6, genre=controls["genre"])
         del sample
         sf.write(str(mastered_path), mastered, sr, subtype="PCM_24")
         del mastered
@@ -281,8 +297,20 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
         })
     if not valid:
         raise V5QualityRejected(",".join(sorted(set(rejection_codes)))[:300])
-    # Only a technical ranking, not a measured guarantee of source-B motif.
-    winner = max(valid, key=lambda item: item["technicalScore"])
+    if v6 is not None:
+        from sonara_remix_pro_v6 import creative_judge
+        # Diversity uses only independently generated and QA-accepted audio;
+        # it never claims semantic A/B fidelity or objectively superior art.
+        for candidate in valid:
+            others = [x["master"] for x in valid if x is not candidate]
+            candidate["v6Judge"] = creative_judge(
+                candidate["audit"], candidate["technicalScore"], dna,
+                candidate["master"], others
+            )
+        winner = max(valid, key=lambda item: item["v6Judge"]["selectionScore"])
+    else:
+        # V5 continues to rank by measurable technical quality only.
+        winner = max(valid, key=lambda item: item["technicalScore"])
     return {**winner, "candidatesGenerated": controls["candidateCount"],
             "candidatesAccepted": len(valid), "grooveMeasurement": groove,
             "artisticListeningRequired": True}

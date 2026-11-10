@@ -308,7 +308,16 @@ def pro_heartbeat_payload():
         ready = callable(v5.render_candidates)
     except (ImportError, AttributeError):
         ready = False
-    return {"gpuReady": True, "formatsReady": multiformat_ready(), "v5Ready": ready}
+    v6_ready = False
+    if ready:
+        try:
+            from sonara_remix_pro_v6 import v6_controls, musical_dna, compose_direction, creative_judge, master_v6
+            v6_ready = all(callable(x) for x in (
+                v6_controls, musical_dna, compose_direction, creative_judge, master_v6))
+        except (ImportError, AttributeError):
+            pass
+    return {"gpuReady": True, "formatsReady": multiformat_ready(),
+            "v5Ready": ready, "v6Ready": v6_ready}
 
 
 def validate_wav(path):
@@ -593,10 +602,16 @@ def run_job(item, auth_mode):
             if params.get("v5") is True:
                 from sonara_remix_pro_v5 import render_candidates, v5_controls, V5QualityRejected
                 v5_controls(params, requested_seconds)
+                if params.get("v6") is True:
+                    from sonara_remix_pro_v6 import v6_controls
+                    v6_controls(params)
                 try:
                     choice = render_candidates(
                         guide=guide, style=style, folder=folder,
-                        base_prompt=prompt, params=params,
+                        base_prompt=prompt,
+                        params={**params, **({"sourceReportA": report_a,
+                                           "sourceReportB": report_b}
+                                          if params.get("v6") is True else {})},
                         b_drums=source_b / "drums.wav", engine=ace_cover,
                         mode=auth_mode, bpm=bpm_a,
                         key=params.get("key") or report_a.get("key") or None,
@@ -612,6 +627,15 @@ def run_job(item, auth_mode):
                     "technicalScore": choice["technicalScore"],
                     "artisticListeningRequired": True,
                 }
+                if params.get("v6") is True:
+                    v6_metadata = choice.get("v6Judge") or {}
+                    v5_metadata["v6Selection"] = {
+                        "selectionScore": v6_metadata.get("selectionScore"),
+                        "spectralDiversityProxy": v6_metadata.get("spectralDiversityProxy"),
+                        "continuityProxy": v6_metadata.get("continuityProxy"),
+                        "isArtisticJudgment": False,
+                    }
+                    v5_metadata["v6Master"] = params.get("v6Controls", {}).get("master", "streaming")
             else:
                 failure_step = "ace_step"
                 progress(job, lease, "regenerating", renewal)
@@ -749,6 +773,7 @@ def main(argv=None):
         print("PRO_AGENT_REVISION="+REVISION,flush=True)
         print("PRO_SITE_GENERATION_AVAILABLE="+str(caps.get("available") is True),flush=True)
         print("PRO_V5_AVAILABLE="+str(caps.get("v5Available") is True),flush=True)
+        print("PRO_V6_AVAILABLE="+str(caps.get("v6Available") is True),flush=True)
         print("PRO_BILLING_GATE_STILL_REQUIRED="+str(caps.get("available") is not True),flush=True)
         print("PRO_JOBS_CLAIMED=0",flush=True)
         print("ACE_STEP_UNMODIFIED=True",flush=True)
@@ -767,8 +792,10 @@ def main(argv=None):
                 time.sleep(20)
                 continue
             last_gate_pending = False
+            readiness = pro_heartbeat_payload()
             response = request("POST","/api/sonara-relay/pro-claim",
-                               {"v5Ready": pro_heartbeat_payload().get("v5Ready") is True})
+                               {"v5Ready": readiness.get("v5Ready") is True,
+                                "v6Ready": readiness.get("v6Ready") is True})
             if response.get("jobId"):
                 run_job(response,args.auth_mode)
             else:
