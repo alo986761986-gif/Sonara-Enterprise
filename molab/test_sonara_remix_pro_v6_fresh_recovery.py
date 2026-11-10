@@ -81,6 +81,24 @@ class FreshRecoveryTests(unittest.TestCase):
             with self.assertRaises(restore.RecoveryBlocked):
                 restore.check_main_engine()
 
+    def test_private_audio_libraries_installed_before_gpu_smoke(self):
+        from unittest.mock import Mock
+        calls = []
+        def fake_run(argv, **kwargs):
+            args = [str(v) for v in argv]
+            calls.append(args)
+            if "--smoke" in args:
+                return Mock(stdout="GPU_KERNEL_TEST_OK=True\\nDEMUCS_REAL_GPU_INFERENCE_VERIFIED=True")
+            return Mock(stdout="")
+        with patch.object(restore.shutil, "which", return_value="/usr/local/bin/uv"), \
+             patch.object(restore.shutil, "disk_usage", return_value=Mock(free=40 * 1024**3)), \
+             patch.object(restore.subprocess, "run", return_value=Mock(returncode=1)), \
+             patch.object(restore, "run", side_effect=fake_run):
+            restore.install_packages()
+        audio_index = next(i for i, args in enumerate(calls) if "librosa==0.11.0" in args)
+        smoke_index = next(i for i, args in enumerate(calls) if "--smoke" in args)
+        self.assertLess(audio_index, smoke_index)
+
     def test_readonly_mode_has_no_private_file_setup(self):
         with patch.object(restore, "pro_processes", return_value=[]):
             with patch.object(restore, "check_gpu"):
