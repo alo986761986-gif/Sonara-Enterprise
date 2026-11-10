@@ -1,5 +1,6 @@
 """Offline retry and reconciliation tests: no GPU, customer jobs or HTTP."""
 import ast
+import urllib.error
 from pathlib import Path
 import unittest
 from unittest.mock import Mock
@@ -18,7 +19,7 @@ def isolated_completion():
     scope = {
         "ProAgentError": ProAgentError,
         "time": Mock(sleep=Mock()),
-        "urllib": Mock(error=Mock(URLError=OSError)),
+        "urllib": urllib,
         "TimeoutError": TimeoutError,
         "OSError": OSError,
     }
