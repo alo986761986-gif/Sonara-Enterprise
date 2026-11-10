@@ -518,3 +518,30 @@ test('Same authenticated job can be resumed after an ambiguous QUEUED response',
   const empty=await call(e,'POST','/api/sonara-relay/pro-claim',{},agent);
   assert.equal((await empty.json()).jobId,null);
 });
+
+
+test('Fresh Remix Pro is claimable even after more than one page of stale queue markers',async()=>{
+  const e=env();
+  const b=e.SONARA_AUDIO_BUCKET;
+  const originalGet=b.get.bind(b);
+  const originalList=b.list.bind(b);
+  b.list=async ({prefix,limit=100,cursor}={})=>{
+    const all=[...b.store.keys()].filter(k=>k.startsWith(prefix)).sort();
+    const after=cursor?all.findIndex(k=>k>cursor):0;
+    const start=after<0?all.length:after;
+    const objects=all.slice(start,start+limit).map(key=>({key}));
+    const truncated=start+limit<all.length;
+    return {objects,truncated,cursor:truncated?objects.at(-1)?.key:undefined};
+  };
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',{gpuReady:true},agent);
+  for(let i=0;i<132;i++){
+    await b.put('relay-v1/pro/queue/0000000000000/srpro_'+
+      String(i).padStart(8,'0')+'-0000-4000-8000-000000000000',
+      'stale',{httpMetadata:{contentType:'text/plain'}});
+  }
+  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',spec,gate)).status,202);
+  const claim=await call(e,'POST','/api/sonara-relay/pro-claim',{},agent);
+  assert.equal((await claim.json()).jobId,JOB);
+  b.list=originalList;
+  b.get=originalGet;
+});
