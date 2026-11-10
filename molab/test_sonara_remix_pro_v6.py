@@ -43,6 +43,11 @@ class CreativeV6Test(unittest.TestCase):
         self.assertIn("DUAL SOURCE CHORUS PLAN",explosive_prompt)
         self.assertIn("choir",explosive_prompt)
         self.assertIn("CONTINUITY LOCK",explosive_prompt)
+        self.assertIn("VOICE IDENTITY LOCK", explosive_prompt)
+        self.assertIn("INSTRUMENT PALETTE LOCK", explosive_prompt)
+        self.assertIn("SAME identifiable lead voice", explosive_prompt)
+        balanced_prompt = compose_direction(CreativeControls(mode="balanced"), dna, 0, 1)
+        self.assertNotIn("VOICE IDENTITY LOCK", balanced_prompt)
         self.assertIn("No breakdowns",explosive_prompt)
         self.assertLessEqual(len(explosive_prompt),2100)
         with self.assertRaises(V6ControlError):
