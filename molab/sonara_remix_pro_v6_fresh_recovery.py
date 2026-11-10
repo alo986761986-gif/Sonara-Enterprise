@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 
 ROOT = Path("/marimo/SONARA-REMIX-PRO")
@@ -252,9 +253,97 @@ def verify_ready():
     print("SONARA_PRO_PREFLIGHT_SUCCESS=True", flush=True)
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def site_capabilities():
+    """Match the authenticated V6 agent's Cloudflare request signature."""
+    headers = {
+        "Accept": "application/json",
+        "Cache-Control": "no-cache",
+        "User-Agent": "SONARA-Remix-Pro-Agent/1.0 (+https://sonaraenterprise.com)",
+        "X-Sonara-Pro-Agent-Revision": PRO_REVISION,
+        "X-Sonara-Relay-Token": TOKEN.read_text(encoding="utf-8").strip(),
+    }
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}), NoRedirect()
+    )
+    with opener.open(urllib.request.Request(CAPABILITIES, headers=headers),
+                     timeout=10) as response:
+        data = json.load(response)
+    if not isinstance(data, dict):
+        raise RecoveryBlocked("Public Pro capabilities payload is not JSON object")
+    return data
+
+
+def safe_worker_state():
+    """Local status is advisory; never print job IDs, credentials or source paths."""
+    if STATUS.is_symlink():
+        return {}
+    try:
+        value = json.loads(STATUS.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def confirm_worker(pid, *, started_at=None, timeout_seconds=35):
+    deadline = time.monotonic() + timeout_seconds
+    error_code = "NONE"
+    caps = {}
+    state = {}
+    while True:
+        if pid not in pro_processes():
+            raise RecoveryBlocked("Private Pro worker exited; inspect private log")
+        state = safe_worker_state()
+        active = (
+            state.get("revision") == PRO_REVISION
+            and state.get("state") in (
+                "waiting_for_authorized_job", "waiting_for_pro_activation",
+                "processing"
+            )
+            and (
+                started_at is None
+                or float(state.get("updatedAt") or 0) >= started_at
+            )
+        )
+        try:
+            caps = site_capabilities()
+            error_code = "NONE"
+            if (active and caps.get("available") is True
+                    and caps.get("v6Available") is True
+                    and caps.get("expectedAgentRevision", PRO_REVISION)
+                        == PRO_REVISION):
+                print("SONARA_REMIX_PRO_WORKER_ALIVE=True", flush=True)
+                print("SONARA_PRO_WORKER_STATE=" + str(state["state"]), flush=True)
+                print("SONARA_REMIX_PRO_V6_SITE_AVAILABLE=True", flush=True)
+                print("SONARA_REMIX_PRO_WORKER_PID=" + str(pid), flush=True)
+                return
+        except urllib.error.HTTPError as exc:
+            error_code = "HTTP_" + str(exc.code)
+        except (OSError, ValueError, TimeoutError) as exc:
+            error_code = type(exc).__name__
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(3)
+
+    print("SONARA_REMIX_PRO_WORKER_ALIVE=True", flush=True)
+    print("SONARA_PRO_WORKER_STATE=" + str(state.get("state", "unknown")), flush=True)
+    print("SONARA_PUBLIC_CHECK_ERROR=" + error_code, flush=True)
+    print("SONARA_PUBLIC_AVAILABLE=" + str(caps.get("available")), flush=True)
+    print("SONARA_PUBLIC_V6_AVAILABLE=" + str(caps.get("v6Available")), flush=True)
+    print("SONARA_SITE_CAPABILITIES_UNCONFIRMED=True", flush=True)
+    raise RecoveryBlocked(
+        "Worker is alive, but public V6 readiness is unconfirmed; "
+        "worker left running, no duplicate started"
+    )
+
+
 def start_worker():
     if pro_processes():
-        raise RecoveryBlocked("Another private Remix Pro worker is already running")
+        raise RecoveryBlocked("Existing Remix Pro worker detected; no duplicate startup")
     LOG.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     with LOG.open("ab") as output:
         worker = subprocess.Popen(
@@ -264,38 +353,25 @@ def start_worker():
             stdout=output, stderr=subprocess.STDOUT,
             start_new_session=True,
         )
-    deadline = time.monotonic() + 32
-    while time.monotonic() < deadline:
-        if worker.poll() is not None:
-            raise RecoveryBlocked("Private V6 worker exited immediately; inspect private log")
-        try:
-            request = urllib.request.Request(
-                CAPABILITIES, headers={"Accept": "application/json"}
-            )
-            with urllib.request.urlopen(request, timeout=10) as response:
-                data = json.load(response)
-            if data.get("v6Available") is True and data.get("available") is True:
-                print("SONARA_REMIX_PRO_V6_SITE_AVAILABLE=True", flush=True)
-                print("SONARA_REMIX_PRO_WORKER_PID=" + str(worker.pid), flush=True)
-                return
-        except (OSError, ValueError):
-            pass
-        time.sleep(3)
-    raise RecoveryBlocked(
-        "Worker launched but public capability not yet confirmed; inspect private status"
-    )
-
+    print("SONARA_REMIX_PRO_WORKER_LAUNCHED_PID=" + str(worker.pid), flush=True)
+    confirm_worker(worker.pid, started_at=int(time.time()), timeout_seconds=35)
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--activate", action="store_true")
     args = parser.parse_args()
     print("=== SONARA REMIX PRO V6 PRIVATE RESTORE ===", flush=True)
-    if pro_processes():
-        raise RecoveryBlocked("Existing Pro worker detected; refusing unsafe reinstall")
+    workers = pro_processes()
+    if len(workers) > 1:
+        raise RecoveryBlocked("Multiple Remix Pro workers detected; manual review required")
     check_gpu()
     check_main_engine()
     check_token()
+    if workers:
+        print("SONARA_EXISTING_REMIX_PRO_WORKER_DETECTED=True", flush=True)
+        confirm_worker(workers[0], timeout_seconds=18)
+        print("SONARA_PRO_RESTORE_EXIT=0", flush=True)
+        return
     if not args.activate:
         print("SONARA_RESTORE=READ_ONLY_PREFLIGHT", flush=True)
         return
