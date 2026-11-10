@@ -486,4 +486,13 @@ def build_fusion_prompt(creator_prompt, report_a, report_b, *,
         "or create a DJ mix, mashup or medley. Preserve natural transitions, "
         "musical dynamics and a balanced master. "
     )
-    return (instruction + " ".join(facts) + " Creator direction: " + creator)[:9000]
+    continuous_lock = (
+        " FINAL NON-NEGOTIABLE RHYTHM LOCK: constant four-on-the-floor or "
+        "genre-appropriate beat, same BPM and drum pattern from beginning to "
+        "end. NO silent bars, pauses, stop-time, breakdowns, abrupt tempo "
+        "changes, half-time, drumless sections or altered meter. Keep B's "
+        "hook and all vocal layers harmonized OVER one stable musical pulse. "
+        if explosive else ""
+    )
+    return (instruction + " ".join(facts) + " Creator direction: " +
+            creator[:6500] + continuous_lock)[:9000]
