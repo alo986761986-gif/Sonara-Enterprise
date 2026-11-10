@@ -125,6 +125,27 @@ class TwoSourceFusionTests(unittest.TestCase):
                     b_influence=20)["sourceBGuideSeconds"],
             )
 
+    def test_explosive_homogeneity_transitions_are_smoother(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            sr = 22050
+            t = np.arange(sr * 12, dtype=np.float32) / sr
+            a = root / "a.wav"
+            b = root / "b.wav"
+            sf.write(a, .2 * np.sin(2 * np.pi * 220 * t), sr)
+            sf.write(b, .2 * np.sin(2 * np.pi * 440 * t), sr)
+            standard = fusion.make_dual_hook_conditioning_guide(
+                a, b, root / "standard.wav", 30, homogeneous=False)
+            explosive = fusion.make_dual_hook_conditioning_guide(
+                a, b, root / "explosive.wav", 30, homogeneous=True)
+            self.assertGreater(explosive["conditioningTransitionSeconds"],
+                               standard["conditioningTransitionSeconds"])
+            self.assertTrue(explosive["homogeneousTransitionsRequested"])
+            self.assertEqual(explosive["sections"], standard["sections"])
+            self.assertEqual(explosive["frames"], sr * 30)
+            self.assertTrue(explosive["containsSourceB"])
+            self.assertFalse(explosive["publishableAudio"])
+
     def test_dual_hook_influence_rejects_invalid_values(self):
         with tempfile.TemporaryDirectory() as td:
             root = pathlib.Path(td)
