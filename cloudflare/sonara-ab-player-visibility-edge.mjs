@@ -350,6 +350,36 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
       response = nativeGenerationError('R2_RELAY_UNAVAILABLE', 'Coda Remix Pro non disponibile.', 503);
     }
     if (proJobId && !response.ok) {
+      // The request can be written to R2 even if the HTTPS acknowledgement
+      // gets lost. Read the exact server-generated job ID and authenticate
+      // owner/duration before reporting "enqueue unconfirmed". Never create
+      // another reservation or a second GPU job.
+      try {
+        const obj=await env.SONARA_AUDIO_BUCKET.get('relay-v1/pro/jobs/'+proJobId+'.json');
+        const live=obj?await obj.json():null;
+        if(live?.id===proJobId && live?.ownerUid===uid &&
+           live?.kind==='sonara-remix-pro' &&
+           Number(live?.durationSeconds)===Number(source.durationSec)) {
+          if(['QUEUED','LEASED','COMPLETE'].includes(live.status)) {
+            return new Response(JSON.stringify({
+              jobId:proJobId,
+              status:live.status==='COMPLETE'?'COMPLETED':'PROCESSING',
+              requestedDurationSeconds:Number(live.durationSeconds),
+              recovered:true
+            }),{status:live.status==='COMPLETE'?200:202,
+                 headers:{'content-type':'application/json; charset=UTF-8',
+                          'cache-control':'no-store'}});
+          }
+          if(live.status==='PREPARING') {
+            // The same signed job and reservation may be activated again.
+            // A CAS in the queue ensures this is not a new task.
+            const retry=await relayRuntime.fetch(new Request(target,{
+              method:'POST',headers,body:JSON.stringify(payload),redirect:'manual'
+            }),{...env,SONARA_INTERNAL_PROXY_SECRET:internalSecret},ctx);
+            if(retry.ok)return retry;
+          }
+        }
+      } catch { /* Fall through to conservative private reconciliation. */ }
       // A deterministic 4xx is an actual rejection, not an ambiguous enqueue.
       // The private ledger reconciler still owns all refunds and cross-service
       // settlement; preserve the job ID only when submission is uncertain.
