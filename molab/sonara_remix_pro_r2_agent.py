@@ -631,24 +631,21 @@ def run_job(item, auth_mode):
             if requested_seconds not in range(30, 481, 30):
                 raise SourceTransferError("REMIX_INVALID_DURATION")
 
-            # The explosive V6 variant alternates genuine A and B *reference*
-            # phrases in a private conditioning guide. This guide is NOT
-            # released or used as a mashup: the ACE-Step render is new audio.
+            # Explosive V6 must retain a SINGLE continuous rhythmic foundation.
+            # Alternating raw A/B guide sections caused abrupt rhythmic
+            # resets, breakdowns and apparent silence. Keep A as the seamless
+            # structural audio guide and B as a separate active style reference.
+            # Both sources still inform the model, but neither original recording
+            # is overlaid into the published audio.
             explosive = (params.get('v6') is True and
                 isinstance(params.get('v6Controls'), dict) and
                 params['v6Controls'].get('mode') == 'explosive')
-            guide = folder / ('dual-hook-guide.wav' if explosive else 'structural-guide-a.wav')
+            guide = folder / 'structural-guide-a.wav'
             style = folder / 'style-reference-b.wav'
-            if explosive:
-                guide_report = make_dual_hook_conditioning_guide(
-                    a, b, guide, requested_seconds,
-                    vocals_a=source_a / 'vocals.wav',
-                    vocals_b=source_b / 'vocals.wav')
-            else:
-                guide_report = make_structural_guide(a, guide, requested_seconds)
+            guide_report = make_structural_guide(a, guide, requested_seconds)
             style_report = make_independent_style_reference(
                 b, style, activity_audio_path=source_b / 'drums.wav')
-            if ((guide_report.get('containsSourceB') is not explosive) or
+            if (guide_report.get('containsSourceB') is not False or
                     style_report.get('containsSourceA') is not False):
                 raise ProAgentError('A/B source conditioning integrity check failed')
             # Check actual B reference audio before incurring a GPU job.
