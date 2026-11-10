@@ -353,8 +353,16 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
       // A deterministic 4xx is an actual rejection, not an ambiguous enqueue.
       // The private ledger reconciler still owns all refunds and cross-service
       // settlement; preserve the job ID only when submission is uncertain.
-      if (response.status>=400 && response.status<500 && response.status!==408 &&
-          response.status!==409 && response.status!==429) {
+      if ([400,401,403,404,413,422].includes(response.status)) {
+        // Validation failed synchronously before R2 ever wrote a job. Release
+        // this reserved slot now; never force a user to wait for an alarm.
+        // Network timeouts/409/5xx remain ambiguous and require reconciliation.
+        const settled=await mutateRemixProUsage(request,env,'refund',proJobId,0,uid);
+        if (!settled.ok) return nativeGenerationError(
+          'REMIX_SLOT_RECONCILIATION_PENDING',
+          'Richiesta rifiutata. La prenotazione è in verifica; non avviare un doppio job.',
+          503
+        );
         return readableGenerationFailure(response,
           'Remix Pro non accodato: controlla i parametri e riprova.');
       }
