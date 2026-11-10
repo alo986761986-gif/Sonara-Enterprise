@@ -316,8 +316,19 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
                                 continuous_groove=(v6 is not None and v6.mode == "explosive"))
         if v6 is not None:
             from sonara_remix_pro_v6 import compose_direction
-            prompt = (prompt + "\n" + compose_direction(v6, dna, index,
-                      controls["candidateCount"]))[:9000]
+            # The model receives REAL A/B phrases in the new primary guide.
+            # Front-load the dual-hook instruction so long prompts cannot hide it.
+            dual_priority = (
+                "V6 DUAL-HOOK PRIMARY AUDIO: conditioning input contains authentic "
+                "A melodic/vocal phrases AND authentic B melodic/vocal phrases in "
+                "alternating windows. Interpret BOTH into one newly performed "
+                "recognizable call-and-response, not merely A with B drums. "
+                "Reharmonize incompatible pitches into one key, keep one pulse, "
+                "and NEVER splice, overlay or publish source-guide recordings. "
+            )
+            prompt = (dual_priority + compose_direction(
+                v6, dna, index, controls["candidateCount"]
+            ) + "\n" + prompt)[:9000]
         result = engine(
             guide, generated, prompt, mode=mode,
             strength=float(params.get("coverStrength") if params.get("coverStrength") is not None else .72),
