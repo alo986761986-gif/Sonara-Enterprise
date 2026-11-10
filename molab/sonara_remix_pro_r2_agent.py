@@ -196,11 +196,37 @@ FAILURE_CODE_SET = frozenset(FAILURE_CODES.values()) | frozenset((
     "REMIX_PROCESSING_ERROR", "REMIX_DURATION_MISMATCH", "REMIX_INVALID_DURATION",
     "SOURCE_DECODER_FAILED",
 ))
+# Diagnostic codes are strictly allowlisted: no user text, identifiers or waveform
+# data is ever persisted in the status file or written to the agent log.
+QUALITY_REASON_CODES = frozenset(
+    name + "-" + reason
+    for name in ("arranged", "generated", "master")
+    for reason in ("duration-mismatch", "excessive-silence",
+                   "sample-clipping", "overcompressed")
+) | frozenset((
+    "master-true-peak-too-high",
+    "missing-useful-output-spectral-data",
+    "spectral-band-0-collapsed",
+    "spectral-band-1-collapsed",
+    "spectral-band-2-collapsed",
+    "mastering-safety",
+    "explosive-unwanted-rhythmic-break",
+))
+
+
+def safe_quality_codes(values):
+    if not isinstance(values, (list, tuple, set)):
+        return []
+    return sorted({v for v in values
+                   if isinstance(v, str) and v in QUALITY_REASON_CODES})[:16]
+
 
 def status(state, **safe):
     HOME.mkdir(mode=0o700, exist_ok=True)
     safe_data = {"revision": REVISION, "state": state, "updatedAt": int(time.time()), **safe}
-    # Preserve only a fixed, non-sensitive failure code between idle polls.
+    if "lastQualityFailureCodes" in safe:
+        safe_data["lastQualityFailureCodes"] = safe_quality_codes(safe["lastQualityFailureCodes"])
+    # Preserve only fixed, non-sensitive failure codes between idle polls.
     # Never retain a user ID, job ID, source path, token, prompt or traceback.
     if "lastFailureCode" not in safe and state != "processing":
         try:
@@ -212,6 +238,9 @@ def status(state, **safe):
                 safe_data["lastFailureCode"] = previous["lastFailureCode"]
                 safe_data["lastFailureStep"] = previous["lastFailureStep"]
                 safe_data["lastFailureAt"] = previous["lastFailureAt"]
+                safe_data["lastQualityFailureCodes"] = safe_quality_codes(
+                    previous.get("lastQualityFailureCodes", [])
+                )
         except (OSError, ValueError, TypeError):
             pass
     path = STATUS_FILE.with_suffix(".tmp")
@@ -589,6 +618,7 @@ def run_job(item, auth_mode):
     print("SONARA PRO job claimed:", job, flush=True)
     failure_phase = "source_a"
     failure_step = "download_a"
+    quality_codes = []
     try:
         with Renewer(job, lease) as renewal:
             progress(job, lease, "downloading", renewal)
@@ -682,8 +712,12 @@ def run_job(item, auth_mode):
                         key=params.get("key") or report_a.get("key") or None,
                         lease_check=lambda step: renewal.verify(),
                     )
-                except V5QualityRejected:
+                except V5QualityRejected as exc:
                     failure_step = "quality_gate"
+                    quality_codes = safe_quality_codes(str(exc).split(","))
+                    if quality_codes:
+                        print("SONARA PRO quality failure codes:",
+                              ",".join(quality_codes), flush=True)
                     raise
                 master_file, audit = choice["master"], choice["audit"]
                 v5_metadata = {
@@ -739,14 +773,15 @@ def run_job(item, auth_mode):
                     require_b_motif=True,
                 )
                 if not gate["acceptedTechnical"]:
-                    # Safe fixed-code QC diagnostics only. Never log user audio, tokens,
-                    # prompts, private source paths or the customer waveform.
+                    # Log only allowlisted technical reason codes, never customer data.
+                    quality_codes = safe_quality_codes(gate["failures"])
                     print("SONARA PRO quality failure codes:",
-                          ",".join(gate["failures"]), flush=True)
+                          ",".join(quality_codes), flush=True)
                     raise ProAgentError("Post-cover audio quality gate rejected the result")
                 if abs(float(audit.get("durationSeconds") or 0) - requested_seconds) > 0.1:
                     raise SourceTransferError("REMIX_DURATION_MISMATCH")
                 if audit.get("integratedLufs") is None or audit.get("approxTruePeakDbTp", 0) > -0.8:
+                    quality_codes = ["mastering-safety"]
                     raise ProAgentError("Mastering verification failed")
             failure_step = "upload"
             progress(job, lease, "uploading", renewal)
@@ -782,7 +817,8 @@ def run_job(item, auth_mode):
         status("waiting_for_authorized_job", lastFailed=job,
                errorClass=type(error).__name__, errorCode=code,
                failurePhase=failure_phase, lastFailureCode=code,
-               lastFailureStep=failure_step, lastFailureAt=int(time.time()))
+               lastFailureStep=failure_step, lastFailureAt=int(time.time()),
+               lastQualityFailureCodes=quality_codes if failure_step == "quality_gate" else [])
     finally:
         shutil.rmtree(folder, ignore_errors=True)
 
