@@ -32,7 +32,7 @@ def source_functions():
         "lru_cache":functools.lru_cache,"ProAgentError":ProAgentError,
         "SourceTransferError":ProAgentError,
         "MAX_WAV_BYTES":512*1024*1024,
-        "SOURCE_FORMATS":frozenset(("wav","mp3","flac","m4a","mp4",
+        "SOURCE_FORMATS":frozenset(("wav","mp3","flac","m4a","mp4","mov","m4v",
             "aac","ogg","oga","opus","aif","aiff","aifc",
             "webm","wma","caf","amr","ac3")),
     }
@@ -80,7 +80,7 @@ class OfflineMultiFormatTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"),
                          "System FFmpeg unavailable; actual GPU heartbeat must remain fail-closed")
-    def test_real_mp3_decodes_to_private_pcm_wav_and_rejects_video(self):
+    def test_real_mp3_decodes_to_private_pcm_wav_and_extracts_video_audio(self):
         f=source_functions()
         with tempfile.TemporaryDirectory() as temporary:
             root=Path(temporary)
@@ -106,8 +106,33 @@ class OfflineMultiFormatTests(unittest.TestCase):
                 "-f","lavfi","-i","sine=frequency=300:sample_rate=44100",
                 "-t","10.2","-c:v","mpeg4","-c:a","aac","-y",str(video)
             ],check=True,capture_output=True,timeout=60)
+            # The actual music-video audio must be decoded; its video
+            # stream is ignored and never enters the Remix Pro AI model.
+            self.assertEqual(f["verify_audio_source"](video,"mp4"),video)
+            extracted=f["normalized_audio_source"](video,root/"video-audio.wav")
+            with wave.open(str(extracted),"rb") as audio:
+                self.assertEqual(audio.getnchannels(),2)
+                self.assertEqual(audio.getframerate(),44100)
+                self.assertGreater(audio.getnframes()/44100,10)
+            # A real M4A (AAC inside MP4) is accepted independently.
+            m4a=root/"audio.m4a"
+            subprocess.run([
+                "ffmpeg","-nostdin","-hide_banner","-loglevel","error",
+                "-f","lavfi","-i","sine=frequency=380:sample_rate=44100",
+                "-t","10.2","-c:a","aac","-y",str(m4a)
+            ],check=True,capture_output=True,timeout=60)
+            self.assertEqual(f["verify_audio_source"](m4a,"m4a"),m4a)
+            audio_only=f["normalized_audio_source"](m4a,root/"m4a-audio.wav")
+            self.assertTrue(audio_only.is_file())
+            # A video with no audio is still rejected.
+            silent=root/"video-only.mp4"
+            subprocess.run([
+                "ffmpeg","-nostdin","-hide_banner","-loglevel","error",
+                "-f","lavfi","-i","color=c=black:s=32x32:r=1",
+                "-t","10.2","-c:v","mpeg4","-an","-y",str(silent)
+            ],check=True,capture_output=True,timeout=60)
             with self.assertRaises(ProAgentError):
-                f["verify_audio_source"](video,"mp4")
+                f["verify_audio_source"](silent,"mp4")
 
 
 if __name__=="__main__":
