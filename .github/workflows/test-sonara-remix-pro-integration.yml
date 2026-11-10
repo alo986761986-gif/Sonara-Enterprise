@@ -160,7 +160,7 @@ jobs:
         run: |
           python3 -m pip install --user soundfile==0.13.1
           python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_wavex.py' -v
-      - name: Real offline MP3 decoder and video rejection tests
+      - name: Real offline MP3, M4A and video audio-extraction tests
         run: python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_multiformat.py' -v
       - name: Verify Marimo Python import path regression
         run: python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_import_path.py' -v
