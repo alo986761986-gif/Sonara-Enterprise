@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'cloudflare/sonara-remix-pro-r2.mjs'
+      - 'cloudflare/sonara-remix-pro-v6-controls.mjs'
+      - 'cloudflare/sonara-remix-pro-v6-controls.test.mjs'
       - 'cloudflare/sonara-remix-pro-audio-formats.mjs'
       - 'cloudflare/sonara-remix-pro-r2.test.mjs'
       - 'cloudflare/sonara-long-wav-upload.mjs'
@@ -17,6 +19,8 @@ on:
       - 'src/components/remix/SonaraRemixSection.tsx'
       - 'molab/sonara_remix_pro_r2_agent.py'
       - 'molab/sonara_remix_pro_v5.py'
+      - 'molab/sonara_remix_pro_v6.py'
+      - 'molab/test_sonara_remix_pro_v6.py'
       - 'molab/test_sonara_remix_pro_v5.py'
       - 'molab/sonara_remix_pro_gpu_v5_handoff.py'
       - 'molab/test_sonara_remix_gpu_v5_handoff.py'
@@ -96,6 +100,12 @@ jobs:
           NODE
       - name: Pro billing and source ownership tests
         run: node --test cloudflare/sonara-remix-pro-r2.test.mjs
+      - name: V6 bounded DNA controls and safe V5 fallback
+        run: node --test cloudflare/sonara-remix-pro-v6-controls.test.mjs
+      - name: V6 offline creative composition and measured analysis
+        run: python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_v6.py' -v
+      - name: V6 GPU agent syntax (no GPU job generated)
+        run: python3 -m py_compile molab/sonara_remix_pro_v6.py molab/sonara_remix_pro_v5.py molab/sonara_remix_pro_r2_agent.py
       - name: Durable Remix Pro native quota accounting tests
         run: node --test cloudflare/sonara-remix-pro-usage.test.mjs
       - name: Legacy Vercel 8-minute duration selector integration
