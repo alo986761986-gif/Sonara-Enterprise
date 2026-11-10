@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import math
 from pathlib import Path
 
-MODES = ("balanced", "experimental", "wild")
+MODES = ("balanced", "experimental", "wild", "explosive")
 MASTERS = ("streaming", "club")
 COMPONENTS = ("melody", "harmony", "groove", "timbre", "humanize")
 
@@ -124,6 +124,7 @@ def compose_direction(controls, dna, candidate_index, candidate_count):
         "balanced": "Build a cohesive song with a recurring identity; musical development must be smooth.",
         "experimental": "Explore novel harmonic voicings and meaningful arrangement variations with consistent tonal center.",
         "wild": "Use bold contrasts and unexpected but musically coherent hook transformations; avoid repetitive formulaic arrangements.",
+        "explosive": "EXPLOSIVE DUAL-HOOK FUSION: build an original, high-energy arrangement with two contrasting recognizable A/B motif families, melodic call-and-response, varied instrumental textures, rich drops, carefully articulated vocal passages and layered newly generated harmonies. Connect both inspirations into one shared harmonic language. Dynamic builds, impacts, risers and breaks must support the groove rather than mask the voices.",
     }[controls.mode]
     def intensity(value):
         return "subtle" if value < 35 else "strong" if value >= 75 else "moderate"
@@ -144,6 +145,12 @@ def compose_direction(controls, dna, candidate_index, candidate_count):
         "Performance naturalness " + intensity(controls.humanize) +
         ": vary velocities, ghost notes, intentional fills and bass articulation, never randomized off-beat notes.",
         "Dynamics: transitions, expressive microtiming, no monotonous drum loops or plastic instruments.",
+        *([
+            "DUAL SOURCE CHORUS PLAN: A-derived main refrain -> B-derived answering refrain -> combined NEW final refrain with memorable vocal hook; do not preserve incompatible pitches or stack raw vocals.",
+            "Where both sources demonstrably contain singing, reinterpret BOTH vocal phrasings and any intelligible refrain into NEW lead/call-response singing, backing choir and harmonies; do not invent exact lyric transcription or assume vocal content from onset activity alone.",
+            "Orchestration: energetic bass, detailed percussion, colorful keys, guitars or brass when appropriate to the genre, synth layers, ear-candy, transitions, controlled delays and reverbs, dramatic break and final drop; maintain clarity, space and believable human performances.",
+            "The references are inspiration for a single regenerated song, never an A/B recording splice or unlicensed stem overlay."
+        ] if controls.mode == "explosive" else []),
         *evidence,
     ])[:2100]
 
