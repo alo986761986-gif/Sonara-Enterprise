@@ -661,23 +661,36 @@ def run_job(item, auth_mode):
             if requested_seconds not in range(30, 481, 30):
                 raise SourceTransferError("REMIX_INVALID_DURATION")
 
-            # Explosive V6 must retain a SINGLE continuous rhythmic foundation.
-            # Alternating raw A/B guide sections caused abrupt rhythmic
-            # resets, breakdowns and apparent silence. Keep A as the seamless
-            # structural audio guide and B as a separate active style reference.
-            # Both sources still inform the model, but neither original recording
-            # is overlaid into the published audio.
+            # In V6, BOTH real source hooks reach ACE-Step's primary
+            # conditioning guide in short alternating phrases. B is also an
+            # independent style reference. This is a PRIVATE GUIDE only:
+            # the final music must be newly generated, not a PCM mashup.
             explosive = (params.get('v6') is True and
                 isinstance(params.get('v6Controls'), dict) and
                 params['v6Controls'].get('mode') == 'explosive')
-            guide = folder / 'structural-guide-a.wav'
+            guide = folder / ('dual-hook-guide-ab.wav' if params.get('v6') is True
+                              else 'structural-guide-a.wav')
             style = folder / 'style-reference-b.wav'
-            guide_report = make_structural_guide(a, guide, requested_seconds)
+            if params.get('v6') is True:
+                guide_report = make_dual_hook_conditioning_guide(
+                    a, b, guide, requested_seconds,
+                    vocals_a=source_a / 'vocals.wav',
+                    vocals_b=source_b / 'vocals.wav',
+                    b_influence=int(params.get('bInfluence', 50)),
+                )
+                if (guide_report.get('containsSourceA') is not True or
+                        guide_report.get('containsSourceB') is not True or
+                        guide_report.get('publishableAudio') is not False or
+                        guide_report.get('sourceBGuideSeconds', 0) < 8):
+                    raise ProAgentError('A+B dual-source conditioning was not verified')
+            else:
+                guide_report = make_structural_guide(a, guide, requested_seconds)
+                if guide_report.get('containsSourceB') is not False:
+                    raise ProAgentError('Legacy structural guide unexpectedly includes B')
             style_report = make_independent_style_reference(
                 b, style, activity_audio_path=source_b / 'drums.wav')
-            if (guide_report.get('containsSourceB') is not False or
-                    style_report.get('containsSourceA') is not False):
-                raise ProAgentError('A/B source conditioning integrity check failed')
+            if style_report.get('containsSourceA') is not False:
+                raise ProAgentError('Independent B reference was modified')
             # Check actual B reference audio before incurring a GPU job.
             # This verifies an audible reference, never proves stylistic fusion.
             style_audit = audit_wav(style)
