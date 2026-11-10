@@ -148,7 +148,8 @@ async function gpuState(b){
     legacyReady:fresh&&d?.revision===LEGACY_AGENT_REVISION,
     formatsReady:d?.formatsReady===true,
     v5Ready:fresh&&d?.v5Ready===true&&d?.revision===PRO_AGENT_REVISION,
-    v6Ready:fresh&&d?.v6Ready===true&&d?.v5Ready===true&&d?.revision===PRO_AGENT_REVISION};
+    v6Ready:fresh&&d?.v6Ready===true&&d?.v5Ready===true&&d?.revision===PRO_AGENT_REVISION,
+    explosiveReady:fresh&&d?.v6Ready===true&&d?.v6ExplosiveReady===true&&d?.revision===PRO_AGENT_REVISION};
 }
 async function beat(b){
   const d=b?await readJson(await b.get(heartbeatKey)):null;
@@ -160,7 +161,8 @@ export async function proCapabilities(env) {
   const gpu=await gpuState(env.SONARA_AUDIO_BUCKET);
   return {mode:'remix-pro-private-2-source',available,
     fusionAvailable:available&&gpu.ready,v5Available:available&&gpu.v5Ready,
-    v6Available:available&&gpu.v6Ready,engine:'Demucs 4.1 + ACE-Step XL Turbo',
+    v6Available:available&&gpu.v6Ready,
+    explosiveAvailable:available&&gpu.explosiveReady,engine:'Demucs 4.1 + ACE-Step XL Turbo',
     model:'htdemucs',expectedAgentRevision:PRO_AGENT_REVISION,
     multiformatAvailable:available&&gpu.formatsReady,
     formats:['wav','mp3','flac','m4a','mp4','mov','m4v','aac','ogg','oga','opus','aif','aiff','aifc','webm','wma','caf','amr','ac3'],
@@ -255,6 +257,8 @@ async function enqueue(req,e,auth,b) {
     if(!(await gpuState(b)).v6Ready)return fail('Motore creativo V6 non installato sul worker MoLab; V5 resta disponibile.',503);
     try {v6Controls=parseV6Controls(body.v6Controls);}
     catch {return fail('Parametri Creative DNA V6 non validi.',400);}
+    if(v6Controls.mode==='explosive'&&!(await gpuState(b)).explosiveReady)
+      return fail('Explosive Fusion richiede un worker MoLab aggiornato.',503);
   }
   if(v5) {
     if(!(await gpuState(b)).v5Ready)return fail('Remix Pro V5 richiede un worker MoLab V5 verificato.',503);
@@ -433,7 +437,9 @@ export async function handleRemixPro(req,env,ctx,auth) {
     // old V2 process as fusion-ready merely because gateway code is V3.
     await b.put(heartbeatKey,JSON.stringify({revision:agentRevision(req),gpuReady:true,
       formatsReady:payload?.formatsReady===true,v5Ready:payload?.v5Ready===true,
-      v6Ready:payload?.v5Ready===true&&payload?.v6Ready===true,lastSeen:Date.now()}));
+      v6Ready:payload?.v5Ready===true&&payload?.v6Ready===true,
+      v6ExplosiveReady:payload?.v5Ready===true&&payload?.v6Ready===true&&payload?.v6ExplosiveReady===true,
+      lastSeen:Date.now()}));
     return json({authenticated:true,revision:agentRevision(req)});
   }
   if(p==='/api/sonara-relay/pro-claim'&&req.method==='POST'){

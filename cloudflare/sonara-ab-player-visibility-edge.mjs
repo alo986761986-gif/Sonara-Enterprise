@@ -238,6 +238,10 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
     if(requested.sonaraRemixProV6===true && !caps.v6Available)
       return nativeGenerationError('REMIX_V6_WORKER_NOT_READY',
         'Il nuovo motore V6 non e ancora installato su MoLab. Usa la modalita V5 Creative DNA Preview.',503);
+    if(requested.sonaraRemixProV6===true &&
+       requested.sonaraRemixProV6Controls?.mode==='explosive' && !caps.explosiveAvailable)
+      return nativeGenerationError('REMIX_EXPLOSIVE_WORKER_NOT_READY',
+        'Explosive Fusion A+B richiede la versione GPU dedicata aggiornata.',503);
   } else if (!(await relayAgentAvailable(env))) {
     return nativeGenerationError(
       'MOLAB_RELAY_OFFLINE',

@@ -48,7 +48,7 @@ from sonara_remix_pro_toolkit import (
 from sonara_remix_pro_ace_bridge import render_long_remix as ace_cover
 from sonara_remix_pro_quality import audit_wav, release_gate
 from sonara_remix_pro_fusion import (
-    make_structural_guide, make_independent_style_reference, build_fusion_prompt,
+    make_structural_guide, make_dual_hook_conditioning_guide, make_independent_style_reference, build_fusion_prompt,
     select_fusion_tempo, ensure_distinct_sources,
 )
 import soundfile as sf
@@ -361,15 +361,21 @@ def pro_heartbeat_payload():
     except (ImportError, AttributeError):
         ready = False
     v6_ready = False
+    explosive_ready = False
     if ready:
         try:
             from sonara_remix_pro_v6 import v6_controls, musical_dna, compose_direction, creative_judge, master_v6
             v6_ready = all(callable(x) for x in (
                 v6_controls, musical_dna, compose_direction, creative_judge, master_v6))
+            if v6_ready:
+                from sonara_remix_pro_v6 import MODES
+                explosive_ready = ('explosive' in MODES and
+                    callable(make_dual_hook_conditioning_guide))
         except (ImportError, AttributeError):
             pass
     return {"gpuReady": True, "formatsReady": multiformat_ready(),
-            "v5Ready": ready, "v6Ready": v6_ready}
+            "v5Ready": ready, "v6Ready": v6_ready,
+            "v6ExplosiveReady": explosive_ready}
 
 
 def validate_wav(path):
@@ -625,17 +631,26 @@ def run_job(item, auth_mode):
             if requested_seconds not in range(30, 481, 30):
                 raise SourceTransferError("REMIX_INVALID_DURATION")
 
-            # ORIGINAL MUSIC FUSION: no additive mixing, no A+B stem overlay.
-            # A controls the structural reference; B is supplied separately as
-            # ACE-Step's independent style reference. Demucs output remains
-            # available for analysis and private stems only, never as a sum.
-            guide = folder / "structural-guide-a.wav"
-            style = folder / "style-reference-b.wav"
-            guide_report = make_structural_guide(a, guide, requested_seconds)
+            # The explosive V6 variant alternates genuine A and B *reference*
+            # phrases in a private conditioning guide. This guide is NOT
+            # released or used as a mashup: the ACE-Step render is new audio.
+            explosive = (params.get('v6') is True and
+                isinstance(params.get('v6Controls'), dict) and
+                params['v6Controls'].get('mode') == 'explosive')
+            guide = folder / ('dual-hook-guide.wav' if explosive else 'structural-guide-a.wav')
+            style = folder / 'style-reference-b.wav'
+            if explosive:
+                guide_report = make_dual_hook_conditioning_guide(
+                    a, b, guide, requested_seconds,
+                    vocals_a=source_a / 'vocals.wav',
+                    vocals_b=source_b / 'vocals.wav')
+            else:
+                guide_report = make_structural_guide(a, guide, requested_seconds)
             style_report = make_independent_style_reference(
-                b, style, activity_audio_path=source_b / "drums.wav")
-            if guide_report.get("containsSourceB") is not False or style_report.get("containsSourceA") is not False:
-                raise ProAgentError("A/B source independence was not verified")
+                b, style, activity_audio_path=source_b / 'drums.wav')
+            if ((guide_report.get('containsSourceB') is not explosive) or
+                    style_report.get('containsSourceA') is not False):
+                raise ProAgentError('A/B source conditioning integrity check failed')
             # Check actual B reference audio before incurring a GPU job.
             # This verifies an audible reference, never proves stylistic fusion.
             style_audit = audit_wav(style)
@@ -648,6 +663,7 @@ def run_job(item, auth_mode):
                 target_bpm=bpm_a, target_key=params.get("key") or report_a.get("key"),
                 bass_from=params.get("bassFrom") or "a",
                 requested_seconds=requested_seconds,
+                explosive=explosive,
             )
             failure_step = "ace_step"
             progress(job, lease, "regenerating", renewal)

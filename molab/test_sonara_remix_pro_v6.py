@@ -38,6 +38,11 @@ class CreativeV6Test(unittest.TestCase):
         for prompt in prompts:
             self.assertIn("never overlay",prompt)
             self.assertLessEqual(len(prompt),2100)
+        explosive=CreativeControls(mode="explosive")
+        explosive_prompt=compose_direction(explosive,dna,0,2)
+        self.assertIn("DUAL SOURCE CHORUS PLAN",explosive_prompt)
+        self.assertIn("backing choir",explosive_prompt)
+        self.assertLessEqual(len(explosive_prompt),2100)
         with self.assertRaises(V6ControlError):
             compose_direction(c,dna,3,3)
 

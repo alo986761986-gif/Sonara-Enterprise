@@ -16,7 +16,8 @@ class V6HandoffSafety(unittest.TestCase):
         self.assertEqual(len(guard.PINNED_COMMIT), 40)
         self.assertEqual(set(guard.BLOBS),
                          {"sonara_remix_pro_r2_agent.py",
-                          "sonara_remix_pro_v5.py","sonara_remix_pro_v6.py"})
+                          "sonara_remix_pro_v5.py","sonara_remix_pro_v6.py",
+                          "sonara_remix_pro_fusion.py"})
         for name, sha in guard.BLOBS.items():
             self.assertEqual(len(sha), 40)
             self.assertEqual(guard.git_blob((HERE / name).read_bytes()), sha)

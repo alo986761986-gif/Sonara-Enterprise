@@ -467,6 +467,30 @@ test('V6 is fail-closed without authentic GPU readiness; V5 remains available', 
 });
 
 
+test('Explosive is gated by authenticated GPU capability without blocking standard V6',async()=>{
+  const e=env();
+  const input={...spec,v5:true,v6:true,genre:'house',bInfluence:55,
+    candidateCount:1,durationMode:'manual',
+    v6Controls:{mode:'explosive',master:'club',melody:75,harmony:70,groove:75,timbre:70,humanize:75}};
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',
+    {gpuReady:true,formatsReady:true,v5Ready:true,v6Ready:true},agent);
+  let caps=await proCapabilities(e);
+  assert.equal(caps.explosiveAvailable,false);
+  const before=await call(e,'POST','/api/sonara-relay/pro-enqueue',input,gate);
+  assert.equal(before.status,503);
+  assert.equal((await e.SONARA_AUDIO_BUCKET.list({prefix:'relay-v1/pro/jobs/'})).objects.length,0);
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',
+    {gpuReady:true,formatsReady:true,v5Ready:true,v6Ready:true,v6ExplosiveReady:true},agent);
+  caps=await proCapabilities(e);
+  assert.equal(caps.explosiveAvailable,true);
+  const result=await call(e,'POST','/api/sonara-relay/pro-enqueue',input,gate);
+  assert.equal(result.status,202);
+  const claim=await call(e,'POST','/api/sonara-relay/pro-claim',
+    {v5Ready:true,v6Ready:true},agent);
+  const task=await claim.json();
+  assert.equal(task.params.v6Controls.mode,'explosive');
+});
+
 test('Completion survives concurrent GPU heartbeat CAS conflicts and returns signed receipt',async()=>{
   const e=env();
   await call(e,'POST','/api/sonara-relay/pro-heartbeat',{gpuReady:true},agent);

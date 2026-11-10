@@ -3,7 +3,7 @@
 DEFAULT IS READ-ONLY. No audio job is created, no secret is printed.
 This installer never modifies the main ACE-Step runtime or Cloudflare secrets.
 Activation requires an exact idle worker identity, source SHA pins and a
-confirmed maintenance command. The previous V5 worker can be restored.
+confirmed maintenance command. The previous V6 worker can be restored.
 """
 from __future__ import annotations
 
@@ -27,16 +27,18 @@ STATUS = Path.home() / ".sonara/remix-pro-agent-status.json"
 TOKEN = Path.home() / ".sonara/relay.token"
 LOG = Path.home() / ".sonara/remix-pro-v6-agent.log"
 REVISION = "sonara-remix-pro-r2-agent-v3-dual-reference-fusion"
-PINNED_COMMIT = "1d8a5b090477028f7e9f0988534113964e39aa66"
+PINNED_COMMIT = "3b26109f3b26c0f394dc90e0dc551f768e4c0129"
 BLOBS = {
-    "sonara_remix_pro_r2_agent.py": "9174704c48108cf3ec0b6a7d4f913ac75ab56812",
+    "sonara_remix_pro_r2_agent.py": "49d538e3b1159f3d6a463903aedce62372fe5862",
     "sonara_remix_pro_v5.py": "e937601430b302380f10be2f45e36e88973416b6",
-    "sonara_remix_pro_v6.py": "70d6a8f2b63f694863e8ffb0ef2f7db802d86f61",
+    "sonara_remix_pro_v6.py": "26a90eb5fa806d8a48021ada3aaea7817530c59f",
+    "sonara_remix_pro_fusion.py": "be870b0331fad2357f8210362591186a0125ee01",
 }
 KNOWN_OLD = {
-    "sonara_remix_pro_r2_agent.py": frozenset(("a14cc137dd515ebc7066d5dd5b568f784616d624", "073e580961c7e29790c04100fec74c5fbca65291", "c5b33c8bf11fe0bf8730c24354352f53fa85a039", BLOBS["sonara_remix_pro_r2_agent.py"])),
+    "sonara_remix_pro_r2_agent.py": frozenset(("9174704c48108cf3ec0b6a7d4f913ac75ab56812", BLOBS["sonara_remix_pro_r2_agent.py"])),
     "sonara_remix_pro_v5.py": frozenset(("49649c941ba7465fb9ae4b63c3033fd330bfdb9b", BLOBS["sonara_remix_pro_v5.py"])),
-    "sonara_remix_pro_v6.py": frozenset((BLOBS["sonara_remix_pro_v6.py"],)),
+    "sonara_remix_pro_v6.py": frozenset(("70d6a8f2b63f694863e8ffb0ef2f7db802d86f61", BLOBS["sonara_remix_pro_v6.py"])),
+    "sonara_remix_pro_fusion.py": frozenset(("4ceb90293e1d9f9b9f1c7b0916258eae1c2a3f04", BLOBS["sonara_remix_pro_fusion.py"])),
 }
 IDLE = frozenset(("waiting_for_authorized_job", "waiting_for_pro_activation", "preflight_ready"))
 
@@ -141,10 +143,10 @@ def start_worker(mode):
 
 def activate():
     if not (ROOT.is_dir() and PYTHON.is_file() and TOKEN.is_file()):
-        raise Blocked("Existing isolated MoLab V5 runtime or credential is missing")
+        raise Blocked("Existing isolated MoLab V6 runtime or credential is missing")
     workers = live_workers()
     if len(workers) > 1:
-        raise Blocked("Multiple V5 workers detected; no unsafe handoff")
+        raise Blocked("Multiple V6 workers detected; no unsafe handoff")
     mode = mode_for(workers[0]) if workers else "required"
     if workers and not safe_idle(workers[0]):
         raise Blocked("Existing Remix Pro worker has a job, an unknown state or stale heartbeat")
@@ -185,7 +187,7 @@ def activate():
         time.sleep(5)
         if worker_pid not in live_workers():
             raise Blocked("V6 agent exited immediately; rolling back")
-        print("SONARA_REMIX_PRO_V6_INSTALLED=True")
+        print("SONARA_REMIX_PRO_EXPLOSIVE_INSTALLED=True")
         print("PRO_V6_AUTHENTICATED=True")
         print("PRO_V6_WORKER_PID=" + str(worker_pid))
         print("SONARA_MAIN_ACE_STEP_UNCHANGED=True")
