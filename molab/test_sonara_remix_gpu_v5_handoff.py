@@ -20,8 +20,16 @@ class V5GuardTests(unittest.TestCase):
         self.assertEqual(guard.BLOBS["sonara_remix_pro_r2_agent.py"][0],
                          "c0e5392a458139bda3d1d3b7297e5b2cb0085dfb")
         self.assertIsNone(guard.BLOBS["sonara_remix_pro_v5.py"][0])
+        # Historical handoff stays SHA-pinned. Repository files can evolve
+        # under the separate opt-in V6 release; never mutate V5 installer pins.
+        current_release = {
+            "sonara_remix_pro_r2_agent.py": "073e580961c7e29790c04100fec74c5fbca65291",
+            "sonara_remix_pro_v5.py": "e937601430b302380f10be2f45e36e88973416b6",
+        }
         for name, (_, new_sha) in guard.BLOBS.items():
-            self.assertEqual(guard.git_blob((ROOT / name).read_bytes()), new_sha)
+            self.assertEqual(len(new_sha), 40)
+            self.assertEqual(guard.git_blob((ROOT / name).read_bytes()),
+                             current_release.get(name, new_sha))
 
     def test_restore_removes_new_module_when_missing_before_install(self):
         with tempfile.TemporaryDirectory() as d:
