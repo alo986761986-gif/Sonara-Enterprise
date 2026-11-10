@@ -389,6 +389,50 @@ test('V5 is fail-closed until live GPU explicitly advertises the module',async()
 });
 
 
+test('V5 automatically adjusts candidate counts to duration without changing seconds or creating duplicate jobs',async()=>{
+  for (const [seconds,requested,expected] of [
+    [30,3,3],[90,3,3],[120,3,2],[180,3,2],[210,2,1],[480,3,1]
+  ]) {
+    const e=env();
+    e.__reservations.set(JOB,{ownerUid:USER,seconds,status:'reserved'});
+    await call(e,'POST','/api/sonara-relay/pro-heartbeat',
+      {gpuReady:true,v5Ready:true,formatsReady:true},agent);
+    const input={...spec,durationSec:seconds,v5:true,genre:'house',
+      bInfluence:55,candidateCount:requested,durationMode:'manual'};
+    const first=await call(e,'POST','/api/sonara-relay/pro-enqueue',input,gate);
+    assert.equal(first.status,202,'duration '+seconds);
+    const status=await first.json();
+    assert.equal(status.requestedDurationSeconds,seconds);
+    const again=await call(e,'POST','/api/sonara-relay/pro-enqueue',input,gate);
+    assert.equal(again.status,202);
+    assert.equal((await again.json()).reused,true);
+    const claimed=await call(e,'POST','/api/sonara-relay/pro-claim',
+      {v5Ready:true},agent);
+    assert.equal(claimed.status,200);
+    const task=await claimed.json();
+    assert.equal(task.params.candidateCount,expected);
+    assert.equal(task.params.durationSec,seconds);
+    assert.equal((await e.SONARA_AUDIO_BUCKET.list({
+      prefix:'relay-v1/pro/jobs/'
+    })).objects.length,1);
+  }
+});
+
+test('V5 still rejects invalid candidate values before creating a job',async()=>{
+  for(const count of [0,4,1.5,'bad']) {
+    const e=env();
+    await call(e,'POST','/api/sonara-relay/pro-heartbeat',
+      {gpuReady:true,v5Ready:true},agent);
+    const outcome=await call(e,'POST','/api/sonara-relay/pro-enqueue',
+      {...spec,v5:true,genre:'house',bInfluence:50,
+        durationMode:'manual',candidateCount:count},gate);
+    assert.equal(outcome.status,400);
+    assert.equal((await e.SONARA_AUDIO_BUCKET.list({
+      prefix:'relay-v1/pro/jobs/'
+    })).objects.length,0);
+  }
+});
+
 test('V6 is fail-closed without authentic GPU readiness; V5 remains available', async () => {
   const e=env();
   const base={
