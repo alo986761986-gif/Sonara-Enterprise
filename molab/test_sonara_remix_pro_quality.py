@@ -6,7 +6,9 @@ import wave
 from pathlib import Path
 from unittest.mock import patch
 
-from sonara_remix_pro_quality import audit_wav, audit_remix, release_gate
+from sonara_remix_pro_quality import (
+    audit_wav, audit_remix, release_gate, recover_peak_safe_master
+)
 
 
 def make_wave(path, level=0.3):
@@ -132,6 +134,57 @@ class AudioAuditTests(unittest.TestCase):
             verdict = release_gate(arranged, generated, master, expected_seconds=2)
             self.assertFalse(verdict["acceptedTechnical"])
             self.assertIn("master-true-peak-too-high", verdict["failures"])
+
+    def test_recomposition_spectral_difference_warns_without_veto(self):
+        import numpy as np
+        import soundfile as sf
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            sr = 22050
+            t = np.arange(sr * 3, dtype=np.float64) / sr
+            arranged = root / "arranged.wav"
+            generated = root / "generated.wav"
+            master = root / "master.wav"
+            # The dual-source guide has low notes; the generated song has a
+            # different instrumentation. This is not automatically damage.
+            sf.write(arranged, .15 * np.sin(2*np.pi*100*t), sr)
+            sf.write(generated, .15 * np.sin(2*np.pi*2300*t), sr)
+            sf.write(master, .15 * np.sin(2*np.pi*2300*t), sr)
+            v = release_gate(arranged, generated, master, expected_seconds=3)
+            self.assertTrue(v["acceptedTechnical"], v["failures"])
+            self.assertTrue(any(x.startswith("spectral-band-")
+                                for x in v["referenceWarnings"]))
+
+    def test_peak_recovery_makes_new_file_without_touching_source(self):
+        import numpy as np
+        import soundfile as sf
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            sr = 22050
+            t = np.arange(sr * 3, dtype=np.float64) / sr
+            source = root / "generated.wav"
+            output = root / "recovered.wav"
+            signal = .8*np.sin(2*np.pi*321*t)
+            sf.write(source, np.column_stack([signal, signal]), sr, subtype="PCM_24")
+            original = source.read_bytes()
+            result = recover_peak_safe_master(source, output)
+            self.assertTrue(output.is_file())
+            self.assertEqual(original, source.read_bytes())
+            self.assertLessEqual(result["approxTruePeakDbTp"], -0.9)
+            with self.assertRaises(Exception):
+                recover_peak_safe_master(source, output)
+
+    def test_master_duration_failure_is_still_hard(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            guide, generated, master = (
+                root / "guide.wav", root / "generated.wav", root / "master.wav")
+            make_wave(guide)
+            make_wave(generated)
+            make_wave(master)
+            verdict = release_gate(guide, generated, master, expected_seconds=3)
+            self.assertFalse(verdict["acceptedTechnical"])
+            self.assertIn("master-duration-mismatch", verdict["failures"])
 
     def test_release_gate_rejects_silent_generated_audio(self):
         with tempfile.TemporaryDirectory() as d:
