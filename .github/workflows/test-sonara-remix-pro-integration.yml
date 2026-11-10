@@ -5,6 +5,7 @@ on:
       - 'cloudflare/sonara-remix-pro-r2.mjs'
       - 'cloudflare/sonara-remix-pro-v6-controls.mjs'
       - 'cloudflare/sonara-remix-pro-v6-controls.test.mjs'
+      - 'cloudflare/sonara-remix-v6-unified-ui.test.mjs'
       - 'cloudflare/sonara-remix-pro-audio-formats.mjs'
       - 'cloudflare/sonara-remix-pro-r2.test.mjs'
       - 'cloudflare/sonara-long-wav-upload.mjs'
@@ -103,6 +104,8 @@ jobs:
           NODE
       - name: Pro billing and source ownership tests
         run: node --test cloudflare/sonara-remix-pro-r2.test.mjs
+      - name: V6 unified primary interface and single-track preservation
+        run: node --test cloudflare/sonara-remix-v6-unified-ui.test.mjs
       - name: V6 bounded DNA controls and safe V5 fallback
         run: node --test cloudflare/sonara-remix-pro-v6-controls.test.mjs
       - name: V6 offline creative composition and measured analysis
