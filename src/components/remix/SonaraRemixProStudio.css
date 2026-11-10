@@ -32,3 +32,13 @@
 .sonara-v6-current-job progress{height:9px;accent-color:#b48de9}
 .sonara-v6-studio button:focus-visible,.sonara-v6-studio a:focus-visible{outline:2px solid #c4b5fd;outline-offset:3px}
 @media(max-width:720px){.sonara-v6-studio{padding:8px 0 20px!important}.sonara-v6-hero{padding:17px!important;min-height:100px}.sonara-v6-title{font-size:17px!important}.sonara-v6-uploads{grid-template-columns:1fr!important}.sonara-v6-controls{padding:14px!important}.sonara-v6-production{grid-template-columns:1fr!important;padding:14px!important}.sonara-v6-section-label strong{font-size:14px}}
+
+
+.sonara-v6-direction-field{gap:11px!important;border:1px solid #4b3a61;border-radius:14px;padding:16px;background:linear-gradient(135deg,#20192b,#17151f)}
+.sonara-v6-direction-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.sonara-v6-direction-head>label{font-size:13px!important;font-weight:800!important;color:#f3e8ff!important}
+.sonara-v6-direction-shuffle{display:flex;align-items:center;justify-content:center;gap:9px;min-height:42px;padding:10px 15px;border-radius:11px;border:1px solid #b18add;color:#fff;background:linear-gradient(120deg,#7951ab,#573877);font-size:12px;font-weight:800;cursor:pointer}
+.sonara-v6-direction-shuffle:hover{background:linear-gradient(120deg,#8e62c1,#65468c)}
+.sonara-v6-direction-field textarea{font-size:12px!important;line-height:1.65;min-height:145px;max-height:280px;overflow:auto;resize:vertical}
+.sonara-v6-direction-hint{color:#b8accb;font-size:11px;line-height:1.55}
+@media(max-width:620px){.sonara-v6-direction-field{padding:12px}.sonara-v6-direction-shuffle{width:100%}}
