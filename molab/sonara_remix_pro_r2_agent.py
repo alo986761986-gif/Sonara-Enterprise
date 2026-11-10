@@ -677,6 +677,7 @@ def run_job(item, auth_mode):
                     vocals_a=source_a / 'vocals.wav',
                     vocals_b=source_b / 'vocals.wav',
                     b_influence=int(params.get('bInfluence', 50)),
+                    homogeneous=explosive,
                 )
                 if (guide_report.get('containsSourceA') is not True or
                         guide_report.get('containsSourceB') is not True or
