@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AudioWaveform, Check, Download, LoaderCircle, ShieldCheck, UploadCloud, FolderOpen, Sparkles } from 'lucide-react';
 import SonaraRemixProLibrary from './SonaraRemixProLibrary';
+import SonaraRemixProEditor, { type RemixEditorTrack } from './SonaraRemixProEditor';
 import './SonaraRemixProStudio.css';
 
 type ProJob = {jobId?: string;status?: string;stage?: string;progress?: number;audioUrl?: string;
@@ -36,6 +37,7 @@ export default function SonaraRemixProPanel() {
   const [sourceA,setSourceA]=useState<File|null>(null);
   const [trackTitle,setTrackTitle]=useState('');
   const [archiveRefresh,setArchiveRefresh]=useState(0);
+  const [editorTrack,setEditorTrack]=useState<RemixEditorTrack|null>(null);
   const [sourceB,setSourceB]=useState<File|null>(null);
   const [prompt,setPrompt]=useState('Create one cohesive professional new remix preserving the principal melody and A harmonies, with the rhythmic groove and drum articulation of B.');
   const [duration,setDuration]=useState<number>(()=>{
@@ -468,6 +470,10 @@ export default function SonaraRemixProPanel() {
           <audio src={output} controls preload="metadata" style={{width:'100%'}} />
           <div style={{display:'flex',gap:8}}>
             <button type="button" onClick={select}><Check size={14}/> Usa nel player</button>
+            {job?.jobId&&<button type="button" data-testid="sonara-pro-edit-current"
+              onClick={()=>setEditorTrack({jobId:job.jobId!,title:job.title||trackTitle||"SONARA Remix Pro",audioUrl:output})}>
+              <AudioWaveform size={14}/> Modifica nella timeline
+            </button>}
             <a href={output} download="SONARA-REMIX-PRO.wav"><Download size={14}/> Scarica WAV</a>
           </div>
           <strong>Stem reali separati</strong>
@@ -478,7 +484,9 @@ export default function SonaraRemixProPanel() {
       </div>}
       {available!==true&&<small>Remix tradizionale disponibile. Remix Pro sarà abilitato solo dopo autenticazione e verifica del servizio GPU dedicato.</small>}
       <div className="sonara-v6-section-label"><span><FolderOpen size={17}/></span><div><strong>Il tuo archivio personale</strong><small>Master salvati e disponibili dopo ogni generazione.</small></div></div>
-      <SonaraRemixProLibrary refreshToken={archiveRefresh}/>
+      <SonaraRemixProLibrary refreshToken={archiveRefresh} onEdit={setEditorTrack}/>
+      <div className="sonara-v6-section-label"><span><AudioWaveform size={17}/></span><div><strong>Timeline ed equalizzatore</strong><small>Modifica e salva localmente i remix completati, senza toccare il master privato.</small></div></div>
+      <SonaraRemixProEditor track={editorTrack}/>
     </div>
   );
 }
