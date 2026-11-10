@@ -22,7 +22,7 @@ const safeFilename = (title: string, loop: boolean) =>
   (title.normalize('NFKD').replace(/[^a-zA-Z0-9 _-]/g, '').trim()
     .replace(/\s+/g, '-') || 'SONARA-REMIX') +
   (loop ? '-LOOP' : '-EDIT') + '.wav';
-const bytesLimit = 120 * 1024 * 1024;
+const bytesLimit = 256 * 1024 * 1024;
 const editorTrackId = (value: string) => /^srpro_[0-9a-f-]{36}$/.test(value);
 const finite = (value: number, minimum: number, maximum: number) =>
   Math.min(maximum, Math.max(minimum, Number.isFinite(value) ? value : minimum));
@@ -51,6 +51,8 @@ export default function SonaraRemixProEditor({track}:{track: RemixEditorTrack | 
   useEffect(() => {
     const id = ++loadingRef.current;
     let cancelled = false;
+    if (audioRef.current) audioRef.current.pause();
+    if (previewUrlRef.current) { URL.revokeObjectURL(previewUrlRef.current); previewUrlRef.current=''; }
     setAudio(null); setPreview(''); setPosition(0); setPlaying(false);
     setSettings({start:0,end:0,...DEFAULTS}); setError(''); setNotice('');
     peakRef.current = null;
@@ -70,7 +72,7 @@ export default function SonaraRemixProEditor({track}:{track: RemixEditorTrack | 
         });
         if (!response.ok) throw new Error('Non riesco a leggere il master privato: HTTP '+response.status);
         const length = Number(response.headers.get('content-length') || 0);
-        if (length > bytesLimit) throw new Error('Master troppo grande per la modifica nel browser (limite 120 MiB).');
+        if (length > bytesLimit) throw new Error('Master troppo grande per la modifica nel browser (limite 256 MiB).');
         const raw = await response.arrayBuffer();
         if (raw.byteLength > bytesLimit) throw new Error('Master troppo grande per la modifica nel browser.');
         if (raw.byteLength < 44) throw new Error('Il master WAV è incompleto.');
@@ -80,7 +82,7 @@ export default function SonaraRemixProEditor({track}:{track: RemixEditorTrack | 
             decoded.numberOfChannels < 1 || decoded.numberOfChannels > 2)
           throw new Error('Il master non contiene audio PCM mono/stereo leggibile.');
         // Guard decoded memory usage independently of transfer size.
-        if (decoded.length * decoded.numberOfChannels * 4 > 120 * 1024 * 1024)
+        if (decoded.length * decoded.numberOfChannels * 4 > 256 * 1024 * 1024)
           throw new Error('Il master decodificato supera la memoria sicura dell’editor.');
         if (cancelled || loadingRef.current !== id) return;
         peakRef.current = waveformBins(decoded);
@@ -112,6 +114,7 @@ export default function SonaraRemixProEditor({track}:{track: RemixEditorTrack | 
         bass:safe.bass,mid:safe.mid,treble:safe.treble,
       };
     });
+    if (audioRef.current) audioRef.current.pause();
     if (previewUrlRef.current) {
       URL.revokeObjectURL(previewUrlRef.current);
       previewUrlRef.current = '';
@@ -169,8 +172,10 @@ export default function SonaraRemixProEditor({track}:{track: RemixEditorTrack | 
   const apply = async () => {
     if (processing || !audio) return;
     setProcessing(true);setError('');
+    const trackGeneration=loadingRef.current;
     try {
       const encoded=await compile();
+      if(trackGeneration!==loadingRef.current) return;
       const url=URL.createObjectURL(encoded.blob);
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
       previewUrlRef.current=url;setPreview(url);setPosition(0);setPlaying(false);
