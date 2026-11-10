@@ -23,6 +23,10 @@ on:
       - "cloudflare/sonara-remix-instrument-definition-v2.mjs"
       - "cloudflare/sonara-remix-instrument-definition-v2.test.mjs"
       - "cloudflare/sonara-remix-pro-r2.mjs"
+      - "cloudflare/sonara-remix-pro-audio-formats.mjs"
+      - "cloudflare/sonara-long-wav-upload.mjs"
+      - "cloudflare/sonara-long-wav-upload.test.mjs"
+      - "molab/test_sonara_remix_pro_multiformat.py"
       - "cloudflare/sonara-remix-pro-v6-controls.mjs"
       - "cloudflare/sonara-remix-pro-v6-controls.test.mjs"
       - "cloudflare/sonara-remix-v6-unified-ui.test.mjs"
@@ -82,6 +86,9 @@ jobs:
       - name: Verify real Remix instrument definition and safe focus options
         run: node --test cloudflare/sonara-remix-instrument-definition-v2.test.mjs
 
+      - name: Verify media container signatures and private uploads
+        run: node --test cloudflare/sonara-long-wav-upload.test.mjs
+
       - name: Verify two-source Pro billing gate, R2 ownership and lease isolation
         run: node --test cloudflare/sonara-remix-pro-r2.test.mjs
       - name: Verify personal master archive and immediate next Remix after completion
@@ -97,6 +104,12 @@ jobs:
           python3 -m py_compile molab/sonara_remix_pro_v6.py molab/sonara_remix_pro_v5.py molab/sonara_remix_pro_r2_agent.py molab/sonara_remix_pro_gpu_v6_handoff.py
           python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_gpu_v6_handoff.py' -v
           python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_completion_recovery.py' -v
+
+      - name: Verify audio extraction from MP3, M4A and music video using FFmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends ffmpeg
+          python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_multiformat.py' -v
 
       - name: Verify 8-minute duration bridge for existing Vercel UI
         run: node --test cloudflare/sonara-remix-pro-duration-edge.test.mjs
