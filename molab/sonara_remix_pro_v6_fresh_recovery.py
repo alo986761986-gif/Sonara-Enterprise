@@ -181,8 +181,8 @@ def prepare_venv():
 
 
 def install_packages():
-    # Official pinned setup checks native sm_120 torch and Demucs 4.1.0.
-    # It operates ONLY inside /marimo/SONARA-REMIX-PRO/.venv.
+    # Install audio imports BEFORE any Demucs CLI check or GPU smoke test.
+    # All changes stay inside the private Remix Pro Python environment.
     uv = shutil.which("uv") or "/usr/local/bin/uv"
     checks = (
         "import importlib.metadata as m; import numpy, librosa, scipy, "
@@ -198,30 +198,32 @@ def install_packages():
         if shutil.disk_usage(ROOT).free < 12 * 1024**3:
             raise RecoveryBlocked("Not enough free disk for the private Pro GPU runtime")
         print("SONARA_PRO_PRIVATE_DEPENDENCIES_INSTALL=START", flush=True)
-        # Use the official installer to keep torch 2.9.1+cu128 and Demucs
-        # 4.1.0 independent from the main ACE-Step environment.
-        result = run(
-            [PYTHON, ROOT / "sonara_remix_pro_gpu_setup.py", "--install", "--smoke"],
-            timeout=2200, cwd=ROOT,
-        )
-        # Important: installer includes CUDA kernel verification.
-        if "GPU_KERNEL_TEST_OK=True" not in result.stdout:
-            raise RecoveryBlocked("Private CUDA GPU verification did not succeed")
-        if "DEMUCS_REAL_GPU_INFERENCE_VERIFIED=True" not in result.stdout:
-            raise RecoveryBlocked("Real Demucs GPU smoke test did not pass")
-        print("SONARA_PRO_PRIVATE_CUDA_VERIFIED=True", flush=True)
-        print("SONARA_PRO_HTDEMUCS_GPU_MODEL_READY=True", flush=True)
-        # Install the actual audio-processing libraries. Do not touch main venv.
+        # Demucs 4.1 may be present even if numpy is missing; its CLI imports
+        # numpy before the previous installer got to the audio package step.
         run([
             uv, "pip", "install", "--python", PYTHON,
             "librosa==0.11.0", "pyloudnorm==0.1.1",
             "soundfile==0.13.1", "scipy>=1.13,<1.18",
             "numpy>=1.26,<2.3"
         ], timeout=1000, cwd=ROOT)
-    # Guard against silent resolver changes to the verified CUDA packages.
+        print("SONARA_PRO_PRIVATE_AUDIO_LIBS_BOOTSTRAPPED=True", flush=True)
+
+    # A successful import alone does not prove Demucs GPU inference: always
+    # verify CUDA sm_120 and a technical 4-stem inference on fresh restores.
+    result = run(
+        [PYTHON, ROOT / "sonara_remix_pro_gpu_setup.py", "--install", "--smoke"],
+        timeout=2200, cwd=ROOT,
+    )
+    if "GPU_KERNEL_TEST_OK=True" not in result.stdout:
+        raise RecoveryBlocked("Private CUDA GPU verification did not succeed")
+    if "DEMUCS_REAL_GPU_INFERENCE_VERIFIED=True" not in result.stdout:
+        raise RecoveryBlocked("Real Demucs GPU smoke test did not pass")
+    print("SONARA_PRO_PRIVATE_CUDA_VERIFIED=True", flush=True)
+    print("SONARA_PRO_HTDEMUCS_GPU_MODEL_READY=True", flush=True)
+
+    # Guard against silent resolver changes to verified CUDA packages.
     run([PYTHON, "-c", checks], timeout=90, cwd=ROOT)
     print("SONARA_PRO_PRIVATE_AUDIO_LIBS_READY=True", flush=True)
-
 
 def verify_ready():
     if not (shutil.which("ffmpeg") and shutil.which("ffprobe")):
