@@ -17,6 +17,8 @@ on:
       - 'cloudflare/sonara-remix-pro-duration-edge.mjs'
       - 'cloudflare/sonara-remix-pro-duration-edge.test.mjs'
       - 'src/components/remix/SonaraRemixProPanel.tsx'
+      - 'src/components/remix/sonaraRemixIntelligentDirection.ts'
+      - 'src/components/remix/sonaraRemixIntelligentDirection.test.ts'
       - 'src/components/remix/SonaraRemixProEditor.tsx'
       - 'src/components/remix/SonaraRemixProEditor.css'
       - 'src/components/remix/sonaraRemixAudioEngine.ts'
@@ -193,4 +195,5 @@ jobs:
         run: |
           npm install
           npx tsx src/components/remix/sonaraRemixAudioEngine.test.ts
+          npx tsx src/components/remix/sonaraRemixIntelligentDirection.test.ts
           npm run build
