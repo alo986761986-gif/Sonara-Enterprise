@@ -41,6 +41,13 @@ class RemixV5SixPillarsTests(unittest.TestCase):
         self.assertIn("not an overlay or medley", prompt)
         self.assertIn("INTRO -> HOOK", prompt)
         self.assertIn("natural", prompt.lower())
+        locked = build_v5_brief("Creative A+B club fusion", c,
+                                drum_measurement={"confidence":"low"},
+                                candidate_index=1, continuous_groove=True)
+        self.assertIn("SAME BEAT", locked)
+        self.assertIn("no rhythmic gaps", locked)
+        self.assertNotIn("BREAK ->", locked)
+        self.assertNotIn("short breakdown", locked)
 
     def test_measurement_and_adaptive_peak_safe_master(self):
         import numpy as np
