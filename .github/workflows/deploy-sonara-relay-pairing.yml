@@ -40,6 +40,10 @@ on:
       - "cloudflare/sonara-remix-pro-duration-edge.mjs"
       - "cloudflare/sonara-remix-pro-duration-edge.test.mjs"
       - "src/components/remix/SonaraRemixProPanel.tsx"
+      - "src/components/remix/SonaraRemixProEditor.tsx"
+      - "src/components/remix/SonaraRemixProEditor.css"
+      - "src/components/remix/sonaraRemixAudioEngine.ts"
+      - "src/components/remix/sonaraRemixAudioEngine.test.ts"
       - "src/components/remix/SonaraRemixProLibrary.tsx"
       - "src/components/remix/SonaraRemixProLibrary.css"
       - "src/components/remix/SonaraRemixProStudio.css"
@@ -137,6 +141,9 @@ jobs:
 
       - name: Install dependencies
         run: npm install
+
+      - name: Verify local Remix Pro timeline, EQ and WAV24 editor
+        run: npx tsx src/components/remix/sonaraRemixAudioEngine.test.ts
 
       - name: Build SONARA assets
         run: npm run build
