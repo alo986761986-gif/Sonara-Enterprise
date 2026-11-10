@@ -24,7 +24,7 @@ class V5GuardTests(unittest.TestCase):
         # under the separate opt-in V6 release; never mutate V5 installer pins.
         current_release = {
             "sonara_remix_pro_r2_agent.py": "25327ad052be63c1f86450afb56c478b1a43f528",
-            "sonara_remix_pro_v5.py": "4e9d2a865aec3696b7f57b231331706c010ac7b3",
+            "sonara_remix_pro_v5.py": "7f88b399798dbbd815decf07867ed276c5ca3860",
         }
         for name, (_, new_sha) in guard.BLOBS.items():
             self.assertEqual(len(new_sha), 40)
