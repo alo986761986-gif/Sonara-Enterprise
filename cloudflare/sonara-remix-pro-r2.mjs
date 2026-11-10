@@ -356,20 +356,36 @@ async function claim(e,b,ctx,v5WorkerReady=false,v6WorkerReady=false){
     if(!ok)return null;
     return {jobId:j.id,leaseId,params:j.params,sourceFormatA:j.sourceA?.format||'wav',sourceFormatB:j.sourceB?.format||'wav'};
   }
-  const index=await b.list({prefix:P+'queue/',limit:64});
-  for(const marker of index.objects||[]){
-    const id=String(marker.key).split('/').pop();
-    if(!idPattern.test(id))continue;
-    const claimed=await tryObject(await b.get(jobKey(id)));
-    if(claimed){ctx?.waitUntil?.(b.delete(marker.key));return claimed;}
-    const j=await record(b,id);
-    if(j&&(j.status==='COMPLETE'||j.status==='FAILED'))ctx?.waitUntil?.(b.delete(marker.key));
+  // A long history of terminal queue markers must never starve fresh
+  // generations just because they lie beyond the first R2 list page.
+  let queueCursor='';
+  for(let page=0;page<8;page++){
+    const index=await b.list({prefix:P+'queue/',limit:64,
+      ...(queueCursor?{cursor:queueCursor}:{})});
+    for(const marker of index.objects||[]){
+      const id=String(marker.key).split('/').pop();
+      if(!idPattern.test(id))continue;
+      const claimed=await tryObject(await b.get(jobKey(id)));
+      if(claimed){ctx?.waitUntil?.(b.delete(marker.key));return claimed;}
+      const j=await record(b,id);
+      if(!j||j.status==='COMPLETE'||j.status==='FAILED')
+        ctx?.waitUntil?.(b.delete(marker.key));
+    }
+    if(index.truncated!==true||!index.cursor)break;
+    queueCursor=index.cursor;
   }
-  // Recovery of abandoned leases, only from this independent PRO queue.
-  const all=await b.list({prefix:P+'jobs/',limit:100});
-  for(const obj of all.objects||[]){
-    const claimed=await tryObject(await b.get(obj.key));
-    if(claimed)return claimed;
+  // Recovery of abandoned leases, also cursor-bounded; keep the historical
+  // queue resumable without prioritizing stale records over fresh ones.
+  let jobsCursor='';
+  for(let page=0;page<5;page++){
+    const all=await b.list({prefix:P+'jobs/',limit:100,
+      ...(jobsCursor?{cursor:jobsCursor}:{})});
+    for(const obj of all.objects||[]){
+      const claimed=await tryObject(await b.get(obj.key));
+      if(claimed)return claimed;
+    }
+    if(all.truncated!==true||!all.cursor)break;
+    jobsCursor=all.cursor;
   }
   return {jobId:null};
 }
