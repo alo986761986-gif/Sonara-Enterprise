@@ -4,7 +4,7 @@
  */
 const FORMATS = Object.freeze({
   wav:'audio/wav',mp3:'audio/mpeg',flac:'audio/flac',
-  m4a:'audio/mp4',mp4:'audio/mp4',aac:'audio/aac',
+  m4a:'audio/mp4',mp4:'video/mp4',mov:'video/quicktime',m4v:'video/x-m4v',aac:'audio/aac',
   ogg:'audio/ogg',oga:'audio/ogg',opus:'audio/ogg',
   aif:'audio/aiff',aiff:'audio/aiff',aifc:'audio/aiff',
   webm:'audio/webm',wma:'audio/x-ms-wma',caf:'audio/x-caf',
@@ -23,7 +23,9 @@ export function audioSignatureMatches(data,format){
   if(f==='wav')return txt(0,4)==='RIFF'&&txt(8,4)==='WAVE';
   if(f==='mp3')return txt(0,3)==='ID3'||(x[0]===255&&(x[1]&0xe0)===0xe0&&(x[1]&0x18)!==0x08);
   if(f==='flac')return txt(0,4)==='fLaC';
-  if(f==='m4a'||f==='mp4')return txt(4,4)==='ftyp';
+  if(f==='m4a'||f==='mp4'||f==='m4v')return txt(4,4)==='ftyp';
+  // QuickTime may omit the ISO ftyp box; accept its native moov header.
+  if(f==='mov')return ['ftyp','moov','wide'].includes(txt(4,4));
   if(f==='aac')return x[0]===255&&(x[1]&0xf6)===0xf0;
   if(f==='ogg'||f==='oga'||f==='opus')return txt(0,4)==='OggS';
   if(f==='aif'||f==='aiff'||f==='aifc')return txt(0,4)==='FORM'&&['AIFF','AIFC'].includes(txt(8,4));

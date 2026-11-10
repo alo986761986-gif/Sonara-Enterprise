@@ -38,7 +38,7 @@ const FAILURE_NOTICES=Object.freeze({
   SOURCE_DURATION_TOO_LONG:'Brano troppo lungo: massimo 15 minuti per sorgente.',
   SOURCE_CHANNELS_UNSUPPORTED:'Canali audio non supportati: utilizza mono, stereo o fino a 8 canali convertibili.',
   SOURCE_SAMPLERATE_UNSUPPORTED:'Frequenza di campionamento non supportata: utilizza audio tra 8 e 192 kHz.',
-  SOURCE_STREAM_UNSUPPORTED:'File non supportato: deve contenere una sola traccia audio, senza video.',
+  SOURCE_STREAM_UNSUPPORTED:'Il file non contiene una traccia audio utilizzabile. Sono ammessi anche video musicali con audio.',
   SOURCE_DECODER_UNAVAILABLE:'Decodifica audio non disponibile sull’agente GPU (FFmpeg/FFprobe).',
   SOURCE_DECODER_FAILED:'Impossibile decodificare l’audio sorgente: controlla formato e durata.',
   SOURCE_OVERSIZE:'File audio sorgente oltre il limite di 512 MiB.',
@@ -163,7 +163,7 @@ export async function proCapabilities(env) {
     v6Available:available&&gpu.v6Ready,engine:'Demucs 4.1 + ACE-Step XL Turbo',
     model:'htdemucs',expectedAgentRevision:PRO_AGENT_REVISION,
     multiformatAvailable:available&&gpu.formatsReady,
-    formats:['wav','mp3','flac','m4a','mp4','aac','ogg','oga','opus','aif','aiff','aifc','webm','wma','caf','amr','ac3'],
+    formats:['wav','mp3','flac','m4a','mp4','mov','m4v','aac','ogg','oga','opus','aif','aiff','aifc','webm','wma','caf','amr','ac3'],
     requiresBillingReady:true,siteIntegrated:true};
 }
 async function save(b,j,conditional){
@@ -201,7 +201,8 @@ async function ownedReference(b,id,uid) {
   const fmt=meta.format||((meta.filename||'').toLowerCase().endsWith('.wav')?'wav':null);
   if(!fmt||!audioContentType(fmt))return null;
   if(fmt==='wav'&&!['audio/wav','audio/x-wav','audio/wave'].includes(String(meta.contentType||'').toLowerCase()))return null;
-  if(fmt!=='wav'&&meta.contentType!==audioContentType(fmt))return null;
+  if(fmt!=='wav'&&meta.contentType!==audioContentType(fmt)&&
+     !(fmt==='mp4'&&meta.contentType==='audio/mp4'))return null; // previously uploaded MP4 audio
   const head=await b.head(meta.objectKey);
   if(!head||head.size<44||head.size>maxBytes)return null;
   return {id,objectKey:meta.objectKey,bytes:head.size,format:fmt};

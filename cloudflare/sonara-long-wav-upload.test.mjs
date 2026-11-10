@@ -161,6 +161,11 @@ test('authenticated Free accounts can upload Remix Pro sources without Studio pl
 test('audio format allowlist rejects arbitrary files and mislabeled content',()=>{
   assert.equal(audioFormatForName('track.MP3'),'mp3');
   assert.equal(audioFormatForName('track.m4a'),'m4a');
+  assert.equal(audioFormatForName('track.mov'),'mov');
+  assert.equal(audioFormatForName('track.m4v'),'m4v');
+  assert.equal(audioContentType('mp4'),'video/mp4');
+  assert.equal(audioContentType('mov'),'video/quicktime');
+  assert.equal(audioContentType('m4v'),'video/x-m4v');
   assert.equal(audioFormatForName('track.mid'),null);
   assert.equal(audioFormatForName('movie.exe'),null);
   assert.equal(audioContentType('flac'),'audio/flac');
@@ -168,6 +173,9 @@ test('audio format allowlist rejects arbitrary files and mislabeled content',()=
   assert.equal(audioSignatureMatches(new Uint8Array(16),'mp3'),false);
   assert.equal(audioSignatureMatches(new Uint8Array([73,68,51,...new Array(16).fill(0)]),'mp3'),true);
   assert.equal(audioSignatureMatches(new Uint8Array([0,0,0,24,102,116,121,112,...new Array(12).fill(0)]),'m4a'),true);
+  assert.equal(audioSignatureMatches(new Uint8Array([0,0,0,24,102,116,121,112,...new Array(12).fill(0)]),'mp4'),true);
+  assert.equal(audioSignatureMatches(new Uint8Array([0,0,0,24,102,116,121,112,...new Array(12).fill(0)]),'mov'),true);
+  assert.equal(audioSignatureMatches(new Uint8Array([0,0,0,24,102,116,121,112,...new Array(12).fill(0)]),'m4v'),true);
   assert.equal(audioSignatureMatches(new Uint8Array([79,103,103,83,...new Array(12).fill(0)]),'opus'),true);
 });
 test('authenticated multipart MP3 is privately recorded with true format for GPU decode',async()=>{
