@@ -89,7 +89,7 @@ def drum_activity(drum_path, seconds=35):
     }
 
 
-def build_v5_brief(base_prompt, controls, *, drum_measurement, candidate_index):
+def build_v5_brief(base_prompt, controls, *, drum_measurement, candidate_index, continuous_groove=False):
     """Musical structure and instrument directives; references remain separate."""
     if candidate_index not in range(controls["candidateCount"]):
         raise V5ControlError("Candidate index outside authorized budget")
@@ -112,6 +112,13 @@ def build_v5_brief(base_prompt, controls, *, drum_measurement, candidate_index):
         if duration >= 120 else
         "HOOK -> GROOVE ENTRANCE -> SHORT DEVELOPMENT -> RESOLUTION."
     )
+    if continuous_groove:
+        # Do not reintroduce V5's intentional BREAK or contrast language on
+        # Explosive V6. Keep same pulse while A/B melodies and vocals develop.
+        variation = ("A and B motifs alternate on top of ONE constant bass, kick and "
+                     "snare pocket: no rhythmic gaps, dropouts or changing patterns.")
+        form = ("CONTINUOUS GROOVE -> A MELODIC HOOK -> B VOCAL/INSTRUMENT ANSWER -> "
+                "FULLER SHARED CHORUS, with the SAME BEAT from first to final bar.")
     activity = drum_measurement or {}
     measured = (
         "Measured B percussion transient density: " + str(activity["onsetsPerSecond"]) +
@@ -305,7 +312,8 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
         generated = Path(folder) / ("v5-candidate-%d.wav" % index)
         mastered_path = Path(folder) / ("v5-master-%d.wav" % index)
         prompt = build_v5_brief(base_prompt, controls, drum_measurement=groove,
-                                candidate_index=index)
+                                candidate_index=index,
+                                continuous_groove=(v6 is not None and v6.mode == "explosive"))
         if v6 is not None:
             from sonara_remix_pro_v6 import compose_direction
             prompt = (prompt + "\n" + compose_direction(v6, dna, index,
