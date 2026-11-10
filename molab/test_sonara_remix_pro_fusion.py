@@ -86,6 +86,59 @@ class TwoSourceFusionTests(unittest.TestCase):
             with self.assertRaises(fusion.FusionPlanError):
                 fusion.make_dual_hook_conditioning_guide(files["a"],files["b"],path,30)
 
+    def test_long_dual_source_guide_contains_b_in_every_30_second_cycle(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            sr = 22050
+            t = np.arange(sr * 12, dtype=np.float32) / sr
+            fa, fb = root / "source-a.wav", root / "source-b.wav"
+            sf.write(fa, .14 * np.sin(2 * np.pi * 220 * t), sr, subtype="PCM_24")
+            sf.write(fb, .14 * np.sin(2 * np.pi * 440 * t), sr, subtype="PCM_24")
+            for influence in (20, 50, 80):
+                out = root / ("guide-" + str(influence) + ".wav")
+                result = fusion.make_dual_hook_conditioning_guide(
+                    fa, fb, out, 90, b_influence=influence)
+                self.assertEqual(result["sections"], ["a", "b", "a"] * 3)
+                self.assertEqual(result["frames"], sr * 90)
+                self.assertTrue(result["containsSourceA"])
+                self.assertTrue(result["containsSourceB"])
+                self.assertFalse(result["publishableAudio"])
+                self.assertGreater(result["sourceBGuideSeconds"], 0)
+                with sf.SoundFile(out) as file:
+                    for cycle in range(3):
+                        file.seek(int((cycle * 30 + 14) * sr))
+                        b_audio = file.read(sr * 2, dtype="float32", always_2d=True)
+                        file.seek(int((cycle * 30 + 2) * sr))
+                        a_audio = file.read(sr * 2, dtype="float32", always_2d=True)
+                        def dominant(block):
+                            spectrum = np.fft.rfft(block[:, 0])
+                            freq = np.fft.rfftfreq(len(block), 1 / sr)
+                            return float(freq[np.argmax(np.abs(spectrum))])
+                        self.assertAlmostEqual(dominant(a_audio), 220, delta=2)
+                        self.assertAlmostEqual(dominant(b_audio), 440, delta=2)
+            self.assertGreater(
+                fusion.make_dual_hook_conditioning_guide(
+                    fa, fb, root / "guide-high.wav", 30,
+                    b_influence=80)["sourceBGuideSeconds"],
+                fusion.make_dual_hook_conditioning_guide(
+                    fa, fb, root / "guide-low.wav", 30,
+                    b_influence=20)["sourceBGuideSeconds"],
+            )
+
+    def test_dual_hook_influence_rejects_invalid_values(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            sr = 22050
+            for name in ("a", "b"):
+                sf.write(root / (name + ".wav"),
+                         np.ones(sr * 12, dtype=np.float32) * 0.03,
+                         sr)
+            for invalid in (-5, 10, 81, 33, True, "50"):
+                with self.subTest(invalid=invalid), self.assertRaises(fusion.FusionPlanError):
+                    fusion.make_dual_hook_conditioning_guide(
+                        root / "a.wav", root / "b.wav",
+                        root / "unused.wav", 30, b_influence=invalid)
+
     def test_explosive_prompt_contains_vocal_and_hook_instructions(self):
         p=fusion.build_fusion_prompt(
             "Fuse two different genres into one new original composition",
