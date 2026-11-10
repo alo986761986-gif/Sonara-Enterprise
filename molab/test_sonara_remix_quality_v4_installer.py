@@ -30,7 +30,7 @@ class InstallerV4Tests(unittest.TestCase):
                          "496428a8af25492246f49d5bf25d281781d17315")
         released_updates = {
             "sonara_remix_pro_r2_agent.py":
-                "c5b33c8bf11fe0bf8730c24354352f53fa85a039",
+                "9174704c48108cf3ec0b6a7d4f913ac75ab56812",
             "sonara_remix_pro_quality.py":
                 "d31e42a4ba52e15fee08436f997f95b0b7561054",
         }
