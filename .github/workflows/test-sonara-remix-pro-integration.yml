@@ -17,6 +17,10 @@ on:
       - 'cloudflare/sonara-remix-pro-duration-edge.mjs'
       - 'cloudflare/sonara-remix-pro-duration-edge.test.mjs'
       - 'src/components/remix/SonaraRemixProPanel.tsx'
+      - 'src/components/remix/SonaraRemixProEditor.tsx'
+      - 'src/components/remix/SonaraRemixProEditor.css'
+      - 'src/components/remix/sonaraRemixAudioEngine.ts'
+      - 'src/components/remix/sonaraRemixAudioEngine.test.ts'
       - 'src/components/remix/SonaraRemixProLibrary.tsx'
       - 'src/components/remix/SonaraRemixProLibrary.css'
       - 'src/components/remix/SonaraRemixProStudio.css'
@@ -185,7 +189,8 @@ jobs:
           python3 -m py_compile molab/sonara_remix_pro_v5.py molab/sonara_remix_pro_r2_agent.py
           python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_v5.py' -v
           python3 -m unittest discover -s molab -p 'test_sonara_remix_gpu_v5_handoff.py' -v
-      - name: Build actual SONARA site
+      - name: Build actual SONARA site and verify local audio editor DSP
         run: |
           npm install
+          npx tsx src/components/remix/sonaraRemixAudioEngine.test.ts
           npm run build
