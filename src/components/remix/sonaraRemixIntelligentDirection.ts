@@ -198,7 +198,7 @@ export function createIntelligentRemixDirection(input:SmartDirectionInput,sequen
       ? 'Prioritize B slightly as a creative inspiration but keep recognizable transformed ideas from A.'
       : 'Prioritize A slightly as a creative inspiration but keep recognizable transformed ideas from B.';
   const tempo=bpmA&&bpmB
-    ? 'User-supplied tempo references: A '+bpmA+' BPM, B '+bpmB+' BPM; reconcile them into one coherent pulse, with half-time/double-time ideas when appropriate; confirm source BPM during analysis.'
+    ? 'User-supplied tempo references: A '+bpmA+' BPM, B '+bpmB+' BPM; reconcile them into ONE coherent pulse'+(constantGroove?', then maintain its exact tempo through every section without half-time, double-time or any rhythmic breaks.':', with half-time/double-time ideas when appropriate.')+' Confirm source BPM during analysis.'
     : bpmA||bpmB
       ? 'User-supplied tempo reference '+(bpmA||bpmB)+' BPM; verify against both audio sources before anchoring the new groove.'
       : 'Derive the most musical common tempo from real A/B audio analysis; never fabricate a BPM.';
@@ -211,7 +211,7 @@ export function createIntelligentRemixDirection(input:SmartDirectionInput,sequen
   return [
     'SONARA ORIGINAL A+B MUSIC DIRECTION — compose ONE newly generated track, not a collage or source overlay.',
     'Style: '+style.identity+'. Mood: '+choose(style.emotion)+'.',
-    'Rhythm: '+choose(style.rhythm)+'. '+tempo,
+    'Rhythm: '+(constantGroove?'one unwavering '+(input.genre.includes('house')?'four-on-the-floor':'genre-appropriate')+' drum groove with steady kick, hats, snare and bass for the full duration; vary only micro-articulation above it':choose(style.rhythm))+'. '+tempo,
     'Instrumentation: '+choose(style.colors)+'. Additional arrangement idea: '+choose(constantGroove?STEADY_DETAILS:DETAILS),
     'Song structure: '+choose(constantGroove?STEADY_FORMS:FORMS)+'.',
     'Vocal direction: '+choose(VOCALS)+'.',
