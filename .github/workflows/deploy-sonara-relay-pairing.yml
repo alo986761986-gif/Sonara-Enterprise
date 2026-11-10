@@ -36,6 +36,10 @@ on:
       - "cloudflare/sonara-remix-pro-duration-edge.mjs"
       - "cloudflare/sonara-remix-pro-duration-edge.test.mjs"
       - "src/components/remix/SonaraRemixProPanel.tsx"
+      - "src/components/remix/SonaraRemixProLibrary.tsx"
+      - "src/components/remix/SonaraRemixProLibrary.css"
+      - "src/components/remix/SonaraRemixProStudio.css"
+      - "cloudflare/sonara-remix-pro-usage.test.mjs"
       - "molab/sonara_remix_pro_r2_agent.py"
       - "src/components/remix/SonaraRemixSection.tsx"
       - "molab/sonara_r2_pull_agent.py"
@@ -80,6 +84,8 @@ jobs:
 
       - name: Verify two-source Pro billing gate, R2 ownership and lease isolation
         run: node --test cloudflare/sonara-remix-pro-r2.test.mjs
+      - name: Verify personal master archive and immediate next Remix after completion
+        run: node --test cloudflare/sonara-remix-pro-usage.test.mjs
 
       - name: Verify V6-only primary Remix interface with single-track fallback
         run: node --test cloudflare/sonara-remix-v6-unified-ui.test.mjs

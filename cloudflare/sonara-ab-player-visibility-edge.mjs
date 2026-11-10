@@ -294,6 +294,7 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
       ? {
           sourceA: source.sonaraRemixProSourceA,
           sourceB: source.sonaraRemixProSourceB,
+          title: String(source.sonaraRemixProTitle||'').slice(0,96),
           rightsConfirmed: source.sonaraRemixProRightsConfirmed === true,
           prompt: (String(source.prompt || '').slice(0, 4300) +
             (creativeControls && source.sonaraRemixProV6!==true
@@ -349,6 +350,52 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
       response = nativeGenerationError('R2_RELAY_UNAVAILABLE', 'Coda Remix Pro non disponibile.', 503);
     }
     if (proJobId && !response.ok) {
+      // The request can be written to R2 even if the HTTPS acknowledgement
+      // gets lost. Read the exact server-generated job ID and authenticate
+      // owner/duration before reporting "enqueue unconfirmed". Never create
+      // another reservation or a second GPU job.
+      try {
+        const obj=await env.SONARA_AUDIO_BUCKET.get('relay-v1/pro/jobs/'+proJobId+'.json');
+        const live=obj?await obj.json():null;
+        if(live?.id===proJobId && live?.ownerUid===uid &&
+           live?.kind==='sonara-remix-pro' &&
+           Number(live?.durationSeconds)===Number(source.durationSec)) {
+          if(['QUEUED','LEASED','COMPLETE'].includes(live.status)) {
+            return new Response(JSON.stringify({
+              jobId:proJobId,
+              status:live.status==='COMPLETE'?'COMPLETED':'PROCESSING',
+              requestedDurationSeconds:Number(live.durationSeconds),
+              recovered:true
+            }),{status:live.status==='COMPLETE'?200:202,
+                 headers:{'content-type':'application/json; charset=UTF-8',
+                          'cache-control':'no-store'}});
+          }
+          if(live.status==='PREPARING') {
+            // The same signed job and reservation may be activated again.
+            // A CAS in the queue ensures this is not a new task.
+            const retry=await relayRuntime.fetch(new Request(target,{
+              method:'POST',headers,body:JSON.stringify(payload),redirect:'manual'
+            }),{...env,SONARA_INTERNAL_PROXY_SECRET:internalSecret},ctx);
+            if(retry.ok)return retry;
+          }
+        }
+      } catch { /* Fall through to conservative private reconciliation. */ }
+      // A deterministic 4xx is an actual rejection, not an ambiguous enqueue.
+      // The private ledger reconciler still owns all refunds and cross-service
+      // settlement; preserve the job ID only when submission is uncertain.
+      if ([400,401,403,404,413,422].includes(response.status)) {
+        // Validation failed synchronously before R2 ever wrote a job. Release
+        // this reserved slot now; never force a user to wait for an alarm.
+        // Network timeouts/409/5xx remain ambiguous and require reconciliation.
+        const settled=await mutateRemixProUsage(request,env,'refund',proJobId,0,uid);
+        if (!settled.ok) return nativeGenerationError(
+          'REMIX_SLOT_RECONCILIATION_PENDING',
+          'Richiesta rifiutata. La prenotazione è in verifica; non avviare un doppio job.',
+          503
+        );
+        return readableGenerationFailure(response,
+          'Remix Pro non accodato: controlla i parametri e riprova.');
+      }
       // A failed response does NOT prove the R2 write failed. Refunding here
       // can race a job already queued/leased on MoLab. Keep the reservation
       // until the Durable Object alarm verifies absence or terminal state.

@@ -552,6 +552,36 @@ export class SonaraAuthStore {
     }
   }
 
+  // Reconcile only the authenticated owner's prior job. A terminal R2
+  // result settles immediately; no 5-minute alarm, global scan or
+  // artificial waiting before creating the next song. Missing or
+  // unreadable R2 remains fail-closed to avoid duplicate active jobs.
+  async reconcileCompletedRemixPro(ownerUid, jobId) {
+    if (!/^srpro_[0-9a-f-]{36}$/.test(String(jobId||''))) return false;
+    const bucket = this.env?.SONARA_AUDIO_BUCKET;
+    if (!bucket) return false;
+    const ledger = await this.ctx.storage.get('remix-pro:quota:' + jobId);
+    if (!ledger || ledger.ownerUid !== ownerUid) return false;
+    if (ledger.status !== 'reserved') return true;
+    let obj;
+    try { obj = await bucket.get(REMIX_PRO_JOB_PREFIX + jobId + '.json'); }
+    catch { return false; }
+    if (!obj) {
+      // A pending reservation that never reached R2 must be reconciled only
+      // after the bounded preparing grace period, not on an ambiguous 404.
+      if (Date.now()-Number(ledger.createdAt||Date.now()) < REMIX_PRO_PREPARING_TTL_MS)
+        return false;
+      return this.settleRemixProAlarm(jobId, 'refund');
+    }
+    let job;
+    try { job = await obj.json(); } catch { return false; }
+    if (job?.ownerUid !== ownerUid || job?.id !== jobId ||
+        job?.kind !== 'sonara-remix-pro') return false;
+    if (job.status === 'COMPLETE') return this.settleRemixProAlarm(jobId,'commit');
+    if (job.status === 'FAILED') return this.settleRemixProAlarm(jobId,'refund');
+    return false;
+  }
+
   // Internal-only, fail-closed usage ledger. This path is not forwarded by
   // handleSonaraNativeAuth, so public sessions cannot call it directly.
   async remixProUsage(request) {
@@ -588,7 +618,9 @@ export class SonaraAuthStore {
         // private settlement is pending. Reconcile once before deciding
         // whether the authenticated user still has an active job.
         if (record.user.proActiveJobId && record.user.proActiveJobId !== jobId) {
-          try { await this.alarm(); } catch { /* Fail closed if R2 is unavailable. */ }
+          try {
+            await this.reconcileCompletedRemixPro(ownerUid,record.user.proActiveJobId);
+          } catch { /* Only a verified R2 terminal state may clear active reservation. */ }
         }
         await this.scheduleRemixProAlarm();
         await this.ctx.storage.transaction(async txn => {

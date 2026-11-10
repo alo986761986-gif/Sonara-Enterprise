@@ -165,7 +165,11 @@ test('Two-source pro job stays private through lease, stem, output and completio
   assert.equal(answer.status,202);
   const initial=await answer.json();
   assert.match(initial.jobId,/^srpro_/);
-  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',spec,gate)).status,409);
+  // Retrying the exact same private reservation is idempotent, not a
+  // second GPU job. This is required for lost enqueue acknowledgements.
+  const same=await call(e,'POST','/api/sonara-relay/pro-enqueue',spec,gate);
+  assert.equal(same.status,202);
+  assert.equal((await same.json()).reused,true);
   const id=initial.jobId,job='/api/sonara-relay/pro-job/'+id;
   assert.equal((await call(e,'GET',job,undefined,{'x-mock-user':OTHER})).status,404);
   const previous=await call(e,'GET',job,undefined,owner);
@@ -465,4 +469,79 @@ test('Unconfirmed completion cannot be recovered with an expired or stolen lease
   await e.SONARA_AUDIO_BUCKET.put('relay-v1/pro/jobs/'+jobId+'.json',JSON.stringify(j));
   assert.equal((await call(e,'GET',endpoint+'/receipt',undefined,signed)).status,409);
   assert.equal((await call(e,'POST',endpoint+'/complete',{},signed)).status,409);
+});
+
+
+test('Owner archive is private, durable, renameable and links only completed WAV masters',async()=>{
+  const e=env();
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',{gpuReady:true},agent);
+  const initial=await call(e,'GET','/api/sonara-relay/pro-library',undefined,owner);
+  assert.equal(initial.status,200);
+  assert.deepEqual((await initial.json()).jobs,[]);
+  assert.equal((await call(e,'GET','/api/sonara-relay/pro-library',undefined,
+    {'x-mock-user':OTHER}).then(r=>r.json())).jobs.length,0);
+  const started=await call(e,'POST','/api/sonara-relay/pro-enqueue',
+    {...spec,title:'Midnight DNA'},gate);
+  assert.equal(started.status,202);
+  const {jobId,leaseId}=await (await call(e,'POST','/api/sonara-relay/pro-claim',{},agent)).json();
+  const endpoint='/api/sonara-relay/pro-job/'+jobId;
+  const headers={...agent,'x-sonara-pro-lease':leaseId};
+  assert.equal((await call(e,'PUT',endpoint+'/audio',wav(),headers)).status,200);
+  assert.equal((await call(e,'POST',endpoint+'/complete',{},headers)).status,200);
+  const library=await call(e,'GET','/api/sonara-relay/pro-library',undefined,owner);
+  assert.equal(library.status,200);
+  const entries=(await library.json()).jobs;
+  assert.equal(entries.length,1);
+  assert.equal(entries[0].title,'Midnight DNA');
+  assert.match(entries[0].audioUrl,/\/audio$/);
+  assert.equal(entries[0].jobId,JOB);
+  assert.equal((await call(e,'PATCH',endpoint,{title:'New Club Master'},
+    {'x-mock-user':OTHER})).status,404);
+  assert.equal((await call(e,'PATCH',endpoint,{title:'New Club Master'},owner)).status,200);
+  const renamed=await call(e,'GET','/api/sonara-relay/pro-library',undefined,owner);
+  assert.equal((await renamed.json()).jobs[0].title,'New Club Master');
+  assert.equal((await call(e,'GET',endpoint+'/audio',undefined,owner)).status,200);
+  const nonOwner=await call(e,'GET',endpoint+'/audio',undefined,{'x-mock-user':OTHER});
+  assert.equal(nonOwner.status,404);
+});
+
+test('Same authenticated job can be resumed after an ambiguous QUEUED response',async()=>{
+  const e=env();
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',{gpuReady:true},agent);
+  const first=await call(e,'POST','/api/sonara-relay/pro-enqueue',spec,gate);
+  assert.equal(first.status,202);
+  const replay=await call(e,'POST','/api/sonara-relay/pro-enqueue',spec,gate);
+  assert.equal(replay.status,202);
+  assert.equal((await replay.json()).reused,true);
+  const claim=await call(e,'POST','/api/sonara-relay/pro-claim',{},agent);
+  assert.equal((await claim.json()).jobId,JOB);
+  const empty=await call(e,'POST','/api/sonara-relay/pro-claim',{},agent);
+  assert.equal((await empty.json()).jobId,null);
+});
+
+
+test('Fresh Remix Pro is claimable even after more than one page of stale queue markers',async()=>{
+  const e=env();
+  const b=e.SONARA_AUDIO_BUCKET;
+  const originalGet=b.get.bind(b);
+  const originalList=b.list.bind(b);
+  b.list=async ({prefix,limit=100,cursor}={})=>{
+    const all=[...b.store.keys()].filter(k=>k.startsWith(prefix)).sort();
+    const after=cursor?all.findIndex(k=>k>cursor):0;
+    const start=after<0?all.length:after;
+    const objects=all.slice(start,start+limit).map(key=>({key}));
+    const truncated=start+limit<all.length;
+    return {objects,truncated,cursor:truncated?objects.at(-1)?.key:undefined};
+  };
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',{gpuReady:true},agent);
+  for(let i=0;i<132;i++){
+    await b.put('relay-v1/pro/queue/0000000000000/srpro_'+
+      String(i).padStart(8,'0')+'-0000-4000-8000-000000000000',
+      'stale',{httpMetadata:{contentType:'text/plain'}});
+  }
+  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',spec,gate)).status,202);
+  const claim=await call(e,'POST','/api/sonara-relay/pro-claim',{},agent);
+  assert.equal((await claim.json()).jobId,JOB);
+  b.list=originalList;
+  b.get=originalGet;
 });

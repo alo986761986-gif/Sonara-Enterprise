@@ -241,3 +241,29 @@ test('Refund preserves previously billed legacy reservations without changing ne
   assert.equal((await s.op('refund',id,0,uid,false)).http,200);
   assert.equal(s.values.get(userKey).usageSeconds,0);
 });
+
+
+test('A finished Remix Pro releases the reservation immediately for the next creation',async()=>{
+  const s=setup();
+  const first=job(101),second=job(102);
+  assert.equal((await s.op('reserve',first)).http,200);
+  s.objects.set('relay-v1/pro/jobs/'+first+'.json',{
+    etag:'etag-finished',
+    value:{id:first,ownerUid:uid,kind:'sonara-remix-pro',status:'COMPLETE'}
+  });
+  // No alarm or waiting for a previous job is necessary.
+  assert.equal((await s.op('reserve',second)).http,200);
+  assert.equal(s.values.get('remix-pro:quota:'+first).status,'committed');
+  assert.equal(s.values.get(userKey).proActiveJobId,second);
+});
+
+test('Missing unconfirmed job does not unlock immediately, but can be retried after safe grace',async()=>{
+  const s=setup();
+  const first=job(103),second=job(104);
+  assert.equal((await s.op('reserve',first)).http,200);
+  assert.equal((await s.op('reserve',second)).http,409);
+  const old=s.values.get('remix-pro:quota:'+first);
+  s.values.set('remix-pro:quota:'+first,{...old,createdAt:Date.now()-11*60*1000});
+  assert.equal((await s.op('reserve',second)).http,200);
+  assert.equal(s.values.get('remix-pro:quota:'+first).status,'refunded');
+});

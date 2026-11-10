@@ -80,6 +80,66 @@ const enabled=e=>e.SONARA_REMIX_PRO_ENABLED==='true'&&e.SONARA_REMIX_PRO_BILLING
 const agentRevision=r=>String(r.headers.get('X-Sonara-Pro-Agent-Revision')||'');
 const proAgentOk=r=>[PRO_AGENT_REVISION,LEGACY_AGENT_REVISION].includes(agentRevision(r));
 const record=async(b,id)=>readJson(await b.get(jobKey(id)));
+// Per-account, R2-backed archive. Only the authenticated owner may query it.
+// A one-time, cursor-bounded migration discovers masters created before the
+// archive index existed, without ever returning another user's job.
+const libraryOwnerPrefix=async uid=>P+'library/'+await leaseReceiptHash('owner:'+uid)+'/';
+const libraryIndexKey=async(uid,j)=>{
+  const stamp=Math.max(0,9999999999999-Math.max(0,Number(j.createdAt)||0));
+  return (await libraryOwnerPrefix(uid))+String(stamp).padStart(13,'0')+'-'+j.id+'.json';
+};
+const libraryMigrationKey=async uid=>P+'library-migration/'+await leaseReceiptHash('owner:'+uid)+'.json';
+const safeTitle=text=>String(text||'').replace(/[\u0000-\u001f\u007f<>]/g,' ').replace(/\s+/g,' ').trim().slice(0,96);
+async function saveLibraryIndex(b,j){
+  if(!j?.ownerUid||!idPattern.test(j.id))return;
+  await b.put(await libraryIndexKey(j.ownerUid,j),
+    JSON.stringify({jobId:j.id,createdAt:j.createdAt}),
+    {httpMetadata:{contentType:'application/json'}});
+}
+async function ownerLibrary(req,e,b,auth){
+  const user=await auth.user(req,e);
+  if(!user?.uid)return fail('Accedi per consultare il tuo archivio Remix Pro.',401);
+  const uid=user.uid,url=new URL(req.url),prefix=await libraryOwnerPrefix(uid);
+  // Backfill at most one R2 page per request. The cursor is stored privately,
+  // so repeated archive opens gradually discover historic masters.
+  const migrationKey=await libraryMigrationKey(uid);
+  let migration=await readJson(await b.get(migrationKey))||{done:false};
+  if(!migration.done){
+    try {
+      const page=await b.list({prefix:P+'jobs/',limit:75,
+        ...(migration.cursor?{cursor:migration.cursor}:{})});
+      for(const obj of page.objects||[]){
+        const j=await readJson(await b.get(obj.key));
+        if(j?.kind==='sonara-remix-pro'&&j.ownerUid===uid&&
+           j.status==='COMPLETE'&&idPattern.test(j.id)&&await b.head(audioKey(j.id)))
+          await saveLibraryIndex(b,j);
+      }
+      migration=page.truncated&&typeof page.cursor==='string'&&page.cursor
+        ? {done:false,cursor:page.cursor}:{done:true};
+      await b.put(migrationKey,JSON.stringify(migration),
+        {httpMetadata:{contentType:'application/json'}});
+    } catch { migration={done:false}; }
+  }
+  const cursor=String(url.searchParams.get('cursor')||'');
+  if(cursor.length>250)return fail('Invalid archive cursor',400);
+  const index=await b.list({prefix,limit:100,...(cursor?{cursor}:{})});
+  const jobs=[];
+  for(const item of index.objects||[]){
+    const marker=await readJson(await b.get(item.key));
+    if(!idPattern.test(String(marker?.jobId||'')))continue;
+    const j=await record(b,marker.jobId);
+    if(j?.ownerUid!==uid||j?.kind!=='sonara-remix-pro'||j.status!=='COMPLETE')continue;
+    // Do not show ghost masters or expose object keys.
+    if(!await b.head(audioKey(j.id)))continue;
+    jobs.push({...publicStatus(j),title:safeTitle(j.title)||'Remix Pro '+j.id.slice(6,14),
+      createdAt:Number(j.createdAt)||0,updatedAt:Number(j.updatedAt)||0,
+      engineVersion:j.engineVersion||'legacy'});
+    if(jobs.length>=40)break;
+  }
+  return json({jobs,hasMore:index.truncated===true,
+    nextCursor:index.truncated===true?String(index.cursor||''):null,
+    legacyScanIncomplete:!migration.done});
+}
 async function gpuState(b){
   const d=b?await readJson(await b.get(heartbeatKey)):null;
   const age=Date.now()-Number(d?.lastSeen||0);
@@ -115,6 +175,8 @@ async function save(b,j,conditional){
 function publicStatus(j){
   const id=j.id;
   return {jobId:id,status:j.status==='COMPLETE'?'COMPLETED':j.status==='FAILED'?'FAILED':'PROCESSING',
+    title:safeTitle(j.title)||'Remix Pro '+id.slice(6,14),
+    createdAt:Number(j.createdAt)||0,engineVersion:j.engineVersion||'legacy',
     requestedDurationSeconds:Number(j.durationSeconds||j.params?.durationSec||0),
     ...(Number.isFinite(Number(j.actualDurationSeconds)) && Number(j.actualDurationSeconds)>0
        ? {actualDurationSeconds:Number(j.actualDurationSeconds)} : {}),
@@ -182,7 +244,7 @@ async function enqueue(req,e,auth,b) {
       Number(body.expectedDurationSec)!==duration))
     return fail('La durata inviata non coincide con la selezione originale: nessun job creato.',409);
   // The job id must be allocated by the authenticated native billing gateway.
-  if(await b.head(jobKey(id)))return fail('Job gia accodato.',409);
+  // Idempotent replays are reconciled below only after ownership + quota verification.
   if(body.rightsConfirmed!==true)return fail('Conferma i diritti di utilizzo dei due brani.');
   const v5=body.v5===true;
   const v6=body.v6===true;
@@ -212,15 +274,32 @@ async function enqueue(req,e,auth,b) {
   if(refs.some(v=>v.format!=='wav')&&!(await gpuState(b)).formatsReady)
     return fail('Agente GPU multiformato non ancora aggiornato. I WAV restano disponibili.',503);
 if(!(await proQuota(e,'verify',id,uid,duration)))return fail('Registrazione privata Remix Pro non valida.',409);
-  const jobs=await b.list({prefix:P+'jobs/',limit:100});
-  for(const item of jobs.objects||[]) {
-    const old=await readJson(await b.get(item.key));
-    if(old?.ownerUid===uid&&old?.kind==='sonara-remix-pro'&&
-       (old.status==='QUEUED'||old.status==='LEASED'))return fail('Hai già un Remix Pro in corso. Verifica prima quel job.',409);
+  // The Durable Object reservation is the single authoritative one-active-job
+  // guard. Scanning only the first 100 global R2 jobs was both unreliable and
+  // could block the next job after the previous one completed.
+  const existingObj=await b.get(jobKey(id));
+  const existing=await readJson(existingObj);
+  if(existingObj){
+    if(!existing||existing.kind!=='sonara-remix-pro'||existing.ownerUid!==uid||
+       Number(existing.durationSeconds)!==duration||
+       existing.sourceA?.id!==a||existing.sourceB?.id!==c)
+      return fail('Job id collision or incompatible reservation',409);
+    if(existing.status==='QUEUED'||existing.status==='LEASED'||existing.status==='COMPLETE')
+      return json({...publicStatus(existing),reused:true},existing.status==='QUEUED'?202:200);
+    if(existing.status!=='PREPARING')return fail('Il job precedente non è recuperabile.',409);
+    const prepTime=Number(existing.createdAt)||Date.now();
+    await b.put(queueKey(prepTime,id),id,{httpMetadata:{contentType:'text/plain'}});
+    const resumed={...existing,status:'QUEUED',updatedAt:Date.now()};
+    if(!(await save(b,resumed,existingObj.etag)))return fail('Preparazione del job in verifica.',503);
+    await saveLibraryIndex(b,resumed).catch(()=>{});
+    return json({...publicStatus(resumed),reused:true},202);
   }
   const now=Date.now();
   // A PREPARING record is never claimable; a failed enqueue may be refunded.
-  const j={kind:'sonara-remix-pro',id,ownerUid:uid,status:'PREPARING',stage:'queued',attempts:0,
+  const j={kind:'sonara-remix-pro',id,ownerUid:uid,
+    title:safeTitle(body.title)||('Remix Pro '+new Date().toISOString().slice(0,10)),
+    engineVersion:v6?'v6':v5?'v5':'legacy',
+    status:'PREPARING',stage:'queued',attempts:0,
     leaseId:null,leaseUntil:0,createdAt:now,updatedAt:now,
     sourceA:refs[0],sourceB:refs[1],audio:null,stems:{},durationSeconds:duration,
     params:{
@@ -246,6 +325,7 @@ if(!(await proQuota(e,'verify',id,uid,duration)))return fail('Registrazione priv
     j.status='QUEUED';
     if(!(await save(b,j,current.etag)))return fail('Job activation failed',503);
   } catch { return fail('Job preparation failed',503); }
+  await saveLibraryIndex(b,j).catch(()=>{});
   return json({...publicStatus(j),model:'Demucs+ACE-Step-XL-Turbo'},202);
 }
 async function claim(e,b,ctx,v5WorkerReady=false,v6WorkerReady=false){
@@ -276,20 +356,36 @@ async function claim(e,b,ctx,v5WorkerReady=false,v6WorkerReady=false){
     if(!ok)return null;
     return {jobId:j.id,leaseId,params:j.params,sourceFormatA:j.sourceA?.format||'wav',sourceFormatB:j.sourceB?.format||'wav'};
   }
-  const index=await b.list({prefix:P+'queue/',limit:64});
-  for(const marker of index.objects||[]){
-    const id=String(marker.key).split('/').pop();
-    if(!idPattern.test(id))continue;
-    const claimed=await tryObject(await b.get(jobKey(id)));
-    if(claimed){ctx?.waitUntil?.(b.delete(marker.key));return claimed;}
-    const j=await record(b,id);
-    if(j&&(j.status==='COMPLETE'||j.status==='FAILED'))ctx?.waitUntil?.(b.delete(marker.key));
+  // A long history of terminal queue markers must never starve fresh
+  // generations just because they lie beyond the first R2 list page.
+  let queueCursor='';
+  for(let page=0;page<8;page++){
+    const index=await b.list({prefix:P+'queue/',limit:64,
+      ...(queueCursor?{cursor:queueCursor}:{})});
+    for(const marker of index.objects||[]){
+      const id=String(marker.key).split('/').pop();
+      if(!idPattern.test(id))continue;
+      const claimed=await tryObject(await b.get(jobKey(id)));
+      if(claimed){ctx?.waitUntil?.(b.delete(marker.key));return claimed;}
+      const j=await record(b,id);
+      if(!j||j.status==='COMPLETE'||j.status==='FAILED')
+        ctx?.waitUntil?.(b.delete(marker.key));
+    }
+    if(index.truncated!==true||!index.cursor)break;
+    queueCursor=index.cursor;
   }
-  // Recovery of abandoned leases, only from this independent PRO queue.
-  const all=await b.list({prefix:P+'jobs/',limit:100});
-  for(const obj of all.objects||[]){
-    const claimed=await tryObject(await b.get(obj.key));
-    if(claimed)return claimed;
+  // Recovery of abandoned leases, also cursor-bounded; keep the historical
+  // queue resumable without prioritizing stale records over fresh ones.
+  let jobsCursor='';
+  for(let page=0;page<5;page++){
+    const all=await b.list({prefix:P+'jobs/',limit:100,
+      ...(jobsCursor?{cursor:jobsCursor}:{})});
+    for(const obj of all.objects||[]){
+      const claimed=await tryObject(await b.get(obj.key));
+      if(claimed)return claimed;
+    }
+    if(all.truncated!==true||!all.cursor)break;
+    jobsCursor=all.cursor;
   }
   return {jobId:null};
 }
@@ -318,6 +414,8 @@ export async function handleRemixPro(req,env,ctx,auth) {
   if(p==='/api/sonara-relay/pro-capabilities'&&req.method==='GET')
     return json(await proCapabilities(env));
   if(!b)return fail('Private storage unavailable',503);
+  if(p==='/api/sonara-relay/pro-library'&&req.method==='GET')
+    return ownerLibrary(req,env,b,auth);
   if(p==='/api/sonara-relay/pro-enqueue'&&req.method==='POST')
     return enqueue(req,env,auth,b);
   if(p==='/api/sonara-relay/pro-heartbeat'&&req.method==='POST') {
@@ -341,6 +439,23 @@ export async function handleRemixPro(req,env,ctx,auth) {
   if(!match)return fail('Not found',404);
   const id=match[1],action=match[2]||'',obj=await b.get(jobKey(id)),j=await readJson(obj);
   if(!j||j.kind!=='sonara-remix-pro')return fail('Not found',404);
+  if(req.method==='PATCH'&&action===''){
+    const user=await auth.user(req,env);
+    if(!user?.uid||user.uid!==j.ownerUid)return fail('Not found',404);
+    if(j.status!=='COMPLETE')return fail('Only completed remixes can be renamed',409);
+    let body;
+    try{body=await req.json();}catch{return fail('Invalid JSON',400);}
+    const title=safeTitle(body?.title);
+    if(!title||title.length<2)return fail('Titolo non valido',400);
+    for(let attempt=0;attempt<4;attempt++){
+      const currentObj=await b.get(jobKey(id)),current=await readJson(currentObj);
+      if(current?.ownerUid!==user.uid||current?.status!=='COMPLETE')
+        return fail('Remix non disponibile',409);
+      if(await save(b,{...current,title,updatedAt:Date.now()},currentObj.etag))
+        return json({ok:true,title});
+    }
+    return fail('Modifica titolo in conflitto: riprova',409);
+  }
   if(req.method==='GET'&&(action===''||action==='audio'||/^stem\//.test(action))) {
     const user=await auth.user(req,env);
     if(!user||user.uid!==j.ownerUid)return fail('Not found',404);
@@ -526,6 +641,7 @@ export async function handleRemixPro(req,env,ctx,auth) {
         ...(v5Result?{v5Result}:{}),
         ...(v6Result?{v6Result}:{})};
       if(!(await save(b,next,currentObj.etag)))continue;
+      if(action==='complete')await saveLibraryIndex(b,next).catch(()=>{});
       // Quota settlement failures must not reverse a confirmed R2 master.
       // They are handled by the idempotent account-ledger settlement alarm.
       const settled=await proQuota(env,action==='complete'?'commit':'refund',id,current.ownerUid)
