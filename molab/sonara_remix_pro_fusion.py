@@ -1,8 +1,8 @@
 """Two-source AI composition planning for SONARA Remix Pro.
 
-No PCM from A is added to PCM from B. A is an independently prepared
-structural conditioning input; B is an independently prepared style/reference
-input to ACE-Step. The model, not a summing mixer, creates the final music.
+For the actual private conditioning guide, genuine A and B phrases are placed
+in separate, softly joined windows (not overlaid). The B reference stays
+separate too. ACE-Step, not a PCM summing mixer, creates the publishable WAV.
 This module never starts ACE-Step, touches the main relay, or uses a tunnel.
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
-FUSION_REVISION = "sonara-dual-reference-musical-coherence-v2"
+FUSION_REVISION = "sonara-dual-reference-musical-coherence-v3"
 
 
 class FusionPlanError(RuntimeError):
@@ -110,13 +110,15 @@ def make_structural_guide(source_a, destination, seconds):
 
 
 def make_dual_hook_conditioning_guide(source_a, source_b, destination, seconds, *,
-                                      vocals_a=None, vocals_b=None):
+                                      vocals_a=None, vocals_b=None, b_influence=50):
     """Prepare A/B motif *conditioning*, never a deliverable mashup.
 
     Only the subsequent ACE-Step cover creates the publishable music. The
     private guide exposes substantial, non-overlaid A and B phrases so B's
     melodic/vocal material is not reduced to drum style alone. Phrase
     selection is an energy proxy, NOT verified chorus or lyric recognition.
+    Repeat short A-B-A phrase cycles throughout long covers so each model
+    segment contains real musical evidence of both songs, rather than only A.
     Model faithfulness to either phrase must be assessed by listening.
     """
     a = _input_audio(source_a)
@@ -125,6 +127,8 @@ def make_dual_hook_conditioning_guide(source_a, source_b, destination, seconds, 
         raise FusionPlanError("Dual-hook conditioning requires distinct sources")
     if not isinstance(seconds, int) or seconds < 30 or seconds > 480 or seconds % 30:
         raise FusionPlanError("Invalid dual-hook duration")
+    if type(b_influence) is not int or b_influence not in range(20, 81, 5):
+        raise FusionPlanError("B creative influence must be 20-80 in steps of 5")
     dest = _destination(destination, (a, b))
     vocal_paths = {}
     for role, source, candidate in (("a", a, vocals_a), ("b", b, vocals_b)):
@@ -135,21 +139,24 @@ def make_dual_hook_conditioning_guide(source_a, source_b, destination, seconds, 
             if abs(song.frames / song.samplerate - voice.frames / voice.samplerate) > 1:
                 raise FusionPlanError("Vocal stem and music duration do not agree")
         vocal_paths[role] = stem
-    # Three phrases in short edits, five for full productions. Each role is
-    # an independent original excerpt; not a sum of incompatible A/B tracks.
-    weights = (("a", .34), ("b", .33), ("a", .33)) if seconds <= 60 else (
-        ("a", .20), ("b", .22), ("a", .17), ("b", .23), ("a", .18)
-    )
+    # Every 30-second phrase cycle contains an A hook, a distinct B hook
+    # and an A return. This prevents 90-second ACE-Step chunks in long renders
+    # from receiving only A or only B. Influence is a conditioning preference,
+    # never a promised percentage of audible output.
     with sf.SoundFile(str(a)) as info_a:
         sr = info_a.samplerate
+    cycle_frames = 30 * sr
+    b_frames = round((8.0 + (b_influence - 20) * 8.0 / 60.0) * sr)
+    a_first = (cycle_frames - b_frames) // 2
+    a_last = cycle_frames - b_frames - a_first
+    roles = ["a", "b", "a"] * (seconds // 30)
+    lengths = [length for _ in range(seconds // 30)
+               for length in (a_first, b_frames, a_last)]
     total_frames = sr * seconds
-    roles = [role for role, _ in weights]
-    lengths = [int(total_frames * portion) for _, portion in weights[:-1]]
-    lengths.append(total_frames - sum(lengths))
-    if any(x < sr * 6 for x in lengths):
-        raise FusionPlanError("Dual-hook sections are too short")
+    if sum(lengths) != total_frames or any(x < sr * 6 for x in lengths):
+        raise FusionPlanError("Dual-hook section layout is invalid")
 
-    def best_excerpt(song_path, vocals_path, required_frames):
+    def best_excerpt(song_path, vocals_path, required_frames, variant=0):
         with sf.SoundFile(str(song_path)) as song:
             length = song.frames / song.samplerate
             excerpt_seconds = min(length, max(10., min(45., required_frames / sr)))
@@ -171,7 +178,8 @@ def make_dual_hook_conditioning_guide(source_a, source_b, destination, seconds, 
             voice = (_reference_activity_score(vocals_path, position, excerpt_seconds)
                      if vocals_path and voice_activity else music)
             ranked.append((.75 * voice + .25 * music, -abs(position - available / 2), position))
-        start = max(ranked)[2]
+        ranked.sort(reverse=True)
+        start = ranked[min(variant, len(ranked) - 1)][2]
         with sf.SoundFile(str(song_path)) as song:
             song.seek(min(song.frames - 1, int(start * song.samplerate)))
             length_frames = min(song.frames - song.tell(),
@@ -218,13 +226,16 @@ def make_dual_hook_conditioning_guide(source_a, source_b, destination, seconds, 
     selected = {}
     try:
         for role, path, required in (("a", a, max(lengths)), ("b", b, max(lengths))):
-            selected[role] = best_excerpt(path, vocal_paths.get(role), required)
+            selected[role] = (
+                best_excerpt(path, vocal_paths.get(role), required, variant=0),
+                best_excerpt(path, vocal_paths.get(role), required, variant=1),
+            )
         fade = min(int(sr * .35), min(lengths) // 8)
         written = 0
         with sf.SoundFile(str(dest), "w+", samplerate=sr, channels=2,
                           subtype="PCM_24", format="WAV") as output:
             for index, (role, nominal) in enumerate(zip(roles, lengths)):
-                excerpt, _, _ = selected[role]
+                excerpt, _, _ = selected[role][(index // 3) % 2]
                 piece = extended_phrase(excerpt, nominal + (fade if index else 0))
                 if index:
                     output.flush()
@@ -247,14 +258,19 @@ def make_dual_hook_conditioning_guide(source_a, source_b, destination, seconds, 
             if check.frames != total_frames or check.channels != 2 or check.samplerate != sr:
                 raise FusionPlanError("Dual-hook conditioning duration mismatch")
         return {
-            "revision": "sonara-v6-dual-hook-reference-v1",
-            "source": "a-b-alternating-conditioning-only",
+            "revision": "sonara-v6-dual-hook-reference-v2",
+            "source": "a-b-repeating-phrase-conditioning-only",
             "seconds": seconds, "frames": total_frames,
             "containsSourceB": True, "containsSourceA": True,
             "sections": roles,
+            "sourceBGuideSeconds": round(sum(n for role, n in zip(roles, lengths)
+                                               if role == "b") / sr, 2),
+            "sourceAGuideSeconds": round(sum(n for role, n in zip(roles, lengths)
+                                               if role == "a") / sr, 2),
+            "bCreativeInfluenceRequested": b_influence,
             "selection": "measured-stem-energy-not-chorus-transcription",
-            "vocalStemActivityA": bool(selected["a"][2]),
-            "vocalStemActivityB": bool(selected["b"][2]),
+            "vocalStemActivityA": any(phrase[2] for phrase in selected["a"]),
+            "vocalStemActivityB": any(phrase[2] for phrase in selected["b"]),
             "publishableAudio": False,
         }
     except BaseException:
@@ -472,7 +488,10 @@ def build_fusion_prompt(creator_prompt, report_a, report_b, *,
         "SONARA ORIGINAL TWO-SONG FUSION. Compose ONE entirely new, coherent "
         "musical performance inspired by BOTH independently supplied songs. "
         "Audio A supplies the melodic/harmonic foundation and central motif. "
-        "Audio B supplies rhythmic phrasing, drum textures and instrumental color. "
+        "Audio B also supplies its own clearly distinguishable melodic or vocal "
+        "hook gestures from the audible B conditioning phrases, plus rhythmic "
+        "phrasing, drum textures and instrumental color. Do not merely reproduce A. "
+        "Transform both hooks into a NEW compatible call-and-response in one key. "
         "Keep ONE tempo, ONE tonic, ONE recognizable main hook, ONE consistent "
         "drum kit and a unified production palette from beginning to end. "
         + bass_direction + " " + form +
