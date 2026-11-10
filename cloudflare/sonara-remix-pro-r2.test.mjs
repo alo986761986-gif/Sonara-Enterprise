@@ -165,7 +165,11 @@ test('Two-source pro job stays private through lease, stem, output and completio
   assert.equal(answer.status,202);
   const initial=await answer.json();
   assert.match(initial.jobId,/^srpro_/);
-  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',spec,gate)).status,409);
+  // Retrying the exact same private reservation is idempotent, not a
+  // second GPU job. This is required for lost enqueue acknowledgements.
+  const same=await call(e,'POST','/api/sonara-relay/pro-enqueue',spec,gate);
+  assert.equal(same.status,202);
+  assert.equal((await same.json()).reused,true);
   const id=initial.jobId,job='/api/sonara-relay/pro-job/'+id;
   assert.equal((await call(e,'GET',job,undefined,{'x-mock-user':OTHER})).status,404);
   const previous=await call(e,'GET',job,undefined,owner);
