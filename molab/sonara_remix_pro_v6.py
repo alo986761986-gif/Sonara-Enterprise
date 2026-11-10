@@ -124,7 +124,7 @@ def compose_direction(controls, dna, candidate_index, candidate_count):
         "balanced": "Build a cohesive song with a recurring identity; musical development must be smooth.",
         "experimental": "Explore novel harmonic voicings and meaningful arrangement variations with consistent tonal center.",
         "wild": "Use bold contrasts and unexpected but musically coherent hook transformations; avoid repetitive formulaic arrangements.",
-        "explosive": "EXPLOSIVE CONTINUOUS-GROOVE FUSION — CONTINUITY LOCK: keep one strict BPM, one time signature, ONE constant kick/snare/hi-hat/bass pocket for every bar, including introductions, vocals, refrains and transitions. The A and B hook families and fresh call-and-response vocals evolve ABOVE the same uninterrupted groove. Add harmonies, choirs, instruments and effects without ever cutting, dropping, stopping or switching the drum rhythm. No breakdowns, silences, stop-start transitions, half-time, double-time, tempo jumps or rhythm resets. The climactic chorus keeps exactly the same pulse.",
+        "explosive": "EXPLOSIVE HOMOGENEOUS FUSION — CONTINUITY LOCK: one BPM, meter, kick/snare/hat kit and bass timbre throughout. Maintain the SAME lead singer's vocal identity, accent, register and mic/reverb texture when interpreting both A and B hook families. Keep a fixed instrumental palette and acoustic space; add energy through human performance, harmonies and small fills, not new instrument patches or a different singer. No breakdowns, silences, abrupt edits, half-time, double-time or drum-kit resets.",
     }[controls.mode]
     def intensity(value):
         return "subtle" if value < 35 else "strong" if value >= 75 else "moderate"
@@ -137,9 +137,19 @@ def compose_direction(controls, dna, candidate_index, candidate_count):
         evidence.append("Measured B drum onset proxy: " + str(dna["grooveOnsetsPerSecond"]) + "/second; not a verified swing metric.")
     theme = ("Stable pulse: reinterpret A melody and B hook as alternating melodic or vocal calls over a single invariant kick/bass groove."
              if controls.mode == "explosive" else themes[candidate_index % len(themes)])
+    vocal_palette_lock = (
+        "VOICE IDENTITY LOCK: render A-derived and B-derived melodic/vocal hooks "
+        "with ONE consistent lead vocal timbre and phrasing across the whole track. "
+        "Use compatible same-singer overdubs/choir layers; do not abruptly swap "
+        "singers, vocal gender, register, accent or vocal effects. "
+        "INSTRUMENT PALETTE LOCK: one stable drum kit, bass patch, chord timbre "
+        "and spatial processing for all verses, choruses and transitions; "
+        "add density without changing the core sounds."
+        if controls.mode == "explosive" else ""
+    )
     return " ".join([
         "SONARA CREATIVE DNA V6: create ONE original cohesive musical performance, never overlay, edit together, or medley source audio.",
-        mode, theme,
+        mode, vocal_palette_lock, theme,
         "A melodic phrasing influence " + intensity(controls.melody) + ".",
         "A harmonic motion influence " + intensity(controls.harmony) + "; use only one stable compatible key.",
         "B groove language influence " + intensity(controls.groove) + ".",
@@ -149,9 +159,9 @@ def compose_direction(controls, dna, candidate_index, candidate_count):
         "Dynamics: evolve vocal and harmonic texture, natural hi-hat velocity and restrained fills; the foundational drum beat remains continuous and recognizable.",
         *([
             "DUAL SOURCE CHORUS PLAN: A-derived main refrain -> B-derived answering refrain -> combined NEW final refrain with memorable vocal hook; do not preserve incompatible pitches or stack raw vocals.",
-            "Where both sources demonstrably contain singing, reinterpret BOTH vocal phrasings and any intelligible refrain into NEW lead/call-response singing, backing choir and harmonies; do not invent exact lyric transcription or assume vocal content from onset activity alone.",
-            "Orchestration: energetic bass and the same repeating kick/snare groove, colorful keys, guitars or brass when appropriate, synth layers, subtle sweeps, controlled delays and reverbs, an instrumentally fuller final chorus WITHOUT a beat break or a different rhythm; maintain clarity, space and believable human performances.",
-            "CONTINUITY LOCK: consistent backing groove throughout; retain the exact drum pattern, tempo, meter and kick/bass rhythmic relationship across ALL sections. A richer finale changes orchestration, not the beat. The references are inspiration for a single regenerated song, never an A/B recording splice or raw stem overlay."
+            "Where both sources contain singing, reinterpret BOTH vocal hook phrasings through the SAME identifiable lead voice with stable vocal color and processing, with tasteful same-voice choir overdubs; never guess exact lyrics.",
+            "Orchestration: keep the SAME kick/snare kit, bass sound, main keys/guitar/synth timbres and room/reverb across all sections. Express B's hook as a NEW phrase within these instruments; make the final refrain richer by adding parts, not swapping the band.",
+            "CONTINUITY LOCK: one continuous pulse and compatible key for A and B; no breakdowns or instrumental/voice identity resets. References guide a newly performed song, never a published original-source splice."
         ] if controls.mode == "explosive" else []),
         *evidence,
     ])[:2100]
