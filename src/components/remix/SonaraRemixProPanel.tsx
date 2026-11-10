@@ -24,7 +24,7 @@ export default function SonaraRemixProPanel() {
   const [v5Available,setV5Available]=useState(false);
   const [v6Available,setV6Available]=useState(false);
   const [v6Enabled,setV6Enabled]=useState(true);
-  const [dnaMode,setDnaMode]=useState<'balanced'|'experimental'|'wild'>('balanced');
+  const [dnaMode,setDnaMode]=useState<'balanced'|'experimental'|'wild'|'explosive'>('balanced');
   const [masterProfile,setMasterProfile]=useState<'streaming'|'club'>('streaming');
   const [dnaLevels,setDnaLevels]=useState({melody:65,harmony:60,groove:65,timbre:55,humanize:60});
   const [genre,setGenre]=useState('auto');
@@ -368,14 +368,16 @@ export default function SonaraRemixProPanel() {
         {v5Available&&<section data-testid="sonara-v6-fusion-controls" style={{border:'1px solid #634b85',borderRadius:12,padding:15,display:'grid',gap:11,background:'linear-gradient(145deg,#21182f,#191725)'}}>
           <strong style={{color:'#e1c9ff',fontSize:13,letterSpacing:'.08em'}}>SONARA CREATIVE DNA FUSION V6</strong>
           <small style={{color:'#beb0d5'}}>{v6Available?'Motore V6 GPU disponibile: analisi DNA, composizione differenziata, selezione misurabile e mastering dedicato.':'Anteprima Creative DNA su V5: le indicazioni compositive sono reali, ma analisi e selezione V6 richiedono un aggiornamento del worker MoLab.'}</small>
+          {dnaMode==='explosive'&&<small role="status">Explosive Fusion guida la nuova composizione attraverso richiami melodici e ritornelli di A e B, cori e strumenti articolati. Le parole e la fedeltà musicale non sono garantite automaticamente: serve ascoltare il master. Disponibile solo con worker V6 aggiornato.</small>}
           {v6Available&&<label style={{display:'flex',gap:9,alignItems:'center'}}>
             <input type="checkbox" checked={v6Enabled} onChange={e=>setV6Enabled(e.target.checked)} /> Usa il nuovo motore V6 (disattiva per V5)
           </label>}
           <label style={{display:'grid',gap:5}}>Modalità creativa
-            <select value={dnaMode} onChange={e=>setDnaMode(e.target.value as 'balanced'|'experimental'|'wild')} style={{background:'#272036',color:'#fff',border:'1px solid #6e5488',borderRadius:8,padding:10}}>
+            <select value={dnaMode} onChange={e=>setDnaMode(e.target.value as 'balanced'|'experimental'|'wild'|'explosive')} style={{background:'#272036',color:'#fff',border:'1px solid #6e5488',borderRadius:8,padding:10}}>
               <option value="balanced">Balanced · Fusione coerente</option>
               <option value="experimental">Experimental · Nuove interpretazioni</option>
               <option value="wild">Wild · Trasformazione audace</option>
+              <option value="explosive">Explosive Fusion A+B · Due ritornelli, voci e grande finale</option>
             </select>
           </label>
           {([
