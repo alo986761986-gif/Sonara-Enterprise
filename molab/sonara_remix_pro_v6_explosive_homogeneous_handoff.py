@@ -96,14 +96,86 @@ def read_status():
         return {}
 
 
-def is_idle(pid):
+def private_job_in_progress():
+    """Fail closed if any customer-job scratch directory remains in use."""
+    base = ROOT / "private-jobs"
+    if base.is_symlink():
+        raise MaintenanceBlocked("Unexpected private jobs directory symlink")
+    if not base.exists():
+        return False
+    if not base.is_dir():
+        raise MaintenanceBlocked("Private jobs path is not a directory")
+    # Never reveal customer job IDs or filenames.
+    return any(p.is_dir() and p.name.startswith("srpro_") for p in base.iterdir())
+
+
+def status_snapshot():
     state = read_status()
-    age = time.time() - float(state.get("updatedAt") or 0)
+    try:
+        age = time.time() - float(state.get("updatedAt") or 0)
+    except (ValueError, TypeError, OverflowError):
+        age = float("inf")
+    allowed = {"waiting_for_authorized_job", "processing",
+               "waiting_for_pro_activation", "connection_unavailable",
+               "preflight_ready", "stopped"}
+    label = state.get("state")
+    return {
+        "revision_ok": state.get("revision") == REVISION,
+        "label": label if label in allowed else "unknown",
+        "updated": state.get("updatedAt"),
+        "age": age,
+        "has_job": bool(state.get("jobId") or state.get("leaseId")),
+    }
+
+
+def is_idle(pid):
+    state = status_snapshot()
     return (pid in workers()
-            and state.get("revision") == REVISION
-            and state.get("state") == "waiting_for_authorized_job"
-            and 0 <= age <= 20
-            and not state.get("jobId") and not state.get("leaseId"))
+            and state["revision_ok"]
+            and state["label"] == "waiting_for_authorized_job"
+            and 0 <= state["age"] <= 20
+            and not state["has_job"]
+            and not private_job_in_progress())
+
+
+def wait_for_two_idle_heartbeats(pid, *, seconds=80):
+    """Observe TWO distinct, fresh idle updates, never infer idle from a stale file.
+
+    The worker may spend longer than 20 s in GPU inference or Cloudflare I/O.
+    In those cases, do not terminate it. This is a bounded, foreground
+    maintenance check, not a background task.
+    """
+    deadline = time.monotonic() + seconds
+    previous_label = None
+    observed_update = None
+    while time.monotonic() <= deadline:
+        if workers() != [pid]:
+            raise MaintenanceBlocked("Worker PID changed during idle observation")
+        snap = status_snapshot()
+        active = private_job_in_progress()
+        if snap["label"] != previous_label:
+            print("SONARA_WORKER_OBSERVED_STATE=" + snap["label"], flush=True)
+            previous_label = snap["label"]
+        if not active and is_idle(pid):
+            fresh_update = snap["updated"]
+            if observed_update is None:
+                observed_update = fresh_update
+            elif fresh_update != observed_update:
+                print("SONARA_TWO_FRESH_IDLE_HEARTBEATS=True", flush=True)
+                return True
+        else:
+            observed_update = None
+        time.sleep(4)
+
+    snap = status_snapshot()
+    print("SONARA_WORKER_LAST_OBSERVED_STATE=" + snap["label"], flush=True)
+    print("SONARA_WORKER_STATUS_AGE_SECONDS=" +
+          str(round(snap["age"]) if snap["age"] != float("inf") else "unknown"),
+          flush=True)
+    print("SONARA_PRIVATE_JOB_IN_PROGRESS=" +
+          str(private_job_in_progress()), flush=True)
+    print("SONARA_UPDATE_SAFELY_DEFERRED=True", flush=True)
+    return False
 
 
 def auth_mode(pid):
@@ -172,8 +244,15 @@ def main(argv=None):
     if len(pids) != 1:
         raise MaintenanceBlocked("Exactly one live Remix Pro worker is required")
     pid = pids[0]
-    if not is_idle(pid):
-        raise MaintenanceBlocked("Worker busy or stale heartbeat; no changes made")
+    if not args.activate and not is_idle(pid):
+        snap = status_snapshot()
+        print("SONARA_WORKER_OBSERVED_STATE=" + snap["label"], flush=True)
+        print("SONARA_WORKER_STATUS_AGE_SECONDS=" +
+              str(round(snap["age"]) if snap["age"] != float("inf") else "unknown"),
+              flush=True)
+        raise MaintenanceBlocked("Worker is not confirmed idle; no changes made")
+    if args.activate and not wait_for_two_idle_heartbeats(pid, seconds=80):
+        raise MaintenanceBlocked("Worker did not prove two fresh idle heartbeats; no changes made")
     if all_new:
         print("SONARA_EXPLOSIVE_HOMOGENEITY_ALREADY_INSTALLED=True")
         print("SONARA_WORKER_UNCHANGED=True")
@@ -203,9 +282,10 @@ def main(argv=None):
         except BlockingIOError as exc:
             raise MaintenanceBlocked("Another SONARA maintenance action is running") from exc
         if workers() != [pid] or not is_idle(pid):
-            raise MaintenanceBlocked("Worker changed while preparing; refusing update")
+            raise MaintenanceBlocked("Worker changed or claimed work before update")
         if any((ROOT / name).read_bytes() != originals[name] for name in PINNED):
             raise MaintenanceBlocked("Modules changed concurrently")
+        # Confirm no new customer job started while we acquired the lock.
         time.sleep(2)
         if not is_idle(pid):
             raise MaintenanceBlocked("Worker claimed a new job; update deferred")
@@ -256,7 +336,8 @@ def main(argv=None):
                 time.sleep(2)
             if proc.poll() is None and proc.pid in workers():
                 print("SONARA_WORKER_RUNNING_BUT_NOT_IDLE=True")
-                print("SONARA_V6_REAL_DUAL_SOURCE_FUSION_INSTALLED=True")
+                print("SONARA_V6_EXPLOSIVE_HOMOGENEITY_INSTALLED=True")
+                print("SONARA_WORKER_RUNNING_BUT_NOT_IDLE=True")
                 return 0
             raise MaintenanceBlocked("New worker did not become ready")
         except Exception:
@@ -274,7 +355,7 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except (MaintenanceBlocked, OSError, ValueError, SyntaxError) as exc:
-        print("SONARA_QUALITY_HANDOFF_BLOCKED=" + type(exc).__name__, flush=True)
+        print("SONARA_EXPLOSIVE_HANDOFF_BLOCKED=" + type(exc).__name__, flush=True)
         if isinstance(exc, MaintenanceBlocked):
-            print("SONARA_QUALITY_HANDOFF_REASON=" + str(exc), flush=True)
+            print("SONARA_EXPLOSIVE_HANDOFF_REASON=" + str(exc), flush=True)
         sys.exit(1)
