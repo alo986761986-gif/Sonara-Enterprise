@@ -110,7 +110,8 @@ def make_structural_guide(source_a, destination, seconds):
 
 
 def make_dual_hook_conditioning_guide(source_a, source_b, destination, seconds, *,
-                                      vocals_a=None, vocals_b=None, b_influence=50):
+                                      vocals_a=None, vocals_b=None, b_influence=50,
+                                      homogeneous=False):
     """Prepare A/B motif *conditioning*, never a deliverable mashup.
 
     Only the subsequent ACE-Step cover creates the publishable music. The
@@ -129,6 +130,8 @@ def make_dual_hook_conditioning_guide(source_a, source_b, destination, seconds, 
         raise FusionPlanError("Invalid dual-hook duration")
     if type(b_influence) is not int or b_influence not in range(20, 81, 5):
         raise FusionPlanError("B creative influence must be 20-80 in steps of 5")
+    if type(homogeneous) is not bool:
+        raise FusionPlanError("Homogeneous conditioning must be boolean")
     dest = _destination(destination, (a, b))
     vocal_paths = {}
     for role, source, candidate in (("a", a, vocals_a), ("b", b, vocals_b)):
@@ -230,7 +233,11 @@ def make_dual_hook_conditioning_guide(source_a, source_b, destination, seconds, 
                 best_excerpt(path, vocal_paths.get(role), required, variant=0),
                 best_excerpt(path, vocal_paths.get(role), required, variant=1),
             )
-        fade = min(int(sr * .35), min(lengths) // 8)
+        # Explosive mode: slower phrase transitions help the model perceive
+        # A/B as one continuous musical world rather than abrupt style swaps.
+        # This changes the PRIVATE guide only, not the delivered waveform.
+        fade = min(int(sr * (1.2 if homogeneous else .35)),
+                   min(lengths) // 5 if homogeneous else min(lengths) // 8)
         written = 0
         with sf.SoundFile(str(dest), "w+", samplerate=sr, channels=2,
                           subtype="PCM_24", format="WAV") as output:
@@ -268,6 +275,8 @@ def make_dual_hook_conditioning_guide(source_a, source_b, destination, seconds, 
             "sourceAGuideSeconds": round(sum(n for role, n in zip(roles, lengths)
                                                if role == "a") / sr, 2),
             "bCreativeInfluenceRequested": b_influence,
+            "homogeneousTransitionsRequested": homogeneous,
+            "conditioningTransitionSeconds": round(fade / sr, 3),
             "selection": "measured-stem-energy-not-chorus-transcription",
             "vocalStemActivityA": any(phrase[2] for phrase in selected["a"]),
             "vocalStemActivityB": any(phrase[2] for phrase in selected["b"]),
@@ -469,6 +478,13 @@ def build_fusion_prompt(creator_prompt, report_a, report_b, *,
     )
     if explosive:
         form = (
+            "SONIC IDENTITY LOCK: SAME lead vocal identity and timbre for "
+            "A-inspired and B-inspired phrases, with continuous mic position, "
+            "accent, vocal effects and reverb; do not introduce another singer. "
+            "SAME bass sound, drum kit, chords/instrument timbres, spatial "
+            "character and overall stereo field throughout. Cross transitions "
+            "musically with shared harmonies and consistent groove; distinguish "
+            "the hooks by melody, NOT new singer or new instruments. "
             "DUAL-HOOK FORM WITH CONTINUOUS PULSE: one fixed BPM, one drum kit, one rhythmic meter, "
             "one repeating kick-snare-hat groove and compatible bass pulse from the first musical bar "
             "through the ending. Never stop, mute, replace, or reset the kick, percussion, bass "
