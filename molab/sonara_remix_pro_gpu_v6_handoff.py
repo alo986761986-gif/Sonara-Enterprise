@@ -27,12 +27,12 @@ STATUS = Path.home() / ".sonara/remix-pro-agent-status.json"
 TOKEN = Path.home() / ".sonara/relay.token"
 LOG = Path.home() / ".sonara/remix-pro-v6-agent.log"
 REVISION = "sonara-remix-pro-r2-agent-v3-dual-reference-fusion"
-PINNED_COMMIT = "7d5f0612d321cb4af7442f186706d31f831ecf8f"
+PINNED_COMMIT = "3b26109f3b26c0f394dc90e0dc551f768e4c0129"
 BLOBS = {
     "sonara_remix_pro_r2_agent.py": "49d538e3b1159f3d6a463903aedce62372fe5862",
     "sonara_remix_pro_v5.py": "e937601430b302380f10be2f45e36e88973416b6",
     "sonara_remix_pro_v6.py": "26a90eb5fa806d8a48021ada3aaea7817530c59f",
-    "sonara_remix_pro_fusion.py": "b384a716f1d7489ce2fd14ad0dc127ffe07ddae2",
+    "sonara_remix_pro_fusion.py": "be870b0331fad2357f8210362591186a0125ee01",
 }
 KNOWN_OLD = {
     "sonara_remix_pro_r2_agent.py": frozenset(("9174704c48108cf3ec0b6a7d4f913ac75ab56812", BLOBS["sonara_remix_pro_r2_agent.py"])),
