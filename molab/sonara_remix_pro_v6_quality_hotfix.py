@@ -43,7 +43,7 @@ class MaintenanceBlocked(RuntimeError):
 
 def git_blob(data):
     return hashlib.sha1(b"blob " + str(len(data)).encode("ascii") +
-                        b"\\0" + data).hexdigest()
+                        b"\0" + data).hexdigest()
 
 
 def workers():
@@ -54,7 +54,7 @@ def workers():
         if not entry.name.isdigit():
             continue
         try:
-            args = (entry / "cmdline").read_bytes().split(b"\\0")
+            args = (entry / "cmdline").read_bytes().split(b"\0")
             if not any(b"sonara_remix_pro_r2_agent.py" in v for v in args[1:]):
                 continue
             cwd = (entry / "cwd").resolve(strict=True)
@@ -93,7 +93,7 @@ def is_idle(pid):
 
 def auth_mode(pid):
     try:
-        args = (Path("/proc") / str(pid) / "cmdline").read_bytes().split(b"\\0")
+        args = (Path("/proc") / str(pid) / "cmdline").read_bytes().split(b"\0")
         values = [os.fsdecode(v) for v in args if v]
         for i, arg in enumerate(values):
             if arg == "--auth-mode" and i + 1 < len(values):
