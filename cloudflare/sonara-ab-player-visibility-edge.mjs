@@ -294,6 +294,7 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
       ? {
           sourceA: source.sonaraRemixProSourceA,
           sourceB: source.sonaraRemixProSourceB,
+          title: String(source.sonaraRemixProTitle||'').slice(0,96),
           rightsConfirmed: source.sonaraRemixProRightsConfirmed === true,
           prompt: (String(source.prompt || '').slice(0, 4300) +
             (creativeControls && source.sonaraRemixProV6!==true
@@ -349,6 +350,14 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
       response = nativeGenerationError('R2_RELAY_UNAVAILABLE', 'Coda Remix Pro non disponibile.', 503);
     }
     if (proJobId && !response.ok) {
+      // A deterministic 4xx is an actual rejection, not an ambiguous enqueue.
+      // The private ledger reconciler still owns all refunds and cross-service
+      // settlement; preserve the job ID only when submission is uncertain.
+      if (response.status>=400 && response.status<500 && response.status!==408 &&
+          response.status!==409 && response.status!==429) {
+        return readableGenerationFailure(response,
+          'Remix Pro non accodato: controlla i parametri e riprova.');
+      }
       // A failed response does NOT prove the R2 write failed. Refunding here
       // can race a job already queued/leased on MoLab. Keep the reservation
       // until the Durable Object alarm verifies absence or terminal state.
