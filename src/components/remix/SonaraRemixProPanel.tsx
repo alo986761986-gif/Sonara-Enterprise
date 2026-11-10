@@ -231,9 +231,9 @@ export default function SonaraRemixProPanel() {
             sonaraRemixProCandidates:safeCandidateCount,
             sonaraRemixProDurationMode:durationMode,
             sonaraRemixProV6:v6Available&&v6Enabled,
-            sonaraRemixProV6Controls:{
+            ...(v6Enabled?{sonaraRemixProV6Controls:{
               mode:dnaMode, master:masterProfile,...dnaLevels
-            }
+            }}:{})
           }:{}),
           ...(bpmA?{sonaraRemixProBpmA:Number(bpmA)}:{}),
           ...(bpmB?{sonaraRemixProBpmB:Number(bpmB)}:{}),
