@@ -387,7 +387,7 @@ def select_fusion_tempo(explicit_a, report_a, explicit_b, report_b):
 
 def build_fusion_prompt(creator_prompt, report_a, report_b, *,
                         target_bpm=None, target_key=None, bass_from="a",
-                        requested_seconds=None):
+                        requested_seconds=None, explosive=False):
     """One stable musical brief for all sections, honoring creator controls.
 
     Reports can disagree about key/tempo. They are observations, NOT two
@@ -451,6 +451,16 @@ def build_fusion_prompt(creator_prompt, report_a, report_b, *,
         "Form: establish the A-derived hook, introduce B's groove, vary it and "
         "resolve clearly within the short requested duration. "
     )
+    if explosive:
+        form = (
+            "DUAL-HOOK FORM: expose an A-inspired vocal/melodic motif, then a B-inspired answer; "
+            "write a NEW shared refrain, changing the arrangement every section. "
+            "When singing is present in both sources, request clear lead trading, a chorus and backing choir harmonies; "
+            "do not claim exact word recovery or stack raw voices. Use a powerful dynamic build, "
+            "thick but separated bass, distinctive percussion, expressive keys, guitars/brass or synths when genre-appropriate, "
+            "effects risers, delays, transitions and a controlled climax with intelligible vocals. "
+            "No audible cut between old A and old B: regenerate a NEW unified performance. "
+        )
     instruction = (
         "SONARA ORIGINAL TWO-SONG FUSION. Compose ONE entirely new, coherent "
         "musical performance inspired by BOTH independently supplied songs. "
