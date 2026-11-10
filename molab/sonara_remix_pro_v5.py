@@ -326,6 +326,15 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
                 "Reharmonize incompatible pitches into one key, keep one pulse, "
                 "and NEVER splice, overlay or publish source-guide recordings. "
             )
+            if v6.mode == "explosive":
+                dual_priority = (
+                    "EXPLOSIVE FUSION SONIC CONTINUITY: same lead vocal identity "
+                    "for A and B phrases, same singer timbre, accent, register, "
+                    "studio space and effects; never switch singer. Same drum kit, "
+                    "bass patch, core chord instruments and production texture "
+                    "from start to finish. Build intensity via arrangement and "
+                    "phrasing, not replacement instruments or disparate vocal takes. "
+                ) + dual_priority
             prompt = (dual_priority + compose_direction(
                 v6, dna, index, controls["candidateCount"]
             ) + "\n" + prompt)[:9000]
