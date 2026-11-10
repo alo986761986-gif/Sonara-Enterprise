@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AudioLines, Check, Download, FolderOpen, LoaderCircle, Music2, Pencil, Play, RefreshCcw, X } from 'lucide-react';
 import './SonaraRemixProLibrary.css';
+import type { RemixEditorTrack } from './SonaraRemixProEditor';
 
 type ArchivedRemix = {
   jobId: string;
@@ -29,7 +30,7 @@ function safeName(name: string) {
   return (name.normalize('NFKD').replace(/[^a-zA-Z0-9 _-]+/g,'').trim().replace(/\s+/g,'-') || 'SONARA-REMIX') + '.wav';
 }
 
-export default function SonaraRemixProLibrary({refreshToken=0}:{refreshToken?:number}) {
+export default function SonaraRemixProLibrary({refreshToken=0,onEdit}:{refreshToken?:number;onEdit?:(track:RemixEditorTrack)=>void}) {
   const [items,setItems] = useState<ArchivedRemix[]>([]);
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState('');
@@ -163,6 +164,10 @@ export default function SonaraRemixProLibrary({refreshToken=0}:{refreshToken?:nu
                     {selected===entry.jobId?<Check size={14}/>:<Play size={14}/>}
                     {selected===entry.jobId?'Nel player':'Usa nel player'}
                   </button>
+                  {entry.audioUrl&&onEdit&&<button type="button" data-testid={"sonara-pro-edit-"+entry.jobId}
+                    onClick={()=>onEdit({jobId:entry.jobId,title:entry.title,audioUrl:entry.audioUrl!})}>
+                    <Pencil size={14}/> Modifica nella timeline
+                  </button>}
                   {entry.audioUrl&&<a href={entry.audioUrl} download={safeName(entry.title)}>
                     <Download size={14}/> WAV
                   </a>}
