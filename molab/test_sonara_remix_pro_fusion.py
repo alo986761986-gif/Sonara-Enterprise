@@ -42,6 +42,61 @@ class TwoSourceFusionTests(unittest.TestCase):
             self.assertLess(np.max(np.abs(generated_b[:, 0]-b[:sr, 0])), 0.001)
             self.assertGreater(np.max(np.abs(generated_a[:, 0]-generated_b[:, 0])), .1)
 
+    def test_explosive_dual_hook_guide_uses_both_sources_without_output_mashup(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            sr = 22050
+            duration = 15
+            t = np.arange(sr * duration, dtype=np.float32) / sr
+            a = .16 * np.sin(2 * np.pi * 220 * t)
+            b = .14 * np.sin(2 * np.pi * 440 * t)
+            voice_a = .12 * np.sin(2 * np.pi * 280 * t)
+            voice_b = .11 * np.sin(2 * np.pi * 500 * t)
+            files = {}
+            for name, audio in (("a",a), ("b",b), ("va",voice_a), ("vb",voice_b)):
+                path = root / (name + ".wav")
+                sf.write(str(path), audio, sr, subtype="PCM_24")
+                files[name] = path
+            path = root / "private-guide.wav"
+            info = fusion.make_dual_hook_conditioning_guide(
+                files["a"], files["b"], path, 30,
+                vocals_a=files["va"], vocals_b=files["vb"])
+            self.assertTrue(info["containsSourceA"])
+            self.assertTrue(info["containsSourceB"])
+            self.assertFalse(info["publishableAudio"])
+            self.assertEqual(info["sections"],["a","b","a"])
+            self.assertEqual(info["selection"],"measured-stem-energy-not-chorus-transcription")
+            with sf.SoundFile(str(path)) as result:
+                self.assertEqual(result.frames, sr * 30)
+                self.assertEqual(result.channels,2)
+                a_section = result.read(sr*4, dtype="float32", always_2d=True)
+                result.seek(sr*12)
+                b_section = result.read(sr*4, dtype="float32", always_2d=True)
+            self.assertTrue(np.isfinite(a_section).all())
+            self.assertTrue(np.isfinite(b_section).all())
+            self.assertGreater(np.std(a_section),.01)
+            self.assertGreater(np.std(b_section),.01)
+            # At least two different original pitches survive as guidance.
+            def dominant(chunk):
+                data=np.fft.rfft(chunk[:,0])
+                hz=np.fft.rfftfreq(len(chunk),1/sr)
+                return float(hz[np.argmax(np.abs(data))])
+            self.assertAlmostEqual(dominant(a_section),220,delta=3)
+            self.assertAlmostEqual(dominant(b_section),440,delta=3)
+            with self.assertRaises(fusion.FusionPlanError):
+                fusion.make_dual_hook_conditioning_guide(files["a"],files["b"],path,30)
+
+    def test_explosive_prompt_contains_vocal_and_hook_instructions(self):
+        p=fusion.build_fusion_prompt(
+            "Fuse two different genres into one new original composition",
+            {"tempoBpm":125,"tempoConfidence":.8,"key":"C minor","keyConfidence":.9},
+            {"tempoBpm":98,"tempoConfidence":.8,"key":"G minor","keyConfidence":.9},
+            requested_seconds=180,explosive=True)
+        self.assertIn("DUAL-HOOK FORM",p)
+        self.assertIn("backing choir harmonies",p)
+        self.assertIn("No audible cut",p)
+        self.assertIn("ONE mandatory",p)
+
     def test_prompt_is_composition_not_overlay(self):
         p = fusion.build_fusion_prompt(
             "Mix the melodic colors of both sources into a new track",
