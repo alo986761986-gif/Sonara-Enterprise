@@ -32,6 +32,7 @@ def source_functions():
         "lru_cache":functools.lru_cache,"ProAgentError":ProAgentError,
         "SourceTransferError":ProAgentError,
         "MAX_WAV_BYTES":512*1024*1024,
+        "make_dual_hook_conditioning_guide":lambda *args,**kwargs:None,
         "SOURCE_FORMATS":frozenset(("wav","mp3","flac","m4a","mp4","mov","m4v",
             "aac","ogg","oga","opus","aif","aiff","aifc",
             "webm","wma","caf","amr","ac3")),
