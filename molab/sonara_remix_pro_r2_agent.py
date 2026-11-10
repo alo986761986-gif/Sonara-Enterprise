@@ -140,6 +140,42 @@ def request(method, path, data=None, lease=None, *, binary=False, timeout=120):
         raise ProAgentError("SONARA Remix Pro gateway HTTP " + str(exc.code)) from exc
 
 
+def confirm_gateway_completion(job, lease, payload, attempts=5):
+    """Verify final R2 commitment without recreating a job or hiding errors.
+
+    A response can be lost after the server commits the WAV. On a temporary
+    network error, query the lease-bound private receipt before retrying.
+    The endpoint never returns customer data, tokens or audio content.
+    """
+    endpoint = f"/api/sonara-relay/pro-job/{job}"
+    last_error = None
+    for index in range(attempts):
+        try:
+            reply = request("POST", endpoint + "/complete",
+                            payload, lease, timeout=50)
+            if reply.get("ok") is True:
+                return
+            last_error = ProAgentError("Completion was not acknowledged")
+        except (ProAgentError, urllib.error.URLError, TimeoutError, OSError) as exc:
+            last_error = exc
+        try:
+            receipt = request("GET", endpoint + "/receipt", lease=lease, timeout=20)
+            if receipt.get("ok") is True and receipt.get("completed") is True:
+                return
+            # An active, unchanged lease is safe for another attempt. Never
+            # retry an expired or stolen lease and never create another job.
+            if receipt.get("ok") is not True or receipt.get("completed") is not False:
+                raise ProAgentError("Completion receipt is not safely retryable")
+        except (ProAgentError, urllib.error.URLError, TimeoutError, OSError):
+            # Unknown receipt status must not be treated as confirmed.
+            # A bounded retry may still recover from a transient outage.
+            if index + 1 >= attempts:
+                break
+        if index + 1 < attempts:
+            time.sleep(min(2 * (index + 1), 6))
+    raise ProAgentError("Gateway completion and private receipt not confirmed") from last_error
+
+
 FAILURE_STEPS = frozenset((
     "download_a", "download_b", "normalize_a", "normalize_b",
     "analysis", "demucs_a", "demucs_b", "fusion_plan",
@@ -695,12 +731,12 @@ def run_job(item, auth_mode):
             upload(job,lease,"audio",master_file)
             renewal.verify()
             failure_step = "completion"
-            response = request("POST",f"/api/sonara-relay/pro-job/{job}/complete",
-                               {"actualDurationSeconds": float(audit["durationSeconds"]),
-                                "singleTrack": True, "twoSources": True,
-                                **(v5_metadata if params.get("v5") is True else {})},lease)
-            if response.get("ok") is not True:
-                raise ProAgentError("Gateway completion not acknowledged")
+            confirm_gateway_completion(
+                job, lease,
+                {"actualDurationSeconds": float(audit["durationSeconds"]),
+                 "singleTrack": True, "twoSources": True,
+                 **(v5_metadata if params.get("v5") is True else {})}
+            )
         status("waiting_for_authorized_job", lastCompleted=job, lastFailureCode=None)
         print("SONARA PRO job completed:", job, flush=True)
     except Exception as error:
