@@ -17,6 +17,9 @@ on:
       - 'cloudflare/sonara-remix-pro-duration-edge.mjs'
       - 'cloudflare/sonara-remix-pro-duration-edge.test.mjs'
       - 'src/components/remix/SonaraRemixProPanel.tsx'
+      - 'src/components/remix/SonaraRemixProLibrary.tsx'
+      - 'src/components/remix/SonaraRemixProLibrary.css'
+      - 'src/components/remix/SonaraRemixProStudio.css'
       - 'src/components/remix/SonaraRemixSection.tsx'
       - 'molab/sonara_remix_pro_r2_agent.py'
       - 'molab/sonara_remix_pro_v5.py'
@@ -104,6 +107,8 @@ jobs:
           NODE
       - name: Pro billing and source ownership tests
         run: node --test cloudflare/sonara-remix-pro-r2.test.mjs
+      - name: Private Remix history, new-job settlement and account safety
+        run: node --test cloudflare/sonara-remix-pro-usage.test.mjs
       - name: V6 unified primary interface and single-track preservation
         run: node --test cloudflare/sonara-remix-v6-unified-ui.test.mjs
       - name: V6 bounded DNA controls and safe V5 fallback
