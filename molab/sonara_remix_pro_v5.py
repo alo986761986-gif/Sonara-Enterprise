@@ -290,7 +290,8 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
     """
     import numpy as np
     import soundfile as sf
-    from sonara_remix_pro_quality import audit_wav, release_gate
+    from sonara_remix_pro_quality import (audit_wav, release_gate,
+                                          recover_peak_safe_master)
 
     controls = v5_controls(params, int(params["durationSec"]))
     v6 = None
@@ -366,9 +367,33 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
                                expected_seconds=controls["durationSec"],
                                require_b_motif=True)
         if not verdict["acceptedTechnical"]:
-            # Only fixed codes from our measured QA policy are retained.
-            rejection_codes.extend(str(x) for x in verdict["failures"])
-            continue
+            # Exactly one safe offline peak-only remaster attempt, within this
+            # authorized job, if all other technical checks already passed.
+            # No fake instrument/vocal repair or additional GPU generation.
+            failures = set(verdict["failures"])
+            recoverable = {"master-true-peak-too-high",
+                           "master-sample-clipping", "mastering-safety"}
+            if failures and failures <= recoverable:
+                recovered_path = Path(folder) / ("v5-recovered-%d.wav" % index)
+                lease_check("quality_gate")
+                try:
+                    recover_peak_safe_master(
+                        generated, recovered_path,
+                        lufs=-14.0 if v6 is None or v6.master == "streaming"
+                        else -11.0)
+                    retry = release_gate(
+                        guide, generated, recovered_path,
+                        expected_seconds=controls["durationSec"],
+                        require_b_motif=True)
+                    if retry["acceptedTechnical"]:
+                        mastered_path = recovered_path
+                        verdict = retry
+                except (OSError, ValueError, RuntimeError):
+                    pass
+            if not verdict["acceptedTechnical"]:
+                # Only fixed codes from measured QC policy are retained.
+                rejection_codes.extend(str(x) for x in verdict["failures"])
+                continue
         report = audit_wav(mastered_path)
         if report["integratedLufs"] is None or report["approxTruePeakDbTp"] > -0.8:
             rejection_codes.append("mastering-safety")
