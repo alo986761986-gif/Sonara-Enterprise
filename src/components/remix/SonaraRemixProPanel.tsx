@@ -41,6 +41,8 @@ export default function SonaraRemixProPanel() {
     try { const value=Number(sessionStorage.getItem(DURATION_KEY)); return validDuration(value)?value:120; }
     catch { return 120; }
   });
+  const candidateLimit=durationMode==='auto'?2:duration<=90?3:duration<=180?2:1;
+  const effectiveCandidates=Math.min(candidateCount,candidateLimit);
   const [bassFrom,setBassFrom]=useState<'a'|'b'>('a');
   const [bpmA,setBpmA]=useState('');
   const [bpmB,setBpmB]=useState('');
@@ -222,7 +224,7 @@ export default function SonaraRemixProPanel() {
     const requestedDuration=v5Available&&durationMode==='auto'
       ? (3 + (crypto.getRandomValues(new Uint32Array(1))[0] % 4))*30
       : duration;
-    const safeCandidateCount=Math.min(candidateCount,requestedDuration<=90?3:requestedDuration<=180?2:1);
+    const safeCandidateCount=Math.min(effectiveCandidates,requestedDuration<=90?3:requestedDuration<=180?2:1);
     if(!validDuration(requestedDuration)){setError('Scegli una durata valida fra 0:30 e 8:00.');return;}
     setSubmittedDuration(requestedDuration);
     setSubmitting(true);setError('');setInfo('Caricamento privato del brano A…');
@@ -405,10 +407,10 @@ export default function SonaraRemixProPanel() {
           <input type="range" min={20} max={80} step={5} value={bInfluence} disabled={!v5Available} aria-label="Bilanciamento creativo brano A e B" onChange={e=>setBInfluence(Number(e.target.value))}/>
         </label>
         <label style={{display:'grid',gap:6}}>Candidati musicali
-          <select value={candidateCount} disabled={!v5Available} onChange={e=>setCandidateCount(Number(e.target.value))} style={{padding:9,borderRadius:9,background:'#262032',color:'#fff',border:'1px solid #4e4164'}}>
-            <option value={1}>1 candidato</option><option value={2}>2 candidati</option><option value={3}>3 candidati</option>
+          <select value={effectiveCandidates} disabled={!v5Available} onChange={e=>setCandidateCount(Number(e.target.value))} style={{padding:9,borderRadius:9,background:'#262032',color:'#fff',border:'1px solid #4e4164'}}>
+            <option value={1}>1 candidato</option>{candidateLimit>=2&&<option value={2}>2 candidati</option>}{candidateLimit>=3&&<option value={3}>3 candidati</option>}
           </select>
-          <small style={{color:'#a99db9'}}>Per durate oltre 3 minuti il sistema usa 1 candidato; fra 2 e 3 minuti fino a 2. Le versioni vengono valutate tecnicamente, non per gusto musicale.</small>
+          <small style={{color:'#a99db9'}}>Candidati effettivi: {effectiveCandidates}. Per remix oltre 3 minuti viene generato un solo candidato; fino a 3 minuti sono disponibili 2, fino a 1:30 massimo 3. La durata automatica adatta il numero all'avvio.</small>
         </label>
       </section>
       <label className="sonara-v6-field">Titolo del nuovo remix
