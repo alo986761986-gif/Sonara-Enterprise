@@ -167,6 +167,9 @@ def activate():
             if workers[0] in live_workers():
                 raise Blocked("Old worker did not exit cleanly; no files modified")
             stopped = True
+        # Mark installation active before the first write: partial writes
+        # must also roll back, never leave a mixed V5/V6 Python environment.
+        installed = True
         for name, raw in payloads.items():
             path = ROOT / name
             with tempfile.NamedTemporaryFile(dir=ROOT, prefix=".sonara-v6-", delete=False) as handle:
@@ -174,7 +177,6 @@ def activate():
                 handle.write(raw)
             temp.chmod(0o600)
             temp.replace(path)
-        installed = True
         check = subprocess.run([str(PYTHON), str(AGENT), "--auth-mode", mode, "--preflight"],
                                cwd=ROOT, text=True, capture_output=True, timeout=150)
         if check.returncode or "PRO_AGENT_AUTHENTICATED=True" not in check.stdout or "PRO_V6_AVAILABLE=True" not in check.stdout:
