@@ -112,7 +112,9 @@ async function authorizeNativeMusicGeneration(request, env) {
       headers: { 'content-type': 'application/json; charset=UTF-8', 'cache-control': 'no-store' }
     });
   }
-  if (!statusResponse.ok) return statusResponse;
+  if (!statusResponse.ok) return readableGenerationFailure(
+    statusResponse, 'Verifica dell\'account SONARA non riuscita. Riprova dopo aver effettuato l\'accesso.'
+  );
 
   const payload = await statusResponse.clone().json().catch(() => ({}));
   const billing = payload?.billing || null;
@@ -160,6 +162,34 @@ function nativeGenerationError(code, message, status) {
     status,
     headers: { 'content-type': 'application/json; charset=UTF-8', 'cache-control': 'no-store' }
   });
+}
+
+// The native account/quota service sometimes returns {code, message} instead
+// of {error:{code,message}}. Normalize those denials for existing Remix Pro UI:
+// otherwise it falsely shows "Job Remix Pro non autorizzato" for every failure.
+// Preserve Set-Cookie, especially the server's expired-session clearing cookie.
+// Never bypass authentication, active-job locking, billing, or GPU permissions.
+async function readableGenerationFailure(response, fallback) {
+  const payload = await response.clone().json().catch(() => ({}));
+  const body = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
+  const detail = body.error && typeof body.error === 'object' ? body.error : {};
+  const code = String(detail.code || body.code || 'GENERATION_REQUEST_FAILED').slice(0, 64);
+  const messages = {
+    AUTH_REQUIRED: 'Sessione SONARA non valida o scaduta. Accedi nuovamente prima di creare un Remix Pro.',
+    AUTH_TOKEN_INVALID: 'Sessione SONARA non valida o scaduta. Accedi nuovamente.',
+    PRO_JOB_ALREADY_ACTIVE: 'Hai gia un job Remix Pro in corso. Controlla il job precedente e attendi che termini prima di crearne un altro.',
+    PRO_RESERVATION_CONFLICT: 'Esiste una prenotazione Remix Pro ancora aperta. Verifica il job precedente prima di riprovare.',
+    PRO_USAGE_UNAUTHORIZED: 'La verifica privata del server Remix Pro e fallita. Controlla il collegamento Cloudflare; non disattivare la protezione della GPU.'
+  };
+  const explicit = [
+    detail.message,
+    body.message,
+    typeof body.error === 'string' ? body.error : null
+  ].find(value => typeof value === 'string' && value.trim() && value.length <= 250);
+  const result = nativeGenerationError(code, messages[code] || explicit || fallback, response.status);
+  const setCookie = response.headers.get('set-cookie');
+  if (setCookie) result.headers.set('set-cookie', setCookie);
+  return result;
 }
 
 async function relayAgentAvailable(env) {
@@ -281,7 +311,9 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
       // private job reservation still prevents duplicate or cross-user jobs.
       proJobId = 'srpro_' + crypto.randomUUID();
       const reservation = await mutateRemixProUsage(request, env, 'reserve', proJobId, seconds, uid);
-      if (!reservation.ok) return reservation;
+      if (!reservation.ok) return readableGenerationFailure(
+        reservation, 'Impossibile registrare il job Remix Pro. Controlla lo stato del job precedente.'
+      );
       payload.jobId = proJobId;
     }
     const target = new URL(isPro ? '/api/sonara-relay/pro-enqueue' : '/api/sonara-relay/enqueue', request.url);
