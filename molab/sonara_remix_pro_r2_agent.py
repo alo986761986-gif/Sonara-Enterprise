@@ -254,28 +254,44 @@ def multiformat_ready():
 
 
 def probe_audio_source(path):
-    """Safely inspect one decodable audio stream; no external protocols or media logs."""
+    """Inspect the first audio track, ignoring video, artwork and subtitles.
+
+    FFmpeg normalization maps 0:a:0 explicitly and discards all non-audio
+    streams. Keep local-file-only probing and the existing duration/codec
+    constraints. Multiple audio tracks are allowed; the first is selected.
+    """
     if not multiformat_ready():
         raise SourceTransferError("SOURCE_DECODER_UNAVAILABLE")
     try:
         probe = subprocess.run(
             ["ffprobe", "-v", "error", "-protocol_whitelist", "file",
-             "-show_entries", "stream=codec_type,channels,sample_rate:format=duration",
+             "-show_entries",
+             "stream=codec_type,channels,sample_rate,duration:format=duration",
              "-of", "json", str(path)],
             check=True, capture_output=True, text=True, timeout=45
         )
         metadata = json.loads(probe.stdout)
         streams = metadata.get("streams") or []
-        if len(streams) != 1 or streams[0].get("codec_type") != "audio":
+        audio_streams = [stream for stream in streams
+                         if stream.get("codec_type") == "audio"]
+        if not audio_streams:
             raise SourceTransferError("SOURCE_STREAM_UNSUPPORTED")
-        rate = int(streams[0].get("sample_rate") or 0)
-        channels = int(streams[0].get("channels") or 0)
-        duration = float((metadata.get("format") or {}).get("duration") or 0)
+        selected = audio_streams[0]
+        rate = int(selected.get("sample_rate") or 0)
+        channels = int(selected.get("channels") or 0)
+        # Video duration can differ from the music. Prefer the selected
+        # audio stream's real length, falling back to container metadata.
+        try:
+            duration = float(selected.get("duration"))
+        except (TypeError, ValueError):
+            duration = 0.0
+        if duration <= 0:
+            duration = float((metadata.get("format") or {}).get("duration") or 0)
     except SourceTransferError:
         raise
     except (ValueError, KeyError, TypeError, subprocess.SubprocessError, OSError) as exc:
         raise SourceTransferError("SOURCE_UNREADABLE_AUDIO") from exc
-    if duration < 10:
+    if not duration >= 10:
         raise SourceTransferError("SOURCE_DURATION_TOO_SHORT")
     if duration > 900:
         raise SourceTransferError("SOURCE_DURATION_TOO_LONG")
