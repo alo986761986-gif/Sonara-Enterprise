@@ -32,6 +32,8 @@ on:
       - 'molab/sonara_remix_pro_v6.py'
       - 'molab/test_sonara_remix_pro_v6.py'
       - 'molab/sonara_remix_pro_gpu_v6_handoff.py'
+      - 'molab/sonara_remix_pro_v6_fresh_recovery.py'
+      - 'molab/test_sonara_remix_pro_v6_fresh_recovery.py'
       - 'molab/test_sonara_remix_pro_gpu_v6_handoff.py'
       - 'molab/test_sonara_remix_pro_completion_recovery.py'
       - 'molab/test_sonara_remix_pro_v5.py'
@@ -123,6 +125,10 @@ jobs:
         run: python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_v6.py' -v
       - name: V6 GPU agent syntax (no GPU job generated)
         run: python3 -m py_compile molab/sonara_remix_pro_v6.py molab/sonara_remix_pro_v5.py molab/sonara_remix_pro_r2_agent.py molab/sonara_remix_pro_gpu_v6_handoff.py
+      - name: Fresh isolated V6 MoLab restore safety (read-only tests)
+        run: |
+          python3 -m py_compile molab/sonara_remix_pro_v6_fresh_recovery.py
+          python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_v6_fresh_recovery.py' -v
       - name: V6 pinned and idle GPU handoff regression (no remote action)
         run: python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_gpu_v6_handoff.py' -v
       - name: V6 completion acknowledgement and receipt recovery tests
