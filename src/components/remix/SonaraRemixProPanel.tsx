@@ -4,7 +4,8 @@ import { AudioWaveform, Check, Download, LoaderCircle, ShieldCheck, UploadCloud 
 type ProJob = {jobId?: string;status?: string;stage?: string;progress?: number;audioUrl?: string;
   stems?: {role:string;url:string}[];error?: string;
   requestedDurationSeconds?:number;actualDurationSeconds?:number;
-  v5Result?: {candidatesGenerated:number;candidatesAccepted:number;technicalScore:number;artisticListeningRequired:boolean};};
+  v5Result?: {candidatesGenerated:number;candidatesAccepted:number;technicalScore:number;artisticListeningRequired:boolean};
+  v6Result?: {selectionScore:number;spectralDiversityProxy:number;continuityProxy:number;masterProfile:string;artisticListeningRequired:boolean;isArtisticJudgment:false};};
 const isJob = (id:string) => /^srpro_[0-9a-f-]{36}$/.test(id);
 const sleep=(ms:number)=>new Promise(resolve=>window.setTimeout(resolve,ms));
 const durationLabel=(seconds:number)=>`${Math.floor(seconds/60)}:${String(Math.round(seconds%60)).padStart(2,'0')}`;
@@ -19,6 +20,11 @@ const audioSuffix=(name:string)=>name.match(AUDIO_FORMATS)?.[1]?.toLowerCase()||
 export default function SonaraRemixProPanel() {
   const [available,setAvailable]=useState<boolean|null>(null);
   const [v5Available,setV5Available]=useState(false);
+  const [v6Available,setV6Available]=useState(false);
+  const [v6Enabled,setV6Enabled]=useState(true);
+  const [dnaMode,setDnaMode]=useState<'balanced'|'experimental'|'wild'>('balanced');
+  const [masterProfile,setMasterProfile]=useState<'streaming'|'club'>('streaming');
+  const [dnaLevels,setDnaLevels]=useState({melody:65,harmony:60,groove:65,timbre:55,humanize:60});
   const [genre,setGenre]=useState('auto');
   const [bInfluence,setBInfluence]=useState(50);
   const [candidateCount,setCandidateCount]=useState(2);
@@ -68,7 +74,7 @@ export default function SonaraRemixProPanel() {
       setInfo('Recupero un job precedente. La sua durata potrebbe essere diversa dalla nuova selezione.');}
     fetch('/api/sonara-relay/pro-capabilities',{cache:'no-store',credentials:'include'})
       .then(r=>r.ok?r.json():{available:false})
-      .then(x=>{if(mounted.current){setAvailable(x.available===true);setMultiformatAvailable(x.multiformatAvailable===true);setV5Available(x.v5Available===true);}})
+      .then(x=>{if(mounted.current){setAvailable(x.available===true);setMultiformatAvailable(x.multiformatAvailable===true);setV5Available(x.v5Available===true);setV6Available(x.v6Available===true);}})
       .catch(()=>{if(mounted.current)setAvailable(false);});
     return()=>{mounted.current=false;};
   },[]);
@@ -223,7 +229,11 @@ export default function SonaraRemixProPanel() {
             sonaraRemixProGenre:genre,
             sonaraRemixProBInfluence:bInfluence,
             sonaraRemixProCandidates:safeCandidateCount,
-            sonaraRemixProDurationMode:durationMode
+            sonaraRemixProDurationMode:durationMode,
+            sonaraRemixProV6:v6Available&&v6Enabled,
+            sonaraRemixProV6Controls:{
+              mode:dnaMode, master:masterProfile,...dnaLevels
+            }
           }:{}),
           ...(bpmA?{sonaraRemixProBpmA:Number(bpmA)}:{}),
           ...(bpmB?{sonaraRemixProBpmB:Number(bpmB)}:{}),
@@ -335,6 +345,36 @@ export default function SonaraRemixProPanel() {
       {!multiformatAvailable&&<small role="status">Decodifica multiformato non ancora pronta sull'agente MoLab. I WAV continuano a funzionare.</small>}
       <section style={{border:'1px solid #3f3354',borderRadius:15,padding:16,display:'grid',gap:12,background:'rgba(255,255,255,.025)'}}>
         <strong style={{fontSize:12,letterSpacing:'.1em',color:'#d6c2f0'}}>CREATIVE FUSION CONTROLS</strong>
+        {v5Available&&<section data-testid="sonara-v6-fusion-controls" style={{border:'1px solid #634b85',borderRadius:12,padding:15,display:'grid',gap:11,background:'linear-gradient(145deg,#21182f,#191725)'}}>
+          <strong style={{color:'#e1c9ff',fontSize:13,letterSpacing:'.08em'}}>SONARA CREATIVE DNA FUSION V6</strong>
+          <small style={{color:'#beb0d5'}}>{v6Available?'Motore V6 GPU disponibile: analisi DNA, composizione differenziata, selezione misurabile e mastering dedicato.':'Anteprima Creative DNA su V5: le indicazioni compositive sono reali, ma analisi e selezione V6 richiedono un aggiornamento del worker MoLab.'}</small>
+          {v6Available&&<label style={{display:'flex',gap:9,alignItems:'center'}}>
+            <input type="checkbox" checked={v6Enabled} onChange={e=>setV6Enabled(e.target.checked)} /> Usa il nuovo motore V6 (disattiva per V5)
+          </label>}
+          <label style={{display:'grid',gap:5}}>Modalità creativa
+            <select value={dnaMode} onChange={e=>setDnaMode(e.target.value as 'balanced'|'experimental'|'wild')} style={{background:'#272036',color:'#fff',border:'1px solid #6e5488',borderRadius:8,padding:10}}>
+              <option value="balanced">Balanced · Fusione coerente</option>
+              <option value="experimental">Experimental · Nuove interpretazioni</option>
+              <option value="wild">Wild · Trasformazione audace</option>
+            </select>
+          </label>
+          {([
+            ['melody','Melodia A'],['harmony','Armonia A'],['groove','Groove B'],
+            ['timbre','Timbri B'],['humanize','Naturalezza degli strumenti']
+          ] as const).map(([field,label])=><label key={field} style={{display:'grid',gap:5}}>
+            <span style={{display:'flex',justifyContent:'space-between',gap:8}}><span>{label}</span><strong>{dnaLevels[field]}%</strong></span>
+            <input aria-label={'DNA '+label} type="range" min={0} max={100} step={5} value={dnaLevels[field]}
+              onChange={e=>setDnaLevels(previous=>({...previous,[field]:Number(e.target.value)}))}/>
+          </label>)}
+          <label style={{display:'grid',gap:5}}>Mastering
+            <select value={masterProfile} onChange={e=>setMasterProfile(e.target.value==='club'?'club':'streaming')}
+              style={{background:'#272036',color:'#fff',border:'1px solid #6e5488',borderRadius:8,padding:10}}>
+              <option value="streaming">Streaming · Master dinamico</option>
+              <option value="club">Club · Impatto e bassi controllati</option>
+            </select>
+            {!v6Available&&<small style={{color:'#d5b38a'}}>Il profilo mastering è una direzione musicale nell'anteprima V5; il DSP V6 richiede un worker aggiornato.</small>}
+          </label>
+        </section>}
         <label style={{display:'grid',gap:6}}>Genere musicale
           <select value={genre} disabled={!v5Available} onChange={e=>setGenre(e.target.value)} style={{padding:10,borderRadius:9,background:'#262032',color:'#fff',border:'1px solid #4e4164'}}>
             <option value="auto">Automatico</option><option value="house">House</option>
@@ -391,6 +431,7 @@ export default function SonaraRemixProPanel() {
         <small data-testid="sonara-remix-pro-job-duration">Durata del JOB {job.jobId?.slice(0,12)}: {Number(job.requestedDurationSeconds)>0?durationLabel(Number(job.requestedDurationSeconds)):'da recuperare dal server'}{Number(job.actualDurationSeconds)>0?' · WAV verificato: '+durationLabel(Number(job.actualDurationSeconds)):''}. {Number(job.requestedDurationSeconds)>0&&Number(job.requestedDurationSeconds)!==duration?'Questo è un job precedente: la nuova selezione '+durationLabel(duration)+' NON lo modifica.':''}</small>
         <progress value={Math.max(0,Math.min(100,job.progress||0))} max={100} style={{width:'100%'}} />
         {job.status==='FAILED'&&<small role="alert">{job.error||'Job non riuscito.'}</small>}
+        {job.v6Result&&<small role="status">Creative DNA V6: profilo {job.v6Result.masterProfile}; indice tecnico composito {job.v6Result.selectionScore}/100, differenza spettrale misurata {job.v6Result.spectralDiversityProxy}/100. Sono indicatori tecnici, non giudizi artistici. Ascolta prima di pubblicare.</small>}
         {job.v5Result&&<small role="status">V5: {job.v5Result.candidatesAccepted} candidati tecnicamente validi su {job.v5Result.candidatesGenerated}. Indicatore tecnico: {job.v5Result.technicalScore}/100 (non misura la qualità artistica). Ascolto consigliato prima della pubblicazione.</small>}
         {output&&<>
           <audio src={output} controls preload="metadata" style={{width:'100%'}} />
