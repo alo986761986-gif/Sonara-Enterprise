@@ -135,9 +135,11 @@ def compose_direction(controls, dna, candidate_index, candidate_count):
         evidence.append("B measured pulse: " + str(dna["b"]["tempoBpm"]) + " BPM (not downbeat-verified).")
     if dna.get("grooveOnsetsPerSecond") is not None:
         evidence.append("Measured B drum onset proxy: " + str(dna["grooveOnsetsPerSecond"]) + "/second; not a verified swing metric.")
+    theme = ("Stable pulse: reinterpret A melody and B hook as alternating melodic or vocal calls over a single invariant kick/bass groove."
+             if controls.mode == "explosive" else themes[candidate_index % len(themes)])
     return " ".join([
         "SONARA CREATIVE DNA V6: create ONE original cohesive musical performance, never overlay, edit together, or medley source audio.",
-        mode, themes[candidate_index % len(themes)],
+        mode, theme,
         "A melodic phrasing influence " + intensity(controls.melody) + ".",
         "A harmonic motion influence " + intensity(controls.harmony) + "; use only one stable compatible key.",
         "B groove language influence " + intensity(controls.groove) + ".",
