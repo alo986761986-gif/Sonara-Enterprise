@@ -21,6 +21,14 @@ test('preview is bounded and specifically forbids source overlays', () => {
   assert.match(text,/never a source overlay or medley/);
   assert.ok(text.length<=1350);
 });
+test('explosive mode requires no extra unsafe fields and retains source no-overlay policy',()=>{
+  const controls=parseV6Controls({mode:'explosive',master:'club',groove:85});
+  assert.equal(controls.mode,'explosive');
+  const brief=v6PreviewBrief(controls);
+  assert.match(brief,/Explosive A\\+B/);
+  assert.match(brief,/Never overlay source recordings/);
+  assert.ok(brief.length<=1350);
+});
 test('legacy jobs do not require V6 controls', () => {
   assert.equal(parseV6Controls(undefined),null);
   assert.equal(v6PreviewBrief(null),'');
