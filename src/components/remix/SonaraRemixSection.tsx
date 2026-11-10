@@ -166,7 +166,9 @@ export default function SonaraRemixSection() {
   const [open, setOpen] = useState(false);
   const [libraryTracks, setLibraryTracks] = useState<SourceTrack[]>([]);
   const [source, setSource] = useState<SourceTrack | null>(readSelectedTrack);
-  const [sourceTab, setSourceTab] = useState<'library' | 'upload' | 'multitrack' | 'pro'>('library');
+  // Creative DNA Fusion V6 is the single entry point; legacy remix is an
+  // explicit secondary mode, never the opening screen or default workflow.
+  const [sourceTab, setSourceTab] = useState<'library' | 'upload' | 'multitrack' | 'pro'>('pro');
   const [remixR2Ready, setRemixR2Ready] = useState<boolean | null>(null);
   const [duration, setDuration] = useState(0);
   const [segmentStart, setSegmentStart] = useState(0);
@@ -665,28 +667,49 @@ export default function SonaraRemixSection() {
   if (!open) return null;
 
   return (
-    <div className="sonara-remix-shell" role="dialog" aria-modal="true" aria-label="SONARA Remix">
+    <div className="sonara-remix-shell" role="dialog" aria-modal="true" aria-label="SONARA Remix Pro V6" data-sonara-remix-unified-v6="true">
       <header className="sonara-remix-topbar">
         <div className="sonara-remix-brand">
           <span className="sonara-remix-logo"><AudioWaveform /></span>
-          <div><strong>REMIX</strong><small>SONARA AUDIO-TO-AUDIO</small></div>
+          <div><strong>REMIX PRO V6</strong><small>SONARA · CREATIVE DNA FUSION</small></div>
         </div>
         <div className="sonara-remix-top-status"><span>XL TURBO</span><i />REAL AUDIO</div>
         <button type="button" className="sonara-remix-close" onClick={() => setOpen(false)} aria-label="Chiudi Remix"><X /></button>
       </header>
 
-      <main className="sonara-remix-main">
-        <section className="sonara-remix-source-panel">
-          <div className="sonara-remix-section-head">
-            <div><span>01</span><div><strong>Source</strong><small>Scegli il brano da reimmaginare</small></div></div>
-            {source && <em><Check />READY</em>}
-          </div>
+      <nav className="sonara-remix-mode-switch" aria-label="Scegli la modalità Remix">
+        <button type="button" data-testid="sonara-remix-mode-v6"
+          data-active={sourceTab === 'pro'} aria-pressed={sourceTab === 'pro'}
+          onClick={() => setSourceTab('pro')}>
+          <span className="sonara-remix-mode-icon"><Sparkles /></span>
+          <span className="sonara-remix-mode-copy">
+            <strong>CREATIVE DNA FUSION</strong>
+            <small>V6 · Due brani A+B, una composizione originale</small>
+          </span>
+          <span className="sonara-remix-mode-primary">PRINCIPALE</span>
+        </button>
+        <button type="button" data-testid="sonara-remix-mode-single"
+          data-active={sourceTab !== 'pro'} aria-pressed={sourceTab !== 'pro'}
+          onClick={() => setSourceTab(current => current === 'pro' ? 'library' : current)}>
+          <span className="sonara-remix-mode-icon"><Music2 /></span>
+          <span className="sonara-remix-mode-copy">
+            <strong>REMIX SINGOLO</strong>
+            <small>Un brano · Library, Upload e Multi-track</small>
+          </span>
+        </button>
+      </nav>
 
-          <div className="sonara-remix-source-tabs">
+      <main className={`sonara-remix-main${sourceTab === 'pro' ? ' is-pro' : ''}`}>
+        <section className="sonara-remix-source-panel">
+          {sourceTab !== 'pro' && <div className="sonara-remix-section-head">
+            <div><span>01</span><div><strong>Remix singolo</strong><small>Seleziona il brano da reimmaginare</small></div></div>
+            {source && <em><Check />READY</em>}
+          </div>}
+
+          <div className="sonara-remix-source-tabs" style={{display:sourceTab === 'pro' ? 'none' : undefined}} aria-hidden={sourceTab === 'pro'}>
             <button type="button" data-active={sourceTab === 'library'} onClick={() => setSourceTab('library')}><Library />Your songs</button>
             <button type="button" data-active={sourceTab === 'upload'} onClick={() => setSourceTab('upload')}><UploadCloud />Upload audio</button>
             <button type="button" data-active={sourceTab === 'multitrack'} onClick={() => setSourceTab('multitrack')}><AudioWaveform />Multi-track</button>
-            <button type="button" data-active={sourceTab === 'pro'} onClick={() => setSourceTab('pro')}><Sparkles />Remix Pro</button>
           </div>
 
           {sourceTab === 'library' ? (
@@ -852,7 +875,20 @@ export default function SonaraRemixSection() {
         .sonara-remix-brand{display:flex;align-items:center;gap:11px}.sonara-remix-logo{width:38px;height:38px;display:grid;place-items:center;border-radius:11px;background:linear-gradient(135deg,#7c3aed,#4f46e5 58%,#2563eb);box-shadow:0 8px 24px rgba(76,29,149,.28)}.sonara-remix-logo svg{width:19px}.sonara-remix-brand strong{display:block;font-size:14px;font-weight:950;letter-spacing:.04em}.sonara-remix-brand small{display:block;margin-top:2px;color:#63636d;font-size:8px;font-weight:850;letter-spacing:.2em}
         .sonara-remix-top-status{justify-self:center;display:flex;align-items:center;gap:8px;color:#777782;font-size:8px;font-weight:900;letter-spacing:.13em}.sonara-remix-top-status span{padding:6px 8px;border:1px solid rgba(167,139,250,.16);border-radius:7px;background:rgba(124,58,237,.07);color:#a78bfa}.sonara-remix-top-status i{width:5px;height:5px;border-radius:50%;background:#34d399;box-shadow:0 0 10px rgba(52,211,153,.55)}
         .sonara-remix-close{justify-self:end;width:36px;height:36px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.08);border-radius:10px;background:#111116;color:#9f9fa9;cursor:pointer}.sonara-remix-close:hover{color:#fff;border-color:rgba(255,255,255,.16)}.sonara-remix-close svg{width:16px}
-        .sonara-remix-main{width:min(1420px,calc(100% - 44px));margin:0 auto;padding:28px 0 76px;display:grid;grid-template-columns:minmax(0,1.18fr) minmax(380px,.82fr);gap:18px;align-items:start}
+        .sonara-remix-mode-switch{width:min(1160px,calc(100% - 44px));margin:22px auto 0;padding:5px;display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:5px;border:1px solid rgba(167,139,250,.14);border-radius:17px;background:rgba(20,18,29,.86);box-shadow:0 10px 35px rgba(0,0,0,.18)}
+        .sonara-remix-mode-switch>button{min-width:0;min-height:75px;padding:12px 16px;display:flex;align-items:center;gap:12px;text-align:left;border:1px solid transparent;border-radius:12px;background:transparent;color:#a29eaf;cursor:pointer;transition:background .15s,border-color .15s,color .15s}
+        .sonara-remix-mode-switch>button[data-active="true"]{border-color:rgba(167,139,250,.38);background:linear-gradient(110deg,rgba(104,63,172,.23),rgba(75,53,129,.1));color:#f5f2ff}
+        .sonara-remix-mode-switch>button:focus-visible{outline:2px solid #c4b5fd;outline-offset:2px}
+        .sonara-remix-mode-icon{display:grid;place-items:center;flex:0 0 38px;width:38px;height:38px;border:1px solid rgba(167,139,250,.16);border-radius:11px;background:rgba(134,90,204,.1);color:#bba0ee}
+        .sonara-remix-mode-icon svg{width:19px;height:19px}
+        .sonara-remix-mode-copy{min-width:0;display:grid;gap:5px}
+        .sonara-remix-mode-copy strong{font-size:12px;letter-spacing:.08em;font-weight:850}
+        .sonara-remix-mode-copy small{font-size:10px;color:#a099af;line-height:1.4}
+        .sonara-remix-mode-primary{margin-left:auto;flex-shrink:0;padding:5px 8px;border:1px solid rgba(167,139,250,.3);border-radius:99px;color:#d2b9ff;font-size:9px;font-weight:850;letter-spacing:.08em}
+        .sonara-remix-main{width:min(1420px,calc(100% - 44px));margin:0 auto;padding:18px 0 76px;display:grid;grid-template-columns:minmax(0,1.18fr) minmax(380px,.82fr);gap:18px;align-items:start}
+        .sonara-remix-main.is-pro{width:min(1160px,calc(100% - 44px));grid-template-columns:minmax(0,1fr)}
+        .sonara-remix-main.is-pro>.sonara-remix-source-panel{grid-column:1/-1;border:0;background:transparent;box-shadow:none;overflow:visible}
+        .sonara-remix-main.is-pro [data-sonara-remix-youtube-panel-v2],.sonara-remix-main.is-pro [data-sonara-remix-youtube-panel-host]{display:none!important}
         .sonara-remix-source-panel,.sonara-remix-controls-panel,.sonara-remix-results-panel{border:1px solid rgba(255,255,255,.065);border-radius:18px;background:rgba(15,15,20,.86);box-shadow:0 20px 60px rgba(0,0,0,.2);overflow:hidden}.sonara-remix-source-panel{grid-column:1}.sonara-remix-controls-panel{grid-column:2;grid-row:1/span 2}.sonara-remix-results-panel{grid-column:1}
         .sonara-remix-section-head{min-height:68px;padding:15px 17px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.055);background:rgba(255,255,255,.012)}.sonara-remix-section-head>div{display:flex;align-items:center;gap:11px}.sonara-remix-section-head>div>span{width:31px;height:31px;display:grid;place-items:center;border:1px solid rgba(167,139,250,.16);border-radius:9px;background:rgba(124,58,237,.07);color:#a78bfa;font-size:9px;font-weight:950}.sonara-remix-section-head strong{display:block;font-size:12px;font-weight:950}.sonara-remix-section-head small{display:block;margin-top:3px;color:#656570;font-size:9px}.sonara-remix-section-head>em{display:flex;align-items:center;gap:5px;color:#6ee7b7;font-size:8px;font-style:normal;font-weight:900;letter-spacing:.12em}.sonara-remix-section-head>em svg,.sonara-remix-section-head>svg{width:14px}.sonara-remix-section-head>svg{color:#7c3aed}
         .sonara-remix-source-tabs{display:flex;gap:5px;padding:14px 16px 0;flex-wrap:wrap}.sonara-remix-source-tabs button{display:flex;align-items:center;gap:7px;padding:9px 12px;border:1px solid transparent;border-radius:10px;background:transparent;color:#777782;font-size:9px;font-weight:900;cursor:pointer}.sonara-remix-source-tabs button svg{width:13px}.sonara-remix-source-tabs button[data-active="true"]{border-color:rgba(255,255,255,.075);background:#18181e;color:#fff}
@@ -869,7 +905,7 @@ export default function SonaraRemixSection() {
         .sonara-remix-result-count{min-width:28px;height:25px;display:grid;place-items:center;border:1px solid rgba(255,255,255,.06);border-radius:7px;background:#141419;color:#767681;font-size:8px;font-weight:900}.sonara-remix-results{padding:14px 16px 16px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.sonara-remix-results article{min-width:0;display:grid;grid-template-columns:72px minmax(0,1fr);border:1px solid rgba(255,255,255,.06);border-radius:13px;background:#0d0d11;overflow:hidden}.sonara-remix-result-art{position:relative;min-height:128px;display:grid;place-items:center;background:linear-gradient(145deg,#24113e,#10152d 58%,#0b0b11);color:#8b5cf6}.sonara-remix-result-art svg{width:25px}.sonara-remix-result-art span{position:absolute;left:8px;bottom:7px;color:rgba(255,255,255,.4);font-size:8px;font-weight:950}.sonara-remix-result-body{min-width:0;padding:10px}.sonara-remix-result-title{display:flex;align-items:flex-start;gap:8px}.sonara-remix-result-title>div{min-width:0}.sonara-remix-result-title strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px}.sonara-remix-result-title small{display:block;margin-top:3px;color:#575761;font-size:7px}.sonara-remix-result-title em{margin-left:auto;padding:4px 5px;border-radius:6px;background:rgba(52,211,153,.08);color:#6ee7b7;font-size:7px;font-style:normal;font-weight:900}.sonara-remix-result-body audio{width:100%;height:30px;margin-top:9px}.sonara-remix-result-actions{display:grid;grid-template-columns:1fr auto;gap:5px;margin-top:7px}.sonara-remix-result-actions button{min-height:28px;display:flex;align-items:center;justify-content:center;gap:5px;border:1px solid rgba(255,255,255,.065);border-radius:7px;background:#16161c;color:#a7a7b0;font-size:7px;font-weight:900;cursor:pointer}.sonara-remix-result-actions button:first-child{border-color:rgba(167,139,250,.16);background:rgba(124,58,237,.07);color:#b7a4ff}.sonara-remix-result-actions svg{width:10px}.sonara-remix-empty-results{min-height:210px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#4f4f59}.sonara-remix-empty-results svg{width:27px}.sonara-remix-empty-results strong{margin-top:10px;color:#8a8a95;font-size:10px}.sonara-remix-empty-results small{margin-top:4px;font-size:8px}
         @keyframes sonara-remix-spin{to{transform:rotate(360deg)}}
         @media(max-width:1080px){.sonara-remix-main{grid-template-columns:1fr;width:min(900px,calc(100% - 30px))}.sonara-remix-source-panel,.sonara-remix-controls-panel,.sonara-remix-results-panel{grid-column:1;grid-row:auto}.sonara-remix-controls-panel{order:2}.sonara-remix-results-panel{order:3}.sonara-remix-topbar{grid-template-columns:1fr auto}.sonara-remix-top-status{display:none}}
-        @media(max-width:680px){.sonara-remix-topbar{min-height:62px;padding:0 14px}.sonara-remix-main{width:calc(100% - 18px);padding:14px 0 54px;gap:10px}.sonara-remix-library,.sonara-remix-results{grid-template-columns:1fr}.sonara-remix-results article{grid-template-columns:62px minmax(0,1fr)}.sonara-remix-advanced-grid{grid-template-columns:1fr}.sonara-remix-wave-wrap{height:96px}.sonara-remix-trim-grid{grid-template-columns:1fr 1fr 30px}.sonara-remix-brand small{display:none}.sonara-remix-source-panel,.sonara-remix-controls-panel,.sonara-remix-results-panel{border-radius:14px}}
+        @media(max-width:680px){.sonara-remix-mode-switch{width:calc(100% - 18px);margin-top:14px;grid-template-columns:1fr}.sonara-remix-mode-switch>button{min-height:63px;padding:10px 12px}.sonara-remix-mode-copy small{font-size:9px}.sonara-remix-topbar{min-height:62px;padding:0 14px}.sonara-remix-main{width:calc(100% - 18px);padding:14px 0 54px;gap:10px}.sonara-remix-library,.sonara-remix-results{grid-template-columns:1fr}.sonara-remix-results article{grid-template-columns:62px minmax(0,1fr)}.sonara-remix-advanced-grid{grid-template-columns:1fr}.sonara-remix-wave-wrap{height:96px}.sonara-remix-trim-grid{grid-template-columns:1fr 1fr 30px}.sonara-remix-brand small{display:none}.sonara-remix-source-panel,.sonara-remix-controls-panel,.sonara-remix-results-panel{border-radius:14px}}
       `}</style>
     </div>
   );

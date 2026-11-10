@@ -25,6 +25,7 @@ on:
       - "cloudflare/sonara-remix-pro-r2.mjs"
       - "cloudflare/sonara-remix-pro-v6-controls.mjs"
       - "cloudflare/sonara-remix-pro-v6-controls.test.mjs"
+      - "cloudflare/sonara-remix-v6-unified-ui.test.mjs"
       - "molab/sonara_remix_pro_v5.py"
       - "molab/sonara_remix_pro_v6.py"
       - "molab/sonara_remix_pro_gpu_v6_handoff.py"
@@ -79,6 +80,9 @@ jobs:
 
       - name: Verify two-source Pro billing gate, R2 ownership and lease isolation
         run: node --test cloudflare/sonara-remix-pro-r2.test.mjs
+
+      - name: Verify V6-only primary Remix interface with single-track fallback
+        run: node --test cloudflare/sonara-remix-v6-unified-ui.test.mjs
 
       - name: Verify Creative DNA V6 controls with V5 fallback intact
         run: |
