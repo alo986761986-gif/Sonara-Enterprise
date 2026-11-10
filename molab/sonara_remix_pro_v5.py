@@ -89,7 +89,7 @@ def drum_activity(drum_path, seconds=35):
     }
 
 
-def build_v5_brief(base_prompt, controls, *, drum_measurement, candidate_index):
+def build_v5_brief(base_prompt, controls, *, drum_measurement, candidate_index, continuous_groove=False):
     """Musical structure and instrument directives; references remain separate."""
     if candidate_index not in range(controls["candidateCount"]):
         raise V5ControlError("Candidate index outside authorized budget")
@@ -112,6 +112,13 @@ def build_v5_brief(base_prompt, controls, *, drum_measurement, candidate_index):
         if duration >= 120 else
         "HOOK -> GROOVE ENTRANCE -> SHORT DEVELOPMENT -> RESOLUTION."
     )
+    if continuous_groove:
+        # Do not reintroduce V5's intentional BREAK or contrast language on
+        # Explosive V6. Keep same pulse while A/B melodies and vocals develop.
+        variation = ("A and B motifs alternate on top of ONE constant bass, kick and "
+                     "snare pocket: no rhythmic gaps, dropouts or changing patterns.")
+        form = ("CONTINUOUS GROOVE -> A MELODIC HOOK -> B VOCAL/INSTRUMENT ANSWER -> "
+                "FULLER SHARED CHORUS, with the SAME BEAT from first to final bar.")
     activity = drum_measurement or {}
     measured = (
         "Measured B percussion transient density: " + str(activity["onsetsPerSecond"]) +
@@ -200,6 +207,62 @@ def continuity_report(audio_path, *, section_seconds=90):
             "maxRmsJumpDb": round(max(jumps, default=0.0), 2)}
 
 
+
+def continuous_pulse_report(audio_path, *, step_seconds=0.25):
+    """Measure sustained kick/bass-band activity and full-band gaps in a WAV.
+
+    Signal proxy only: does not claim musical beat, accurate BPM or that every
+    kick is correct. One-pass streaming IIR measurements avoid huge PCM arrays.
+    Ignore intro/outro for detection, but not internal unexpected dropouts.
+    """
+    import numpy as np
+    import soundfile as sf
+    from scipy.signal import butter, sosfilt
+
+    with sf.SoundFile(str(audio_path)) as wav:
+        sr = wav.samplerate
+        if not 22050 <= sr <= 96000 or wav.channels not in (1, 2):
+            raise V5ControlError("Unsupported continuous-pulse WAV")
+        step = max(256, round(sr * step_seconds))
+        sos = butter(3, (35, min(180, int(sr * .45))), btype="bandpass",
+                     fs=sr, output="sos")
+        state = np.zeros((len(sos), 2, wav.channels), dtype=np.float64)
+        band, overall = [], []
+        while True:
+            y = wav.read(step, dtype="float32", always_2d=True)
+            if not len(y):
+                break
+            if not np.isfinite(y).all():
+                raise V5ControlError("Nonfinite samples in continuity analysis")
+            low, state = sosfilt(sos, y, axis=0, zi=state)
+            band.append(float(np.sqrt(np.mean(low.astype(np.float64) ** 2))))
+            overall.append(float(np.sqrt(np.mean(y.astype(np.float64) ** 2))))
+    if len(band) < 8:
+        raise V5ControlError("Continuous-pulse audio too short")
+    trim = min(int(2 / step_seconds), len(band) // 6)
+    internal_low = np.asarray(band[trim:len(band)-trim], dtype=np.float64)
+    internal_full = np.asarray(overall[trim:len(overall)-trim], dtype=np.float64)
+    baseline = float(np.median(internal_low))
+    low_threshold = max(.0015, baseline * .12)
+    def longest(flag):
+        current = longest_run = 0
+        for x in flag:
+            current = current + 1 if x else 0
+            longest_run = max(longest_run, current)
+        return round(longest_run * step_seconds, 2)
+    longest_silence = longest(internal_full < .001)
+    longest_bass_gap = longest(internal_low < low_threshold) if baseline >= .008 else 0.
+    return {
+        "method": "bounded-streaming-rms-band-proxy-not-beat-transcription",
+        "lowBandHz": [35, 180],
+        "stepSeconds": step_seconds,
+        "medianLowBandRms": round(baseline, 5),
+        "longestInternalSilenceSeconds": longest_silence,
+        "longestLowBandGapSeconds": longest_bass_gap,
+        "hasUnwantedBreak": longest_silence >= 1.25 or longest_bass_gap >= 1.75,
+    }
+
+
 def technical_score(audit, *, continuity=None):
     """Rank valid masters by measured, conservative technical indicators only."""
     loud = audit.get("integratedLufs")
@@ -249,7 +312,8 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
         generated = Path(folder) / ("v5-candidate-%d.wav" % index)
         mastered_path = Path(folder) / ("v5-master-%d.wav" % index)
         prompt = build_v5_brief(base_prompt, controls, drum_measurement=groove,
-                                candidate_index=index)
+                                candidate_index=index,
+                                continuous_groove=(v6 is not None and v6.mode == "explosive"))
         if v6 is not None:
             from sonara_remix_pro_v6 import compose_direction
             prompt = (prompt + "\n" + compose_direction(v6, dna, index,
@@ -289,6 +353,14 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
         if report["integratedLufs"] is None or report["approxTruePeakDbTp"] > -0.8:
             rejection_codes.append("mastering-safety")
             continue
+        # Apply the strict no-pause check ONLY to explosive mode; other modes
+        # can contain intentional breaks. Reject rather than fabricating a
+        # continuous drum stem or silently modifying the AI-generated song.
+        if v6 is not None and v6.mode == "explosive":
+            pulse = continuous_pulse_report(mastered_path)
+            if pulse["hasUnwantedBreak"]:
+                rejection_codes.append("explosive-unwanted-rhythmic-break")
+                continue
         continuity = continuity_report(mastered_path)
         valid.append({
             "generated": generated, "master": mastered_path, "audit": report,

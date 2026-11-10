@@ -128,11 +128,31 @@ const DETAILS = [
   'Use micro-pauses, creative filter automation and subtle harmonic embellishments between phrases.',
   'Use short reverse-style transitions, live-style instrumental ornaments and natural room depth.',
 ];
+const STEADY_FORMS = [
+  'Introduce A-inspired main motif, answer with B-inspired hook over exactly the same uninterrupted four-bar groove and finish on a fuller shared chorus',
+  'Keep one continuous kick and bass pocket while fresh vocal lines from A and B trade phrases and instruments gradually build',
+  'Begin with the complete beat, develop two contrasting A/B melodic motifs and intensify the final refrain only by adding harmonies',
+  'Maintain one consistent dance pulse and drum kit as transformed A and B melodic ideas flow into a single memorable chorus',
+  'Use one steady bass and percussion foundation with tasteful A/B call-and-response and evolving synth and vocal layers',
+];
+const STEADY_ENERGY = [
+  'Build excitement by adding choir harmonies, percussion textures and synth layers while the foundational groove never stops.',
+  'Make the final hook more powerful using wider chords and harmonies over the identical kick/snare/bass pulse.',
+  'Evolve timbre, phrasing and vocal dynamics without gaps, breakdowns, tempo shifts or drum drops.',
+  'Maintain continuous danceable kick and bass throughout verses, hooks and transitions; change only supporting instrumentation.',
+  'Create a flowing, energetic arrangement with no silence, stop-start stabs, rhythmic resets or half-time sections.',
+];
+const STEADY_DETAILS = [
+  'Use restrained reverb, delay and risers above the same continuous kick and bass groove.',
+  'Add instrument counter-melodies and subtle hi-hat velocity changes without breaking the beat.',
+  'Build instrumental density and warm vocal harmonies without replacing or stopping the foundational rhythm.',
+  'Keep drum timbres, tempo, swing and bass lock consistent as keys, guitars and background vocals evolve.',
+];
 const MODE_DIRECTION: Record<DirectionMode, string> = {
   balanced: 'Prioritize coherent genre, a strong groove and deliberate musical contrast; no disconnected medley.',
   experimental: 'Discover one surprising but harmonically compatible cross-genre idea, without making the structure incoherent.',
   wild: 'Take an audacious compositional risk with new counter-melodies, unexpected section contrasts and dramatic dynamic shifts.',
-  explosive: 'EXPLOSIVE FUSION: pursue a powerful two-hook form with a large final shared chorus, rich instruments, effects, vocal call-and-response where the source contains vocals, and a huge controlled climax.',
+  explosive: 'EXPLOSIVE FUSION — CONTINUOUS RHYTHM LOCK: one BPM, one stable meter, one uninterrupted kick/snare/hat/bass pattern across every bar. Do not use silence, beat drops, breakdowns, stop-start transitions, half-time, double-time, rhythmic resets or changing drum kits. A and B hooks, rich instruments and natural choir call-and-response grow OVER the same steady dance groove. Full finale through harmony, never by changing the beat.',
 };
 const bound=(value:number,lo:number,hi:number)=>Math.min(hi,Math.max(lo,Number.isFinite(value)?value:lo));
 const validBpm=(n: number|string|undefined)=>{const x=Number(n);return n!==''&&n!==undefined&&Number.isFinite(x)&&x>=55&&x<=200?Math.round(x):null;};
@@ -161,6 +181,7 @@ function sampler(seed:number) {
 export function createIntelligentRemixDirection(input:SmartDirectionInput,sequence=0,seed=random32()):string {
   const style=PALETTES[input.genre]||PALETTES.auto;
   const pick=sampler((seed^(Math.imul((sequence+1)>>>0,2654435761)))>>>0);
+  const constantGroove=input.mode==='explosive';
   const choose=(options:readonly string[])=>options[pick(options.length)];
   const balance=bound(Number(input.bInfluence),20,80);
   const bpmA=validBpm(input.bpmA);
@@ -177,7 +198,7 @@ export function createIntelligentRemixDirection(input:SmartDirectionInput,sequen
       ? 'Prioritize B slightly as a creative inspiration but keep recognizable transformed ideas from A.'
       : 'Prioritize A slightly as a creative inspiration but keep recognizable transformed ideas from B.';
   const tempo=bpmA&&bpmB
-    ? 'User-supplied tempo references: A '+bpmA+' BPM, B '+bpmB+' BPM; reconcile them into one coherent pulse, with half-time/double-time ideas when appropriate; confirm source BPM during analysis.'
+    ? 'User-supplied tempo references: A '+bpmA+' BPM, B '+bpmB+' BPM; reconcile them into ONE coherent pulse'+(constantGroove?', then maintain its exact tempo through every section without half-time, double-time or any rhythmic breaks.':', with half-time/double-time ideas when appropriate.')+' Confirm source BPM during analysis.'
     : bpmA||bpmB
       ? 'User-supplied tempo reference '+(bpmA||bpmB)+' BPM; verify against both audio sources before anchoring the new groove.'
       : 'Derive the most musical common tempo from real A/B audio analysis; never fabricate a BPM.';
@@ -190,11 +211,11 @@ export function createIntelligentRemixDirection(input:SmartDirectionInput,sequen
   return [
     'SONARA ORIGINAL A+B MUSIC DIRECTION — compose ONE newly generated track, not a collage or source overlay.',
     'Style: '+style.identity+'. Mood: '+choose(style.emotion)+'.',
-    'Rhythm: '+choose(style.rhythm)+'. '+tempo,
-    'Instrumentation: '+choose(style.colors)+'. Additional arrangement idea: '+choose(DETAILS),
-    'Song structure: '+choose(FORMS)+'.',
+    'Rhythm: '+(constantGroove?'one unwavering '+(input.genre.includes('house')?'four-on-the-floor':'genre-appropriate')+' drum groove with steady kick, hats, snare and bass for the full duration; vary only micro-articulation above it':choose(style.rhythm))+'. '+tempo,
+    'Instrumentation: '+choose(style.colors)+'. Additional arrangement idea: '+choose(constantGroove?STEADY_DETAILS:DETAILS),
+    'Song structure: '+choose(constantGroove?STEADY_FORMS:FORMS)+'.',
     'Vocal direction: '+choose(VOCALS)+'.',
-    'Dynamics: '+choose(ENERGY)+'.',
+    'Dynamics: '+choose(constantGroove?STEADY_ENERGY:ENERGY)+'.',
     emphasis+' Use the principal bass idea from reference '+bass+' as an inspiration, never as a pasted stem.',
     MODE_DIRECTION[input.mode]||MODE_DIRECTION.balanced,
     focus+' '+human,

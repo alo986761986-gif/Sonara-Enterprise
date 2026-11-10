@@ -93,8 +93,11 @@ class TwoSourceFusionTests(unittest.TestCase):
             {"tempoBpm":98,"tempoConfidence":.8,"key":"G minor","keyConfidence":.9},
             requested_seconds=180,explosive=True)
         self.assertIn("DUAL-HOOK FORM",p)
-        self.assertIn("backing choir harmonies",p)
+        self.assertIn("choir harmonies",p)
         self.assertIn("No audible cut",p)
+        self.assertIn("FINAL NON-NEGOTIABLE RHYTHM LOCK",p)
+        self.assertIn("NO silent bars",p)
+        self.assertIn("same BPM and drum pattern",p)
         self.assertIn("ONE mandatory",p)
 
     def test_prompt_is_composition_not_overlay(self):

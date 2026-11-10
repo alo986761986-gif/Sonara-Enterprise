@@ -41,7 +41,9 @@ class CreativeV6Test(unittest.TestCase):
         explosive=CreativeControls(mode="explosive")
         explosive_prompt=compose_direction(explosive,dna,0,2)
         self.assertIn("DUAL SOURCE CHORUS PLAN",explosive_prompt)
-        self.assertIn("backing choir",explosive_prompt)
+        self.assertIn("choir",explosive_prompt)
+        self.assertIn("CONTINUITY LOCK",explosive_prompt)
+        self.assertIn("No breakdowns",explosive_prompt)
         self.assertLessEqual(len(explosive_prompt),2100)
         with self.assertRaises(V6ControlError):
             compose_direction(c,dna,3,3)

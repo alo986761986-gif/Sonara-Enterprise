@@ -27,18 +27,18 @@ STATUS = Path.home() / ".sonara/remix-pro-agent-status.json"
 TOKEN = Path.home() / ".sonara/relay.token"
 LOG = Path.home() / ".sonara/remix-pro-v6-agent.log"
 REVISION = "sonara-remix-pro-r2-agent-v3-dual-reference-fusion"
-PINNED_COMMIT = "3b26109f3b26c0f394dc90e0dc551f768e4c0129"
+PINNED_COMMIT = "528cb3b830af500a7719189b47c894ba40ae5d06"
 BLOBS = {
-    "sonara_remix_pro_r2_agent.py": "49d538e3b1159f3d6a463903aedce62372fe5862",
-    "sonara_remix_pro_v5.py": "e937601430b302380f10be2f45e36e88973416b6",
-    "sonara_remix_pro_v6.py": "26a90eb5fa806d8a48021ada3aaea7817530c59f",
-    "sonara_remix_pro_fusion.py": "be870b0331fad2357f8210362591186a0125ee01",
+    "sonara_remix_pro_r2_agent.py": "25327ad052be63c1f86450afb56c478b1a43f528",
+    "sonara_remix_pro_v5.py": "7f88b399798dbbd815decf07867ed276c5ca3860",
+    "sonara_remix_pro_v6.py": "535c9e30ad04ed950c4f615639d078f7f823435c",
+    "sonara_remix_pro_fusion.py": "dad0b477a3dfb02761c971f05db849945ab39f56",
 }
 KNOWN_OLD = {
-    "sonara_remix_pro_r2_agent.py": frozenset(("9174704c48108cf3ec0b6a7d4f913ac75ab56812", BLOBS["sonara_remix_pro_r2_agent.py"])),
-    "sonara_remix_pro_v5.py": frozenset(("49649c941ba7465fb9ae4b63c3033fd330bfdb9b", BLOBS["sonara_remix_pro_v5.py"])),
-    "sonara_remix_pro_v6.py": frozenset(("70d6a8f2b63f694863e8ffb0ef2f7db802d86f61", BLOBS["sonara_remix_pro_v6.py"])),
-    "sonara_remix_pro_fusion.py": frozenset(("4ceb90293e1d9f9b9f1c7b0916258eae1c2a3f04", BLOBS["sonara_remix_pro_fusion.py"])),
+    "sonara_remix_pro_r2_agent.py": frozenset(("9174704c48108cf3ec0b6a7d4f913ac75ab56812", BLOBS["sonara_remix_pro_r2_agent.py"], "49d538e3b1159f3d6a463903aedce62372fe5862")),
+    "sonara_remix_pro_v5.py": frozenset(("49649c941ba7465fb9ae4b63c3033fd330bfdb9b", "4e9d2a865aec3696b7f57b231331706c010ac7b3", BLOBS["sonara_remix_pro_v5.py"], "e937601430b302380f10be2f45e36e88973416b6")),
+    "sonara_remix_pro_v6.py": frozenset(("70d6a8f2b63f694863e8ffb0ef2f7db802d86f61", BLOBS["sonara_remix_pro_v6.py"], "26a90eb5fa806d8a48021ada3aaea7817530c59f")),
+    "sonara_remix_pro_fusion.py": frozenset(("4ceb90293e1d9f9b9f1c7b0916258eae1c2a3f04", BLOBS["sonara_remix_pro_fusion.py"], "be870b0331fad2357f8210362591186a0125ee01")),
 }
 IDLE = frozenset(("waiting_for_authorized_job", "waiting_for_pro_activation", "preflight_ready"))
 
@@ -187,7 +187,7 @@ def activate():
         time.sleep(5)
         if worker_pid not in live_workers():
             raise Blocked("V6 agent exited immediately; rolling back")
-        print("SONARA_REMIX_PRO_EXPLOSIVE_INSTALLED=True")
+        print("SONARA_REMIX_PRO_CONTINUOUS_GROOVE_INSTALLED=True")
         print("PRO_V6_AUTHENTICATED=True")
         print("PRO_V6_WORKER_PID=" + str(worker_pid))
         print("SONARA_MAIN_ACE_STEP_UNCHANGED=True")

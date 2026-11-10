@@ -453,13 +453,20 @@ def build_fusion_prompt(creator_prompt, report_a, report_b, *,
     )
     if explosive:
         form = (
-            "DUAL-HOOK FORM: expose an A-inspired vocal/melodic motif, then a B-inspired answer; "
-            "write a NEW shared refrain, changing the arrangement every section. "
-            "When singing is present in both sources, request clear lead trading, a chorus and backing choir harmonies; "
-            "do not claim exact word recovery or stack raw voices. Use a powerful dynamic build, "
-            "thick but separated bass, distinctive percussion, expressive keys, guitars/brass or synths when genre-appropriate, "
-            "effects risers, delays, transitions and a controlled climax with intelligible vocals. "
-            "No audible cut between old A and old B: regenerate a NEW unified performance. "
+            "DUAL-HOOK FORM WITH CONTINUOUS PULSE: one fixed BPM, one drum kit, one rhythmic meter, "
+            "one repeating kick-snare-hat groove and compatible bass pulse from the first musical bar "
+            "through the ending. Never stop, mute, replace, or reset the kick, percussion, bass "
+            "or backing rhythm at verse, chorus, vocal entrance, build or transition. "
+            "Reinterpret A's motif and B's contrasting hook as melodic and vocal call-and-response "
+            "OVER the SAME uninterrupted beat and chord language. "
+            "When both inputs truly feature singers, generate fresh lead phrases and choir harmonies "
+            "without assuming exact source lyrics; instrumental hooks otherwise. "
+            "Use expressive keys, bass, percussion, genre-appropriate guitar/brass/synths, tasteful "
+            "riser effects and density changes over the SAME beat. No breakdowns, no pauses, "
+            "no beat drops, no silence, no stop-start effects, no half-time or double-time change, "
+            "no abrupt kit swaps or rhythmic resets, no sudden meter or tempo changes. "
+            "A stronger final chorus means more harmonies and instruments, NOT a new tempo. "
+            "No audible cut between A and B: regenerate ONE unified, flowing performance. "
         )
     instruction = (
         "SONARA ORIGINAL TWO-SONG FUSION. Compose ONE entirely new, coherent "
@@ -469,8 +476,8 @@ def build_fusion_prompt(creator_prompt, report_a, report_b, *,
         "Keep ONE tempo, ONE tonic, ONE recognizable main hook, ONE consistent "
         "drum kit and a unified production palette from beginning to end. "
         + bass_direction + " " + form +
-        "Natural human drum grooves: varied hi-hat velocity, ghost notes and "
-        "occasional short fills; never a monotonous repeated synthetic kick pattern. "
+        "Natural human drum grooves: gentle hi-hat velocity, ghost notes and "
+        "micro-fills over the SAME uninterrupted kick and bass pattern; no rhythmic breaks. "
         "Use musical counterpoint and space instead of stacking unrelated "
         "melodies, vocal lines or chord changes. If voices are present, keep "
         "the phrasing intelligible and free of overlapping gibberish. "
@@ -479,4 +486,13 @@ def build_fusion_prompt(creator_prompt, report_a, report_b, *,
         "or create a DJ mix, mashup or medley. Preserve natural transitions, "
         "musical dynamics and a balanced master. "
     )
-    return (instruction + " ".join(facts) + " Creator direction: " + creator)[:9000]
+    continuous_lock = (
+        " FINAL NON-NEGOTIABLE RHYTHM LOCK: constant four-on-the-floor or "
+        "genre-appropriate beat, same BPM and drum pattern from beginning to "
+        "end. NO silent bars, pauses, stop-time, breakdowns, abrupt tempo "
+        "changes, half-time, drumless sections or altered meter. Keep B's "
+        "hook and all vocal layers harmonized OVER one stable musical pulse. "
+        if explosive else ""
+    )
+    return (instruction + " ".join(facts) + " Creator direction: " +
+            creator[:6500] + continuous_lock)[:9000]

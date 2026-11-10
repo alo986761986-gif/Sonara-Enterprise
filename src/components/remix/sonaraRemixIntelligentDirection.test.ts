@@ -11,6 +11,8 @@ const base={
 test('new shuffle produces actionable bounded musical direction for chosen A+B controls',()=>{
   const value=createIntelligentRemixDirection(base,1,120000);
   assert.match(value,/EXPLOSIVE FUSION/);
+  assert.match(value,/CONTINUOUS RHYTHM LOCK/);
+  assert.doesNotMatch(value,/a short silence and a hard-impact drop|deceptive half-time breakdown|rhythmic stop-start accents|an emotional break and an even stronger/);
   assert.match(value,/130 BPM/);
   assert.match(value,/124 BPM/);
   assert.match(value,/reference B/);
