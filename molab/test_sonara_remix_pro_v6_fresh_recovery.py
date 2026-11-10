@@ -47,6 +47,40 @@ class FreshRecoveryTests(unittest.TestCase):
                 with self.assertRaises(restore.RecoveryBlocked):
                     restore.prepare_root({})
 
+    def test_main_engine_accepts_nested_health(self):
+        import io
+        import json
+        from unittest.mock import MagicMock
+        response = MagicMock()
+        response.__enter__.return_value = io.BytesIO(json.dumps({
+            "data": {
+                "status": "ok",
+                "models_initialized": True,
+                "llm_initialized": True,
+                "loaded_model": "acestep-v15-xl-turbo",
+                "loaded_lm_model": "acestep-5Hz-lm-4B",
+            }
+        }).encode())
+        with patch.object(restore.urllib.request, "urlopen", return_value=response):
+            restore.check_main_engine()
+
+    def test_main_engine_rejects_uninitialized_nested_health(self):
+        import io
+        import json
+        from unittest.mock import MagicMock
+        response = MagicMock()
+        response.__enter__.return_value = io.BytesIO(json.dumps({
+            "data": {
+                "models_initialized": False,
+                "llm_initialized": True,
+                "loaded_model": "acestep-v15-xl-turbo",
+                "loaded_lm_model": "acestep-5Hz-lm-4B",
+            }
+        }).encode())
+        with patch.object(restore.urllib.request, "urlopen", return_value=response):
+            with self.assertRaises(restore.RecoveryBlocked):
+                restore.check_main_engine()
+
     def test_readonly_mode_has_no_private_file_setup(self):
         with patch.object(restore, "pro_processes", return_value=[]):
             with patch.object(restore, "check_gpu"):
