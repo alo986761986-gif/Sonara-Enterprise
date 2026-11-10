@@ -383,3 +383,37 @@ test('V5 is fail-closed until live GPU explicitly advertises the module',async()
   assert.equal(result.v5Result.technicalScore,87.4);
   assert.equal(result.v5Result.artisticListeningRequired,true);
 });
+
+
+test('V6 is fail-closed without authentic GPU readiness; V5 remains available', async () => {
+  const e=env();
+  const base={
+    ...spec,
+    v5:true,genre:'house',bInfluence:50,candidateCount:1,durationMode:'manual',
+    v6:true,
+    v6Controls:{mode:'wild',melody:65,harmony:60,groove:75,timbre:55,humanize:65,master:'club'}
+  };
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',
+    {gpuReady:true,v5Ready:true,v6Ready:false},agent);
+  let caps=await proCapabilities(e);
+  assert.equal(caps.v5Available,true);
+  assert.equal(caps.v6Available,false);
+  let response=await call(e,'POST','/api/sonara-relay/pro-enqueue',base,gate);
+  assert.equal(response.status,503);
+  assert.equal((await e.SONARA_AUDIO_BUCKET.list({prefix:'relay-v1/pro/jobs/'})).objects.length,0);
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',
+    {gpuReady:true,v5Ready:true,v6Ready:true},agent);
+  caps=await proCapabilities(e);
+  assert.equal(caps.v6Available,true);
+  response=await call(e,'POST','/api/sonara-relay/pro-enqueue',
+    {...base,v6Controls:{...base.v6Controls,master:'unsafe'}},gate);
+  assert.equal(response.status,400);
+  response=await call(e,'POST','/api/sonara-relay/pro-enqueue',base,gate);
+  assert.equal(response.status,202);
+  const denied=await call(e,'POST','/api/sonara-relay/pro-claim',
+    {v5Ready:true,v6Ready:false},agent);
+  assert.equal((await denied.json()).jobId,null);
+  const claimed=await call(e,'POST','/api/sonara-relay/pro-claim',
+    {v5Ready:true,v6Ready:true},agent);
+  assert.equal((await claimed.json()).jobId,JOB);
+});
