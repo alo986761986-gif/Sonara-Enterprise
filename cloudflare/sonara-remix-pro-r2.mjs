@@ -426,6 +426,23 @@ export async function handleRemixPro(req,env,ctx,auth) {
   if(req.method==='GET'&&(action===''||action==='audio'||/^stem\//.test(action))) {
     const user=await auth.user(req,env);
     if(!user||user.uid!==j.ownerUid)return fail('Not found',404);
+  if(req.method==='PATCH'&&action===''){
+    const user=await auth.user(req,env);
+    if(!user?.uid||user.uid!==j.ownerUid)return fail('Not found',404);
+    if(j.status!=='COMPLETE')return fail('Only completed remixes can be renamed',409);
+    let body;
+    try{body=await req.json();}catch{return fail('Invalid JSON',400);}
+    const title=safeTitle(body?.title);
+    if(!title||title.length<2)return fail('Titolo non valido',400);
+    for(let attempt=0;attempt<4;attempt++){
+      const currentObj=await b.get(jobKey(id)),current=await readJson(currentObj);
+      if(current?.ownerUid!==user.uid||current?.status!=='COMPLETE')
+        return fail('Remix non disponibile',409);
+      if(await save(b,{...current,title,updatedAt:Date.now()},currentObj.etag))
+        return json({ok:true,title});
+    }
+    return fail('Modifica titolo in conflitto: riprova',409);
+  }
     if(action==='')return json(publicStatus(j));
     if(j.status!=='COMPLETE')return fail('Audio non ancora pronto',409);
     if(action==='audio')return privateAudio(req,b,audioKey(id));
