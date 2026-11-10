@@ -417,3 +417,52 @@ test('V6 is fail-closed without authentic GPU readiness; V5 remains available', 
     {v5Ready:true,v6Ready:true},agent);
   assert.equal((await claimed.json()).jobId,JOB);
 });
+
+
+test('Completion survives concurrent GPU heartbeat CAS conflicts and returns signed receipt',async()=>{
+  const e=env();
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',{gpuReady:true},agent);
+  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',spec,gate)).status,202);
+  const {jobId,leaseId}=await (await call(e,'POST','/api/sonara-relay/pro-claim',{},agent)).json();
+  const endpoint='/api/sonara-relay/pro-job/'+jobId;
+  const signed={...agent,'x-sonara-pro-lease':leaseId};
+  assert.equal((await call(e,'PUT',endpoint+'/audio',wav(),signed)).status,200);
+  const bucket=e.SONARA_AUDIO_BUCKET;
+  const originalPut=bucket.put.bind(bucket);
+  let conflicts=2;
+  bucket.put=async (key,body,options)=>{
+    if(key==='relay-v1/pro/jobs/'+jobId && options?.onlyIf?.etagMatches && conflicts-->0)
+      return null; // Simulate heartbeat/progress CAS winning the race.
+    return originalPut(key,body,options);
+  };
+  const response=await call(e,'POST',endpoint+'/complete',
+    {actualDurationSeconds:30},signed);
+  assert.equal(response.status,200);
+  assert.equal((await response.json()).ok,true);
+  const receipt=await call(e,'GET',endpoint+'/receipt',undefined,signed);
+  assert.equal(receipt.status,200);
+  assert.deepEqual(await receipt.json(),{ok:true,completed:true});
+  assert.equal((await call(e,'GET',endpoint+'/receipt',undefined,
+    {...agent,'x-sonara-pro-lease':'00000000-0000-0000-0000-000000000000'})).status,409);
+  assert.equal((await call(e,'GET',endpoint+'/receipt',undefined,owner)).status,401);
+  assert.equal((await call(e,'POST',endpoint+'/fail',{},signed)).status,409);
+  const state=await (await call(e,'GET',endpoint,undefined,owner)).json();
+  assert.equal(state.status,'COMPLETED');
+});
+test('Unconfirmed completion cannot be recovered with an expired or stolen lease',async()=>{
+  const e=env();
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',{gpuReady:true},agent);
+  await call(e,'POST','/api/sonara-relay/pro-enqueue',spec,gate);
+  const {jobId,leaseId}=await (await call(e,'POST','/api/sonara-relay/pro-claim',{},agent)).json();
+  const endpoint='/api/sonara-relay/pro-job/'+jobId;
+  const signed={...agent,'x-sonara-pro-lease':leaseId};
+  const active=await call(e,'GET',endpoint+'/receipt',undefined,signed);
+  assert.equal(active.status,200);
+  assert.equal((await active.json()).completed,false);
+  const obj=await e.SONARA_AUDIO_BUCKET.get('relay-v1/pro/jobs/'+jobId+'.json');
+  const j=await obj.json();
+  j.leaseUntil=Date.now()-1;
+  await e.SONARA_AUDIO_BUCKET.put('relay-v1/pro/jobs/'+jobId+'.json',JSON.stringify(j));
+  assert.equal((await call(e,'GET',endpoint+'/receipt',undefined,signed)).status,409);
+  assert.equal((await call(e,'POST',endpoint+'/complete',{},signed)).status,409);
+});

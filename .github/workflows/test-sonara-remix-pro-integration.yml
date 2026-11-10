@@ -23,6 +23,7 @@ on:
       - 'molab/test_sonara_remix_pro_v6.py'
       - 'molab/sonara_remix_pro_gpu_v6_handoff.py'
       - 'molab/test_sonara_remix_pro_gpu_v6_handoff.py'
+      - 'molab/test_sonara_remix_pro_completion_recovery.py'
       - 'molab/test_sonara_remix_pro_v5.py'
       - 'molab/sonara_remix_pro_gpu_v5_handoff.py'
       - 'molab/test_sonara_remix_gpu_v5_handoff.py'
@@ -110,6 +111,8 @@ jobs:
         run: python3 -m py_compile molab/sonara_remix_pro_v6.py molab/sonara_remix_pro_v5.py molab/sonara_remix_pro_r2_agent.py molab/sonara_remix_pro_gpu_v6_handoff.py
       - name: V6 pinned and idle GPU handoff regression (no remote action)
         run: python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_gpu_v6_handoff.py' -v
+      - name: V6 completion acknowledgement and receipt recovery tests
+        run: python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_completion_recovery.py' -v
       - name: Durable Remix Pro native quota accounting tests
         run: node --test cloudflare/sonara-remix-pro-usage.test.mjs
       - name: Legacy Vercel 8-minute duration selector integration

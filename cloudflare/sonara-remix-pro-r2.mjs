@@ -65,6 +65,11 @@ const failureExplanation=(j)=>{
 };
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}});
 const fail=(message,status=400)=>json({error:message},status);
+const leaseReceiptHash=async lease=>{
+  const bytes=new TextEncoder().encode(lease);
+  const digest=await crypto.subtle.digest('SHA-256',bytes);
+  return [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('');
+};
 const readJson=async obj=>{try{return obj?await obj.json():null;}catch{return null;}};
 const maxBytes=512*1024*1024;
 const partBytes=8*1024*1024;
@@ -347,6 +352,19 @@ export async function handleRemixPro(req,env,ctx,auth) {
     return privateAudio(req,b,stemKey(id,role));
   }
   if(!(await auth.agent(req,env))||!proAgentOk(req))return fail('Unauthorized agent',401);
+  // A signed, private acknowledgement permits an agent to confirm a successful
+  // terminal R2 write even when its original HTTPS response was interrupted.
+  // No customer endpoint can call this; never expose the job's former lease.
+  if(action==='receipt'&&req.method==='GET'){
+    const token=String(req.headers.get('X-Sonara-Pro-Lease')||'');
+    if(!/^[0-9a-f-]{36}$/.test(token))return fail('Invalid receipt lease',403);
+    const proof=await leaseReceiptHash(token);
+    if(j.status==='COMPLETE'&&j.completionLeaseHash===proof&&j.audio&&await b.head(j.audio))
+      return json({ok:true,completed:true});
+    if(j.status==='LEASED'&&j.leaseId===token&&j.leaseUntil>=Date.now())
+      return json({ok:true,completed:false});
+    return fail('Receipt unavailable or lease changed',409);
+  }
   if(j.status!=='LEASED'||String(req.headers.get('X-Sonara-Pro-Lease')||'')!==j.leaseId||
      j.leaseUntil<Date.now())return fail('Invalid or expired lease',409);
   if(req.method==='GET'&&(action==='source/a'||action==='source/b')) {
@@ -482,28 +500,43 @@ export async function handleRemixPro(req,env,ctx,auth) {
       Object.hasOwn(FAILURE_NOTICES,reported.errorCode)?reported.errorCode:null;
     const failurePhase=FAILURE_PHASES.has(reported?.failurePhase)?
       reported.failurePhase:null;
-    // The terminal R2 state is written first, so a lease can never
-    // produce audio after its reservation has been refunded.
-    const next={...j,status:action==='complete'?'COMPLETE':'FAILED',
-      stage:action==='complete'?'completed':'failed',leaseUntil:0,
-      leaseId:null,updatedAt:Date.now(),params:null,sourceA:null,sourceB:null,
-      ...(action==='complete'&&reported?.actualDurationSeconds!==undefined
-         ? {actualDurationSeconds:claimedDuration} : {}),
-      ...(action==='fail'?{failureCode,failurePhase}:{}),
-      ...(v5Result?{v5Result}:{}),
-      ...(v6Result?{v6Result}:{})};
-    const sources=[j.sourceA,j.sourceB];
-    const ok=await save(b,next,obj.etag);
-    if(!ok)return fail('Retry completion',409);
-    // Once R2 records COMPLETE/FAILED, the agent must not mistake a
-    // temporarily unavailable quota ledger for a failed render. The Durable
-    // Object alarm will idempotently settle the terminal R2 state.
-    const settled=await proQuota(env,action==='complete'?'commit':'refund',id,j.ownerUid);
-    await Promise.allSettled(sources.map(async src=>{
-      if(!src?.objectKey)return;
-      await Promise.all([b.delete(src.objectKey),b.delete(referenceKey(src.id))]);
-    }));
-    return json({ok:true,settlementPending:!settled},settled?200:202);
+    // The GPU lease-renewer can update this same R2 object while the final
+    // HTTP request is in flight. Re-read and CAS-retry: a single collision
+    // must never turn a valid rendered master into REMIX_COMPLETION_FAILED.
+    // We never accept a stolen, expired or already terminal lease.
+    const lease=String(req.headers.get('X-Sonara-Pro-Lease')||'');
+    const proof=action==='complete'?await leaseReceiptHash(lease):null;
+    for(let attempt=0;attempt<8;attempt++){
+      const currentObj=await b.get(jobKey(id));
+      const current=await readJson(currentObj);
+      if(!current||current.status!=='LEASED'||current.leaseId!==lease||
+         current.leaseUntil<Date.now())
+        return fail('Terminal lease changed or expired',409);
+      if(action==='complete'&&(!current.audio||!await b.head(current.audio)))
+        return fail('Final WAV required',409);
+      // Terminal write happens BEFORE settlement/refund and cannot be
+      // overwritten by a late failure or an older worker.
+      const next={...current,status:action==='complete'?'COMPLETE':'FAILED',
+        stage:action==='complete'?'completed':'failed',leaseUntil:0,
+        leaseId:null,updatedAt:Date.now(),params:null,sourceA:null,sourceB:null,
+        ...(action==='complete'&&reported?.actualDurationSeconds!==undefined
+           ? {actualDurationSeconds:claimedDuration} : {}),
+        ...(action==='complete'?{completionLeaseHash:proof}:{}),
+        ...(action==='fail'?{failureCode,failurePhase}:{}),
+        ...(v5Result?{v5Result}:{}),
+        ...(v6Result?{v6Result}:{})};
+      if(!(await save(b,next,currentObj.etag)))continue;
+      // Quota settlement failures must not reverse a confirmed R2 master.
+      // They are handled by the idempotent account-ledger settlement alarm.
+      const settled=await proQuota(env,action==='complete'?'commit':'refund',id,current.ownerUid)
+        .catch(()=>false);
+      await Promise.allSettled([current.sourceA,current.sourceB].map(async src=>{
+        if(!src?.objectKey)return;
+        await Promise.all([b.delete(src.objectKey),b.delete(referenceKey(src.id))]);
+      }));
+      return json({ok:true,settlementPending:!settled},settled?200:202);
+    }
+    return fail('Concurrent heartbeat: retry final confirmation',503);
   }
   return fail('Method not supported',405);
 }
