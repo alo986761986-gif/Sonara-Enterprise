@@ -23,7 +23,7 @@ class V5GuardTests(unittest.TestCase):
         # Historical handoff stays SHA-pinned. Repository files can evolve
         # under the separate opt-in V6 release; never mutate V5 installer pins.
         current_release = {
-            "sonara_remix_pro_r2_agent.py": "073e580961c7e29790c04100fec74c5fbca65291",
+            "sonara_remix_pro_r2_agent.py": "c5b33c8bf11fe0bf8730c24354352f53fa85a039",
             "sonara_remix_pro_v5.py": "e937601430b302380f10be2f45e36e88973416b6",
         }
         for name, (_, new_sha) in guard.BLOBS.items():
