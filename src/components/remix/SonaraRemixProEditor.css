@@ -1,0 +1,51 @@
+.sonara-pro-editor{--editor-accent:#b493e8;display:grid;gap:18px;background:linear-gradient(145deg,#191622,#111119 67%);border:1px solid #4d405c;border-radius:18px;padding:22px;color:#f5f1fb;min-width:0}
+.sonara-pro-editor *{box-sizing:border-box}
+.sonara-pro-editor-header{display:flex;align-items:center;gap:13px;flex-wrap:wrap}
+.sonara-pro-editor-header>div{display:grid;gap:5px;flex:1;min-width:180px}
+.sonara-pro-editor-header strong{font-size:17px;letter-spacing:.01em}
+.sonara-pro-editor-header small{font-size:11px;color:#afa5bf;line-height:1.5}
+.sonara-pro-editor-icon{flex:none;width:44px;height:44px;border:1px solid #6a547e;border-radius:12px;background:#2d223c;display:grid;place-items:center;color:#cbb0f1}
+.sonara-pro-editor-chip{font-size:10px;color:#adf2cf;border:1px solid #37624f;padding:6px 9px;border-radius:20px;letter-spacing:.06em}
+.sonara-pro-editor-name{display:flex;align-items:center;gap:9px;border:1px solid #393041;border-radius:12px;background:#17141e;padding:12px 14px;font-size:12px;min-width:0}
+.sonara-pro-editor-name strong{flex:1;text-overflow:ellipsis;white-space:nowrap;overflow:hidden}
+.sonara-pro-editor-name span{font-variant-numeric:tabular-nums;color:#cbb6ef}
+.sonara-pro-editor-idle{padding:35px 15px;text-align:center;border:1px dashed #4d425b;border-radius:12px;color:#a89bb7}
+.sonara-pro-editor-loading{display:flex;align-items:center;gap:9px;font-size:12px;color:#d6c4f3}
+.sonara-pro-editor-error{border:1px solid #86485d;background:#39202b;padding:12px;border-radius:10px;color:#ffbccc;font-size:12px}
+.sonara-pro-editor-timeline{border:1px solid #403448;background:#14111d;border-radius:14px;padding:14px;display:grid;gap:12px}
+.sonara-pro-editor-canvas-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;color:#eee9f8;font-size:12px}
+.sonara-pro-editor-canvas-top span{font-variant-numeric:tabular-nums;color:#9be6c9}
+.sonara-pro-editor-waveform{display:block;width:100%;height:150px;border:1px solid #494053;border-radius:9px;cursor:crosshair;touch-action:manipulation}
+.sonara-pro-editor-time-row{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#aaa1bb;font-size:10px;font-variant-numeric:tabular-nums}
+.sonara-pro-editor-markers{display:flex;flex-wrap:wrap;gap:12px;align-items:center;border:0;padding:0;margin:0;font-size:12px}
+.sonara-pro-editor-markers legend{padding:0;margin-bottom:6px;color:#b8accd;font-size:11px}
+.sonara-pro-editor-markers label{display:flex;gap:7px;align-items:center;cursor:pointer}
+.sonara-pro-editor-markers input{accent-color:#c3a2ed}
+.sonara-pro-editor-trim{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:center;gap:12px}
+.sonara-pro-editor-trim>label:not(.sonara-pro-editor-loop){display:grid;gap:7px;font-size:12px}
+.sonara-pro-editor-trim input[type=number]{width:100%;min-width:0;font-size:13px;background:#252031;border:1px solid #655373;border-radius:9px;padding:10px;color:#f2edf9;font-variant-numeric:tabular-nums}
+.sonara-pro-editor-loop{grid-column:1/-1;display:flex;align-items:center;gap:10px;padding:10px 12px;background:#241e30;border:1px solid #554469;border-radius:9px}
+.sonara-pro-editor-loop input{width:17px;height:17px;accent-color:#b48deb}
+.sonara-pro-editor-loop span{display:grid;gap:3px}.sonara-pro-editor-loop strong{font-size:12px}.sonara-pro-editor-loop small{color:#afa3c0;font-size:11px;font-weight:400}
+.sonara-pro-editor-panels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;min-width:0}
+.sonara-pro-editor-panel{min-width:0;display:grid;gap:16px;align-content:start;border:1px solid #453a50;border-radius:13px;padding:17px;background:#191520}
+.sonara-pro-editor-panel legend{font-size:13px;display:flex;align-items:center;gap:8px;font-weight:800;padding:0 6px;color:#d9c6f6}
+.sonara-pro-editor-panel label{min-width:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;color:#e3d8f0;font-size:12px}
+.sonara-pro-editor-panel label>strong{font-size:11px;color:#b9f5d5;font-variant-numeric:tabular-nums}
+.sonara-pro-editor-panel label>input[type=range]{grid-column:1/-1;width:100%;accent-color:#b99ce8;cursor:pointer}
+.sonara-pro-editor-panel label>input[type=number]{grid-column:1/-1;width:100%;background:#24202d;border:1px solid #534460;border-radius:8px;padding:9px;color:#fff;font-variant-numeric:tabular-nums}
+.sonara-pro-editor-panel>small{font-size:10px;color:#a8a0b5;line-height:1.55}
+.sonara-pro-editor-eq-control>span{grid-column:1/-1;display:flex;gap:7px;align-items:center}
+.sonara-pro-editor-eq-control span strong{min-width:35px;font-size:12px}
+.sonara-pro-editor-eq-control span small{color:#aaa3b7;font-size:10px;flex:1}
+.sonara-pro-editor-eq-control span em{font-style:normal;color:#b9f5d5;font-variant-numeric:tabular-nums;font-size:11px}
+.sonara-pro-editor-transport{border:1px solid #46354e;background:#21182b;padding:14px;border-radius:13px;display:grid;gap:13px}
+.sonara-pro-editor-buttons{display:flex;gap:9px;flex-wrap:wrap}
+.sonara-pro-editor-buttons button,.sonara-pro-editor-export{border:1px solid #68517c;background:#32233f;border-radius:10px;color:#f7efff;cursor:pointer;font-size:12px;min-height:44px;padding:11px 14px;display:flex;gap:9px;align-items:center;justify-content:center;font-weight:800}
+.sonara-pro-editor-buttons button:hover{background:#423050}.sonara-pro-editor-export{background:linear-gradient(125deg,#8a55bb,#5b428a);border-color:#b594e7}
+.sonara-pro-editor-buttons button:disabled,.sonara-pro-editor-export:disabled{opacity:.5;cursor:not-allowed}
+.sonara-pro-editor-playback{display:grid;gap:8px}.sonara-pro-editor-playback audio{width:100%;height:40px}.sonara-pro-editor-playback span{display:flex;gap:6px;align-items:center;font-size:10px;color:#b4c3c0}
+.sonara-pro-editor-notice{border-left:2px solid #70ccab;padding:6px 10px;color:#bde7d5;font-size:11px}
+.sonara-pro-editor-privacy{color:#9d96ad;font-size:11px;line-height:1.5}
+.sonara-pro-editor input:focus-visible,.sonara-pro-editor button:focus-visible{outline:2px solid #c3a1f3;outline-offset:2px}
+@media(max-width:700px){.sonara-pro-editor{padding:14px;gap:14px}.sonara-pro-editor-panels{grid-template-columns:1fr}.sonara-pro-editor-waveform{height:118px}.sonara-pro-editor-time-row{font-size:9px}.sonara-pro-editor-canvas-top{font-size:11px}.sonara-pro-editor-trim{grid-template-columns:1fr}.sonara-pro-editor-buttons button,.sonara-pro-editor-export{width:100%}}
