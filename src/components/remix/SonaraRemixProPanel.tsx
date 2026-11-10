@@ -15,8 +15,8 @@ const safeError=(value:unknown,fallback:string)=>typeof value==='string'&&value.
 const KEY='sonara.remixPro.activeJob.v1';
 const DURATION_KEY='sonara.remixPro.requestedDuration.v2';
 const validDuration=(n:number)=>Number.isInteger(n)&&n>=30&&n<=480&&n%30===0;
-const AUDIO_FORMATS=/\.(wav|mp3|flac|m4a|mp4|aac|ogg|oga|opus|aif|aiff|aifc|webm|wma|caf|amr|ac3)$/i;
-const AUDIO_PICKER_ACCEPT='audio/*,.wav,.mp3,.flac,.m4a,.mp4,.aac,.ogg,.oga,.opus,.aif,.aiff,.aifc,.webm,.wma,.caf,.amr,.ac3';
+const AUDIO_FORMATS=/\.(wav|mp3|flac|m4a|mp4|mov|m4v|aac|ogg|oga|opus|aif|aiff|aifc|webm|wma|caf|amr|ac3)$/i;
+const AUDIO_PICKER_ACCEPT='audio/*,video/*,.wav,.mp3,.flac,.m4a,.mp4,.mov,.m4v,.aac,.ogg,.oga,.opus,.aif,.aiff,.aifc,.webm,.wma,.caf,.amr,.ac3';
 const audioSuffix=(name:string)=>name.match(AUDIO_FORMATS)?.[1]?.toLowerCase()||'';
 
 export default function SonaraRemixProPanel() {
@@ -62,7 +62,7 @@ export default function SonaraRemixProPanel() {
   const chooseSource=(file:File|null,role:'a'|'b')=>{
     if(!file)return;
     if(!AUDIO_FORMATS.test(file.name)||file.size<44||file.size>512*1024*1024){
-      setError('Il brano '+role.toUpperCase()+' deve essere un formato audio supportato, massimo 512 MiB.');
+      setError('Il brano '+role.toUpperCase()+' deve essere audio o video musicale supportato, massimo 512 MiB.');
       return;
     }
     if(role==='a')setSourceA(file);
@@ -145,7 +145,7 @@ export default function SonaraRemixProPanel() {
   const upload=async(file:File,sourceLabel:string)=>{
     const maxSourceBytes=512*1024*1024;
     if(file.size<44||file.size>maxSourceBytes||!AUDIO_FORMATS.test(file.name)){
-      throw new Error('Carica un file audio supportato fino a 512 MiB (anche oltre 8 minuti).');
+      throw new Error('Carica un file audio o video musicale supportato fino a 512 MiB.');
     }
     const suffix=audioSuffix(file.name);
     if(suffix!=='wav'&&!multiformatAvailable)
@@ -173,7 +173,7 @@ export default function SonaraRemixProPanel() {
     });
     const session=await start.json().catch(()=>({}));
     if(!start.ok||!/^sref_[0-9a-f-]{36}$/.test(String(session.referenceId||'')))
-      throw new Error(safeError(session.error,'Avvio upload audio privato non riuscito.'));
+      throw new Error(safeError(session.error,'Avvio upload multimediale privato non riuscito.'));
     const ref=String(session.referenceId),chunk=Number(session.partBytes);
     const total=Number(session.parts);
     if(chunk!==8*1024*1024||!Number.isInteger(total)||total<1||total>64)
@@ -206,14 +206,14 @@ export default function SonaraRemixProPanel() {
     });
     const result=await finish.json().catch(()=>({}));
     if(!finish.ok||result.referenceId!==ref)
-      throw new Error(safeError(result.error,'Finalizzazione upload WAV fallita.'));
+      throw new Error(safeError(result.error,'Finalizzazione upload multimediale fallita.'));
     return ref;
   };
 
   const begin=async()=>{
     if(submitting||activeJob.current&&job?.status!=='FAILED'&&job?.status!=='COMPLETED')return;
     if(available!==true){setError('Remix Pro GPU non ancora collegato. Usa il Remix normale.');return;}
-    if(!sourceA||!sourceB){setError('Seleziona due file audio diversi.');return;}
+    if(!sourceA||!sourceB){setError('Seleziona due brani audio o video musicali diversi.');return;}
     if(sourceA===sourceB){setError('Le sorgenti A e B devono essere diverse.');return;}
     if(!rights){setError('Conferma di avere il diritto di utilizzare entrambi i brani.');return;}
     if(!prompt.trim()){setError('Inserisci le indicazioni musicali per il nuovo brano.');return;}
@@ -325,9 +325,9 @@ export default function SonaraRemixProPanel() {
           onDrop={e=>{e.preventDefault();chooseSource(e.dataTransfer.files?.[0]||null,'a');}}
           style={{display:'grid',gap:10,minWidth:0,padding:16,border:'1px dashed #9869dc',borderRadius:12,background:'#20172c'}}>
           <strong>BRANO A — Voce e armonie</strong>
-          <small>Trascina qui il primo file audio oppure selezionalo dal dispositivo.</small>
+          <small>Trascina qui un brano audio o un video musicale.</small>
           <input id="sonara-remix-pro-file-a" ref={sourceAInput} type="file" accept={AUDIO_PICKER_ACCEPT}
-            aria-label="Seleziona file audio brano A" data-testid="sonara-remix-pro-input-a"
+            aria-label="Seleziona file audio o video brano A" data-testid="sonara-remix-pro-input-a"
             onChange={e=>chooseSource(e.currentTarget.files?.[0]||null,'a')}
             style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden',pointerEvents:'none'}} />
           <button type="button" data-testid="sonara-remix-pro-choose-a"
@@ -343,9 +343,9 @@ export default function SonaraRemixProPanel() {
           onDrop={e=>{e.preventDefault();chooseSource(e.dataTransfer.files?.[0]||null,'b');}}
           style={{display:'grid',gap:10,minWidth:0,padding:16,border:'1px dashed #9869dc',borderRadius:12,background:'#20172c'}}>
           <strong>BRANO B — Batteria e groove</strong>
-          <small>Trascina qui il secondo file audio oppure selezionalo dal dispositivo.</small>
+          <small>Trascina qui un brano audio o un video musicale.</small>
           <input id="sonara-remix-pro-file-b" ref={sourceBInput} type="file" accept={AUDIO_PICKER_ACCEPT}
-            aria-label="Seleziona file audio brano B" data-testid="sonara-remix-pro-input-b"
+            aria-label="Seleziona file audio o video brano B" data-testid="sonara-remix-pro-input-b"
             onChange={e=>chooseSource(e.currentTarget.files?.[0]||null,'b')}
             style={{position:'absolute',width:1,height:1,opacity:0,overflow:'hidden',pointerEvents:'none'}} />
           <button type="button" data-testid="sonara-remix-pro-choose-b"
@@ -358,7 +358,7 @@ export default function SonaraRemixProPanel() {
           </small>
         </div>
       </div>
-      <small>Formati: WAV, MP3, FLAC, M4A/MP4 audio, AAC, OGG/OPUS, AIFF, WebM audio, WMA, CAF, AMR, AC3. Massimo 15 minuti e 512 MiB per file. La GPU verifica il codec e converte l'audio in WAV di lavoro privato, senza cambiare il file originale.</small>
+      <small>Formati audio: WAV, MP3, FLAC, M4A, AAC, OGG/OPUS, AIFF, WebM, WMA, CAF, AMR, AC3. Video musicali: MP4, MOV, M4V (anche con più tracce audio). Massimo 15 minuti di musica e 512 MiB per file. La GPU estrae solo l'audio e lo converte in WAV di lavoro privato, senza modificare l'originale.</small>
       {!multiformatAvailable&&<small role="status">Decodifica multiformato non ancora pronta sull'agente MoLab. I WAV continuano a funzionare.</small>}
       <div className="sonara-v6-section-label"><span>02</span><div><strong>Direzione creativa</strong><small>Una produzione nuova, con la tua identità musicale.</small></div></div>
       <section className="sonara-v6-controls" style={{border:'1px solid #3f3354',borderRadius:15,padding:16,display:'grid',gap:12,background:'rgba(255,255,255,.025)'}}>
