@@ -252,7 +252,9 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
   if (!sessionResponse) {
     return nativeGenerationError('AUTH_STORE_UNAVAILABLE', 'Servizio account SONARA non disponibile.', 503);
   }
-  if (!sessionResponse.ok) return sessionResponse;
+  if (!sessionResponse.ok) return readableGenerationFailure(
+    sessionResponse, 'Sessione SONARA non verificabile. Accedi nuovamente prima di creare il Remix Pro.'
+  );
   const session = await sessionResponse.json().catch(() => ({}));
   const uid = String(session?.user?.uid || '').trim();
   if (session?.authenticated !== true || !uid || uid.length > 128) {
