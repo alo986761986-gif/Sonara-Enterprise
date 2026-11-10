@@ -25,7 +25,7 @@ test('explosive mode requires no extra unsafe fields and retains source no-overl
   const controls=parseV6Controls({mode:'explosive',master:'club',groove:85});
   assert.equal(controls.mode,'explosive');
   const brief=v6PreviewBrief(controls);
-  assert.match(brief,/Explosive A\\+B/);
+  assert.match(brief,/Explosive A\+B/);
   assert.match(brief,/Never overlay source recordings/);
   assert.ok(brief.length<=1350);
 });
