@@ -196,13 +196,16 @@ def install_packages():
         # Use the official installer to keep torch 2.9.1+cu128 and Demucs
         # 4.1.0 independent from the main ACE-Step environment.
         result = run(
-            [PYTHON, ROOT / "sonara_remix_pro_gpu_setup.py", "--install"],
+            [PYTHON, ROOT / "sonara_remix_pro_gpu_setup.py", "--install", "--smoke"],
             timeout=2200, cwd=ROOT,
         )
         # Important: installer includes CUDA kernel verification.
         if "GPU_KERNEL_TEST_OK=True" not in result.stdout:
             raise RecoveryBlocked("Private CUDA GPU verification did not succeed")
+        if "DEMUCS_REAL_GPU_INFERENCE_VERIFIED=True" not in result.stdout:
+            raise RecoveryBlocked("Real Demucs GPU smoke test did not pass")
         print("SONARA_PRO_PRIVATE_CUDA_VERIFIED=True", flush=True)
+        print("SONARA_PRO_HTDEMUCS_GPU_MODEL_READY=True", flush=True)
         # Install the actual audio-processing libraries. Do not touch main venv.
         run([
             uv, "pip", "install", "--python", PYTHON,
