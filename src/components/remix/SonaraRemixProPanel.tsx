@@ -23,6 +23,7 @@ export default function SonaraRemixProPanel() {
   const [available,setAvailable]=useState<boolean|null>(null);
   const [v5Available,setV5Available]=useState(false);
   const [v6Available,setV6Available]=useState(false);
+  const [explosiveAvailable,setExplosiveAvailable]=useState(false);
   const [v6Enabled,setV6Enabled]=useState(true);
   const [dnaMode,setDnaMode]=useState<'balanced'|'experimental'|'wild'|'explosive'>('balanced');
   const [masterProfile,setMasterProfile]=useState<'streaming'|'club'>('streaming');
@@ -80,7 +81,7 @@ export default function SonaraRemixProPanel() {
       setInfo('Recupero un job precedente. La sua durata potrebbe essere diversa dalla nuova selezione.');}
     fetch('/api/sonara-relay/pro-capabilities',{cache:'no-store',credentials:'include'})
       .then(r=>r.ok?r.json():{available:false})
-      .then(x=>{if(mounted.current){setAvailable(x.available===true);setMultiformatAvailable(x.multiformatAvailable===true);setV5Available(x.v5Available===true);setV6Available(x.v6Available===true);}})
+      .then(x=>{if(mounted.current){setAvailable(x.available===true);setMultiformatAvailable(x.multiformatAvailable===true);setV5Available(x.v5Available===true);setV6Available(x.v6Available===true);setExplosiveAvailable(x.explosiveAvailable===true);}})
       .catch(()=>{if(mounted.current)setAvailable(false);});
     return()=>{mounted.current=false;};
   },[]);
@@ -219,6 +220,7 @@ export default function SonaraRemixProPanel() {
     if(sourceA===sourceB){setError('Le sorgenti A e B devono essere diverse.');return;}
     if(!rights){setError('Conferma di avere il diritto di utilizzare entrambi i brani.');return;}
     if(!prompt.trim()){setError('Inserisci le indicazioni musicali per il nuovo brano.');return;}
+    if(v6Enabled&&dnaMode==='explosive'&&!explosiveAvailable){setError('Explosive Fusion richiede l’aggiornamento del worker GPU MoLab.');return;}
     // Auto duration is chosen ONCE before enqueue, so the private job still
     // carries an exact, verifiable duration: never change it during polling.
     const requestedDuration=v5Available&&durationMode==='auto'
@@ -377,7 +379,7 @@ export default function SonaraRemixProPanel() {
               <option value="balanced">Balanced · Fusione coerente</option>
               <option value="experimental">Experimental · Nuove interpretazioni</option>
               <option value="wild">Wild · Trasformazione audace</option>
-              <option value="explosive">Explosive Fusion A+B · Due ritornelli, voci e grande finale</option>
+              <option value="explosive" disabled={!explosiveAvailable}>Explosive Fusion A+B · Due ritornelli, voci e grande finale {explosiveAvailable?'':'(GPU in aggiornamento)'}</option>
             </select>
           </label>
           {([
