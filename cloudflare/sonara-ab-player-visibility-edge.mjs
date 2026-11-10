@@ -288,6 +288,20 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
     if(isPro && source.sonaraRemixProV6===true && !creativeControls)
       return nativeGenerationError('REMIX_V6_CONTROLS_REQUIRED',
         'Controlli Creative DNA V6 obbligatori.',400);
+    // Resolve the V5 GPU budget before billing reservation, so the public
+    // request and private queue agree even for older cached site assets.
+    const proSeconds=Number(source.durationSec);
+    const rawProCandidates=source.sonaraRemixProCandidates;
+    const requestedProCandidates=rawProCandidates===undefined?1:Number(rawProCandidates);
+    if(isPro && source.sonaraRemixProV5===true &&
+       (!Number.isInteger(requestedProCandidates) ||
+        requestedProCandidates<1 || requestedProCandidates>3))
+      return nativeGenerationError('REMIX_PRO_CANDIDATES_INVALID',
+        'Seleziona da 1 a 3 candidati musicali.',400);
+    const safeProCandidates=Math.min(
+      requestedProCandidates,
+      proSeconds<=90?3:proSeconds<=180?2:1
+    );
     // Existing billing entitlement and duration checks ran before this point.
     // Pro uses a separate, feature-flagged R2 queue; nothing can bypass billing.
     const payload = isPro
@@ -311,7 +325,7 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
           ...(creativeControls ? {v6Controls:creativeControls} : {}),
           genre: source.sonaraRemixProGenre,
           bInfluence: source.sonaraRemixProBInfluence,
-          candidateCount: source.sonaraRemixProCandidates,
+          candidateCount: source.sonaraRemixProV5===true?safeProCandidates:undefined,
           durationMode: source.sonaraRemixProDurationMode
         }
       : await prepareMolabR2RelayPayload({ ...source, sonaraUserUid: uid });

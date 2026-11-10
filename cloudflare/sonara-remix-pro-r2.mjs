@@ -263,11 +263,17 @@ async function enqueue(req,e,auth,b) {
     if(!Number.isInteger(body.bInfluence)||body.bInfluence<20||body.bInfluence>80)
       return fail('Bilanciamento A/B V5 non valido.',400);
     if(!['manual','auto'].includes(body.durationMode))return fail('Modalita durata V5 non valida.',400);
-    const count=Number(body.candidateCount);
-    const limit=duration<=90?3:duration<=180?2:1;
-    if(!Number.isInteger(count)||count<1||count>limit)
-      return fail('Numero di candidati V5 non supportato per questa durata.',400);
+    // Older clients may submit two or three candidates for a longer track.
+    // Preserve the duration and clamp only the GPU work budget. Reject
+    // malformed or out-of-range requests rather than silently trusting them.
+    const requestedCount=body.candidateCount===undefined?1:Number(body.candidateCount);
+    if(!Number.isInteger(requestedCount)||requestedCount<1||requestedCount>3)
+      return fail('Numero di candidati Remix Pro non valido (1–3).',400);
   }
+  const candidateLimit=duration<=90?3:duration<=180?2:1;
+  const acceptedCandidateCount=v5
+    ? Math.min(body.candidateCount===undefined?1:Number(body.candidateCount),candidateLimit)
+    : 1;
   const a=String(body.sourceA||''),c=String(body.sourceB||'');
   if(a===c)return fail('Seleziona due sorgenti differenti.');
   const refs=await Promise.all([ownedReference(b,a,uid),ownedReference(b,c,uid)]);
@@ -313,7 +319,7 @@ if(!(await proQuota(e,'verify',id,uid,duration)))return fail('Registrazione priv
       coverNoise:finite(body.coverNoise,0,0,.3),
       key:String(body.key||'').slice(0,40),
       ...(v5?{v5:true,genre:body.genre,bInfluence:body.bInfluence,
-               candidateCount:Number(body.candidateCount),durationMode:body.durationMode}:{}),
+               candidateCount:acceptedCandidateCount,durationMode:body.durationMode}:{}),
       ...(v6?{v6:true,v6Controls}:{})
     }};
   if(!j.params.prompt)return fail('Scrivi il prompt del Remix Pro.');
