@@ -149,7 +149,14 @@ def compose_direction(controls, dna, candidate_index, candidate_count):
     )
     return " ".join([
         "SONARA CREATIVE DNA V6: create ONE original cohesive musical performance, never overlay, edit together, or medley source audio.",
-        mode, vocal_palette_lock, theme,
+        mode, vocal_palette_lock,
+        *([
+            "DUAL SOURCE CHORUS PLAN: alternate both A and B hook melodies with "
+            "the SAME identifiable lead voice, then unite them in a new chorus "
+            "with tasteful same-singer choir harmonies and consistent instruments. "
+            "No breakdowns or singer swaps."
+        ] if controls.mode == "explosive" else []),
+        theme,
         "A melodic phrasing influence " + intensity(controls.melody) + ".",
         "A harmonic motion influence " + intensity(controls.harmony) + "; use only one stable compatible key.",
         "B groove language influence " + intensity(controls.groove) + ".",
