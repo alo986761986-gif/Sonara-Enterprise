@@ -62,7 +62,7 @@ LOCK_FILE = HOME / "remix-pro-agent.lock"
 BASE = "https://api.sonaraenterprise.com/api/sonara-relay"
 REVISION = "sonara-remix-pro-r2-agent-v3-dual-reference-fusion"
 MAX_WAV_BYTES = 512 * 1024 * 1024
-SOURCE_FORMATS = frozenset(("wav","mp3","flac","m4a","mp4","aac","ogg",
+SOURCE_FORMATS = frozenset(("wav","mp3","flac","m4a","mp4","mov","m4v","aac","ogg",
                            "oga","opus","aif","aiff","aifc","webm","wma",
                            "caf","amr","ac3"))
 STOP = False
