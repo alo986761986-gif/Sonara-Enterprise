@@ -1,6 +1,6 @@
 // SONARA Creative DNA V6: bounded, allowlisted server-side fusion controls.
 // This file does not authorize jobs, bypass billing or depend on client text.
-export const V6_FUSION_MODES = Object.freeze(['balanced', 'experimental', 'wild']);
+export const V6_FUSION_MODES = Object.freeze(['balanced', 'experimental', 'wild', 'explosive']);
 export const V6_MASTER_PROFILES = Object.freeze(['streaming', 'club']);
 const NUMERIC = Object.freeze(['melody', 'harmony', 'groove', 'timbre', 'humanize']);
 const defaults = Object.freeze({
@@ -25,7 +25,8 @@ export function parseV6Controls(raw) {
 const words = Object.freeze({
   balanced: 'Balanced arrangement: reconcile the two sources into one coherent composition, with clear transitions and a recurring central hook.',
   experimental: 'Experimental arrangement: develop fresh complementary motifs, altered call and response, and varied sections while maintaining harmonic coherence.',
-  wild: 'Wild arrangement: create a bold new musical identity with contrasting sections, unconventional fills and original counter-melodies; do not simply copy, layer or collage the source tracks.'
+  wild: 'Wild arrangement: create a bold new musical identity with contrasting sections, unconventional fills and original counter-melodies; do not simply copy, layer or collage the source tracks.',
+  explosive: 'Explosive A+B: develop contrasting motif and refrain families inspired by both sources, new call-and-response lead and backing vocals only where vocal material exists, original choir harmonies, a rich instrument palette, builds, impacts, detailed fills and one climactic final chorus. Never overlay source recordings.'
 });
 function level(value) { return value < 35 ? 'subtle' : value > 70 ? 'prominent' : 'moderate'; }
 export function v6PreviewBrief(controls) {
