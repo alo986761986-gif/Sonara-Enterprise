@@ -27,6 +27,8 @@ on:
       - "cloudflare/sonara-remix-pro-v6-controls.test.mjs"
       - "molab/sonara_remix_pro_v5.py"
       - "molab/sonara_remix_pro_v6.py"
+      - "molab/sonara_remix_pro_gpu_v6_handoff.py"
+      - "molab/test_sonara_remix_pro_gpu_v6_handoff.py"
       - "cloudflare/sonara-remix-pro-r2.test.mjs"
       - "cloudflare/sonara-ab-player-visibility-edge.mjs"
       - "cloudflare/sonara-remix-pro-duration-edge.mjs"
@@ -81,7 +83,8 @@ jobs:
         run: |
           node --test cloudflare/sonara-remix-pro-v6-controls.test.mjs
           python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_v6.py' -v
-          python3 -m py_compile molab/sonara_remix_pro_v6.py molab/sonara_remix_pro_v5.py molab/sonara_remix_pro_r2_agent.py
+          python3 -m py_compile molab/sonara_remix_pro_v6.py molab/sonara_remix_pro_v5.py molab/sonara_remix_pro_r2_agent.py molab/sonara_remix_pro_gpu_v6_handoff.py
+          python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_gpu_v6_handoff.py' -v
 
       - name: Verify 8-minute duration bridge for existing Vercel UI
         run: node --test cloudflare/sonara-remix-pro-duration-edge.test.mjs
