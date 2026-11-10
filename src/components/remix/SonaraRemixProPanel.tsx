@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AudioWaveform, Check, Download, LoaderCircle, ShieldCheck, UploadCloud, FolderOpen, Sparkles } from 'lucide-react';
 import SonaraRemixProLibrary from './SonaraRemixProLibrary';
 import SonaraRemixProEditor, { type RemixEditorTrack } from './SonaraRemixProEditor';
+import { createIntelligentRemixDirection } from './sonaraRemixIntelligentDirection';
 import './SonaraRemixProStudio.css';
 
 type ProJob = {jobId?: string;status?: string;stage?: string;progress?: number;audioUrl?: string;
@@ -40,6 +41,8 @@ export default function SonaraRemixProPanel() {
   const [editorTrack,setEditorTrack]=useState<RemixEditorTrack|null>(null);
   const [sourceB,setSourceB]=useState<File|null>(null);
   const [prompt,setPrompt]=useState('Create one cohesive professional new remix preserving the principal melody and A harmonies, with the rhythmic groove and drum articulation of B.');
+  const [directionCount,setDirectionCount]=useState(0);
+  const directionSequence=useRef(0);
   const [duration,setDuration]=useState<number>(()=>{
     try { const value=Number(sessionStorage.getItem(DURATION_KEY)); return validDuration(value)?value:120; }
     catch { return 120; }
@@ -59,6 +62,21 @@ export default function SonaraRemixProPanel() {
   const activeJob=useRef('');
   const sourceAInput=useRef<HTMLInputElement>(null);
   const sourceBInput=useRef<HTMLInputElement>(null);
+  const shuffleMusicalDirection=()=>{
+    const input={
+      genre,mode:dnaMode,bInfluence,bassFrom,master:masterProfile,
+      bpmA,bpmB,dna:dnaLevels,
+    };
+    let candidate='';
+    for(let attempt=0;attempt<8;attempt++){
+      candidate=createIntelligentRemixDirection(input,++directionSequence.current);
+      if(candidate!==prompt)break;
+    }
+    setPrompt(candidate);
+    setDirectionCount(directionSequence.current);
+    setError('');
+    setInfo('Nuova direzione musicale pronta. Puoi modificarla prima di generare il brano.');
+  };
   const changeDuration=(seconds:number)=>{
     if (!validDuration(seconds)) return;
     setDuration(seconds);
@@ -424,7 +442,26 @@ export default function SonaraRemixProPanel() {
           onChange={e=>setTrackTitle(e.target.value)} placeholder="Es. Midnight Fusion · Club Edit"
           aria-label="Titolo del remix da salvare in archivio"/>
       </label>
-      <label className="sonara-v6-field">Direzione musicale<textarea rows={3} value={prompt} onChange={e=>setPrompt(e.target.value)} style={{width:'100%',marginTop:6,padding:8,borderRadius:6,background:'#1c1926',color:'#fff'}} /></label>
+      <div className="sonara-v6-field sonara-v6-direction-field" data-testid="sonara-remix-intelligent-direction">
+        <div className="sonara-v6-direction-head">
+          <label htmlFor="sonara-remix-direction-textarea">Direzione musicale intelligente</label>
+          <button type="button" className="sonara-v6-direction-shuffle" data-testid="sonara-remix-change-direction"
+            onClick={shuffleMusicalDirection} aria-label="Cambia direzione musicale"
+            title="Crea una nuova proposta senza avviare alcun job GPU">
+            <Sparkles size={16}/> Cambia direzione musicale
+          </button>
+        </div>
+        <textarea id="sonara-remix-direction-textarea" rows={6} maxLength={6500}
+          data-testid="sonara-remix-direction-textarea"
+          value={prompt} onChange={e=>setPrompt(e.target.value)}
+          placeholder="Descrivi il risultato musicale oppure premi Cambia direzione musicale…"/>
+        <small role="status" className="sonara-v6-direction-hint">
+          {directionCount>0?'Proposte generate: '+directionCount+'. ':' '}
+          Varianti senza limite predefinito, basate su genere, modalità, equilibrio A/B, BPM inseriti e controlli DNA.
+          Il contenuto dei file sarà analizzato dal motore soltanto durante la generazione.
+          Cambiare proposta non consuma GPU e non crea un remix.
+        </small>
+      </div>
       <div className="sonara-v6-section-label"><span>03</span><div><strong>Durata e produzione</strong><small>Imposta la lunghezza e i dettagli del brano.</small></div></div>
       <div className="sonara-v6-production" style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:8}}>
         <label>Durata Remix AI (30 secondi – 8 minuti)
