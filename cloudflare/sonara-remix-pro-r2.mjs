@@ -423,9 +423,6 @@ export async function handleRemixPro(req,env,ctx,auth) {
   if(!match)return fail('Not found',404);
   const id=match[1],action=match[2]||'',obj=await b.get(jobKey(id)),j=await readJson(obj);
   if(!j||j.kind!=='sonara-remix-pro')return fail('Not found',404);
-  if(req.method==='GET'&&(action===''||action==='audio'||/^stem\//.test(action))) {
-    const user=await auth.user(req,env);
-    if(!user||user.uid!==j.ownerUid)return fail('Not found',404);
   if(req.method==='PATCH'&&action===''){
     const user=await auth.user(req,env);
     if(!user?.uid||user.uid!==j.ownerUid)return fail('Not found',404);
@@ -443,6 +440,9 @@ export async function handleRemixPro(req,env,ctx,auth) {
     }
     return fail('Modifica titolo in conflitto: riprova',409);
   }
+  if(req.method==='GET'&&(action===''||action==='audio'||/^stem\//.test(action))) {
+    const user=await auth.user(req,env);
+    if(!user||user.uid!==j.ownerUid)return fail('Not found',404);
     if(action==='')return json(publicStatus(j));
     if(j.status!=='COMPLETE')return fail('Audio non ancora pronto',409);
     if(action==='audio')return privateAudio(req,b,audioKey(id));
