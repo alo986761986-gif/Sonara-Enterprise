@@ -101,7 +101,12 @@ def check_main_engine():
         health = json.load(response)
     if not isinstance(health, dict):
         raise RecoveryBlocked("ACE-Step API health is unreadable")
-    if not health.get("models_initialized") or not health.get("llm_initialized"):
+    # ACE-Step can wrap the actual model state in a top-level "data" object.
+    # The main SONARA relay already accepts both shapes; V6 must do the same.
+    health = health.get("data", health)
+    if not isinstance(health, dict):
+        raise RecoveryBlocked("ACE-Step API health data is unreadable")
+    if health.get("models_initialized") is not True or health.get("llm_initialized") is not True:
         raise RecoveryBlocked("ACE-Step XL Turbo or LM 4B not initialized")
     if health.get("loaded_model") != "acestep-v15-xl-turbo":
         raise RecoveryBlocked("Different ACE-Step main model; refusing recovery")
