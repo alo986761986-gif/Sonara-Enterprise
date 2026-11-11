@@ -731,7 +731,7 @@ def run_job(item, auth_mode):
                         params={**params, **({"sourceReportA": report_a,
                                            "sourceReportB": report_b}
                                           if params.get("v6") is True else {})},
-                        b_drums=source_b / "drums.wav", engine=ace_cover,
+                        b_drums=(source_a if params.get("v6") is True else source_b) / "drums.wav", engine=ace_cover,
                         vocals_a=source_a / "vocals.wav",
                         vocals_b=source_b / "vocals.wav",
                         a_drums=source_a / "drums.wav",
