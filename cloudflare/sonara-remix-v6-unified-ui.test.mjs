@@ -20,11 +20,13 @@ test('single-track and multitrack remain opt-in and are never removed',()=>{
   assert.match(section,/sourceTab !== 'pro' && <section className="sonara-remix-results-panel">/);
   assert.match(section,/<SonaraRemixProPanel \/>/);
 });
-test('V6 panel retains two-source upload and safe V5 fallback',()=>{
+test('V6 panel retains two-source upload and requires original vocal preservation',()=>{
   assert.match(pro,/data-sonara-remix-v6-primary="true"/);
   assert.match(pro,/V6 · CREATIVE DNA FUSION/);
   assert.match(pro,/data-testid="sonara-remix-pro-input-a"/);
   assert.match(pro,/data-testid="sonara-remix-pro-input-b"/);
-  assert.match(pro,/sonaraRemixProV6:v6Available&&v6Enabled/);
+  assert.match(pro,/sonaraRemixProV6:true/);
+  assert.match(pro,/Voci originali A\+B/);
+  assert.match(pro,/Per conservare le voci originali A\+B serve Remix Pro V6 GPU attivo/);
   assert.match(pro,/data-testid="sonara-v6-fusion-controls"/);
 });
