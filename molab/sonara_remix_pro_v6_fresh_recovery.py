@@ -28,7 +28,7 @@ STATUS = HOME / "remix-pro-agent-status.json"
 LOG = HOME / "remix-pro-v6-agent.log"
 API = "http://127.0.0.1:8001/health"
 CAPABILITIES = "https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities"
-REVISION = "d408a9a6ee234ad9715ca16c4a0fdd598d83d2bf"
+REVISION = "d6b8dffe3a955f9023e2df92a62166e789cf1da5"
 SOURCE = (
     "https://raw.githubusercontent.com/"
     "alo986761986-gif/Sonara-Enterprise/" + REVISION + "/molab/"
@@ -42,7 +42,7 @@ BLOBS = {
     "sonara_remix_pro_v6.py": "5de2895488e80ebe46dfee2898888df6680be4a5",
     "sonara_remix_pro_r2_agent.py": "4dc8c1bec5d0a71d7995229658d40122c4d1fa9d",
     "sonara_remix_pro_original_voices.py": "93927ebacb2fcf86ea9397abfd31df1824b4c180",
-    "sonara_remix_pro_a_clock_fusion.py": "c03e1d83f7bf4dbbdababdcd8603a5bf71e0da88",
+    "sonara_remix_pro_a_clock_fusion.py": "28a5cdfd3729c68f4a0a93b55b01bb3b0f83a360",
     "sonara_remix_pro_gpu_setup.py": "e3e1b9bf461b357602d2aee87b638dda663e59b8",
 }
 PRO_REVISION = "sonara-remix-pro-r2-agent-v3-dual-reference-fusion"
