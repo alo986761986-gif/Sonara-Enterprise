@@ -723,6 +723,8 @@ def run_job(item, auth_mode):
                                            "sourceReportB": report_b}
                                           if params.get("v6") is True else {})},
                         b_drums=source_b / "drums.wav", engine=ace_cover,
+                        vocals_a=source_a / "vocals.wav",
+                        vocals_b=source_b / "vocals.wav",
                         mode=auth_mode, bpm=bpm_a,
                         key=params.get("key") or report_a.get("key") or None,
                         lease_check=lambda step: renewal.verify(),
@@ -742,6 +744,16 @@ def run_job(item, auth_mode):
                     "artisticListeningRequired": True,
                 }
                 if params.get("v6") is True:
+                    preserved = choice.get("originalVoices")
+                    if not isinstance(preserved, dict) or preserved.get(
+                        "modelGeneratedLeadVocalsRetained") is not False:
+                        raise ProAgentError("Original A/B voice preservation was not verified")
+                    v5_metadata["originalVoicesAAndB"] = {
+                        "sourceAUsed": preserved.get("originalVoiceAUsed") is True,
+                        "sourceBUsed": preserved.get("originalVoiceBUsed") is True,
+                        "translationPerformed": False,
+                        "separatedSourceVocals": True,
+                    }
                     v6_metadata = choice.get("v6Judge") or {}
                     v5_metadata["v6Selection"] = {
                         "selectionScore": v6_metadata.get("selectionScore"),
