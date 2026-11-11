@@ -56,6 +56,9 @@ on:
       - "molab/sonara_remix_pro_original_voices.py"
       - "molab/sonara_remix_pro_original_voices_install.py"
       - "molab/test_sonara_original_voices_contract.py"
+      - "molab/sonara_remix_pro_a_clock_fusion.py"
+      - "molab/sonara_remix_pro_a_clock_install.py"
+      - "molab/test_sonara_a_clock_fusion.py"
       - "src/components/remix/SonaraRemixSection.tsx"
       - "molab/sonara_r2_pull_agent.py"
       - "molab/sonara_r2_install.py"
@@ -122,6 +125,9 @@ jobs:
         run: |
           python3 -m py_compile molab/sonara_remix_pro_original_voices.py molab/sonara_remix_pro_original_voices_install.py
           python3 -m unittest discover -s molab -p 'test_sonara_original_voices_contract.py' -v
+          python3 -m py_compile molab/sonara_remix_pro_a_clock_fusion.py molab/sonara_remix_pro_a_clock_install.py
+          python3 -m pip install --quiet numpy scipy soundfile
+          python3 -m unittest discover -s molab -p 'test_sonara_a_clock_fusion.py' -v
 
       - name: Verify audio extraction from MP3, M4A and music video using FFmpeg
         run: |
