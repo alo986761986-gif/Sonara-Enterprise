@@ -28,7 +28,7 @@ STATUS = HOME / "remix-pro-agent-status.json"
 LOG = HOME / "remix-pro-v6-agent.log"
 API = "http://127.0.0.1:8001/health"
 CAPABILITIES = "https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities"
-REVISION = "852bea09670ca5ad6c68f3816e8d1cdced506831"
+REVISION = "ba0af6b5c0b633bd9f2e5219ac0541b4b57fdda1"
 SOURCE = (
     "https://raw.githubusercontent.com/"
     "alo986761986-gif/Sonara-Enterprise/" + REVISION + "/molab/"
@@ -38,9 +38,10 @@ BLOBS = {
     "sonara_remix_pro_ace_bridge.py": "d946a5de652bbb7ce6365c0edaa9f496cca408ef",
     "sonara_remix_pro_quality.py": "7e4e0f6c608e02063b3bac689b5b35a5b91bbef5",
     "sonara_remix_pro_fusion.py": "67b58b27a8b4ff7838fce0e681a0e438e0b37002",
-    "sonara_remix_pro_v5.py": "25366c30b1e185cb3574f710acd71db6feae6d29",
+    "sonara_remix_pro_v5.py": "c8d1c2e9b8a10b0e9c308abe3b48dac8c1d8eaea",
     "sonara_remix_pro_v6.py": "f3616e7107cb271237c3cfa6c8d58aa51eec650b",
-    "sonara_remix_pro_r2_agent.py": "b49d5e618e6dbe6a90f11098eeeea69cd1ba331e",
+    "sonara_remix_pro_r2_agent.py": "a717cd4a4a27b865114c376b7f69cb236953a7d3",
+    "sonara_remix_pro_original_voices.py": "93927ebacb2fcf86ea9397abfd31df1824b4c180",
     "sonara_remix_pro_gpu_setup.py": "e3e1b9bf461b357602d2aee87b638dda663e59b8",
 }
 PRO_REVISION = "sonara-remix-pro-r2-agent-v3-dual-reference-fusion"
@@ -232,7 +233,8 @@ def verify_ready():
     imports = (
         "import sonara_remix_pro_toolkit, sonara_remix_pro_quality, "
         "sonara_remix_pro_fusion, sonara_remix_pro_v5, "
-        "sonara_remix_pro_v6, sonara_remix_pro_ace_bridge"
+        "sonara_remix_pro_v6, sonara_remix_pro_ace_bridge, "
+        "sonara_remix_pro_original_voices"
     )
     run([PYTHON, "-c", imports], timeout=100, cwd=ROOT)
     print("SONARA_PRO_IMPORTS_OK=True", flush=True)
