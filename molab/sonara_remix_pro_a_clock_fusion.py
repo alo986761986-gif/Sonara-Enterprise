@@ -178,12 +178,17 @@ def _choose_a_drum_loop(path, tempo):
     with sf.SoundFile(str(path)) as stream:
         if stream.samplerate != RATE:
             raise OneClockFusionError("Verified Demucs A drums must be 44.1 kHz")
-        phrase = min(stream.frames, max(round(8 * 4 * 60 / tempo * RATE),
-                                        int(5 * RATE)))
-        if phrase < int(4 * RATE):
-            raise OneClockFusionError("A drum reference is too short for a steady groove")
+        bar_frames = round(4 * 60 / tempo * RATE)
+        bars_available = stream.frames // bar_frames
+        if bars_available < 2:
+            raise OneClockFusionError("A drums need at least two full bars of groove")
+        # The loop itself always contains an integral number of A bars.
+        # Arbitrary 8- or 12-second clips can drift against the intended BPM.
+        phrase = min(8, bars_available) * bar_frames
         maximum = max(0, stream.frames - phrase)
-        positions = [round(maximum * i / 8) for i in range(9)]
+        beat_frames = max(1, round(RATE * 60 / tempo))
+        positions = [min(maximum, (round(maximum * i / 8) // beat_frames)
+                         * beat_frames) for i in range(9)]
         best = (-1.0, None)
         lowpass = butter(3, 160, fs=RATE, btype="lowpass", output="sos")
         for pos in sorted(set(positions)):
