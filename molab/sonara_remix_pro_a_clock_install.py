@@ -27,18 +27,24 @@ PYTHON = ROOT / ".venv/bin/python"
 AGENT = ROOT / "sonara_remix_pro_r2_agent.py"
 LOG = HOME / "remix-pro-v6-agent.log"
 REVISION = "sonara-remix-pro-r2-agent-v3-dual-reference-fusion"
-SOURCE_COMMIT = "2a085dab4474dbc8c52495537ed5a1f378f180f1"
+SOURCE_COMMIT = "7feb23bf83b86aeef803255aa2e5d46f4d4c6fd0"
 REMOTE = ("https://raw.githubusercontent.com/alo986761986-gif/"
           "Sonara-Enterprise/" + SOURCE_COMMIT + "/molab/")
 PINNED = {
     "sonara_remix_pro_a_clock_fusion.py":
-        ("", "a451bed4b29dc1153711ac33f72ca30848acaf79"),
+        ("", "c03e1d83f7bf4dbbdababdcd8603a5bf71e0da88"),
     "sonara_remix_pro_v5.py":
         ("c8d1c2e9b8a10b0e9c308abe3b48dac8c1d8eaea",
          "255cf86773f9fc908242178e4786fac9fe881c6a"),
     "sonara_remix_pro_r2_agent.py":
         ("a717cd4a4a27b865114c376b7f69cb236953a7d3",
-         "6072e34411316e00362bfcdcef2f4bac9f7ac60c"),
+         "4dc8c1bec5d0a71d7995229658d40122c4d1fa9d"),
+    "sonara_remix_pro_fusion.py":
+        ("67b58b27a8b4ff7838fce0e681a0e438e0b37002",
+         "073e73b0f418e91bd48e8bfbe084ba6f31cef847"),
+    "sonara_remix_pro_v6.py":
+        ("f3616e7107cb271237c3cfa6c8d58aa51eec650b",
+         "5de2895488e80ebe46dfee2898888df6680be4a5"),
 }
 
 
