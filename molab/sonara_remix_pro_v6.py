@@ -124,7 +124,7 @@ def compose_direction(controls, dna, candidate_index, candidate_count):
         "balanced": "Build a cohesive song with a recurring identity; musical development must be smooth.",
         "experimental": "Explore novel harmonic voicings and meaningful arrangement variations with consistent tonal center.",
         "wild": "Use bold contrasts and unexpected but musically coherent hook transformations; avoid repetitive formulaic arrangements.",
-        "explosive": "EXPLOSIVE HOMOGENEOUS FUSION — CONTINUITY LOCK: one BPM, meter, kick/snare/hat kit and bass timbre throughout. Maintain the SAME lead singer's vocal identity, accent, register and mic/reverb texture when interpreting both A and B hook families. Keep a fixed instrumental palette and acoustic space; add energy through human performance, harmonies and small fills, not new instrument patches or a different singer. No breakdowns, silences, abrupt edits, half-time, double-time or drum-kit resets.",
+        "explosive": "EXPLOSIVE HOMOGENEOUS FUSION — CONTINUITY LOCK: one BPM, meter, kick/snare/hat kit and bass timbre throughout. Preserve the separate original voices of A and B, with their own accent and timbre, in one coherent microphone/reverb space; no artificial singer switching or re-singing. Keep a fixed instrumental palette and acoustic space; add energy through human performance, harmonies and small fills, not new instrument patches or a different singer. No breakdowns, silences, abrupt edits, half-time, double-time or drum-kit resets.",
     }[controls.mode]
     def intensity(value):
         return "subtle" if value < 35 else "strong" if value >= 75 else "moderate"
