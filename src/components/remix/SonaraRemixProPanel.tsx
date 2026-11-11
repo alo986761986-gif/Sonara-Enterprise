@@ -26,7 +26,6 @@ export default function SonaraRemixProPanel() {
   const [v5Available,setV5Available]=useState(false);
   const [v6Available,setV6Available]=useState(false);
   const [explosiveAvailable,setExplosiveAvailable]=useState(false);
-  const [v6Enabled,setV6Enabled]=useState(true);
   const [dnaMode,setDnaMode]=useState<'balanced'|'experimental'|'wild'|'explosive'>('balanced');
   const [masterProfile,setMasterProfile]=useState<'streaming'|'club'>('streaming');
   const [dnaLevels,setDnaLevels]=useState({melody:65,harmony:60,groove:65,timbre:55,humanize:60});
@@ -40,7 +39,7 @@ export default function SonaraRemixProPanel() {
   const [archiveRefresh,setArchiveRefresh]=useState(0);
   const [editorTrack,setEditorTrack]=useState<RemixEditorTrack|null>(null);
   const [sourceB,setSourceB]=useState<File|null>(null);
-  const [prompt,setPrompt]=useState('Create one cohesive professional new remix preserving the principal melody and A harmonies, with the rhythmic groove and drum articulation of B.');
+  const [prompt,setPrompt]=useState('Create one cohesive professional musical fusion of A and B. Keep each original recorded singing voice and its original language, without translating, re-singing or inventing words. Arrange the original A and B voices in distinct complementary sections over a newly generated instrumental production.');
   const [directionCount,setDirectionCount]=useState(0);
   const directionSequence=useRef(0);
   const [duration,setDuration]=useState<number>(()=>{
@@ -240,7 +239,7 @@ export default function SonaraRemixProPanel() {
     if(sourceA===sourceB){setError('Le sorgenti A e B devono essere diverse.');return;}
     if(!rights){setError('Conferma di avere il diritto di utilizzare entrambi i brani.');return;}
     if(!prompt.trim()){setError('Inserisci le indicazioni musicali per il nuovo brano.');return;}
-    if(v6Enabled&&dnaMode==='explosive'&&!explosiveAvailable){setError('Explosive Fusion richiede l’aggiornamento del worker GPU MoLab.');return;}
+    if(dnaMode==='explosive'&&!explosiveAvailable){setError('Explosive Fusion richiede l’aggiornamento del worker GPU MoLab.');return;}
     // Auto duration is chosen ONCE before enqueue, so the private job still
     // carries an exact, verifiable duration: never change it during polling.
     const requestedDuration=v5Available&&durationMode==='auto'
@@ -248,6 +247,7 @@ export default function SonaraRemixProPanel() {
       : duration;
     const safeCandidateCount=Math.min(effectiveCandidates,requestedDuration<=90?3:requestedDuration<=180?2:1);
     if(!validDuration(requestedDuration)){setError('Scegli una durata valida fra 0:30 e 8:00.');return;}
+    if(!v5Available||!v6Available){setError('Per conservare le voci originali A+B serve Remix Pro V6 GPU attivo.');return;}
     setSubmittedDuration(requestedDuration);
     setSubmitting(true);setError('');setInfo('Caricamento privato del brano A…');
     try{
@@ -270,8 +270,8 @@ export default function SonaraRemixProPanel() {
             sonaraRemixProBInfluence:bInfluence,
             sonaraRemixProCandidates:safeCandidateCount,
             sonaraRemixProDurationMode:durationMode,
-            sonaraRemixProV6:v6Available&&v6Enabled,
-            ...(v6Enabled?{sonaraRemixProV6Controls:{
+            sonaraRemixProV6:true,
+            ...(v6Available?{sonaraRemixProV6Controls:{
               mode:dnaMode, master:masterProfile,...dnaLevels
             }}:{})
           }:{}),
@@ -391,9 +391,7 @@ export default function SonaraRemixProPanel() {
           <strong style={{color:'#e1c9ff',fontSize:13,letterSpacing:'.08em'}}>SONARA CREATIVE DNA FUSION V6</strong>
           <small style={{color:'#beb0d5'}}>{v6Available?'Motore V6 GPU disponibile: analisi DNA, composizione differenziata, selezione misurabile e mastering dedicato.':'Anteprima Creative DNA su V5: le indicazioni compositive sono reali, ma analisi e selezione V6 richiedono un aggiornamento del worker MoLab.'}</small>
           {dnaMode==='explosive'&&<small role="status">Explosive Fusion guida la nuova composizione attraverso richiami melodici e ritornelli di A e B, cori e strumenti articolati. Le parole e la fedeltà musicale non sono garantite automaticamente: serve ascoltare il master. Disponibile solo con worker V6 aggiornato.</small>}
-          {v6Available&&<label style={{display:'flex',gap:9,alignItems:'center'}}>
-            <input type="checkbox" checked={v6Enabled} onChange={e=>setV6Enabled(e.target.checked)} /> Usa il nuovo motore V6 (disattiva per V5)
-          </label>}
+          <small role="status" style={{color:'#d8c1f0'}}>Voci originali A+B · modalità protetta: il testo cantato resta nella lingua sorgente (italiano, inglese o altra lingua). Nessuna traduzione o voce sintetizzata. La resa del mix richiede ascolto finale.</small>
           <label style={{display:'grid',gap:5}}>Modalità creativa
             <select value={dnaMode} onChange={e=>setDnaMode(e.target.value as 'balanced'|'experimental'|'wild'|'explosive')} style={{background:'#272036',color:'#fff',border:'1px solid #6e5488',borderRadius:8,padding:10}}>
               <option value="balanced">Balanced · Fusione coerente</option>
