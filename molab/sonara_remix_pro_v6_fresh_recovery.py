@@ -28,7 +28,7 @@ STATUS = HOME / "remix-pro-agent-status.json"
 LOG = HOME / "remix-pro-v6-agent.log"
 API = "http://127.0.0.1:8001/health"
 CAPABILITIES = "https://api.sonaraenterprise.com/api/sonara-relay/pro-capabilities"
-REVISION = "837088d6bc9e02be9694e119a80985c666193b3f"
+REVISION = "852bea09670ca5ad6c68f3816e8d1cdced506831"
 SOURCE = (
     "https://raw.githubusercontent.com/"
     "alo986761986-gif/Sonara-Enterprise/" + REVISION + "/molab/"
@@ -36,11 +36,11 @@ SOURCE = (
 BLOBS = {
     "sonara_remix_pro_toolkit.py": "4ca1f094839f8372a5fd9c3ee8462e5470a9100d",
     "sonara_remix_pro_ace_bridge.py": "d946a5de652bbb7ce6365c0edaa9f496cca408ef",
-    "sonara_remix_pro_quality.py": "d31e42a4ba52e15fee08436f997f95b0b7561054",
-    "sonara_remix_pro_fusion.py": "dad0b477a3dfb02761c971f05db849945ab39f56",
-    "sonara_remix_pro_v5.py": "7f88b399798dbbd815decf07867ed276c5ca3860",
-    "sonara_remix_pro_v6.py": "535c9e30ad04ed950c4f615639d078f7f823435c",
-    "sonara_remix_pro_r2_agent.py": "25327ad052be63c1f86450afb56c478b1a43f528",
+    "sonara_remix_pro_quality.py": "7e4e0f6c608e02063b3bac689b5b35a5b91bbef5",
+    "sonara_remix_pro_fusion.py": "67b58b27a8b4ff7838fce0e681a0e438e0b37002",
+    "sonara_remix_pro_v5.py": "25366c30b1e185cb3574f710acd71db6feae6d29",
+    "sonara_remix_pro_v6.py": "f3616e7107cb271237c3cfa6c8d58aa51eec650b",
+    "sonara_remix_pro_r2_agent.py": "b49d5e618e6dbe6a90f11098eeeea69cd1ba331e",
     "sonara_remix_pro_gpu_setup.py": "e3e1b9bf461b357602d2aee87b638dda663e59b8",
 }
 PRO_REVISION = "sonara-remix-pro-r2-agent-v3-dual-reference-fusion"
