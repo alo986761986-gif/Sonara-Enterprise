@@ -34,6 +34,7 @@ on:
       - "molab/sonara_remix_pro_v6.py"
       - "molab/sonara_remix_pro_gpu_v6_handoff.py"
       - "molab/test_sonara_remix_pro_gpu_v6_handoff.py"
+      - "molab/test_sonara_remix_pro_gpu_v6_handoff.py"
       - "molab/test_sonara_remix_pro_completion_recovery.py"
       - "cloudflare/sonara-remix-pro-r2.test.mjs"
       - "cloudflare/sonara-ab-player-visibility-edge.mjs"
@@ -74,6 +75,8 @@ jobs:
     steps:
       - name: Checkout SONARA
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
