@@ -37,6 +37,7 @@ for _module in (
     "sonara_remix_pro_quality.py",
     "sonara_remix_pro_fusion.py",
     "sonara_remix_pro_original_voices.py",
+    "sonara_remix_pro_a_clock_fusion.py",
 ):
     if not (_AGENT_DIRECTORY / _module).is_file():
         raise RuntimeError("Missing local Remix Pro module: " + _module)
@@ -642,8 +643,15 @@ def run_job(item, auth_mode):
             progress(job, lease, "analyzing", renewal)
             report_a = analyze_audio(a)
             report_b = analyze_audio(b)
-            bpm_a = select_fusion_tempo(params.get("bpmA"), report_a,
-                                         params.get("bpmB"), report_b)
+            if params.get("v6") is True:
+                # Never adopt B's BPM when A is the authoritative house clock.
+                # Without a credible A pulse, require the creator's A BPM.
+                bpm_a = select_fusion_tempo(params.get("bpmA"), report_a, None, {})
+                if bpm_a is None:
+                    raise ProAgentError("Remix V6 requires source A tempo or explicit BPM A")
+            else:
+                bpm_a = select_fusion_tempo(params.get("bpmA"), report_a,
+                                             params.get("bpmB"), report_b)
             # Uncertain BPM is legitimate for ambient and syncopated music.
             # ACE-Step can derive the pulse from its two audio references.
             # No synthesized or guessed BPM values are supplied.
@@ -726,6 +734,7 @@ def run_job(item, auth_mode):
                         b_drums=source_b / "drums.wav", engine=ace_cover,
                         vocals_a=source_a / "vocals.wav",
                         vocals_b=source_b / "vocals.wav",
+                        a_drums=source_a / "drums.wav",
                         mode=auth_mode, bpm=bpm_a,
                         key=params.get("key") or report_a.get("key") or None,
                         lease_check=lambda step: renewal.verify(),
