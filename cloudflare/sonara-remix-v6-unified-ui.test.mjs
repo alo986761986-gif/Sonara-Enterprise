@@ -26,7 +26,8 @@ test('V6 panel retains two-source upload and requires original vocal preservatio
   assert.match(pro,/data-testid="sonara-remix-pro-input-a"/);
   assert.match(pro,/data-testid="sonara-remix-pro-input-b"/);
   assert.match(pro,/sonaraRemixProV6:true/);
-  assert.match(pro,/Voci originali A\+B/);
+  assert.match(pro,/Fusione House A\+B/);
+  assert.match(pro,/cassa e BPM solo dal brano A/);
   assert.match(pro,/Per conservare le voci originali A\+B serve Remix Pro V6 GPU attivo/);
   assert.match(pro,/data-testid="sonara-v6-fusion-controls"/);
 });
