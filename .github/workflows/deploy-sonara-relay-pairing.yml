@@ -131,8 +131,10 @@ jobs:
 
       - name: Verify audio extraction from MP3, M4A and music video using FFmpeg
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends ffmpeg
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends ffmpeg
+          fi
           python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_multiformat.py' -v
 
       - name: Verify 8-minute duration bridge for existing Vercel UI
