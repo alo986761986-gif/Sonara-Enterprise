@@ -27,12 +27,12 @@ PYTHON = ROOT / ".venv/bin/python"
 AGENT = ROOT / "sonara_remix_pro_r2_agent.py"
 LOG = HOME / "remix-pro-v6-agent.log"
 REVISION = "sonara-remix-pro-r2-agent-v3-dual-reference-fusion"
-SOURCE_COMMIT = "7feb23bf83b86aeef803255aa2e5d46f4d4c6fd0"
+SOURCE_COMMIT = "ca70e3f66c32dd91530611ea4bb0c93c6ad488a6"
 REMOTE = ("https://raw.githubusercontent.com/alo986761986-gif/"
           "Sonara-Enterprise/" + SOURCE_COMMIT + "/molab/")
 PINNED = {
     "sonara_remix_pro_a_clock_fusion.py":
-        ("", "c03e1d83f7bf4dbbdababdcd8603a5bf71e0da88"),
+        ("", "28a5cdfd3729c68f4a0a93b55b01bb3b0f83a360"),
     "sonara_remix_pro_v5.py":
         ("c8d1c2e9b8a10b0e9c308abe3b48dac8c1d8eaea",
          "255cf86773f9fc908242178e4786fac9fe881c6a"),
