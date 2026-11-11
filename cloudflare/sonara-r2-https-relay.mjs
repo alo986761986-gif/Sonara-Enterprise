@@ -43,6 +43,7 @@ const hasWorkerAuth = async (r,e) => {
     String(e.SONARA_RELAY_TOKEN_SHA256_QUATERNARY||'').trim().toLowerCase(),
     String(e.SONARA_RELAY_TOKEN_SHA256_QUINARY||'').trim().toLowerCase(),
     String(e.SONARA_RELAY_TOKEN_SHA256_SENARY||'').trim().toLowerCase(),
+    String(e.SONARA_RELAY_TOKEN_SHA256_SEPTENARY||'').trim().toLowerCase(),
   ].filter(value=>/^[0-9a-f]{64}$/.test(value));
   if(!authorized.length)return false;
   const bytes=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(supplied)));
