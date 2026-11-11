@@ -1,5 +1,6 @@
 """Offline safety regression for the guarded V6 GPU handoff."""
 import importlib.util
+import subprocess
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -18,9 +19,22 @@ class V6HandoffSafety(unittest.TestCase):
                          {"sonara_remix_pro_r2_agent.py",
                           "sonara_remix_pro_v5.py","sonara_remix_pro_v6.py",
                           "sonara_remix_pro_fusion.py"})
+        # The installer intentionally pins a known-good *historical* commit.
+        # Current main evolves, so comparing the working tree against historical
+        # pins would reject every legitimate subsequent Remix Pro fix.
         for name, sha in guard.BLOBS.items():
             self.assertEqual(len(sha), 40)
-            self.assertEqual(guard.git_blob((HERE / name).read_bytes()), sha)
+            pinned_ref = f"{guard.PINNED_COMMIT}:molab/{name}"
+            pinned = subprocess.run(
+                ["git", "show", pinned_ref], cwd=HERE.parent,
+                check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+            self.assertEqual(
+                pinned.returncode, 0,
+                f"Immutable V6 pin not in local git: {pinned_ref}; "
+                "fetch PINNED_COMMIT before checking installer pins",
+            )
+            self.assertEqual(guard.git_blob(pinned.stdout), sha)
         self.assertNotIn("ACE-Step", str(guard.ROOT))
         self.assertNotIn("SIGKILL", (HERE / "sonara_remix_pro_gpu_v6_handoff.py").read_text())
 
