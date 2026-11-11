@@ -53,6 +53,9 @@ on:
       - "src/components/remix/SonaraRemixProStudio.css"
       - "cloudflare/sonara-remix-pro-usage.test.mjs"
       - "molab/sonara_remix_pro_r2_agent.py"
+      - "molab/sonara_remix_pro_original_voices.py"
+      - "molab/sonara_remix_pro_original_voices_install.py"
+      - "molab/test_sonara_original_voices_contract.py"
       - "src/components/remix/SonaraRemixSection.tsx"
       - "molab/sonara_r2_pull_agent.py"
       - "molab/sonara_r2_install.py"
@@ -114,6 +117,11 @@ jobs:
           python3 -m py_compile molab/sonara_remix_pro_v6.py molab/sonara_remix_pro_v5.py molab/sonara_remix_pro_r2_agent.py molab/sonara_remix_pro_gpu_v6_handoff.py
           python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_gpu_v6_handoff.py' -v
           python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_completion_recovery.py' -v
+
+      - name: Verify original-language A/B vocal preservation and safe installation
+        run: |
+          python3 -m py_compile molab/sonara_remix_pro_original_voices.py molab/sonara_remix_pro_original_voices_install.py
+          python3 -m unittest discover -s molab -p 'test_sonara_original_voices_contract.py' -v
 
       - name: Verify audio extraction from MP3, M4A and music video using FFmpeg
         run: |
