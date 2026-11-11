@@ -282,7 +282,8 @@ def technical_score(audit, *, continuity=None):
 
 
 def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
-                      engine, mode, bpm, key, lease_check):
+                      engine, mode, bpm, key, lease_check,
+                      vocals_a=None, vocals_b=None):
     """Generate serial independent real ACE-Step covers; publish one accepted master.
 
     Caller owns the lease and private scratch directory. No fallback audio, no
@@ -339,6 +340,15 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
             prompt = (dual_priority + compose_direction(
                 v6, dna, index, controls["candidateCount"]
             ) + "\n" + prompt)[:9000]
+        if v6 is not None:
+            # The model creates a fresh backing performance; words are never
+            # translated/re-sung by this instruction. Authentic source singing
+            # is restored from private A/B vocal stems after generation.
+            prompt = (
+                "INSTRUMENTAL BACKING ONLY. NO NEW SINGERS, NO VOCAL SYLLABLES. "
+                "Preserve the original A/B recorded voices separately; do not "
+                "translate or recreate their lyrics. " + prompt
+            )[:9000]
         result = engine(
             guide, generated, prompt, mode=mode,
             strength=float(params.get("coverStrength") if params.get("coverStrength") is not None else .72),
@@ -347,6 +357,20 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
         if result.get("status") != "completed" or result.get("oneContinuousOutput") is not True or result.get("durationVerified") is not True:
             raise V5ControlError("ACE-Step did not finish verified V5 output")
         lease_check("mastering")
+        voice_report = None
+        if v6 is not None:
+            if vocals_a is None or vocals_b is None:
+                raise V5ControlError("V6 needs authentic vocal stems from both sources")
+            from sonara_remix_pro_original_voices import restore_original_voices
+            original_mix = Path(folder) / ("v6-original-voices-%d.wav" % index)
+            voice_report = restore_original_voices(
+                generated=generated, vocals_a=vocals_a, vocals_b=vocals_b,
+                destination=original_mix,
+                scratch=Path(folder) / ("v6-vocal-stems-%d" % index),
+                expected_seconds=controls["durationSec"],
+                lease_check=lease_check, device="cuda",
+                target_lufs=-14.0)
+            generated = original_mix
         sample, sr = sf.read(str(generated), dtype="float32", always_2d=True)
         if not 22050 <= sr <= 96000 or abs(len(sample)/sr-controls["durationSec"]) > .1:
             raise V5ControlError("V5 duration mismatch")
@@ -410,7 +434,8 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
         valid.append({
             "generated": generated, "master": mastered_path, "audit": report,
             "gate": verdict, "technicalScore": technical_score(report, continuity=continuity),
-            "candidateIndex": index, "continuity": continuity
+            "candidateIndex": index, "continuity": continuity,
+            "originalVoices": voice_report
         })
     if not valid:
         raise V5QualityRejected(",".join(sorted(set(rejection_codes)))[:300])
