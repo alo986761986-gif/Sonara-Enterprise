@@ -478,10 +478,10 @@ def build_fusion_prompt(creator_prompt, report_a, report_b, *,
     )
     if explosive:
         form = (
-            "SONIC IDENTITY LOCK: SAME lead vocal identity and timbre for "
-            "A-inspired and B-inspired phrases, with continuous mic position, "
-            "accent, vocal effects and reverb; do not introduce another singer. "
-            "SAME bass sound, drum kit, chords/instrument timbres, spatial "
+            "DUAL-VOICE IDENTITY LOCK: preserve the two distinct original vocal identities "
+            "from sources A and B, with cohesive spatial placement, "
+            "their own natural accents and vocal texture; never synthesize a third singer. "
+            "ONE source-A kick and drum kit, coherent bass and instrument timbres, spatial "
             "character and overall stereo field throughout. Cross transitions "
             "musically with shared harmonies and consistent groove; distinguish "
             "the hooks by melody, NOT new singer or new instruments. "
@@ -489,10 +489,10 @@ def build_fusion_prompt(creator_prompt, report_a, report_b, *,
             "one repeating kick-snare-hat groove and compatible bass pulse from the first musical bar "
             "through the ending. Never stop, mute, replace, or reset the kick, percussion, bass "
             "or backing rhythm at verse, chorus, vocal entrance, build or transition. "
-            "Reinterpret A's motif and B's contrasting hook as melodic and vocal call-and-response "
+            "Develop A's melody and B's compatible musical material as progressive phrases "
             "OVER the SAME uninterrupted beat and chord language. "
-            "When both inputs truly feature singers, generate fresh lead phrases and choir harmonies "
-            "without assuming exact source lyrics; instrumental hooks otherwise. "
+            "When both inputs truly feature singers, reserve clean space for the actual original vocals "
+            "without regenerating or translating source lyrics; instrumental hooks otherwise. "
             "Use expressive keys, bass, percussion, genre-appropriate guitar/brass/synths, tasteful "
             "riser effects and density changes over the SAME beat. No breakdowns, no pauses, "
             "no beat drops, no silence, no stop-start effects, no half-time or double-time change, "
