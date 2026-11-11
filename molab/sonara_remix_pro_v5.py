@@ -283,7 +283,8 @@ def technical_score(audit, *, continuity=None):
 
 def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
                       engine, mode, bpm, key, lease_check,
-                      vocals_a=None, vocals_b=None, a_drums=None):
+                      vocals_a=None, vocals_b=None, a_drums=None,
+                      phase_callback=None):
     """Generate serial independent real ACE-Step covers; publish one accepted master.
 
     Caller owns the lease and private scratch directory. No fallback audio, no
@@ -311,6 +312,8 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
     rejection_codes = []
     for index in range(controls["candidateCount"]):
         lease_check("ace_step")
+        if phase_callback:
+            phase_callback("ace_step")
         generated = Path(folder) / ("v5-candidate-%d.wav" % index)
         mastered_path = Path(folder) / ("v5-master-%d.wav" % index)
         prompt = build_v5_brief(base_prompt, controls, drum_measurement=groove,
@@ -342,10 +345,17 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
             guide, generated, prompt, mode=mode,
             strength=float(params.get("coverStrength") if params.get("coverStrength") is not None else .72),
             noise=float(params.get("coverNoise") if params.get("coverNoise") is not None else 0.0),
-            bpm=bpm, key=key, reference_audio_path=style)
+            bpm=bpm, key=key, reference_audio_path=style,
+            **({"instruction": (
+                "Create only a clean House instrumental backing at the BPM "
+                "and groove of A. No singing or extra kick. Leave clear "
+                "space for the two original voices to be mixed afterward."
+            )} if v6 is not None else {}))
         if result.get("status") != "completed" or result.get("oneContinuousOutput") is not True or result.get("durationVerified") is not True:
             raise V5ControlError("ACE-Step did not finish verified V5 output")
         lease_check("mastering")
+        if phase_callback:
+            phase_callback("vocal_fusion" if v6 is not None else "mastering")
         voice_report = None
         if v6 is not None:
             if vocals_a is None or vocals_b is None or a_drums is None:
@@ -366,6 +376,8 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
                 expected_seconds=controls["durationSec"],
                 tempo_a=bpm, lease_check=lease_check)
             generated = original_mix
+        if phase_callback:
+            phase_callback("mastering")
         sample, sr = sf.read(str(generated), dtype="float32", always_2d=True)
         if not 22050 <= sr <= 96000 or abs(len(sample)/sr-controls["durationSec"]) > .1:
             raise V5ControlError("V5 duration mismatch")
@@ -382,6 +394,8 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
         sf.write(str(mastered_path), mastered, sr, subtype="PCM_24")
         del mastered
         lease_check("quality_gate")
+        if phase_callback:
+            phase_callback("quality_gate")
         verdict = release_gate(guide, generated, mastered_path,
                                expected_seconds=controls["durationSec"],
                                require_b_motif=True)
