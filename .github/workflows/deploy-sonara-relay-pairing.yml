@@ -9,6 +9,8 @@ on:
     paths:
       - ".github/workflows/deploy-sonara-relay-pairing.yml"
       - "cloudflare/sonara-r2-https-relay.mjs"
+      - "wrangler.jsonc"
+      - "cloudflare/sonara-r2-https-relay.test.mjs"
       - "cloudflare/sonara-r2-tempo-report.test.mjs"
       - "cloudflare/sonara-audio-quality-engine.mjs"
       - "cloudflare/sonara-r2-generation-profile.mjs"
@@ -33,7 +35,6 @@ on:
       - "molab/sonara_remix_pro_v5.py"
       - "molab/sonara_remix_pro_v6.py"
       - "molab/sonara_remix_pro_gpu_v6_handoff.py"
-      - "molab/test_sonara_remix_pro_gpu_v6_handoff.py"
       - "molab/test_sonara_remix_pro_gpu_v6_handoff.py"
       - "molab/test_sonara_remix_pro_completion_recovery.py"
       - "cloudflare/sonara-remix-pro-r2.test.mjs"
