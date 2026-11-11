@@ -181,7 +181,8 @@ def confirm_gateway_completion(job, lease, payload, attempts=5):
 FAILURE_STEPS = frozenset((
     "download_a", "download_b", "normalize_a", "normalize_b",
     "analysis", "demucs_a", "demucs_b", "fusion_plan",
-    "ace_step", "mastering", "quality_gate", "upload", "completion",
+    "ace_step", "vocal_fusion", "mastering", "quality_gate",
+    "upload", "completion",
 ))
 FAILURE_CODES = {
     "analysis": "REMIX_ANALYSIS_FAILED",
@@ -189,6 +190,7 @@ FAILURE_CODES = {
     "demucs_b": "REMIX_DEMUCS_FAILED",
     "fusion_plan": "REMIX_FUSION_PLAN_FAILED",
     "ace_step": "REMIX_ACE_STEP_FAILED",
+    "vocal_fusion": "REMIX_VOCAL_FUSION_FAILED",
     "mastering": "REMIX_MASTERING_FAILED",
     "quality_gate": "REMIX_AUDIO_QUALITY_REJECTED",
     "upload": "REMIX_UPLOAD_FAILED",
@@ -724,6 +726,12 @@ def run_job(item, auth_mode):
                 if params.get("v6") is True:
                     from sonara_remix_pro_v6 import v6_controls
                     v6_controls(params)
+                def mark_render_phase(stage):
+                    nonlocal failure_step
+                    if stage not in ("ace_step", "vocal_fusion", "mastering", "quality_gate"):
+                        raise ProAgentError("Unrecognized private render stage")
+                    failure_step = stage
+
                 try:
                     choice = render_candidates(
                         guide=guide, style=style, folder=folder,
@@ -738,6 +746,7 @@ def run_job(item, auth_mode):
                         mode=auth_mode, bpm=bpm_a,
                         key=params.get("key") or report_a.get("key") or None,
                         lease_check=lambda step: renewal.verify(),
+                        phase_callback=mark_render_phase,
                     )
                 except V5QualityRejected as exc:
                     failure_step = "quality_gate"
