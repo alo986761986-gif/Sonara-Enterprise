@@ -196,8 +196,12 @@ def restore_original_voices(*, generated, vocals_a, vocals_b, destination,
                 if not np.isfinite(backing).all():
                     raise OriginalVoicesError('Voice-preserving mix is non-finite')
                 result.write(backing)
-        if not any(used.values()) and any(p['audible'] for p in profiles.values()):
-            raise OriginalVoicesError('Detected vocals were not preserved')
+        # Never silently publish a one-singer result if both authentic
+        # sources contained usable vocal activity. Silence is not a singer.
+        for role, profile in profiles.items():
+            if profile['audible'] and not used[role]:
+                raise OriginalVoicesError('Authentic voice ' + role.upper() +
+                                          ' could not be placed safely')
         if lease_check:
             lease_check('vocal_mastering')
         with sf.SoundFile(str(temp)) as raw:
