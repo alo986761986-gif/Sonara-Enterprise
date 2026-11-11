@@ -36,6 +36,7 @@ for _module in (
     "sonara_remix_pro_ace_bridge.py",
     "sonara_remix_pro_quality.py",
     "sonara_remix_pro_fusion.py",
+    "sonara_remix_pro_original_voices.py",
 ):
     if not (_AGENT_DIRECTORY / _module).is_file():
         raise RuntimeError("Missing local Remix Pro module: " + _module)
