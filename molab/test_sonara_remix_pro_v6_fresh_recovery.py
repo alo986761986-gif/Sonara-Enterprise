@@ -13,13 +13,14 @@ spec.loader.exec_module(restore)
 
 class FreshRecoveryTests(unittest.TestCase):
     def test_all_sources_pinned_and_no_main_engine_files(self):
-        self.assertEqual(len(restore.BLOBS), 9)
+        self.assertEqual(len(restore.BLOBS), 10)
         for name, sha in restore.BLOBS.items():
             self.assertTrue(name.endswith(".py"))
             self.assertRegex(sha, r"^[0-9a-f]{40}$")
             self.assertNotIn("ace-step", name)
         self.assertNotIn("main.py", restore.BLOBS)
         self.assertIn("sonara_remix_pro_original_voices.py", restore.BLOBS)
+        self.assertIn("sonara_remix_pro_a_clock_fusion.py", restore.BLOBS)
 
     def test_git_blob_sha1(self):
         self.assertEqual(
