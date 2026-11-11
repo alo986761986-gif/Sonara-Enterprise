@@ -112,7 +112,7 @@ def _result_path(task):
 
 def render(audio_path, output_path, prompt, *, mode="required", strength=0.72,
            noise=0.0, timeout_seconds=1600, bpm=None, key=None,
-           reference_audio_path=None):
+           reference_audio_path=None, instruction=None):
     """Regenerate one composition from separate A structure and B style references."""
     source = pathlib.Path(audio_path).expanduser().resolve(strict=True)
     output = pathlib.Path(output_path).expanduser().resolve()
@@ -120,6 +120,11 @@ def render(audio_path, output_path, prompt, *, mode="required", strength=0.72,
         raise ACEBridgeError("Real WAV source required, under 512 MiB")
     if not str(prompt).strip():
         raise ACEBridgeError("An explicit musical remix instruction is required")
+    if instruction is not None and (
+        not isinstance(instruction, str) or
+        not instruction.strip() or len(instruction) > 600
+    ):
+        raise ACEBridgeError("Separate editing instruction must be 1-600 characters")
     if not 0.35 <= strength <= 0.92 or not 0.0 <= noise <= 0.30:
         raise ACEBridgeError("Invalid cover conditioning strength")
     if bpm is not None and not 40 <= bpm <= 220:
@@ -163,7 +168,12 @@ def render(audio_path, output_path, prompt, *, mode="required", strength=0.72,
         request = {
             "task_type": "cover", "src_audio_path": tmp,
             **({"reference_audio_path": ref_tmp} if ref_tmp is not None else {}),
-            "prompt": str(prompt).strip()[:9000], "instruction": str(prompt).strip()[:9000],
+            # These are distinct ACE-Step API fields. A long generation caption
+            # should NOT also become a long edit instruction. Retain the
+            # historical behavior only for old clients that omit instruction.
+            "prompt": str(prompt).strip()[:9000],
+            "instruction": instruction.strip() if instruction is not None
+                           else str(prompt).strip()[:9000],
             "audio_duration": round(duration, 2), "batch_size": 1,
             "audio_cover_strength": float(strength), "cover_noise_strength": float(noise),
             "audio_format": "wav",
@@ -248,7 +258,8 @@ def _continuous_section_prompt(master_prompt, index, start_frame, end_frame, tot
 def render_long_remix(audio_path, output_path, prompt, *, mode="required",
                       strength=0.72, noise=0.0, bpm=None, key=None,
                       segment_seconds=90, crossfade_seconds=2,
-                      timeout_seconds=3600, reference_audio_path=None):
+                      timeout_seconds=3600, reference_audio_path=None,
+                      instruction=None):
     """Render an exact-duration A+B remix as ONE stitched WAV.
 
     ACE-Step cover is applied to contiguous source segments (never to fake
@@ -287,7 +298,8 @@ def render_long_remix(audio_path, output_path, prompt, *, mode="required",
         result = render(src, final, prompt, mode=mode, strength=strength,
                         noise=noise, bpm=bpm, key=key,
                         timeout_seconds=min(timeout_seconds, 1600),
-                        reference_audio_path=reference_audio_path)
+                        reference_audio_path=reference_audio_path,
+                        instruction=instruction)
         with sf.SoundFile(str(final)) as got:
             if abs((got.frames / got.samplerate) - source_frames/sr) > 2:
                 final.unlink(missing_ok=True)
@@ -334,7 +346,8 @@ def render_long_remix(audio_path, output_path, prompt, *, mode="required",
                             mode=mode, strength=strength, noise=noise,
                             bpm=bpm, key=key,
                             timeout_seconds=min(1600, int(remaining)),
-                            reference_audio_path=reference_audio_path)
+                            reference_audio_path=reference_audio_path,
+                            instruction=instruction)
             if result.get("status") != "completed":
                 raise ACEBridgeError("An ACE-Step long-form section did not complete")
             with sf.SoundFile(str(rendered_chunk)) as decoded:
