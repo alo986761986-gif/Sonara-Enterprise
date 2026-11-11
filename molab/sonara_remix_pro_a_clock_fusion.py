@@ -308,9 +308,25 @@ def compose_one_a_clock(*, bass, other, drums_a, vocals_a, vocals_b,
                 if not np.isfinite(result).all():
                     raise OneClockFusionError("Non-finite mastered audio precursor")
                 output.write(result.astype(np.float32))
-        with sf.SoundFile(str(destination)) as done:
+        # The technical release gate forbids intermediate clipping too.
+        # A fixed GLOBAL attenuation avoids compressor pumping between phrases.
+        measured_peak = 0.
+        with sf.SoundFile(str(destination), mode="r+") as done:
             if done.frames != frames_total or done.channels != 2:
                 raise OneClockFusionError("Remix length or channel count mismatch")
+            for position in range(0, frames_total, RATE * 8):
+                done.seek(position)
+                measured = done.read(min(RATE * 8, frames_total - position),
+                                     dtype="float32", always_2d=True)
+                measured_peak = max(measured_peak, float(np.max(np.abs(measured))))
+            if measured_peak > .92:
+                attenuation = .92 / measured_peak
+                for position in range(0, frames_total, RATE * 8):
+                    done.seek(position)
+                    piece = done.read(min(RATE * 8, frames_total - position),
+                                      dtype="float32", always_2d=True)
+                    done.seek(position)
+                    done.write(piece * attenuation)
         success = True
         return {
             "oneClockSource": "original-A-demucs-drums",
