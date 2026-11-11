@@ -118,6 +118,8 @@ def _plan_vocals(profile_a, profile_b, seconds, tempo):
     Voice sections vary with authentic phrase duration and 2-bar checkpoints.
     Most of the time only one voice is foregrounded, avoiding muddled duets.
     """
+    if not isinstance(tempo, (int, float)) or not math.isfinite(tempo) or not 55 <= tempo <= 200:
+        raise OneClockFusionError("Unknown A tempo cannot define the shared pulse")
     bars = 4 * 60. / tempo
     intro = min(2 * bars, seconds * .11)
     outro = min(2 * bars, seconds * .10)
