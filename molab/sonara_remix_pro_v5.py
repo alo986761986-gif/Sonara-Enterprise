@@ -283,7 +283,7 @@ def technical_score(audit, *, continuity=None):
 
 def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
                       engine, mode, bpm, key, lease_check,
-                      vocals_a=None, vocals_b=None):
+                      vocals_a=None, vocals_b=None, a_drums=None):
     """Generate serial independent real ACE-Step covers; publish one accepted master.
 
     Caller owns the lease and private scratch directory. No fallback audio, no
@@ -318,37 +318,26 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
                                 continuous_groove=(v6 is not None and v6.mode == "explosive"))
         if v6 is not None:
             from sonara_remix_pro_v6 import compose_direction
-            # The model receives REAL A/B phrases in the new primary guide.
-            # Front-load the dual-hook instruction so long prompts cannot hide it.
-            dual_priority = (
-                "V6 DUAL-HOOK PRIMARY AUDIO: conditioning input contains authentic "
-                "A melodic/vocal phrases AND authentic B melodic/vocal phrases in "
-                "alternating windows. Interpret BOTH into one newly performed "
-                "recognizable call-and-response, not merely A with B drums. "
-                "Reharmonize incompatible pitches into one key, keep one pulse, "
-                "and NEVER splice, overlay or publish source-guide recordings. "
+            # One A-derived house clock. Both distinct original source
+            # voices re-enter later, not as repeated 30-second hook switches.
+            # ACE-Step only generates a new instrumental body; its synthetic
+            # drum and vocal stems are excluded from the published master.
+            rhythmic_priority = (
+                "ONE CONTINUOUS HOUSE PULSE. Source A determines the only tempo, "
+                "kick, and drum groove. Do not invent a second beat or copy B "
+                "percussion. Write a cohesive bass line and sparse clean "
+                "harmonic instruments compatible with A, keeping space for two "
+                "distinct ORIGINAL vocal performances from A and B. "
+                "INSTRUMENTAL BACKING ONLY: no new vocals, translated lyrics, "
+                "chanting, choir syllables, or imitation singers. "
+                "Build intro, gradual verses, middle development, and outro; "
+                "no repeated A/B chorus blocks, competing melodies, or abrupt "
+                "instrument swaps. The original A/B voices will be placed in "
+                "natural phrases AFTER synthesis, without re-singing. "
             )
-            if v6.mode == "explosive":
-                dual_priority = (
-                    "EXPLOSIVE FUSION SONIC CONTINUITY: same lead vocal identity "
-                    "for A and B phrases, same singer timbre, accent, register, "
-                    "studio space and effects; never switch singer. Same drum kit, "
-                    "bass patch, core chord instruments and production texture "
-                    "from start to finish. Build intensity via arrangement and "
-                    "phrasing, not replacement instruments or disparate vocal takes. "
-                ) + dual_priority
-            prompt = (dual_priority + compose_direction(
+            prompt = (rhythmic_priority + compose_direction(
                 v6, dna, index, controls["candidateCount"]
             ) + "\n" + prompt)[:9000]
-        if v6 is not None:
-            # The model creates a fresh backing performance; words are never
-            # translated/re-sung by this instruction. Authentic source singing
-            # is restored from private A/B vocal stems after generation.
-            prompt = (
-                "INSTRUMENTAL BACKING ONLY. NO NEW SINGERS, NO VOCAL SYLLABLES. "
-                "Preserve the original A/B recorded voices separately; do not "
-                "translate or recreate their lyrics. " + prompt
-            )[:9000]
         result = engine(
             guide, generated, prompt, mode=mode,
             strength=float(params.get("coverStrength") if params.get("coverStrength") is not None else .72),
@@ -359,17 +348,23 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
         lease_check("mastering")
         voice_report = None
         if v6 is not None:
-            if vocals_a is None or vocals_b is None:
-                raise V5ControlError("V6 needs authentic vocal stems from both sources")
-            from sonara_remix_pro_original_voices import restore_original_voices
-            original_mix = Path(folder) / ("v6-original-voices-%d.wav" % index)
-            voice_report = restore_original_voices(
-                generated=generated, vocals_a=vocals_a, vocals_b=vocals_b,
+            if vocals_a is None or vocals_b is None or a_drums is None:
+                raise V5ControlError("V6 needs both authentic voices and A drums")
+            from sonara_remix_pro_toolkit import separate_stems
+            from sonara_remix_pro_a_clock_fusion import compose_one_a_clock
+            # Demucs produces separated REAL model outputs. Discard its drum
+            # AND synthetic voice stems; retain only backing bass/other.
+            extracted = Path(folder) / ("v6-generated-stems-%d" % index)
+            manifest = separate_stems(generated, extracted, device="cuda")
+            generated_parts = extracted / manifest["sourceSha256"][:20]
+            original_mix = Path(folder) / ("v6-a-clock-original-voices-%d.wav" % index)
+            voice_report = compose_one_a_clock(
+                bass=generated_parts / "bass.wav",
+                other=generated_parts / "other.wav",
+                drums_a=a_drums, vocals_a=vocals_a, vocals_b=vocals_b,
                 destination=original_mix,
-                scratch=Path(folder) / ("v6-vocal-stems-%d" % index),
                 expected_seconds=controls["durationSec"],
-                lease_check=lease_check, device="cuda",
-                target_lufs=-14.0)
+                tempo_a=bpm, lease_check=lease_check)
             generated = original_mix
         sample, sr = sf.read(str(generated), dtype="float32", always_2d=True)
         if not 22050 <= sr <= 96000 or abs(len(sample)/sr-controls["durationSec"]) > .1:
