@@ -39,7 +39,7 @@ export default function SonaraRemixProPanel() {
   const [archiveRefresh,setArchiveRefresh]=useState(0);
   const [editorTrack,setEditorTrack]=useState<RemixEditorTrack|null>(null);
   const [sourceB,setSourceB]=useState<File|null>(null);
-  const [prompt,setPrompt]=useState('Create one cohesive professional musical fusion of A and B. Keep each original recorded singing voice and its original language, without translating, re-singing or inventing words. Arrange the original A and B voices in distinct complementary sections over a newly generated instrumental production.');
+  const [prompt,setPrompt]=useState('Create ONE coherent House production with a single steady kick and BPM from song A. Blend the two ORIGINAL A and B voices into flowing natural verses and musical dialogue, not repeated choruses or alternating source blocks. Keep both original languages and pronunciations, leave space between vocals, avoid crowded instruments and competing basslines. Build a professional continuous arrangement with clear intro, development, and outro.');
   const [directionCount,setDirectionCount]=useState(0);
   const directionSequence=useRef(0);
   const [duration,setDuration]=useState<number>(()=>{
@@ -390,18 +390,18 @@ export default function SonaraRemixProPanel() {
         {v5Available&&<section data-testid="sonara-v6-fusion-controls" style={{border:'1px solid #634b85',borderRadius:12,padding:15,display:'grid',gap:11,background:'linear-gradient(145deg,#21182f,#191725)'}}>
           <strong style={{color:'#e1c9ff',fontSize:13,letterSpacing:'.08em'}}>SONARA CREATIVE DNA FUSION V6</strong>
           <small style={{color:'#beb0d5'}}>{v6Available?'Motore V6 GPU disponibile: analisi DNA, composizione differenziata, selezione misurabile e mastering dedicato.':'Anteprima Creative DNA su V5: le indicazioni compositive sono reali, ma analisi e selezione V6 richiedono un aggiornamento del worker MoLab.'}</small>
-          {dnaMode==='explosive'&&<small role="status">Explosive Fusion guida la nuova composizione attraverso richiami melodici e ritornelli di A e B, cori e strumenti articolati. Le parole e la fedeltà musicale non sono garantite automaticamente: serve ascoltare il master. Disponibile solo con worker V6 aggiornato.</small>}
-          <small role="status" style={{color:'#d8c1f0'}}>Voci originali A+B · modalità protetta: il testo cantato resta nella lingua sorgente (italiano, inglese o altra lingua). Nessuna traduzione o voce sintetizzata. La resa del mix richiede ascolto finale.</small>
+          {dnaMode==='explosive'&&<small role="status">Explosive Fusion mantiene un'unica cassa House dal brano A, con le due voci originali fuse in una struttura fluida, senza ritornelli incollati. Le parole e la fedeltà musicale non sono garantite automaticamente: serve ascoltare il master. Disponibile solo con worker V6 aggiornato.</small>}
+          <small role="status" style={{color:'#d8c1f0'}}>Fusione House A+B · cassa e BPM solo dal brano A, voci autentiche in frasi naturali senza alternanza di ritornelli fissi. Niente ricanto o traduzione automatica. Il mix va ascoltato prima della pubblicazione.</small>
           <label style={{display:'grid',gap:5}}>Modalità creativa
             <select value={dnaMode} onChange={e=>setDnaMode(e.target.value as 'balanced'|'experimental'|'wild'|'explosive')} style={{background:'#272036',color:'#fff',border:'1px solid #6e5488',borderRadius:8,padding:10}}>
               <option value="balanced">Balanced · Fusione coerente</option>
               <option value="experimental">Experimental · Nuove interpretazioni</option>
               <option value="wild">Wild · Trasformazione audace</option>
-              <option value="explosive" disabled={!explosiveAvailable}>Explosive Fusion A+B · Due ritornelli, voci e grande finale {explosiveAvailable?'':'(GPU in aggiornamento)'}</option>
+              <option value="explosive" disabled={!explosiveAvailable}>Explosive Fusion A+B · Cassa unica, due voci naturali {explosiveAvailable?'':'(GPU in aggiornamento)'}</option>
             </select>
           </label>
           {([
-            ['melody','Melodia A'],['harmony','Armonia A'],['groove','Groove B'],
+            ['melody','Melodia A'],['harmony','Armonia A'],['groove','Groove A'],
             ['timbre','Timbri B'],['humanize','Naturalezza degli strumenti']
           ] as const).map(([field,label])=><label key={field} style={{display:'grid',gap:5}}>
             <span style={{display:'flex',justifyContent:'space-between',gap:8}}><span>{label}</span><strong>{dnaLevels[field]}%</strong></span>
