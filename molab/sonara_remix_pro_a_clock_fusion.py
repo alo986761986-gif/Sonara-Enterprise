@@ -22,6 +22,7 @@ class OneClockFusionError(RuntimeError):
 
 
 RATE = 44100
+V7_FUSION_REVISION = 'v7-authentic-phrase-groove-v1'
 
 
 def _validate(path, *, min_duration=1):
