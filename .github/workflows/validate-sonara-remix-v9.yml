@@ -4,6 +4,8 @@ on:
     branches: [main]
     paths:
       - 'molab/sonara_remix_pro_music_director.py'
+      - 'molab/sonara_remix_pro_v9_private_install.py'
+      - 'molab/test_sonara_remix_pro_v9_private_install.py'
       - 'molab/test_sonara_remix_pro_music_director.py'
       - 'molab/sonara_remix_pro_r2_agent.py'
       - 'molab/sonara_remix_pro_v5.py'
@@ -32,9 +34,11 @@ jobs:
         run: python -m pip install --disable-pip-version-check numpy scipy soundfile
       - name: Syntax check V9 private worker
         run: |
-          python -m py_compile molab/sonara_remix_pro_music_director.py molab/sonara_remix_pro_fusion.py molab/sonara_remix_pro_r2_agent.py molab/sonara_remix_pro_v5.py molab/sonara_remix_pro_a_clock_fusion.py
+          python -m py_compile molab/sonara_remix_pro_music_director.py molab/sonara_remix_pro_v9_private_install.py molab/sonara_remix_pro_fusion.py molab/sonara_remix_pro_r2_agent.py molab/sonara_remix_pro_v5.py molab/sonara_remix_pro_a_clock_fusion.py
       - name: Test authentic V9 audio and safety
         run: PYTHONPATH=molab python -m unittest -v test_sonara_remix_pro_music_director
+      - name: Verify SHA-pinned V9 private MoLab maintenance safety
+        run: PYTHONPATH=molab python -m unittest -v test_sonara_remix_pro_v9_private_install
       - name: Preserve V8 song form
         run: PYTHONPATH=molab python -m unittest -v test_sonara_remix_pro_songform
       - uses: actions/setup-node@v4
