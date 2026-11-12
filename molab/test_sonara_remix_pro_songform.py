@@ -36,6 +36,38 @@ class SongFormTests(unittest.TestCase):
             if mode != "explosive":
                 self.assertLess(breaking[1][0], theme[1][0])
 
+    def test_real_private_conditioning_uses_six_sections_even_at_30_seconds(self):
+        from pathlib import Path
+        import tempfile
+        import soundfile as sf
+        from sonara_remix_pro_fusion import make_dual_hook_conditioning_guide
+
+        sr = 44100
+        time = np.arange(18 * sr, dtype=np.float32) / sr
+        # Only local synthetic technical signals, never customer material.
+        left = np.column_stack([
+            .15 * np.sin(2 * np.pi * 220 * time),
+            .15 * np.sin(2 * np.pi * 220 * time)])
+        right = np.column_stack([
+            .12 * np.sin(2 * np.pi * 330 * time),
+            .12 * np.sin(2 * np.pi * 330 * time)])
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root)
+            a = directory / "a.wav"
+            b = directory / "b.wav"
+            out = directory / "guide.wav"
+            sf.write(str(a), left, sr)
+            sf.write(str(b), right, sr)
+            form = plan_song_form(30, 124)
+            result = make_dual_hook_conditioning_guide(
+                a, b, out, 30, b_influence=50, song_form=form)
+            self.assertEqual(result["songForm"], list(NAMES))
+            self.assertEqual(result["sections"], ["a", "a", "b", "b", "a", "a"])
+            self.assertEqual(result["frames"], 30 * sr)
+            self.assertFalse(result["publishableAudio"])
+            with sf.SoundFile(str(out)) as file:
+                self.assertEqual(file.frames, 30 * sr)
+
     def test_invalid_plans_and_no_unsafe_bpm(self):
         for bpm in (0, 220, float("nan")):
             with self.assertRaises(ValueError):
