@@ -39,7 +39,7 @@ class Blocked(RuntimeError):
 
 
 def digest(data):
-    return hashlib.sha1(b"blob " + str(len(data)).encode() + b"\\0" + data).hexdigest()
+    return hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
 
 
 def worker_pids():
@@ -48,7 +48,7 @@ def worker_pids():
         if not entry.name.isdigit():
             continue
         try:
-            args = (entry / "cmdline").read_bytes().split(b"\\0")
+            args = (entry / "cmdline").read_bytes().split(b"\0")
             cwd = (entry / "cwd").resolve(strict=True)
             for value in args[1:]:
                 if b"sonara_remix_pro_r2_agent.py" not in value:
@@ -166,7 +166,7 @@ def main():
         if not idle(pid) or MODULE.read_bytes() != previous:
             raise Blocked("Worker claimed a job or module changed; no action")
         cmdline = [os.fsdecode(x) for x in
-                   (Path("/proc") / str(pid) / "cmdline").read_bytes().split(b"\\0") if x]
+                   (Path("/proc") / str(pid) / "cmdline").read_bytes().split(b"\0") if x]
         mode = "required"
         for i, arg in enumerate(cmdline):
             if arg == "--auth-mode" and i + 1 < len(cmdline):
