@@ -235,6 +235,9 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
     const caps=await proCapabilities(env);
     if(!caps.available)return nativeGenerationError(
       'REMIX_PRO_NOT_ENABLED', 'Remix Pro non ancora disponibile: quote o GPU da verificare.',503);
+    if(requested.sonaraRemixProV9MusicDirector===true && !caps.v9MusicDirectorAvailable)
+      return nativeGenerationError('REMIX_V9_WORKER_NOT_READY',
+        'Il Music Director V9 richiede il worker GPU aggiornato. V8 resta disponibile.',503);
     if(requested.sonaraRemixProV8SongForm===true && !caps.v8SongFormAvailable)
       return nativeGenerationError('REMIX_V8_WORKER_NOT_READY',
         'L’arrangiatore V8 richiede il worker MoLab aggiornato.',503);
@@ -332,6 +335,7 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
           v6: source.sonaraRemixProV6 === true,
           v7: source.sonaraRemixProV7 === true,
           v8SongForm: source.sonaraRemixProV8SongForm === true,
+          v9MusicDirector: source.sonaraRemixProV9MusicDirector === true,
           v7CreativeModes: source.sonaraRemixProV7CreativeModes === true,
           ...(source.sonaraRemixProV7RhythmControls!==undefined?{v7RhythmControls:source.sonaraRemixProV7RhythmControls}:{}),
           ...(creativeControls ? {v6Controls:creativeControls} : {}),

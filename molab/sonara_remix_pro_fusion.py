@@ -111,7 +111,7 @@ def make_structural_guide(source_a, destination, seconds):
 
 def make_dual_hook_conditioning_guide(source_a, source_b, destination, seconds, *,
                                       vocals_a=None, vocals_b=None, b_influence=50,
-                                      homogeneous=False, song_form=None):
+                                      homogeneous=False, song_form=None, director_plan=None):
     """Prepare A/B motif *conditioning*, never a deliverable mashup.
 
     Only the subsequent ACE-Step cover creates the publishable music. The
@@ -156,6 +156,12 @@ def make_dual_hook_conditioning_guide(source_a, source_b, destination, seconds, 
     lengths = [length for _ in range(seconds // 30)
                for length in (a_first, b_frames, a_last)]
     total_frames = sr * seconds
+    if director_plan is not None:
+        from sonara_remix_pro_music_director import DIRECTOR_REVISION
+        if (song_form is None or not isinstance(director_plan, dict)
+                or director_plan.get("revision") != DIRECTOR_REVISION
+                or director_plan.get("seconds") != seconds):
+            raise FusionPlanError("Verified V9 director reference plan required")
     if song_form is not None:
         from sonara_remix_pro_songform import SONGFORM_REVISION
         if not isinstance(song_form, dict) or song_form.get("revision") != SONGFORM_REVISION:
@@ -268,6 +274,39 @@ def make_dual_hook_conditioning_guide(source_a, source_b, destination, seconds, 
                         "break": 1, "theme_return": 0, "outro": 1,
                     }[song_form["sections"][index]["name"]]
                 excerpt, _, _ = selected[role][variant]
+                if director_plan is not None:
+                    from sonara_remix_pro_music_director import SECTION_ORDER
+                    section_name = song_form["sections"][index]["name"]
+                    if section_name not in SECTION_ORDER:
+                        raise FusionPlanError("Invalid V9 section role")
+                    choice = director_plan["references"][section_name]
+                    if choice["role"] != role:
+                        raise FusionPlanError("Director source role mismatch")
+                    # Read the same exact source excerpt on THEME and RETURN.
+                    # Only the private model guide uses these audio snippets.
+                    excerpt_duration = min(25., max(4., nominal / sr))
+                    with sf.SoundFile(str(a if role == "a" else b)) as src:
+                        duration = src.frames / src.samplerate
+                        src.seek(min(src.frames - 1,
+                                     round(min(choice["sourceSeconds"],
+                                               max(0., duration - excerpt_duration))
+                                           * src.samplerate)))
+                        excerpt = src.read(max(1, round(excerpt_duration * src.samplerate)),
+                                           dtype="float32", always_2d=True)
+                        if src.channels == 1:
+                            excerpt = np.repeat(excerpt, 2, axis=1)
+                        if src.samplerate != sr:
+                            from scipy.signal import resample_poly
+                            factor = math.gcd(src.samplerate, sr)
+                            excerpt = resample_poly(excerpt, sr // factor,
+                                                    src.samplerate // factor, axis=0)
+                        if not len(excerpt) or not np.isfinite(excerpt).all():
+                            raise FusionPlanError("Invalid real source phrase")
+                        rms = float(np.sqrt(np.mean(excerpt.astype(np.float64) ** 2)))
+                        if rms < 1e-5:
+                            raise FusionPlanError("Director phrase contains silence")
+                        excerpt = np.clip(excerpt * min(2., max(.4, .12 / rms)),
+                                          -.95, .95).astype(np.float32)
                 piece = extended_phrase(excerpt, nominal + (fade if index else 0))
                 if index:
                     output.flush()
@@ -296,6 +335,7 @@ def make_dual_hook_conditioning_guide(source_a, source_b, destination, seconds, 
             "containsSourceB": True, "containsSourceA": True,
             "sections": roles,
             "songForm": ([s["name"] for s in song_form["sections"]] if song_form is not None else None),
+            "v9MusicDirector": director_plan.get("revision") if director_plan is not None else None,
             "sourceBGuideSeconds": round(sum(n for role, n in zip(roles, lengths)
                                                if role == "b") / sr, 2),
             "sourceAGuideSeconds": round(sum(n for role, n in zip(roles, lengths)
