@@ -53,6 +53,46 @@ class SafeReconnectTests(unittest.TestCase):
             self.assertTrue(reconnect.ensure_pro_worker(Path("/venv/bin/python"),False))
             launch.assert_not_called()
 
+    def test_relay_sources_are_git_blob_pinned(self):
+        self.assertEqual(len(reconnect.RELAY_SOURCE_BLOBS),3)
+        for filename, sha in reconnect.RELAY_SOURCE_BLOBS.items():
+            self.assertTrue(filename.endswith(".py"))
+            self.assertRegex(sha,r"^[0-9a-f]{40}$")
+
+    def test_relay_restores_only_missing_verified_bytes(self):
+        with tempfile.TemporaryDirectory() as folder:
+            home=Path(folder)
+            import hashlib
+            files={name:("def hello():\n    return True\n# "+name+"\n").encode()
+                   for name in reconnect.RELAY_SOURCE_BLOBS}
+            expected={name:reconnect.git_blob(data)
+                      for name,data in files.items()}
+            class FakeResponse:
+                status=200
+                def __init__(self,payload):
+                    self.payload=payload
+                def __enter__(self):return self
+                def __exit__(self,*args):return False
+                def read(self,limit):return self.payload
+            def fake_open(request,timeout):
+                filename=request.full_url.rsplit("/",1)[1]
+                return FakeResponse(files[filename])
+            with patch.object(reconnect,"HOME",home),patch.object(reconnect,"RELAY_SOURCE_BLOBS",expected),patch.object(reconnect,"processes",return_value=[]),patch("urllib.request.urlopen",side_effect=fake_open):
+                reconnect.restore_verified_main_relay_files()
+                for name,data in files.items():
+                    self.assertEqual((home/name).read_bytes(),data)
+                reconnect.restore_verified_main_relay_files()
+
+    def test_unknown_local_relay_not_replaced(self):
+        with tempfile.TemporaryDirectory() as folder:
+            home=Path(folder)
+            filename="sonara_r2_pull_agent.py"
+            (home/filename).write_text("private existing relay version")
+            with patch.object(reconnect,"HOME",home):
+                with self.assertRaises(reconnect.Blocked):
+                    reconnect.restore_verified_main_relay_files()
+            self.assertEqual((home/filename).read_text(),"private existing relay version")
+
     def test_readonly_checks_do_not_start_anything(self):
         with patch.object(reconnect,"installed"), patch.object(reconnect,"worker_processes",return_value=[]), patch.object(reconnect,"ace_health",return_value={}), patch.object(reconnect,"fresh_status",return_value={}), patch.object(reconnect,"capability_check",return_value={}), patch("subprocess.Popen") as launch:
             self.assertEqual(reconnect.main(False),0)

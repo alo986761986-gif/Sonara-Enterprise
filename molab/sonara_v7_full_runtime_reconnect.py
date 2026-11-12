@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import tempfile
 import os
 from pathlib import Path
 import socket
@@ -31,6 +32,12 @@ ACE_PY = ACE / ".venv/bin/python"
 ACE_API_LOG = HOME / "ace-step-api.log"
 PRO_LOG = HOME / "remix-pro-v6-agent.log"
 RELAY_AGENT = HOME / "sonara_r2_pull_agent.py"
+RELAY_SOURCE_COMMIT = "b9b44223c59ae027be07c768f7d77a2cd18d3ddf"
+RELAY_SOURCE_BLOBS = {
+    "sonara_r2_pull_agent.py": "d0d54e373f43a23684cb156cf5ca86431bcb1942",
+    "sonara_bpm_verification.py": "e097591c451a9ad4985f3270cc94fd732964f6e7",
+    "sonara_tempo_evidence.py": "71b13fdd8fd05d17ac63bcdba9f7697fa6a5e840",
+}
 RELAY_LOG = HOME / "relay-agent.log"
 TOKEN = HOME / "relay.token"
 STATUS = HOME / "remix-pro-agent-status.json"
@@ -262,6 +269,61 @@ def pro_public_ready(caps: dict) -> bool:
         "v7Available", "v7RhythmAvailable", "v7CreativeModesAvailable"))
 
 
+def restore_verified_main_relay_files() -> None:
+    """Recover ONLY missing trusted main relay Python files after lost HOME.
+
+    Existing files are never changed. All HTTPS bytes are hash verified and
+    compiled BEFORE any write. No token, worker or customer job is touched.
+    """
+    if HOME.is_symlink() or not HOME.is_dir() or HOME.stat().st_uid != os.getuid():
+        raise Blocked("Unsafe private home; no relay files recovered")
+    pending = {}
+    for name, expected in RELAY_SOURCE_BLOBS.items():
+        path = HOME / name
+        if path.is_symlink():
+            raise Blocked("Unsafe relay source symlink: " + name)
+        if path.exists():
+            if not path.is_file() or git_blob(path.read_bytes()) != expected:
+                raise Blocked("Unknown relay source file: " + name)
+            continue
+        url = ("https://raw.githubusercontent.com/"
+               "alo986761986-gif/Sonara-Enterprise/"
+               + RELAY_SOURCE_COMMIT + "/molab/" + name)
+        request = urllib.request.Request(url, headers={
+            "User-Agent": "SONARA-V7-Relay-Recovery/1.0",
+            "Accept": "text/plain",
+        })
+        try:
+            with urllib.request.urlopen(request, timeout=45) as response:
+                if response.status != 200:
+                    raise Blocked("Trusted relay source download not HTTP 200")
+                data = response.read(300001)
+        except (OSError, urllib.error.URLError, TimeoutError):
+            raise Blocked("Trusted relay source not reachable") from None
+        if not data or len(data) > 300000 or git_blob(data) != expected:
+            raise Blocked("Trusted relay source integrity mismatch: " + name)
+        compile(data, name, "exec")
+        pending[name] = data
+
+    if pending and processes("sonara_r2_pull_agent.py"):
+        raise Blocked("Existing relay appeared during safe source recovery")
+    for name, data in pending.items():
+        target = HOME / name
+        if target.exists() or target.is_symlink():
+            raise Blocked("Relay source changed while restoring: " + name)
+        handle, temporary = tempfile.mkstemp(prefix=".sonara-relay-verified-", dir=HOME)
+        try:
+            with os.fdopen(handle, "wb") as output:
+                os.fchmod(output.fileno(), 0o600)
+                output.write(data)
+            if target.exists() or target.is_symlink():
+                raise Blocked("Relay source changed while restoring: " + name)
+            os.replace(temporary, target)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+    print("SONARA_MAIN_RELAY_VERIFIED_FILES_READY=True", flush=True)
+
+
 def ensure_main_relay(activate: bool) -> bool:
     current = fresh_status(RELAY_STATUS, 60)
     if current.get("authenticated") is True and current.get("modelsReady") is True:
@@ -274,6 +336,9 @@ def ensure_main_relay(activate: bool) -> bool:
     if processes("sonara_r2_pull_agent.py") or processes("sonara_relay_watchdog"):
         print("SONARA_MAIN_RELAY_EXISTING_PROCESS_UNCHANGED=True", flush=True)
     else:
+        restore_verified_main_relay_files()
+        if processes("sonara_r2_pull_agent.py") or processes("sonara_relay_watchdog"):
+            raise Blocked("Main relay appeared during guarded recovery; no duplicate launched")
         check_safe_path(RELAY_AGENT, file=True)
         if RELAY_LOG.is_symlink():
             raise Blocked("Unsafe main relay log symlink")
@@ -328,6 +393,9 @@ def ensure_pro_worker(python: Path, activate: bool) -> bool:
         if status.get("revision") == EXPECTED_REVISION:
             try:
                 caps = capability_check()
+            except urllib.error.HTTPError as error:
+                print("SONARA_PRO_CAPABILITIES_HTTP=" + str(error.code), flush=True)
+                caps = {}
             except (OSError, ValueError, urllib.error.URLError, Blocked):
                 caps = {}
             if pro_public_ready(caps):
