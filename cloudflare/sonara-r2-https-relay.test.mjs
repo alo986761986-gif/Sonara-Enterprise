@@ -82,6 +82,17 @@ test('unpaired notebook, near-match and missing fingerprint are rejected', async
   assert.equal((await authenticate(eighthNotebook, { SONARA_RELAY_TOKEN_SHA256_OCTONARY:'bad' })).status, 401);
 });
 
+test('rotated eighth fingerprint accepts new MoLab token and rejects superseded token', async () => {
+  const latest='new-private-token-example-for-rotated-eighth-home-notebook-long';
+  const previous='eighth-notebook-independent-rtx6000-recovery-token-long';
+  const rotated={...pairingEnv,SONARA_RELAY_TOKEN_SHA256_OCTONARY:hashToken(latest)};
+  assert.equal((await authenticate(latest,rotated)).status,200);
+  assert.equal((await authenticate(previous,rotated)).status,401);
+  for(const token of [primary,newNotebook,thirdNotebook,fourthNotebook,fifthNotebook,sixthNotebook,seventhNotebook]) {
+    assert.equal((await authenticate(token,rotated)).status,200);
+  }
+});
+
 test('existing Worker-only secret remains valid separately', async () => {
   const secret = 'private-worker-machine-secret-longer-than-thirty-two';
   const response = await authenticate(secret, { SONARA_RELAY_TOKEN: secret });
