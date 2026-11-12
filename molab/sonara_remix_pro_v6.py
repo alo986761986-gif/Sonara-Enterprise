@@ -12,6 +12,7 @@ import math
 from pathlib import Path
 
 MODES = ("balanced", "experimental", "wild", "explosive")
+V7_MODES_REVISION = "sonara-v7-mode-differentiation-r1"
 MASTERS = ("streaming", "club")
 COMPONENTS = ("melody", "harmony", "groove", "timbre", "humanize")
 
