@@ -54,8 +54,11 @@ class OfflineMultiFormatTests(unittest.TestCase):
     def test_agent_syntax_and_verified_heartbeat_contract(self):
         f=source_functions()
         self.assertIn("multiformat_ready",f)
-        self.assertEqual(set(f["pro_heartbeat_payload"]().keys()),
-                         {"gpuReady","formatsReady","v5Ready","v6Ready","v6ExplosiveReady"})
+        heartbeat=f["pro_heartbeat_payload"]()
+        self.assertTrue({"gpuReady","formatsReady","v5Ready","v6Ready",
+                         "v6ExplosiveReady","v7Ready","v7RhythmReady",
+                         "v7CreativeModesReady","v8SongFormReady"}.issubset(heartbeat))
+        self.assertTrue(all(isinstance(value, bool) for value in heartbeat.values()))
         self.assertIsInstance(f["pro_heartbeat_payload"]()["v6Ready"], bool)
         self.assertTrue(f["pro_heartbeat_payload"]()["gpuReady"])
 
