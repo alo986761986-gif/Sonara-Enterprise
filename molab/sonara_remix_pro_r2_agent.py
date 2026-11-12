@@ -461,8 +461,21 @@ def pro_heartbeat_payload():
                     callable(make_dual_hook_conditioning_guide))
         except (ImportError, AttributeError):
             pass
+    v7_ready = False
+    if v6_ready:
+        try:
+            from sonara_remix_pro_v7 import (
+                arrange_vocal_phrases, harmonic_guidance,
+                authentic_a_groove_gain, measured_candidate_priority,
+                mastering_safety_snapshot)
+            v7_ready = all(callable(x) for x in (
+                arrange_vocal_phrases, harmonic_guidance,
+                authentic_a_groove_gain, measured_candidate_priority,
+                mastering_safety_snapshot))
+        except (ImportError, AttributeError):
+            pass
     return {"gpuReady": True, "formatsReady": multiformat_ready(),
-            "v5Ready": ready, "v6Ready": v6_ready,
+            "v5Ready": ready, "v6Ready": v6_ready, "v7Ready": v7_ready,
             "v6ExplosiveReady": explosive_ready}
 
 
@@ -780,6 +793,12 @@ def run_job(item, auth_mode):
                 if params.get("v6") is True:
                     from sonara_remix_pro_v6 import v6_controls
                     v6_controls(params)
+                if params.get("v7Studio") is True:
+                    if params.get("v6") is not True:
+                        raise ProAgentError("V7 Studio requires verified V6")
+                    from sonara_remix_pro_v7 import V7_REVISION
+                    if V7_REVISION != "sonara-v7-deep-fusion-safe-v1":
+                        raise ProAgentError("Unexpected V7 revision")
                 def mark_render_phase(stage):
                     nonlocal failure_step
                     if stage not in ("ace_step", "vocal_fusion", "mastering", "quality_gate"):
@@ -835,6 +854,19 @@ def run_job(item, auth_mode):
                         "isArtisticJudgment": False,
                     }
                     v5_metadata["v6Master"] = params.get("v6Controls", {}).get("master", "streaming")
+                    if params.get("v7Studio") is True:
+                        measurements = choice.get("v7Measurements")
+                        if not isinstance(measurements, dict) or not isinstance(
+                                measurements.get("master"), dict):
+                            raise ProAgentError("V7 measured mastering not verified")
+                        v5_metadata["v7Result"] = {
+                            "measuredSelectionPriority": measurements.get("priority"),
+                            "master": measurements.get("master"),
+                            "harmonicEstimate": measurements.get("harmonicEstimate"),
+                            "originalVoiceContractVerified": True,
+                            "oneClockSourceA": preserved.get("oneClockSource")
+                                == "original-A-demucs-drums",
+                        }
             else:
                 failure_step = "ace_step"
                 progress(job, lease, "regenerating", renewal)
@@ -985,6 +1017,7 @@ def main(argv=None):
         print("PRO_SITE_GENERATION_AVAILABLE="+str(caps.get("available") is True),flush=True)
         print("PRO_V5_AVAILABLE="+str(caps.get("v5Available") is True),flush=True)
         print("PRO_V6_AVAILABLE="+str(caps.get("v6Available") is True),flush=True)
+        print("PRO_V7_AVAILABLE="+str(caps.get("v7Available") is True),flush=True)
         print("PRO_BILLING_GATE_STILL_REQUIRED="+str(caps.get("available") is not True),flush=True)
         print("PRO_JOBS_CLAIMED=0",flush=True)
         print("ACE_STEP_UNMODIFIED=True",flush=True)
