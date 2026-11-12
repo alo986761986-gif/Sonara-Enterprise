@@ -1,7 +1,7 @@
-SONARA_OFFICIAL_FRONTEND_RELEASE=2026-11-12-V7-ALL-CHANGES-PUBLIC-RECONNECT
-REASON=Republish verified latest Remix Pro V7 Creative Modes, Rhythm Tempo Lock, A-B Fusion and personal archive on Cloudflare
-SOURCE_PR=127,126,125,124,128
-SOURCE_COMMIT=286736ceac92c3a8c0e6d59f48b15cac7597d36d
-EXPECTED=V7-Deep-Fusion,Balanced,Experimental,Wild,Explosive,RhythmTempoLock,OriginalABVoices,PersonalArchive
+SONARA_OFFICIAL_FRONTEND_RELEASE=2026-11-12-V7-MOLAB-REPAIR-PAIRING
+REASON=Authorize recovered private RTX PRO 6000 notebook SHA256 relay token through additive Cloudflare slot
+SOURCE_PR=129
+SOURCE_COMMIT=b0c2fec999f7714661b242ebcc5da791f09d8d4b
+EXPECTED=Private-Relay-Auth,Eighth-Token-Fingerprint,V7-Creative-Modes,V7-Rhythm-Lock
 DEPLOY_TARGET=Cloudflare-Worker-sonaraenterprise.com
-GPU_RECONNECT=PRIVATE-RTX-6000-REQUIRES-VERIFIED-IDLE-SAFE-LOCAL-EXECUTION
+TOKEN_VALUE=NEVER-IN-GIT-OR-LOGS
