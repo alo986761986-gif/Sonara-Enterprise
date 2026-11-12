@@ -12,6 +12,7 @@ import math
 from pathlib import Path
 
 MODES = ("balanced", "experimental", "wild", "explosive")
+V7_MODES_REVISION = "sonara-v7-mode-differentiation-r1"
 MASTERS = ("streaming", "club")
 COMPONENTS = ("melody", "harmony", "groove", "timbre", "humanize")
 
@@ -108,70 +109,76 @@ def musical_dna(report_a, report_b, drums_b=None):
 
 
 def compose_direction(controls, dna, candidate_index, candidate_count):
-    """Compose meaningfully different arrangements without audio collage."""
+    """Distinct arrangement directions; never replace the two REAL A/B voices.
+
+    These cues target ACE-Step's instrumental backing only. The original
+    separated source vocal stems are arranged AFTER model generation, and
+    only A's original drum stem becomes the audible kick. Different modes
+    must not be reduced to synonyms of the same generic House prompt.
+    """
     if not isinstance(controls, CreativeControls):
         raise V6ControlError("Controls not validated")
     if not isinstance(dna, dict) or not isinstance(candidate_count, int) or not 1 <= candidate_count <= 3:
         raise V6ControlError("Invalid composition plan")
     if not isinstance(candidate_index, int) or candidate_index not in range(candidate_count):
         raise V6ControlError("Invalid candidate index")
-    themes = (
-        "Melody-led: reinterpret A's phrasing, answer it with fresh B-inspired syncopation; introduce a contrasting second hook.",
-        "Rhythm-led: start from B's feel, write a new melodic counter-line and develop the low-end dialogue without stacking original stems.",
-        "Transformation-led: deliberately contrast short breakdown and groove sections, reinterpret the motif during the final return.",
+
+    profiles = {
+        "balanced": (
+            "BALANCED MODE: A-derived warm chord foundation, a memorable central "
+            "motif and B-colored musical answers. Smooth 8-bar development, "
+            "evenhanded A/B influence, modest harmonic movement and restrained "
+            "instrument changes. Preserve a familiar, coherent song shape."
+        ),
+        "experimental": (
+            "EXPERIMENTAL MODE: make an unconventional yet compatible backing "
+            "with exploratory voicings, asymmetrical melodic replies, unusual "
+            "percussion-colored synth timbres, airy counterpoint and creative "
+            "8/16-bar sectional evolution. Leave space for authentic A/B "
+            "phrases and preserve the common A kick and 4/4 tempo."
+        ),
+        "wild": (
+            "WILD MODE: deliver a genuinely bold reconstruction: unexpected "
+            "bass answers, daring timbral contrasts, evolving arpeggios, "
+            "short dramatic accompaniment reductions and strong returns "
+            "across contrasting 4/8-bar sections. Do NOT cut the sole "
+            "source-A kick, change BPM, create new singers or paste two songs."
+        ),
+        "explosive": (
+            "EXPLOSIVE MODE: uninterrupted powerful club energy, full but "
+            "clear bass, consistent instrument and room palette, dense "
+            "progressive rises and impactful fills OVER the SAME continuous "
+            "source-A kick. CONTINUITY LOCK: no breakdowns, silent bars, "
+            "rhythmic dropout, tempo switch, bass reset or drum-kit change."
+        ),
+    }
+    variations = (
+        "Variant 1: melodic center first; reveal a new responding part late.",
+        "Variant 2: rhythmic counterpoint first; save the strongest motif for the middle.",
+        "Variant 3: atmospheric start, then a decisive harmonically coherent development.",
     )
-    mode = {
-        "balanced": "Build a cohesive song with a recurring identity; musical development must be smooth.",
-        "experimental": "Explore novel harmonic voicings and meaningful arrangement variations with consistent tonal center.",
-        "wild": "Use bold contrasts and unexpected but musically coherent hook transformations; avoid repetitive formulaic arrangements.",
-        "explosive": "EXPLOSIVE HOMOGENEOUS FUSION — CONTINUITY LOCK: one BPM, meter, kick/snare/hat kit and bass timbre throughout. Preserve the separate original voices of A and B, with their own accent and timbre, in one coherent microphone/reverb space; no artificial singer switching or re-singing. Keep a fixed instrumental palette and acoustic space; add energy through human performance, harmonies and small fills, not new instrument patches or a different singer. No breakdowns, silences, abrupt edits, half-time, double-time or drum-kit resets.",
-    }[controls.mode]
-    def intensity(value):
-        return "subtle" if value < 35 else "strong" if value >= 75 else "moderate"
-    evidence = []
-    if dna.get("a", {}).get("tempoBpm") is not None:
-        evidence.append("A measured pulse: " + str(dna["a"]["tempoBpm"]) + " BPM (not downbeat-verified).")
-    if dna.get("b", {}).get("tempoBpm") is not None:
-        evidence.append("B measured pulse: " + str(dna["b"]["tempoBpm"]) + " BPM (not downbeat-verified).")
-    if dna.get("grooveOnsetsPerSecond") is not None:
-        evidence.append("Measured B drum onset proxy: " + str(dna["grooveOnsetsPerSecond"]) + "/second; not a verified swing metric.")
-    theme = ("Stable pulse: reinterpret A melody and B hook as alternating melodic or vocal calls over a single invariant kick/bass groove."
-             if controls.mode == "explosive" else themes[candidate_index % len(themes)])
-    vocal_palette_lock = (
-        "VOICE IDENTITY LOCK: render A-derived and B-derived melodic/vocal hooks "
-        "with ONE consistent lead vocal timbre and phrasing across the whole track. "
-        "Use compatible same-singer overdubs/choir layers; do not abruptly swap "
-        "singers, vocal gender, register, accent or vocal effects. "
-        "INSTRUMENT PALETTE LOCK: one stable drum kit, bass patch, chord timbre "
-        "and spatial processing for all verses, choruses and transitions; "
-        "add density without changing the core sounds."
-        if controls.mode == "explosive" else ""
-    )
-    return " ".join([
-        "SONARA CREATIVE DNA V6: create ONE original cohesive musical performance, never overlay, edit together, or medley source audio.",
-        mode, vocal_palette_lock,
-        *([
-            "DUAL SOURCE CHORUS PLAN: alternate both A and B hook melodies with "
-            "the SAME identifiable lead voice, then unite them in a new chorus "
-            "with tasteful same-singer choir harmonies and consistent instruments. "
-            "No breakdowns or singer swaps."
-        ] if controls.mode == "explosive" else []),
-        theme,
-        "A melodic phrasing influence " + intensity(controls.melody) + ".",
-        "A harmonic motion influence " + intensity(controls.harmony) + "; use only one stable compatible key.",
-        "B groove language influence " + intensity(controls.groove) + ".",
-        "B instrument color influence " + intensity(controls.timbre) + "; do not reproduce unverified instruments literally.",
-        "Performance naturalness " + intensity(controls.humanize) +
-        ": vary velocities, ghost notes, intentional fills and bass articulation, never randomized off-beat notes.",
-        "Dynamics: evolve vocal and harmonic texture, natural hi-hat velocity and restrained fills; the foundational drum beat remains continuous and recognizable.",
-        *([
-            "DUAL SOURCE CHORUS PLAN: A-derived main refrain -> B-derived answering refrain -> combined NEW final refrain with memorable vocal hook; do not preserve incompatible pitches or stack raw vocals.",
-            "Where both sources contain singing, reinterpret BOTH vocal hook phrasings through the SAME identifiable lead voice with stable vocal color and processing, with tasteful same-voice choir overdubs; never guess exact lyrics.",
-            "Orchestration: keep the SAME kick/snare kit, bass sound, main keys/guitar/synth timbres and room/reverb across all sections. Express B's hook as a NEW phrase within these instruments; make the final refrain richer by adding parts, not swapping the band.",
-            "CONTINUITY LOCK: one continuous pulse and compatible key for A and B; no breakdowns or instrumental/voice identity resets. References guide a newly performed song, never a published original-source splice."
-        ] if controls.mode == "explosive" else []),
-        *evidence,
-    ])[:2100]
+    def amount(value):
+        return "high" if value >= 75 else "low" if value < 35 else "medium"
+    source = dna.get("a") if isinstance(dna.get("a"), dict) else {}
+    measured = source.get("tempoBpm")
+    meter = ("Source A measured estimate: " + str(measured) + " BPM, "
+             "not a verified downbeat. " if measured is not None else "")
+    return " ".join((
+        "SONARA ORIGINAL A+B — " + profiles[controls.mode],
+        "Instrumental backing only. Keep the TWO DISTINCT ORIGINAL A and B "
+        "voices untouched for their later authentic stem arrangement; never "
+        "synthesize, re-sing, merge identities, translate lyrics or add choir.",
+        "Never overlay or collage source songs. The audible kick is the "
+        "original source A drum; generated drums are discarded.",
+        variations[candidate_index] if controls.mode != "explosive"
+        else "Continuous build to a peak without kick loss or a new kit.",
+        "Melody A: " + amount(controls.melody) + "; harmony A: "
+        + amount(controls.harmony) + "; B-inspired instrumental color: "
+        + amount(controls.timbre) + "; A-pocket groove: "
+        + amount(controls.groove) + "; natural articulation: "
+        + amount(controls.humanize) + ".",
+        meter,
+    ))[:1550]
 
 
 def perceptual_proxy(candidate, other_candidates):

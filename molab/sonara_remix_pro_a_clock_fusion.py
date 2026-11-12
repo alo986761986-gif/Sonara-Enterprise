@@ -303,7 +303,7 @@ def _voice_chunk(events, voices, start, frames):
 
 def compose_one_a_clock(*, bass, other, drums_a, vocals_a, vocals_b,
                         destination, expected_seconds, tempo_a, lease_check=None,
-                        v7_studio=False, rhythm_lock=None):
+                        v7_studio=False, rhythm_lock=None, creative_mode='balanced'):
     """Write private FLOAT premaster. Exactly one authentic A drum clock.
 
     This is not a promise of automatic harmonic/semantic fidelity. The caller
@@ -332,13 +332,16 @@ def compose_one_a_clock(*, bass, other, drums_a, vocals_a, vocals_b,
     profiles = {"a": _profile(vocals_a), "b": _profile(vocals_b)}
     if not profiles["a"]["audible"] or not profiles["b"]["audible"]:
         raise OneClockFusionError("Both source songs must contain usable original vocals")
+    if creative_mode not in ('balanced','experimental','wild','explosive'):
+        raise OneClockFusionError("Unsupported creative mode")
     rhythm = rhythm_lock if v7_studio and isinstance(rhythm_lock, dict) else None
     if v7_studio:
         from sonara_remix_pro_v7 import arrange_vocal_phrases
         events, repeats, structure = arrange_vocal_phrases(
             profiles["a"], profiles["b"], expected_seconds, tempo,
             grid_mode=rhythm["vocalGrid"] if rhythm else "half-bar",
-            phrase_bars=rhythm["phraseBars"] if rhythm else 8)
+            phrase_bars=rhythm["phraseBars"] if rhythm else 8,
+            creative_mode=creative_mode)
     else:
         events, repeats, structure = _plan_vocals(
             profiles["a"], profiles["b"], expected_seconds, tempo)
@@ -394,6 +397,12 @@ def compose_one_a_clock(*, bass, other, drums_a, vocals_a, vocals_b,
                 bass_gain = .65 * (1 - .24 * norm)
                 presence = uniform_filter1d(vocal_mask, size=round(.08 * RATE))
                 other_gain = .56 * (1 - .43 * np.clip(presence, 0, 1))
+                if v7_studio:
+                    from sonara_remix_pro_v7 import creative_accompaniment_gain
+                    bass_motion, other_motion = creative_accompaniment_gain(
+                        start, n, RATE, tempo, creative_mode)
+                    bass_gain = bass_gain * bass_motion
+                    other_gain = other_gain * other_motion
                 result = (.82 * drums + b * bass_gain[:, None] +
                           o * other_gain[:, None] + .88 * vocals)
                 if not np.isfinite(result).all():
@@ -437,6 +446,7 @@ def compose_one_a_clock(*, bass, other, drums_a, vocals_a, vocals_b,
             "voiceBlend": ("v7-balanced-authentic-source-phrases" if v7_studio
                            else "source-phrase-dialogue-in-new-A-pulse-arrangement"),
             "v7StudioApplied": v7_studio is True,
+            "creativeModeApplied": creative_mode if v7_studio else "legacy",
             "onlyOneDeliberateDrumStem": True,
             "generatedDrumsDiscarded": True,
             # The generated vocal stem is never read or mixed. The post-QC

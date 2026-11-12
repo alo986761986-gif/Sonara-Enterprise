@@ -479,6 +479,18 @@ def pro_heartbeat_payload():
                     mastering_safety_snapshot)))
         except (ImportError, AttributeError):
             pass
+    creative_modes_ready = False
+    if v7_ready:
+        try:
+            from sonara_remix_pro_v6 import V7_MODES_REVISION
+            from sonara_remix_pro_v7 import (
+                V7_MODE_AUDIO_REVISION, creative_accompaniment_gain)
+            creative_modes_ready = (
+                V7_MODES_REVISION == "sonara-v7-mode-differentiation-r1"
+                and V7_MODE_AUDIO_REVISION == "sonara-v7-creative-voice-motion-r1"
+                and callable(creative_accompaniment_gain))
+        except (ImportError, AttributeError):
+            pass
     rhythm_ready = False
     if v7_ready:
         try:
@@ -492,6 +504,7 @@ def pro_heartbeat_payload():
     return {"gpuReady": True, "formatsReady": multiformat_ready(),
             "v5Ready": ready, "v6Ready": v6_ready, "v7Ready": v7_ready,
             "v7RhythmReady": rhythm_ready,
+            "v7CreativeModesReady": creative_modes_ready,
             "v6ExplosiveReady": explosive_ready}
 
 
@@ -844,7 +857,8 @@ def run_job(item, auth_mode):
                     choice = render_candidates(
                         guide=guide, style=style, folder=folder,
                         base_prompt=prompt,
-                        params={**params, **({"sourceReportA": report_a,
+                        params={**params, "creatorPrompt": str(params.get("prompt") or "")[:1800],
+                                **({"sourceReportA": report_a,
                                            "sourceReportB": report_b}
                                           if params.get("v6") is True else {}),
                                 **({"v7Rhythm": rhythm_data}
@@ -899,13 +913,19 @@ def run_job(item, auth_mode):
                                     - float(rhythm_data["outputBpm"])) > .05:
                                 raise ProAgentError("V7 rhythm report does not match the verified A clock")
                         measurements = choice.get("v7Measurements")
-                        if not isinstance(measurements, dict) or not isinstance(
+                        mode_used = params.get("v6Controls", {}).get("mode")
+                        if (not isinstance(measurements, dict) or
+                                measurements.get("creativeMode") != mode_used or
+                                preserved.get("creativeModeApplied") != mode_used):
+                            raise ProAgentError("Selected creative mode was not applied to actual audio")
+                        if not isinstance(
                                 measurements.get("master"), dict):
                             raise ProAgentError("V7 measured mastering not verified")
                         v5_metadata["v7Result"] = {
                             "measuredSelectionPriority": measurements.get("priority"),
                             "master": measurements.get("master"),
                             "harmonicEstimate": measurements.get("harmonicEstimate"),
+                            "creativeMode": mode_used,
                             "originalVoiceContractVerified": True,
                             "oneClockSourceA": preserved.get("oneClockSource")
                                 == "original-A-demucs-drums",

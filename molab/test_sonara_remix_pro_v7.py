@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 from sonara_remix_pro_v7 import (
-    harmonic_guidance, arrange_vocal_phrases, measured_candidate_priority,
+    harmonic_guidance, arrange_vocal_phrases, creative_accompaniment_gain, measured_candidate_priority,
     mastering_safety_snapshot, authentic_a_groove_gain,
 )
 
@@ -43,6 +43,43 @@ class V7DeepFusionTests(unittest.TestCase):
         original[::10000] = 1.
         rendered = original * g
         self.assertEqual(np.count_nonzero(original), np.count_nonzero(rendered))
+
+    def test_distinct_creative_modes_change_real_non_drumming_audio(self):
+        import numpy as np
+        from sonara_remix_pro_v7 import creative_accompaniment_gain
+        t = 124.
+        samples = 44100 * 18
+        modes = ("balanced", "experimental", "wild", "explosive")
+        curves = {}
+        for mode in modes:
+            low, other = creative_accompaniment_gain(0,samples,44100,t,mode)
+            self.assertEqual(low.shape,(samples,))
+            self.assertTrue(np.isfinite(low).all())
+            self.assertGreater(float(low.min()),.45)
+            self.assertLess(float(low.max()),1.1)
+            curves[mode]=(round(float(np.mean(low)),4),
+                          round(float(np.std(other)),4),
+                          round(float(np.mean(other)),4))
+        self.assertEqual(len(set(curves.values())),len(modes))
+        for mode in modes:
+            first=creative_accompaniment_gain(0,3000,44100,t,mode)
+            nextchunk=creative_accompaniment_gain(3000,3000,44100,t,mode)
+            one=creative_accompaniment_gain(0,6000,44100,t,mode)
+            np.testing.assert_allclose(np.concatenate((first[0],nextchunk[0])),one[0],atol=1e-7)
+        with self.assertRaises(ValueError):
+            creative_accompaniment_gain(0,100,44100,t,'bad')
+
+    def test_mode_changes_real_original_voice_region_order(self):
+        from sonara_remix_pro_v7 import arrange_vocal_phrases
+        a={"audible":True,"regions":[(i*8.,5.6,.10) for i in range(22)]}
+        b={"audible":True,"regions":[(i*7.7,5.9,.10) for i in range(22)]}
+        signatures=[]
+        for mode in ("balanced","experimental","wild","explosive"):
+            events,repeat,info=arrange_vocal_phrases(a,b,180,124,creative_mode=mode)
+            self.assertEqual({e["role"] for e in events},{"a","b"})
+            self.assertEqual(info["creativeMode"],mode)
+            signatures.append(tuple((e["role"],e["source"],e["at"]) for e in events[:10]))
+        self.assertGreaterEqual(len(set(signatures)),3)
 
     def test_candidate_metric_requires_original_voices(self):
         report = {"originalVoiceAUsed": True, "originalVoiceBUsed": True,

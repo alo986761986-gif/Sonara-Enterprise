@@ -1,0 +1,55 @@
+name: SONARA V7 Distinct Creative Modes
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [fix/sonara-v7-distinct-creative-modes-20261112]
+    paths:
+      - 'molab/sonara_remix_pro_v6.py'
+      - 'molab/sonara_remix_pro_v7.py'
+      - 'molab/sonara_remix_pro_v5.py'
+      - 'molab/sonara_remix_pro_r2_agent.py'
+      - 'molab/sonara_remix_pro_a_clock_fusion.py'
+      - 'molab/sonara_remix_pro_v7_creative_modes_install.py'
+      - 'cloudflare/sonara-remix-pro-r2.mjs'
+      - 'cloudflare/sonara-remix-pro-r2.test.mjs'
+      - 'cloudflare/sonara-ab-player-visibility-edge.mjs'
+      - 'src/components/remix/**'
+      - '.github/workflows/validate-sonara-v7-modes.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify authenticated V7 mode readiness and job parameters
+        run: node --test cloudflare/sonara-remix-pro-r2.test.mjs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU test dependencies
+        run: python -m pip install --disable-pip-version-check numpy==2.2.6
+      - name: Validate private mode-engine and installer syntax
+        run: python -m py_compile molab/sonara_remix_pro_v6.py molab/sonara_remix_pro_v7.py molab/sonara_remix_pro_v5.py molab/sonara_remix_pro_r2_agent.py molab/sonara_remix_pro_a_clock_fusion.py molab/sonara_remix_pro_v7_creative_modes_install.py
+      - name: Verify all four creative prompts and original-vocal restrictions
+        run: python -m unittest discover -s molab -p 'test_sonara_remix_pro_v6.py' -v
+      - name: Verify real independent mode dynamics and vocal scheduling
+        run: python -m unittest discover -s molab -p 'test_sonara_remix_pro_v7.py' -v
+      - name: Install frontend dependencies
+        run: npm install --no-audit --no-fund
+      - name: Build SONARA official frontend
+        run: npm run build
+      - name: Confirm distinct modes appear in production bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -R -Fq 'MODALITÀ V7 DIFFERENZIATE ATTIVE' dist/assets
+          grep -R -Fq 'sonara-mode-difference-description' dist/assets

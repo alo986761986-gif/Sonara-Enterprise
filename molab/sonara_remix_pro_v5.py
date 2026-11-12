@@ -359,10 +359,23 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
                 "instrument swaps. The original A/B voices will be placed in "
                 "natural phrases AFTER synthesis, without re-singing. "
             )
-            prompt = (rhythmic_priority + compose_direction(
-                v6, dna, index, controls["candidateCount"]
-            ) + "\n" + (v7_harmony["prompt"] if v7_harmony is not None else "")
-              + "\n" + prompt)[:3000]
+            # Mode-specific instructions and the creator's ORIGINAL request
+            # must survive the engine's 3000-character prompt limit. The old
+            # concatenation often trimmed away the creator's directions.
+            mode_direction = compose_direction(v6, dna, index,
+                                               controls["candidateCount"])
+            harmonic_note = v7_harmony["prompt"] if v7_harmony else ""
+            creator_text = str(params.get("creatorPrompt") or base_prompt or "").strip()[:1000]
+            genre_text = GENRE_PROFILES[controls["genre"]]
+            prompt = ("SOURCE A CLOCK, TWO REAL VOCAL STEMS A+B, "
+                      "NEW INSTRUMENTAL BACKING ONLY. No synthesized vocals. "
+                      "Do not create a second drum kit. Keep original A BPM. "
+                      + "MODE: " + mode_direction
+                      + "\nCREATOR INSTRUCTIONS: " + creator_text
+                      + "\nGENRE: " + genre_text
+                      + "\nHARMONY: " + harmonic_note
+                      + "\nCANDIDATE: " + str(index+1) + " of "
+                      + str(controls["candidateCount"]))[:3000]
         result = engine(
             guide, generated, prompt, mode=mode,
             strength=float(params.get("coverStrength") if params.get("coverStrength") is not None else .72),
@@ -398,7 +411,8 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
                 expected_seconds=controls["durationSec"],
                 tempo_a=bpm, lease_check=lease_check,
                 v7_studio=v7_studio,
-                rhythm_lock=params.get("v7Rhythm"))
+                rhythm_lock=params.get("v7Rhythm"),
+                creative_mode=v6.mode)
             generated = original_mix
         if phase_callback:
             phase_callback("mastering")
@@ -474,6 +488,7 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
                     voice_report, continuity),
                 "master": mastering_safety_snapshot(report),
                 "harmonicEstimate": v7_harmony["mode"],
+                "creativeMode": v6.mode,
             }
         valid.append({
             "generated": generated, "master": mastered_path, "audit": report,
