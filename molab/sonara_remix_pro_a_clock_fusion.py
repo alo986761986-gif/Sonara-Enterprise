@@ -304,7 +304,7 @@ def _voice_chunk(events, voices, start, frames):
 def compose_one_a_clock(*, bass, other, drums_a, vocals_a, vocals_b,
                         destination, expected_seconds, tempo_a, lease_check=None,
                         v7_studio=False, rhythm_lock=None, creative_mode='balanced',
-                        song_form=None):
+                        song_form=None, director_plan=None):
     """Write private FLOAT premaster. Exactly one authentic A drum clock.
 
     This is not a promise of automatic harmonic/semantic fidelity. The caller
@@ -326,6 +326,12 @@ def compose_one_a_clock(*, bass, other, drums_a, vocals_a, vocals_b,
     if not destination.parent.is_dir():
         raise OneClockFusionError("Private output directory does not exist")
     frames_total = expected_seconds * RATE
+    if director_plan is not None:
+        from sonara_remix_pro_music_director import DIRECTOR_REVISION
+        if (song_form is None or not isinstance(director_plan, dict)
+                or director_plan.get("revision") != DIRECTOR_REVISION
+                or director_plan.get("seconds") != expected_seconds):
+            raise OneClockFusionError("Invalid V9 arrangement direction")
     if song_form is not None:
         from sonara_remix_pro_songform import SONGFORM_REVISION
         if (not v7_studio or not isinstance(song_form, dict)
@@ -354,6 +360,14 @@ def compose_one_a_clock(*, bass, other, drums_a, vocals_a, vocals_b,
     else:
         events, repeats, structure = _plan_vocals(
             profiles["a"], profiles["b"], expected_seconds, tempo)
+    pocket = None
+    if director_plan is not None:
+        from sonara_remix_pro_music_director import (
+            arrange_vocal_dialogue, SpectralPocket)
+        events, repeats, structure = arrange_vocal_dialogue(
+            profiles["a"], profiles["b"], song_form, tempo,
+            creative_mode=creative_mode)
+        pocket = SpectralPocket(RATE)
     if lease_check:
         lease_check("a_kick_lock")
     if rhythm:
@@ -419,6 +433,19 @@ def compose_one_a_clock(*, bass, other, drums_a, vocals_a, vocals_b,
                     drums = drums * kick_section[:, None]
                     bass_gain = bass_gain * bass_section
                     other_gain = other_gain * other_section
+                if director_plan is not None:
+                    # A drum source ONLY: vary its real recorded phrase intensity
+                    # at musical bar intervals, not with a synthetic kick.
+                    bar = ((start + np.arange(n, dtype=np.float64)) *
+                           tempo / (RATE * 240.))
+                    accent = (1. + .035 * np.sin(2 * np.pi * bar / 8.))
+                    if creative_mode == "explosive":
+                        accent = .98 + .02 * np.cos(2 * np.pi * bar / 8.)
+                    drums = drums * accent[:, None].astype(np.float32)
+                    o = pocket.process(o, vocal_mask, depth=.32)
+                    # Extra kick-to-bass and voice-to-music separation.
+                    bass_gain = bass_gain * (1 - .13 * norm)
+                    other_gain = other_gain * (1 - .14 * np.clip(presence, 0, 1))
                 result = (.82 * drums + b * bass_gain[:, None] +
                           o * other_gain[:, None] + .88 * vocals)
                 if not np.isfinite(result).all():
@@ -463,6 +490,7 @@ def compose_one_a_clock(*, bass, other, drums_a, vocals_a, vocals_b,
                            else "source-phrase-dialogue-in-new-A-pulse-arrangement"),
             "v7StudioApplied": v7_studio is True,
             "v8SongFormApplied": song_form is not None,
+            "v9MusicDirectorApplied": director_plan is not None,
             "v8SectionNames": [s["name"] for s in song_form["sections"]] if song_form is not None else None,
             "creativeModeApplied": creative_mode if v7_studio else "legacy",
             "onlyOneDeliberateDrumStem": True,
