@@ -1,0 +1,54 @@
+name: SONARA V7 Seven-Pillar Integration
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches:
+      - feat/sonara-v7-seven-pillars-20261112
+    paths:
+      - "src/components/remix/**"
+      - "cloudflare/sonara-remix-pro-r2.mjs"
+      - "cloudflare/sonara-ab-player-visibility-edge.mjs"
+      - "cloudflare/sonara-remix-pro-r2.test.mjs"
+      - "molab/sonara_remix_pro_v7.py"
+      - "molab/sonara_remix_pro_v5.py"
+      - "molab/sonara_remix_pro_r2_agent.py"
+      - "molab/sonara_remix_pro_a_clock_fusion.py"
+      - "molab/test_sonara_remix_pro_v7.py"
+      - ".github/workflows/validate-sonara-v7.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate R2 private job API and owner versioning
+        run: node --test cloudflare/sonara-remix-pro-r2.test.mjs
+      - name: Verify Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install CPU test dependencies
+        run: python -m pip install --disable-pip-version-check numpy==2.2.6
+      - name: Validate V7 source syntax
+        run: python -m py_compile molab/sonara_remix_pro_v7.py molab/sonara_remix_pro_v5.py molab/sonara_remix_pro_a_clock_fusion.py molab/sonara_remix_pro_r2_agent.py
+      - name: Test authentic voices, A clock, harmonic confidence and master reports
+        run: python -m unittest discover -s molab -p 'test_sonara_remix_pro_v7.py' -v
+      - name: Install frontend dependencies
+        run: npm install --no-audit --no-fund
+      - name: Build published SONARA application
+        run: npm run build
+      - name: Verify production bundle has V7 Studio
+        run: |
+          test -d dist/assets
+          grep -R -Fq 'SONARA V7' dist/assets
+          grep -R -Fq 'Crea una nuova versione' dist/assets
+          grep -R -Fq 'Fusione voci A+B' dist/assets
