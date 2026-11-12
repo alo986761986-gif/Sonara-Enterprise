@@ -468,10 +468,15 @@ def pro_heartbeat_payload():
                 arrange_vocal_phrases, harmonic_guidance,
                 authentic_a_groove_gain, measured_candidate_priority,
                 mastering_safety_snapshot)
-            v7_ready = all(callable(x) for x in (
-                arrange_vocal_phrases, harmonic_guidance,
-                authentic_a_groove_gain, measured_candidate_priority,
-                mastering_safety_snapshot))
+            from sonara_remix_pro_a_clock_fusion import V7_FUSION_REVISION
+            from sonara_remix_pro_v5 import V7_CANDIDATE_REVISION
+            v7_ready = (
+                V7_FUSION_REVISION == 'v7-authentic-phrase-groove-v1'
+                and V7_CANDIDATE_REVISION == 'v7-measured-candidate-harmony-v1'
+                and all(callable(x) for x in (
+                    arrange_vocal_phrases, harmonic_guidance,
+                    authentic_a_groove_gain, measured_candidate_priority,
+                    mastering_safety_snapshot)))
         except (ImportError, AttributeError):
             pass
     return {"gpuReady": True, "formatsReady": multiformat_ready(),
