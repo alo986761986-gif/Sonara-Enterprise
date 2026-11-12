@@ -178,8 +178,9 @@ def start_ace_if_fully_stopped() -> bool:
         print("SONARA_MAIN_ACE_STEP_LOADING_OR_BUSY=True", flush=True)
         return False
     check_safe_path(ACE)
-    check_safe_path(ACE_PY, file=True) if not ACE_PY.is_symlink() else None
-    if not ACE_PY.exists() or not (ACE / "checkpoints").is_dir():
+    if not ACE_PY.is_file() or not os.access(ACE_PY, os.X_OK):
+        raise Blocked("Installed ACE-Step Python missing")
+    if not (ACE / "checkpoints").is_dir():
         raise Blocked("Installed ACE-Step runtime/checkpoints missing; no reinstall attempted")
     env = os.environ.copy()
     env.update({
@@ -349,6 +350,15 @@ def main(activate: bool) -> int:
     if not activate:
         print("SONARA_V7_READ_ONLY_PREFLIGHT=True", flush=True)
         print("SONARA_PRIVATE_WORKERS=" + str(len(worker_processes())), flush=True)
+        print("SONARA_MAIN_ACE_STEP_READY=" + str(ace_ready(ace_health())), flush=True)
+        print("SONARA_MAIN_RELAY_READY=" + str(
+            fresh_status(RELAY_STATUS, 60).get("authenticated") is True), flush=True)
+        try:
+            caps = capability_check()
+        except (OSError, ValueError, urllib.error.URLError, Blocked):
+            caps = {}
+        print("SONARA_V7_LATEST_PUBLIC_CAPABILITIES=" + str(
+            pro_public_ready(caps)), flush=True)
         return 0
     if not ace_ready(ace_health()) and not start_ace_if_fully_stopped():
         print("SONARA_V7_NEXT_ACTION=RUN_AGAIN_AFTER_ACE_STEP_INITIALIZES", flush=True)
