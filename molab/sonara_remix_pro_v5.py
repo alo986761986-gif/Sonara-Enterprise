@@ -313,6 +313,13 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
     dna = None
     v7_studio = params.get("v7Studio") is True
     song_form = params.get("v8SongFormPlan") if params.get("v8SongForm") is True else None
+    director_plan = params.get("v9MusicDirectorPlan") if params.get("v9MusicDirector") is True else None
+    if director_plan is not None:
+        from sonara_remix_pro_music_director import DIRECTOR_REVISION
+        if (not isinstance(director_plan, dict)
+                or director_plan.get("revision") != DIRECTOR_REVISION
+                or not v7_studio or song_form is None):
+            raise V5ControlError("V9 requires verified V8 and V7 private worker")
     if song_form is not None:
         from sonara_remix_pro_songform import SONGFORM_REVISION
         if not v7_studio or not isinstance(song_form, dict) or song_form.get("revision") != SONGFORM_REVISION:
@@ -371,6 +378,10 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
                                                controls["candidateCount"])
             harmonic_note = v7_harmony["prompt"] if v7_harmony else ""
             creator_text = str(params.get("creatorPrompt") or base_prompt or "").strip()[:1000]
+            if director_plan is not None:
+                from sonara_remix_pro_music_director import musical_direction_prompt
+                mode_direction = (musical_direction_prompt(director_plan) + " "
+                                  + mode_direction)[:1700]
             if song_form is not None:
                 mode_direction = (
                     "SIX-PART MUSICAL FORM, KEEP ONE RECOGNIZABLE MAIN A-DERIVED THEME. "
@@ -427,7 +438,8 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
                 v7_studio=v7_studio,
                 rhythm_lock=params.get("v7Rhythm"),
                 creative_mode=v6.mode,
-                song_form=song_form)
+                song_form=song_form,
+                director_plan=director_plan)
             generated = original_mix
         if phase_callback:
             phase_callback("mastering")
@@ -505,8 +517,15 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
                 "harmonicEstimate": v7_harmony["mode"],
                 "creativeMode": v6.mode,
             }
+        director_score = None
+        if director_plan is not None:
+            from sonara_remix_pro_music_director import evaluate_arrangement
+            director_score = evaluate_arrangement(
+                mastered_path, director_plan, voice_report,
+                lease_check=lease_check)
         valid.append({
             "generated": generated, "master": mastered_path, "audit": report,
+            "v9Director": director_score,
             "gate": verdict, "technicalScore": technical_score(report, continuity=continuity),
             "candidateIndex": index, "continuity": continuity,
             "originalVoices": voice_report,
@@ -524,7 +543,12 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
                 candidate["audit"], candidate["technicalScore"], dna,
                 candidate["master"], others
             )
-        if v7_studio:
+        if director_plan is not None:
+            winner = max(valid, key=lambda item: (
+                item["v9Director"]["measuredProxyScore"],
+                item["v7Measurements"]["priority"],
+                item["v6Judge"]["selectionScore"]))
+        elif v7_studio:
             winner = max(valid, key=lambda item: (
                 item["v7Measurements"]["priority"],
                 item["v6Judge"]["selectionScore"]))
