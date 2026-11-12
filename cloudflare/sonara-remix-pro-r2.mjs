@@ -292,7 +292,7 @@ async function enqueue(req,e,auth,b) {
   if(parentJobId===id)return fail('Una versione non può derivare da se stessa.',409);
   if(parentJobId){
     const parent=await record(b,parentJobId);
-    if(!parent||parent.kind!=='sonara-remix-pro'||parent.ownerUid!==uid||parent.status!=='COMPLETE'||!parent.audio)
+    if(!parent||parent.kind!=='sonara-remix-pro'||parent.ownerUid!==uid||parent.status!=='COMPLETE'||!parent.audio||!await b.head(audioKey(parentJobId)))
       return fail('Remix originale non disponibile nel tuo archivio.',404);
   }
   const a=String(body.sourceA||''),c=String(body.sourceB||'');
