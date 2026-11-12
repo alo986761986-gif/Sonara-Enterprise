@@ -340,7 +340,7 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
             )
             prompt = (rhythmic_priority + compose_direction(
                 v6, dna, index, controls["candidateCount"]
-            ) + "\n" + prompt)[:9000]
+            ) + "\n" + prompt)[:3000]
         result = engine(
             guide, generated, prompt, mode=mode,
             strength=float(params.get("coverStrength") if params.get("coverStrength") is not None else .72),
