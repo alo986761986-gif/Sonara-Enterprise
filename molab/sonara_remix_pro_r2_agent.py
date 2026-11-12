@@ -501,10 +501,21 @@ def pro_heartbeat_payload():
                     rhythm_controls, measure_a_rhythm, retime_real_a_loop)))
         except (ImportError, AttributeError):
             pass
+    song_form_ready = False
+    if v7_ready:
+        try:
+            from sonara_remix_pro_songform import (
+                SONGFORM_REVISION, plan_song_form, section_gains)
+            song_form_ready = (
+                SONGFORM_REVISION == "sonara-v8-songform-conditional-v1"
+                and callable(plan_song_form) and callable(section_gains))
+        except (ImportError, AttributeError):
+            pass
     return {"gpuReady": True, "formatsReady": multiformat_ready(),
             "v5Ready": ready, "v6Ready": v6_ready, "v7Ready": v7_ready,
             "v7RhythmReady": rhythm_ready,
             "v7CreativeModesReady": creative_modes_ready,
+            "v8SongFormReady": song_form_ready,
             "v6ExplosiveReady": explosive_ready}
 
 
@@ -790,6 +801,8 @@ def run_job(item, auth_mode):
 
             song_form = None
             if params.get("v8SongForm") is True:
+                if pro_heartbeat_payload().get("v8SongFormReady") is not True:
+                    raise ProAgentError("V8 song form worker is not fully installed")
                 if params.get("v7Studio") is not True or params.get("v6") is not True:
                     raise ProAgentError("V8 song form requires V7 Studio and V6 original-source path")
                 if bpm_a is None:
