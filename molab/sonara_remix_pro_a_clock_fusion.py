@@ -174,43 +174,94 @@ def _plan_vocals(profile_a, profile_b, seconds, tempo):
 
 
 def _choose_a_drum_loop(path, tempo):
-    """Choose an audible 8-bar A kit phrase. No B or generated drums are used."""
+    """Select a continuous *real A-drum* phrase for the single House clock.
+
+    The former highest-RMS eight-bar selector sometimes selected a loud phrase
+    containing a long breakdown. Examine beat-aligned 8/4/2-bar candidates
+    across A and reject candidates with sustained low-band dropouts, including
+    a dropout that would straddle the repeating loop boundary. This is a
+    continuity proxy, not an assertion of accurate kick/BPM transcription.
+    We never mix in B drums, generate fake kicks or weaken the release gate.
+    """
+    if (not isinstance(tempo, (int, float)) or not math.isfinite(float(tempo))
+            or not 55 <= float(tempo) <= 200):
+        raise OneClockFusionError("Invalid source A clock tempo")
+    bar_frames = round(4 * 60 / float(tempo) * RATE)
+    beat_frames = max(1, round(60 / float(tempo) * RATE))
+    window_frames = max(256, round(.25 * RATE))
+    # A slow four-on-the-floor groove can leave about one second between hits.
+    max_allowed_gap = min(1.20, max(.75, 1.30 * 60 / float(tempo)))
+    bandpass = butter(3, (35, 180), btype="bandpass", fs=RATE, output="sos")
+    chosen = None
+    best_key = None
+
     with sf.SoundFile(str(path)) as stream:
         if stream.samplerate != RATE:
             raise OneClockFusionError("Verified Demucs A drums must be 44.1 kHz")
-        bar_frames = round(4 * 60 / tempo * RATE)
         bars_available = stream.frames // bar_frames
         if bars_available < 2:
             raise OneClockFusionError("A drums need at least two full bars of groove")
-        # The loop itself always contains an integral number of A bars.
-        # Arbitrary 8- or 12-second clips can drift against the intended BPM.
-        phrase = min(8, bars_available) * bar_frames
-        maximum = max(0, stream.frames - phrase)
-        beat_frames = max(1, round(RATE * 60 / tempo))
-        positions = [min(maximum, (round(maximum * i / 8) // beat_frames)
-                         * beat_frames) for i in range(9)]
-        best = (-1.0, None)
-        lowpass = butter(3, 160, fs=RATE, btype="lowpass", output="sos")
-        for pos in sorted(set(positions)):
-            stream.seek(pos)
-            audio = _to_stereo(stream.read(phrase, dtype="float32", always_2d=True))
-            if len(audio) != phrase or not np.isfinite(audio).all():
-                raise OneClockFusionError("Invalid original A drum audio")
-            low = sosfilt(lowpass, audio.mean(axis=1))
-            power = float(np.sqrt(np.mean(np.square(low.astype(np.float64)))))
-            full = float(np.sqrt(np.mean(np.square(audio.astype(np.float64)))))
-            score = power * 1.25 + .10 * full
-            if score > best[0]:
-                best = (score, audio)
-        if best[1] is None or best[0] < .003:
-            raise OneClockFusionError("No usable original A drum/kick groove was found")
-        loop = best[1]
-        # Smooth only the loop join; keep the original percussive pulse.
-        fade = min(round(.035 * RATE), len(loop) // 20)
-        if fade > 2:
-            curve = np.linspace(0, 1, fade, dtype=np.float32)[:, None]
-            loop[:fade] = loop[-fade:] * (1 - curve) + loop[:fade] * curve
-        return loop
+        for bars in (8, 4, 2):
+            if bars > bars_available:
+                continue
+            phrase = bars * bar_frames
+            maximum = max(0, stream.frames - phrase)
+            # Bounded 25 probes, sampled across A rather than just its intro.
+            probes = 24
+            positions = sorted({
+                min(maximum, (round(maximum * i / probes) // beat_frames) * beat_frames)
+                for i in range(probes + 1)
+            })
+            for pos in positions:
+                stream.seek(pos)
+                audio = _to_stereo(stream.read(
+                    phrase, dtype="float32", always_2d=True))
+                if len(audio) != phrase or not np.isfinite(audio).all():
+                    raise OneClockFusionError("Invalid original A drum audio")
+                low = sosfilt(bandpass, np.mean(audio, axis=1))
+                low_rms = float(np.sqrt(np.mean(
+                    np.square(low.astype(np.float64)))))
+                if low_rms < .003:
+                    continue
+                windows = len(low) // window_frames
+                if windows < 4:
+                    continue
+                levels = np.sqrt(np.mean(np.square(
+                    low[:windows * window_frames].reshape(
+                        windows, window_frames).astype(np.float64)), axis=1))
+                threshold = max(.0015, float(np.median(levels)) * .12)
+                gaps = levels < threshold
+                longest = 0
+                current = 0
+                for empty in gaps:
+                    current = current + 1 if empty else 0
+                    longest = max(longest, current)
+                # Treat the phrase as cyclic: tail + head can form a new gap.
+                if gaps[0] and gaps[-1]:
+                    if np.any(~gaps):
+                        leading = int(np.argmax(~gaps))
+                        trailing = int(np.argmax(~gaps[::-1]))
+                    else:
+                        leading = trailing = len(gaps)
+                    longest = max(longest, leading + trailing)
+                gap_seconds = longest * (window_frames / RATE)
+                if gap_seconds > max_allowed_gap:
+                    continue
+                # Preserve longer, richer actual A performances where stable.
+                key = (bars, round(low_rms, 5), -round(gap_seconds, 3))
+                if best_key is None or key > best_key:
+                    chosen, best_key = audio, key
+
+    if chosen is None:
+        raise OneClockFusionError(
+            "Source A has no sufficiently continuous drum groove "
+            "for an explosive House clock")
+    # Crossfade one real-source loop boundary; no synthetic drum samples.
+    fade = min(round(.035 * RATE), len(chosen) // 20)
+    if fade > 2:
+        curve = np.linspace(0, 1, fade, dtype=np.float32)[:, None]
+        chosen[:fade] = chosen[-fade:] * (1 - curve) + chosen[:fade] * curve
+    return chosen
 
 
 def _voice_chunk(events, voices, start, frames):
@@ -342,6 +393,11 @@ def compose_one_a_clock(*, bass, other, drums_a, vocals_a, vocals_b,
             "voiceBlend": "source-phrase-dialogue-in-new-A-pulse-arrangement",
             "onlyOneDeliberateDrumStem": True,
             "generatedDrumsDiscarded": True,
+            # The generated vocal stem is never read or mixed. The post-QC
+            # agent specifically requires this exact output contract key;
+            # omitting it previously raised ProAgentError even for good WAVs.
+            "modelGeneratedLeadVocalsRetained": False,
+            "generatedVocalStemDiscarded": True,
             "originalVoiceAUsed": True,
             "originalVoiceBUsed": True,
             "sourceVocalsResung": False,
