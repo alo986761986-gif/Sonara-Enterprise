@@ -25,7 +25,7 @@ class GPUFailureDiagnosticsTests(unittest.TestCase):
                 for target in n.targets))
         codes = ast.literal_eval(value)
         expected = {"analysis", "demucs_a", "demucs_b", "fusion_plan",
-                    "ace_step", "mastering", "quality_gate", "upload", "completion"}
+                    "ace_step", "vocal_fusion", "mastering", "quality_gate", "upload", "completion"}
         self.assertEqual(set(codes), expected)
         self.assertTrue(all(value.startswith("REMIX_") for value in codes.values()))
         self.assertIn('lastFailureStep=failure_step', source)

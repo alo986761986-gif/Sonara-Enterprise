@@ -34,6 +34,8 @@ export default function SonaraRemixProPanel() {
   const [v7Available,setV7Available]=useState(false);
   const [v7RhythmAvailable,setV7RhythmAvailable]=useState(false);
   const [v7CreativeModesAvailable,setV7CreativeModesAvailable]=useState(false);
+  const [v8SongFormAvailable,setV8SongFormAvailable]=useState(false);
+  const [v8SongFormEnabled,setV8SongFormEnabled]=useState(true);
   const [rhythmMode,setRhythmMode]=useState<'source-a'|'manual'>('source-a');
   const [phraseBars,setPhraseBars]=useState<4|8|16>(8);
   const [vocalGrid,setVocalGrid]=useState<'bar'|'half-bar'>('half-bar');
@@ -140,7 +142,7 @@ export default function SonaraRemixProPanel() {
       setInfo('Recupero un job precedente. La sua durata potrebbe essere diversa dalla nuova selezione.');}
     fetch('/api/sonara-relay/pro-capabilities',{cache:'no-store',credentials:'include'})
       .then(r=>r.ok?r.json():{available:false})
-      .then(x=>{if(mounted.current){setAvailable(x.available===true);setMultiformatAvailable(x.multiformatAvailable===true);setV5Available(x.v5Available===true);setV6Available(x.v6Available===true);setV7Available(x.v7Available===true);setV7RhythmAvailable(x.v7RhythmAvailable===true);setV7CreativeModesAvailable(x.v7CreativeModesAvailable===true);setExplosiveAvailable(x.explosiveAvailable===true);}})
+      .then(x=>{if(mounted.current){setAvailable(x.available===true);setMultiformatAvailable(x.multiformatAvailable===true);setV5Available(x.v5Available===true);setV6Available(x.v6Available===true);setV7Available(x.v7Available===true);setV7RhythmAvailable(x.v7RhythmAvailable===true);setV7CreativeModesAvailable(x.v7CreativeModesAvailable===true);setV8SongFormAvailable(x.v8SongFormAvailable===true);setExplosiveAvailable(x.explosiveAvailable===true);}})
       .catch(()=>{if(mounted.current)setAvailable(false);});
     return()=>{mounted.current=false;};
   },[]);
@@ -326,6 +328,7 @@ export default function SonaraRemixProPanel() {
             sonaraRemixProDurationMode:durationMode,
             sonaraRemixProV6:true,
             sonaraRemixProV7:v7Enabled&&v7Available,
+            sonaraRemixProV8SongForm:v7Enabled&&v7Available&&v8SongFormAvailable&&v8SongFormEnabled,
             sonaraRemixProV7CreativeModes:v7Enabled&&v7Available&&v7CreativeModesAvailable,
             ...(v7Enabled&&v7Available&&v7RhythmAvailable
               ?{sonaraRemixProV7RhythmControls:{
@@ -540,6 +543,18 @@ export default function SonaraRemixProPanel() {
           ?'V7 audio GPU verificato: il motore eseguirà la pianificazione vocale avanzata, la dinamica A e la selezione tecnica migliorata.'
           :'V7 Studio Director attivo come guida creativa sul motore V6. La parte audio V7 richiede l’installazione separata sul worker RTX PRO 6000.'}
       </small>
+      <div className="sonara-v8-songform-control" data-testid="sonara-v8-songform" style={{display:'grid',gap:6,padding:'12px 14px',borderRadius:12,background:'rgba(87,67,121,.15)',border:'1px solid rgba(192,170,228,.21)'}}>
+        <label style={{display:'flex',alignItems:'center',gap:10,fontWeight:650}}>
+          <input type="checkbox" checked={v8SongFormEnabled} disabled={!v7Enabled||!v8SongFormAvailable}
+            onChange={event=>setV8SongFormEnabled(event.target.checked)}/>
+          Arrangiamento professionale V8
+        </label>
+        <small role="status">
+          {v8SongFormAvailable
+            ?'Disponibile: INTRO → TEMA PRINCIPALE → SVILUPPO A+B → BREAK → RIPRESA TEMA → FINALE. La qualità musicale va comunque verificata con ascolto.'
+            :'Arrangiamento V8 in attesa della versione aggiornata sul worker MoLab. Il remix V7 rimane disponibile.'}
+        </small>
+      </div>
       <SonaraRemixV7Studio enabled={v7Enabled} onEnabledChange={setV7Enabled}
         intent={v7Intent} onIntentChange={setV7Intent}
         direction={v7Direction} onDirectionChange={setV7Direction}/>

@@ -501,10 +501,21 @@ def pro_heartbeat_payload():
                     rhythm_controls, measure_a_rhythm, retime_real_a_loop)))
         except (ImportError, AttributeError):
             pass
+    song_form_ready = False
+    if v7_ready:
+        try:
+            from sonara_remix_pro_songform import (
+                SONGFORM_REVISION, plan_song_form, section_gains)
+            song_form_ready = (
+                SONGFORM_REVISION == "sonara-v8-songform-conditional-v1"
+                and callable(plan_song_form) and callable(section_gains))
+        except (ImportError, AttributeError):
+            pass
     return {"gpuReady": True, "formatsReady": multiformat_ready(),
             "v5Ready": ready, "v6Ready": v6_ready, "v7Ready": v7_ready,
             "v7RhythmReady": rhythm_ready,
             "v7CreativeModesReady": creative_modes_ready,
+            "v8SongFormReady": song_form_ready,
             "v6ExplosiveReady": explosive_ready}
 
 
@@ -788,6 +799,18 @@ def run_job(item, auth_mode):
             if requested_seconds not in range(30, 481, 30):
                 raise SourceTransferError("REMIX_INVALID_DURATION")
 
+            song_form = None
+            if params.get("v8SongForm") is True:
+                if pro_heartbeat_payload().get("v8SongFormReady") is not True:
+                    raise ProAgentError("V8 song form worker is not fully installed")
+                if params.get("v7Studio") is not True or params.get("v6") is not True:
+                    raise ProAgentError("V8 song form requires V7 Studio and V6 original-source path")
+                if bpm_a is None:
+                    raise ProAgentError("V8 song form needs a verified A tempo")
+                from sonara_remix_pro_songform import plan_song_form
+                song_form = plan_song_form(
+                    requested_seconds, bpm_a,
+                    b_influence=int(params.get("bInfluence", 50)))
             # In V6, BOTH real source hooks reach ACE-Step's primary
             # conditioning guide in short alternating phrases. B is also an
             # independent style reference. This is a PRIVATE GUIDE only:
@@ -805,6 +828,7 @@ def run_job(item, auth_mode):
                     vocals_b=source_b / 'vocals.wav',
                     b_influence=int(params.get('bInfluence', 50)),
                     homogeneous=explosive,
+                    song_form=song_form,
                 )
                 if (guide_report.get('containsSourceA') is not True or
                         guide_report.get('containsSourceB') is not True or
@@ -862,7 +886,9 @@ def run_job(item, auth_mode):
                                            "sourceReportB": report_b}
                                           if params.get("v6") is True else {}),
                                 **({"v7Rhythm": rhythm_data}
-                                   if rhythm_data is not None else {})},
+                                   if rhythm_data is not None else {}),
+                                **({"v8SongFormPlan": song_form}
+                                   if song_form is not None else {})},
                         b_drums=(source_a if params.get("v6") is True else source_b) / "drums.wav", engine=ace_cover,
                         vocals_a=source_a / "vocals.wav",
                         vocals_b=source_b / "vocals.wav",
@@ -906,6 +932,13 @@ def run_job(item, auth_mode):
                     }
                     v5_metadata["v6Master"] = params.get("v6Controls", {}).get("master", "streaming")
                     if params.get("v7Studio") is True:
+                        if song_form is not None:
+                            v5_metadata["v8SongForm"] = {
+                                "revision": song_form["revision"],
+                                "sectionNames": [s["name"] for s in song_form["sections"]],
+                                "estimatedGridNotVerifiedDownbeat": True,
+                                "artisticListeningRequired": True,
+                            }
                         if rhythm_data is not None:
                             measured_rhythm = preserved.get("v7RhythmLock")
                             if not isinstance(measured_rhythm, dict) or abs(
@@ -1112,7 +1145,8 @@ def main(argv=None):
             readiness = pro_heartbeat_payload()
             response = request("POST","/api/sonara-relay/pro-claim",
                                {"v5Ready": readiness.get("v5Ready") is True,
-                                "v6Ready": readiness.get("v6Ready") is True})
+                                "v6Ready": readiness.get("v6Ready") is True,
+                                "v8SongFormReady": readiness.get("v8SongFormReady") is True})
             if response.get("jobId"):
                 run_job(response,args.auth_mode)
             else:

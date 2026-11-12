@@ -111,7 +111,7 @@ def make_structural_guide(source_a, destination, seconds):
 
 def make_dual_hook_conditioning_guide(source_a, source_b, destination, seconds, *,
                                       vocals_a=None, vocals_b=None, b_influence=50,
-                                      homogeneous=False):
+                                      homogeneous=False, song_form=None):
     """Prepare A/B motif *conditioning*, never a deliverable mashup.
 
     Only the subsequent ACE-Step cover creates the publishable music. The
@@ -156,7 +156,22 @@ def make_dual_hook_conditioning_guide(source_a, source_b, destination, seconds, 
     lengths = [length for _ in range(seconds // 30)
                for length in (a_first, b_frames, a_last)]
     total_frames = sr * seconds
-    if sum(lengths) != total_frames or any(x < sr * 6 for x in lengths):
+    if song_form is not None:
+        from sonara_remix_pro_songform import SONGFORM_REVISION
+        if not isinstance(song_form, dict) or song_form.get("revision") != SONGFORM_REVISION:
+            raise FusionPlanError("Invalid V8 song form")
+        sections = song_form.get("sections")
+        if (song_form.get("seconds") != seconds or song_form.get("rate") != sr
+                or not isinstance(sections, list) or len(sections) != 6):
+            raise FusionPlanError("V8 song form does not match the conditioning audio")
+        roles = [section["role"] for section in sections]
+        lengths = [section["frames"] for section in sections]
+        if (sum(lengths) != total_frames or any(n <= 0 for n in lengths)
+                or set(roles) != {"a", "b"}):
+            raise FusionPlanError("V8 song form contains invalid section lengths")
+    minimum_frames = (max(1024, round(.75 * sr))
+                      if song_form is not None else sr * 6)
+    if sum(lengths) != total_frames or any(x < minimum_frames for x in lengths):
         raise FusionPlanError("Dual-hook section layout is invalid")
 
     def best_excerpt(song_path, vocals_path, required_frames, variant=0):
@@ -242,7 +257,17 @@ def make_dual_hook_conditioning_guide(source_a, source_b, destination, seconds, 
         with sf.SoundFile(str(dest), "w+", samplerate=sr, channels=2,
                           subtype="PCM_24", format="WAV") as output:
             for index, (role, nominal) in enumerate(zip(roles, lengths)):
-                excerpt, _, _ = selected[role][(index // 3) % 2]
+                # V8 reprise must actually reuse the MAIN A motif source,
+                # not silently switch to a different energy-ranked excerpt.
+                # In legacy V6 the unchanged alternating reference path stays.
+                if song_form is None:
+                    variant = (index // 3) % 2
+                else:
+                    variant = {
+                        "intro": 1, "main_theme": 0, "development": 0,
+                        "break": 1, "theme_return": 0, "outro": 1,
+                    }[song_form["sections"][index]["name"]]
+                excerpt, _, _ = selected[role][variant]
                 piece = extended_phrase(excerpt, nominal + (fade if index else 0))
                 if index:
                     output.flush()
@@ -265,11 +290,12 @@ def make_dual_hook_conditioning_guide(source_a, source_b, destination, seconds, 
             if check.frames != total_frames or check.channels != 2 or check.samplerate != sr:
                 raise FusionPlanError("Dual-hook conditioning duration mismatch")
         return {
-            "revision": "sonara-v6-dual-hook-reference-v2",
+            "revision": "sonara-v8-songform-guide-v1" if song_form is not None else "sonara-v6-dual-hook-reference-v2",
             "source": "a-b-repeating-phrase-conditioning-only",
             "seconds": seconds, "frames": total_frames,
             "containsSourceB": True, "containsSourceA": True,
             "sections": roles,
+            "songForm": ([s["name"] for s in song_form["sections"]] if song_form is not None else None),
             "sourceBGuideSeconds": round(sum(n for role, n in zip(roles, lengths)
                                                if role == "b") / sr, 2),
             "sourceAGuideSeconds": round(sum(n for role, n in zip(roles, lengths)

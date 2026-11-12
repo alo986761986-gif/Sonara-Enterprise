@@ -2,6 +2,7 @@
 from __future__ import annotations
 import ast
 import importlib.util
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -26,15 +27,17 @@ class V42HandoffTests(unittest.TestCase):
                 "496428a8af25492246f49d5bf25d281781d17315",
                 "d31e42a4ba52e15fee08436f997f95b0b7561054"),
         })
-        # Keep the V4.2 installer pinned and immutable, while the repository
-        # may contain the later V5 dedicated agent. V5 has independent SHA tests.
-        for name, (_, current_sha) in guard.BLOBS.items():
-            released_sha = (
-                "25327ad052be63c1f86450afb56c478b1a43f528"
-                if name == "sonara_remix_pro_r2_agent.py" else current_sha
-            )
-            self.assertEqual(guard.git_blob((ROOT / name).read_bytes()),
-                             released_sha)
+        # The immutable V4.2 installer must match its historical commit,
+        # not the evolving V8 worker currently in the working tree.
+        for name, (_, pinned_sha) in guard.BLOBS.items():
+            with self.subTest(name=name):
+                historical = subprocess.run(
+                    ["git", "show", f"{guard.PINNED_COMMIT}:molab/{name}"],
+                    cwd=ROOT.parent, check=False, capture_output=True)
+                self.assertEqual(historical.returncode, 0,
+                                 "Historical V4.2 commit missing from git checkout")
+                self.assertEqual(guard.git_blob(historical.stdout), pinned_sha)
+                compile(historical.stdout, name, "exec")
         self.assertEqual(guard.REVISION,
                          "sonara-remix-pro-r2-agent-v3-dual-reference-fusion")
 

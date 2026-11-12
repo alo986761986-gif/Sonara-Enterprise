@@ -2,6 +2,7 @@
 from __future__ import annotations
 import ast
 import importlib.util
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -20,16 +21,17 @@ class V5GuardTests(unittest.TestCase):
         self.assertEqual(guard.BLOBS["sonara_remix_pro_r2_agent.py"][0],
                          "c0e5392a458139bda3d1d3b7297e5b2cb0085dfb")
         self.assertIsNone(guard.BLOBS["sonara_remix_pro_v5.py"][0])
-        # Historical handoff stays SHA-pinned. Repository files can evolve
-        # under the separate opt-in V6 release; never mutate V5 installer pins.
-        current_release = {
-            "sonara_remix_pro_r2_agent.py": "25327ad052be63c1f86450afb56c478b1a43f528",
-            "sonara_remix_pro_v5.py": "7f88b399798dbbd815decf07867ed276c5ca3860",
-        }
+        # Historical handoff stays SHA-pinned. Verify the immutable release
+        # itself, rather than failing when modern V8 modules evolve.
         for name, (_, new_sha) in guard.BLOBS.items():
             self.assertEqual(len(new_sha), 40)
-            self.assertEqual(guard.git_blob((ROOT / name).read_bytes()),
-                             current_release.get(name, new_sha))
+            historical = subprocess.run(
+                ["git", "show", f"{guard.PINNED_COMMIT}:molab/{name}"],
+                cwd=ROOT.parent, check=False, capture_output=True)
+            self.assertEqual(historical.returncode, 0,
+                             "Historical V5 snapshot missing")
+            self.assertEqual(guard.git_blob(historical.stdout), new_sha)
+            compile(historical.stdout, name, "exec")
 
     def test_restore_removes_new_module_when_missing_before_install(self):
         with tempfile.TemporaryDirectory() as d:

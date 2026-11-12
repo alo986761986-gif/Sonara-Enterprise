@@ -303,7 +303,8 @@ def _voice_chunk(events, voices, start, frames):
 
 def compose_one_a_clock(*, bass, other, drums_a, vocals_a, vocals_b,
                         destination, expected_seconds, tempo_a, lease_check=None,
-                        v7_studio=False, rhythm_lock=None, creative_mode='balanced'):
+                        v7_studio=False, rhythm_lock=None, creative_mode='balanced',
+                        song_form=None):
     """Write private FLOAT premaster. Exactly one authentic A drum clock.
 
     This is not a promise of automatic harmonic/semantic fidelity. The caller
@@ -325,6 +326,14 @@ def compose_one_a_clock(*, bass, other, drums_a, vocals_a, vocals_b,
     if not destination.parent.is_dir():
         raise OneClockFusionError("Private output directory does not exist")
     frames_total = expected_seconds * RATE
+    if song_form is not None:
+        from sonara_remix_pro_songform import SONGFORM_REVISION
+        if (not v7_studio or not isinstance(song_form, dict)
+                or song_form.get("revision") != SONGFORM_REVISION
+                or song_form.get("seconds") != expected_seconds
+                or song_form.get("rate") != RATE
+                or abs(song_form.get("tempoBpm", 0) - tempo) > .01):
+            raise OneClockFusionError("Invalid V8 song form rendering contract")
     for part in (bass, other):
         with sf.SoundFile(str(part)) as stream:
             if stream.samplerate != RATE or abs(stream.frames - frames_total) > RATE // 10:
@@ -403,6 +412,13 @@ def compose_one_a_clock(*, bass, other, drums_a, vocals_a, vocals_b,
                         start, n, RATE, tempo, creative_mode)
                     bass_gain = bass_gain * bass_motion
                     other_gain = other_gain * other_motion
+                if song_form is not None:
+                    from sonara_remix_pro_songform import section_gains
+                    kick_section, bass_section, other_section = section_gains(
+                        start, n, RATE, song_form, mode=creative_mode)
+                    drums = drums * kick_section[:, None]
+                    bass_gain = bass_gain * bass_section
+                    other_gain = other_gain * other_section
                 result = (.82 * drums + b * bass_gain[:, None] +
                           o * other_gain[:, None] + .88 * vocals)
                 if not np.isfinite(result).all():
@@ -446,6 +462,8 @@ def compose_one_a_clock(*, bass, other, drums_a, vocals_a, vocals_b,
             "voiceBlend": ("v7-balanced-authentic-source-phrases" if v7_studio
                            else "source-phrase-dialogue-in-new-A-pulse-arrangement"),
             "v7StudioApplied": v7_studio is True,
+            "v8SongFormApplied": song_form is not None,
+            "v8SectionNames": [s["name"] for s in song_form["sections"]] if song_form is not None else None,
             "creativeModeApplied": creative_mode if v7_studio else "legacy",
             "onlyOneDeliberateDrumStem": True,
             "generatedDrumsDiscarded": True,
