@@ -397,7 +397,8 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
                 destination=original_mix,
                 expected_seconds=controls["durationSec"],
                 tempo_a=bpm, lease_check=lease_check,
-                v7_studio=v7_studio)
+                v7_studio=v7_studio,
+                rhythm_lock=params.get("v7Rhythm"))
             generated = original_mix
         if phase_callback:
             phase_callback("mastering")
