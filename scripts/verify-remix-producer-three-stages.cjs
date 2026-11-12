@@ -14,9 +14,9 @@ const js = ts.transpileModule(source, {
 });
 const errors = (js.diagnostics || []).filter(d => d.category === ts.DiagnosticCategory.Error);
 assert.equal(errors.length, 0, 'TypeScript producer source must transpile');
-const module = {exports: {}};
-vm.runInNewContext(js.outputText, {module, exports: module.exports}, {timeout: 2000});
-const {v7Directions, addV7Direction} = module.exports;
+const sandboxModule = {exports: {}};
+vm.runInNewContext(js.outputText, {module: sandboxModule, exports: sandboxModule.exports}, {timeout: 2000});
+const {v7Directions, addV7Direction} = sandboxModule.exports;
 assert.equal(typeof v7Directions, 'function');
 assert.equal(typeof addV7Direction, 'function');
 
