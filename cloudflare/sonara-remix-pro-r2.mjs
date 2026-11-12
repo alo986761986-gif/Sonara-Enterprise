@@ -151,6 +151,7 @@ async function gpuState(b){
     v5Ready:fresh&&d?.v5Ready===true&&d?.revision===PRO_AGENT_REVISION,
     v6Ready:fresh&&d?.v6Ready===true&&d?.v5Ready===true&&d?.revision===PRO_AGENT_REVISION,
     v7Ready:fresh&&d?.v7Ready===true&&d?.v6Ready===true&&d?.v5Ready===true&&d?.revision===PRO_AGENT_REVISION,
+    v7RhythmReady:fresh&&d?.v7RhythmReady===true&&d?.v7Ready===true&&d?.revision===PRO_AGENT_REVISION,
     explosiveReady:fresh&&d?.v6Ready===true&&d?.v6ExplosiveReady===true&&d?.revision===PRO_AGENT_REVISION};
 }
 async function beat(b){
@@ -165,6 +166,7 @@ export async function proCapabilities(env) {
     fusionAvailable:available&&gpu.ready,v5Available:available&&gpu.v5Ready,
     v6Available:available&&gpu.v6Ready,
     v7Available:available&&gpu.v7Ready,
+    v7RhythmAvailable:available&&gpu.v7RhythmReady,
     explosiveAvailable:available&&gpu.explosiveReady,engine:'Demucs 4.1 + ACE-Step XL Turbo',
     model:'htdemucs',expectedAgentRevision:PRO_AGENT_REVISION,
     multiformatAvailable:available&&gpu.formatsReady,
@@ -260,6 +262,26 @@ async function enqueue(req,e,auth,b) {
   if(v7 && !v6)return fail('V7 Deep Fusion richiede la pipeline V6.',400);
   if(v7 && !(await gpuState(b)).v7Ready)
     return fail('Il motore V7 non risulta installato sul worker MoLab. V6 resta disponibile.',503);
+  let rhythmControls=null;
+  if(body.v7RhythmControls!==undefined) {
+    if(!v7 || !(await gpuState(b)).v7RhythmReady)
+      return fail('Rhythm Lock richiede il worker V7 aggiornato.',503);
+    const raw=body.v7RhythmControls;
+    if(!raw||typeof raw!=='object'||Array.isArray(raw)||
+       Object.keys(raw).some(k=>!['tempoMode','meter','phraseBars','vocalGrid'].includes(k)))
+      return fail('Controlli ritmo non validi.',400);
+    rhythmControls={tempoMode:'source-a',meter:'4/4',phraseBars:8,vocalGrid:'half-bar',...raw};
+    if(!['source-a','manual'].includes(rhythmControls.tempoMode)||
+       rhythmControls.meter!=='4/4'||
+       ![4,8,16].includes(rhythmControls.phraseBars)||
+       !Number.isInteger(rhythmControls.phraseBars)||
+       !['bar','half-bar'].includes(rhythmControls.vocalGrid))
+      return fail('Ritmo e battute non validi.',400);
+    if(rhythmControls.tempoMode==='manual'&&
+       (typeof body.bpmA!=='number'||!Number.isFinite(body.bpmA)||
+         body.bpmA<55||body.bpmA>200))
+      return fail('Imposta BPM A valido tra 55 e 200 per il tempo manuale.',400);
+  }
   let v6Controls=null;
   if(v6) {
     if(!v5)return fail('Remix V6 requires the V5 private pipeline.',400);
@@ -344,7 +366,8 @@ if(!(await proQuota(e,'verify',id,uid,duration)))return fail('Registrazione priv
       ...(v5?{v5:true,genre:body.genre,bInfluence:body.bInfluence,
                candidateCount:acceptedCandidateCount,durationMode:body.durationMode}:{}),
       ...(v6?{v6:true,v6Controls}:{ }),
-      ...(v7?{v7Studio:true}:{})
+      ...(v7?{v7Studio:true}:{}),
+      ...(rhythmControls?{v7RhythmControls:rhythmControls}:{})
     }};
   if(!j.params.prompt)return fail('Scrivi il prompt del Remix Pro.');
   const saved=await save(b,j);
@@ -459,6 +482,7 @@ export async function handleRemixPro(req,env,ctx,auth) {
       formatsReady:payload?.formatsReady===true,v5Ready:payload?.v5Ready===true,
       v6Ready:payload?.v5Ready===true&&payload?.v6Ready===true,
       v7Ready:payload?.v5Ready===true&&payload?.v6Ready===true&&payload?.v7Ready===true,
+      v7RhythmReady:payload?.v5Ready===true&&payload?.v6Ready===true&&payload?.v7Ready===true&&payload?.v7RhythmReady===true,
       v6ExplosiveReady:payload?.v5Ready===true&&payload?.v6Ready===true&&payload?.v6ExplosiveReady===true,
       lastSeen:Date.now()}));
     return json({authenticated:true,revision:agentRevision(req)});
@@ -653,6 +677,24 @@ export async function handleRemixPro(req,env,ctx,auth) {
          master:{lufs:v7Master.measuredLufs,truePeakDbTp:v7Master.measuredTruePeakDbTp,
            crestDb:v7Master.measuredCrestDb},
          audioPreviewGenerated:false,artisticListeningRequired:true}:null;
+    const v7Rhythm=safeV7?.rhythm;
+    const safeRhythm=v7Result&&j.params?.v7RhythmControls&&
+      v7Rhythm?.meter==='4/4' &&
+      ['measured-kick-periodicity-not-verified-downbeat','analyzer-estimate-not-downbeat-verified'].includes(v7Rhythm.beatGridBasis) &&
+      ['bar','half-bar'].includes(v7Rhythm.vocalGrid) &&
+      [4,8,16].includes(v7Rhythm.phraseBars) &&
+      v7Rhythm.vocalGrid===j.params.v7RhythmControls.vocalGrid &&
+      v7Rhythm.phraseBars===j.params.v7RhythmControls.phraseBars &&
+      ['sourceBpm','outputBpm','confidence','retimeRatio'].every(k=>
+        typeof v7Rhythm[k]==='number'&&Number.isFinite(v7Rhythm[k])) &&
+      v7Rhythm.sourceBpm>=55&&v7Rhythm.sourceBpm<=200 &&
+      v7Rhythm.outputBpm>=55&&v7Rhythm.outputBpm<=200 &&
+      v7Rhythm.confidence>=0&&v7Rhythm.confidence<=1 &&
+      v7Rhythm.retimeRatio>=1/1.12&&v7Rhythm.retimeRatio<=1.12
+      ? {sourceBpm:v7Rhythm.sourceBpm,outputBpm:v7Rhythm.outputBpm,
+         confidence:v7Rhythm.confidence,retimeRatio:v7Rhythm.retimeRatio,
+         beatGridBasis:v7Rhythm.beatGridBasis,meter:'4/4',
+         phraseBars:v7Rhythm.phraseBars,vocalGrid:v7Rhythm.vocalGrid} : null;
     const selectedDuration=Number(j.durationSeconds||j.params?.durationSec);
     if(action==='complete' && reported?.actualDurationSeconds!==undefined &&
        (!Number.isFinite(claimedDuration) ||
@@ -688,7 +730,7 @@ export async function handleRemixPro(req,env,ctx,auth) {
         ...(action==='fail'?{failureCode,failurePhase}:{}),
         ...(v5Result?{v5Result}:{}),
         ...(v6Result?{v6Result}:{}),
-        ...(v7Result?{v7Result}:{})};
+        ...(v7Result?{v7Result:{...v7Result,...(safeRhythm?{rhythm:safeRhythm}:{})}}:{})};
       if(!(await save(b,next,currentObj.etag)))continue;
       if(action==='complete')await saveLibraryIndex(b,next).catch(()=>{});
       // Quota settlement failures must not reverse a confirmed R2 master.
