@@ -393,6 +393,11 @@ def compose_one_a_clock(*, bass, other, drums_a, vocals_a, vocals_b,
             "voiceBlend": "source-phrase-dialogue-in-new-A-pulse-arrangement",
             "onlyOneDeliberateDrumStem": True,
             "generatedDrumsDiscarded": True,
+            # The generated vocal stem is never read or mixed. The post-QC
+            # agent specifically requires this exact output contract key;
+            # omitting it previously raised ProAgentError even for good WAVs.
+            "modelGeneratedLeadVocalsRetained": False,
+            "generatedVocalStemDiscarded": True,
             "originalVoiceAUsed": True,
             "originalVoiceBUsed": True,
             "sourceVocalsResung": False,
