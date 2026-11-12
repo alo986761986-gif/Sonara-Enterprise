@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 
 V7_REVISION = "sonara-v7-deep-fusion-safe-v1"
+V7_MODE_AUDIO_REVISION = "sonara-v7-creative-voice-motion-r1"
 
 
 def _valid_tempo(tempo):
