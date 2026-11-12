@@ -1,7 +1,7 @@
-SONARA_OFFICIAL_FRONTEND_RELEASE=2026-11-12-V7-DISTINCT-CREATIVE-MODES
-REASON=Publish distinct Balanced Experimental Wild Explosive creative mode UI, gateway attestation and mode reporting
-SOURCE_PR=127
-SOURCE_COMMIT=6e7afaa2d00a2a499187b01a174938df310c03ac
-EXPECTED=DistinctCreativeModes,OriginalABVoices,AuthenticAKick,RhythmLockPreserved,GPUVerifiedAppliedMode
+SONARA_OFFICIAL_FRONTEND_RELEASE=2026-11-12-V7-ALL-CHANGES-PUBLIC-RECONNECT
+REASON=Republish verified latest Remix Pro V7 Creative Modes, Rhythm Tempo Lock, A-B Fusion and personal archive on Cloudflare
+SOURCE_PR=127,126,125,124,128
+SOURCE_COMMIT=286736ceac92c3a8c0e6d59f48b15cac7597d36d
+EXPECTED=V7-Deep-Fusion,Balanced,Experimental,Wild,Explosive,RhythmTempoLock,OriginalABVoices,PersonalArchive
 DEPLOY_TARGET=Cloudflare-Worker-sonaraenterprise.com
-GPU_GATE=NEW-MODES-READY-ONLY-AFTER-GUARDED-MOLAB-INSTALL
+GPU_RECONNECT=PRIVATE-RTX-6000-REQUIRES-VERIFIED-IDLE-SAFE-LOCAL-EXECUTION
