@@ -255,7 +255,17 @@ def make_dual_hook_conditioning_guide(source_a, source_b, destination, seconds, 
         with sf.SoundFile(str(dest), "w+", samplerate=sr, channels=2,
                           subtype="PCM_24", format="WAV") as output:
             for index, (role, nominal) in enumerate(zip(roles, lengths)):
-                excerpt, _, _ = selected[role][(index // 3) % 2]
+                # V8 reprise must actually reuse the MAIN A motif source,
+                # not silently switch to a different energy-ranked excerpt.
+                # In legacy V6 the unchanged alternating reference path stays.
+                if song_form is None:
+                    variant = (index // 3) % 2
+                else:
+                    variant = {
+                        "intro": 1, "main_theme": 0, "development": 0,
+                        "break": 1, "theme_return": 0, "outro": 1,
+                    }[song_form["sections"][index]["name"]]
+                excerpt, _, _ = selected[role][variant]
                 piece = extended_phrase(excerpt, nominal + (fade if index else 0))
                 if index:
                     output.flush()
