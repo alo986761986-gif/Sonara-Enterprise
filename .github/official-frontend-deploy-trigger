@@ -1,7 +1,7 @@
-SONARA_OFFICIAL_FRONTEND_RELEASE=2026-11-12-REMIX-PRO-V7-DEEP-FUSION
-REASON=Publish verified V7 Seven-Pillar Remix Studio and owner-verified version archive
-SOURCE_PR=125
-SOURCE_COMMIT=80279ce467a5bd684ec3208e9eeb68f8db422230
-EXPECTED=V7-Studio-Director,Voice-Groove-Harmony,Measured-Candidates,Private-Version-Archive
+SONARA_OFFICIAL_FRONTEND_RELEASE=2026-11-12-V7-RHYTHM-TEMPO-LOCK
+REASON=Publish verified original-A kick BPM, 4-4 bar-grid and vocal alignment controls
+SOURCE_PR=126
+SOURCE_COMMIT=01755f118d98067bfc329b71f6c5ed13718f1d77
+EXPECTED=RhythmTempoLock,House4-4,SourceA-BPM,ManualTempoSafety,VocalGrid
 DEPLOY_TARGET=Cloudflare-Worker-sonaraenterprise.com
-GPU_GATE=V7-AUDIO-AVAILABLE-ONLY-AFTER-GUARDED-MOLAB-INSTALL
+GPU_GATE=RHYTHM-READY-ONLY-AFTER-GUARDED-MOLAB-INSTALL
