@@ -106,6 +106,45 @@ class RemixV5SixPillarsTests(unittest.TestCase):
             self.assertGreaterEqual(missing_bass["longestLowBandGapSeconds"],1.75)
             self.assertGreaterEqual(missing_audio["longestInternalSilenceSeconds"],1.25)
 
+    def test_dynamic_bass_must_not_hide_continuous_a_clock(self):
+        """A louder bass verse must not make the same original kick seem absent.
+
+        A real four-on-floor production can have an evolving generated bass
+        bed while retaining the same A drum loop. True dropouts and silence
+        must still fail the exact same release criterion.
+        """
+        import numpy as np
+        import soundfile as sf
+        sr = 22050
+        seconds = 24
+        t = np.arange(sr * seconds, dtype=np.float64) / sr
+        original_a_clock = .010 * np.sin(2 * np.pi * 85 * t)
+        generated_bass = np.where(
+            t < 15, .22 * np.sin(2 * np.pi * 78 * t), 0.)
+        melody = .015 * np.sin(2 * np.pi * 600 * t)
+        continuous = (original_a_clock + generated_bass + melody).astype("float32")
+        no_kick = continuous.copy()
+        no_kick[17 * sr:21 * sr] = melody[17 * sr:21 * sr]
+        silent = continuous.copy()
+        silent[17 * sr:21 * sr] = 0
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, samples in (
+                ("continuous", continuous), ("no-kick", no_kick),
+                ("silence", silent)
+            ):
+                sf.write(root / (name + ".wav"), samples, sr)
+            good = continuous_pulse_report(root / "continuous.wav")
+            absent = continuous_pulse_report(root / "no-kick.wav")
+            muted = continuous_pulse_report(root / "silence.wav")
+            self.assertFalse(good["hasUnwantedBreak"], good)
+            self.assertGreater(good["medianLowBandRms"], .05)
+            self.assertLess(good["lowBandGapThresholdRms"], .003)
+            self.assertTrue(absent["hasUnwantedBreak"], absent)
+            self.assertGreaterEqual(absent["longestLowBandGapSeconds"], 1.75)
+            self.assertTrue(muted["hasUnwantedBreak"], muted)
+            self.assertGreaterEqual(muted["longestInternalSilenceSeconds"], 1.25)
+
     def test_no_fake_artistic_verification(self):
         from sonara_remix_pro_v5 import render_candidates
         import inspect
