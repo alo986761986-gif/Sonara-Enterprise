@@ -4,6 +4,8 @@ import SonaraRemixProLibrary from './SonaraRemixProLibrary';
 import SonaraRemixProProgress, { type RemixProTransfer } from './SonaraRemixProProgress';
 import SonaraRemixProEditor, { type RemixEditorTrack } from './SonaraRemixProEditor';
 import { createIntelligentRemixDirection } from './sonaraRemixIntelligentDirection';
+import SonaraRemixV7Studio from './SonaraRemixV7Studio';
+import { addV7Direction, v7Directions, type V7Intent, type V7Direction } from './sonaraRemixV7Director';
 import './SonaraRemixProStudio.css';
 
 type ProJob = {jobId?: string;status?: string;stage?: string;progress?: number;audioUrl?: string;
@@ -36,6 +38,10 @@ export default function SonaraRemixProPanel() {
   const [durationMode,setDurationMode]=useState<'auto'|'manual'>('auto');
   const [multiformatAvailable,setMultiformatAvailable]=useState(false);
   const [sourceA,setSourceA]=useState<File|null>(null);
+  const [parentJobId,setParentJobId]=useState('');
+  const [v7Enabled,setV7Enabled]=useState(true);
+  const [v7Intent,setV7Intent]=useState<V7Intent>({vocalFlow:85,houseGroove:90,harmony:85,arrangement:80});
+  const [v7Direction,setV7Direction]=useState<V7Direction['id']>('dialogue');
   const [trackTitle,setTrackTitle]=useState('');
   const [archiveRefresh,setArchiveRefresh]=useState(0);
   const [editorTrack,setEditorTrack]=useState<RemixEditorTrack|null>(null);
@@ -80,6 +86,27 @@ export default function SonaraRemixProPanel() {
     setError('');
     setInfo('Nuova direzione musicale pronta. Puoi modificarla prima di generare il brano.');
   };
+  const createVersionFromArchive=async(entry:{jobId:string;title:string;audioUrl:string})=>{
+    if(!isJob(entry.jobId)||entry.audioUrl!=='/api/sonara-relay/pro-job/'+entry.jobId+'/audio'){
+      setError('Origine della versione non verificata.');return;
+    }
+    if(submitting||job?.status==='PROCESSING'){
+      setError('Completa il lavoro attivo prima di avviare una nuova versione.');return;
+    }
+    setError('');setInfo('Recupero privato del master originale dal tuo archivio…');
+    try{
+      const response=await fetch(entry.audioUrl,{credentials:'include',cache:'no-store'});
+      if(!response.ok)throw new Error('Non riesco a recuperare il tuo remix originale.');
+      const blob=await response.blob();
+      if(blob.size<44||blob.size>512*1024*1024)
+        throw new Error('Il master non rispetta i limiti audio Remix Pro.');
+      const file=new File([blob],entry.title.replace(/[^a-zA-Z0-9 _-]/g,'').slice(0,65)+'.wav',{type:'audio/wav'});
+      setSourceA(file);
+      setParentJobId(entry.jobId);
+      setTrackTitle((entry.title+' · V2').slice(0,96));
+      setInfo('Versione derivata da '+entry.title+'. Seleziona il secondo brano B, conferma i diritti e avvia una nuova generazione.');
+    }catch(e){setError(e instanceof Error?e.message:'Impossibile preparare la versione.');}
+  };
   const changeDuration=(seconds:number)=>{
     if (!validDuration(seconds)) return;
     setDuration(seconds);
@@ -91,7 +118,7 @@ export default function SonaraRemixProPanel() {
       setError('Il brano '+role.toUpperCase()+' deve essere audio o video musicale supportato, massimo 512 MiB.');
       return;
     }
-    if(role==='a')setSourceA(file);
+    if(role==='a'){setSourceA(file);setParentJobId('');}
     else setSourceB(file);
     setError('');
     setInfo('Brano '+role.toUpperCase()+' selezionato: '+file.name);
@@ -273,6 +300,7 @@ export default function SonaraRemixProPanel() {
           sonaraRemixPro:true,
           sonaraRemixProRightsConfirmed:true,
           sonaraRemixProSourceA:a,
+          ...(parentJobId?{sonaraRemixProParentJobId:parentJobId}:{}),
           sonaraRemixProSourceB:b,
           sonaraRemixProTitle:trackTitle.trim().slice(0,96)||('Creative Fusion '+new Date().toLocaleDateString('it-IT')),
           sonaraRemixProBassFrom:bassFrom,
@@ -290,7 +318,9 @@ export default function SonaraRemixProPanel() {
           ...(bpmA?{sonaraRemixProBpmA:Number(bpmA)}:{}),
           ...(bpmB?{sonaraRemixProBpmB:Number(bpmB)}:{}),
           durationSec:requestedDuration,
-          prompt:prompt.trim().slice(0,6500),
+          prompt:(v7Enabled
+            ?addV7Direction(prompt,v7Directions(v7Intent).find(item=>item.id===v7Direction)!)
+            :prompt.trim()).slice(0,6500),
           candidateCount:1,
           audio_cover_strength:0.76,
           cover_noise_strength:0.14
@@ -472,6 +502,14 @@ export default function SonaraRemixProPanel() {
           Cambiare proposta non consuma GPU e non crea un remix.
         </small>
       </div>
+      <SonaraRemixV7Studio enabled={v7Enabled} onEnabledChange={setV7Enabled}
+        intent={v7Intent} onIntentChange={setV7Intent}
+        direction={v7Direction} onDirectionChange={setV7Direction}/>
+      {parentJobId&&<div className="sonara-v7-origin" role="status">
+        <strong>Versione collegata all'archivio</strong>
+        <span>Nuovo remix derivato dal master {parentJobId.slice(6,14)}. La versione originale resterà salvata.</span>
+        <button type="button" onClick={()=>{setParentJobId('');setSourceA(null);}}>Annulla nuova versione</button>
+      </div>}
       <div className="sonara-v6-section-label"><span>03</span><div><strong>Durata e produzione</strong><small>Imposta la lunghezza e i dettagli del brano.</small></div></div>
       <div className="sonara-v6-production" style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:8}}>
         <label>Durata Remix AI (30 secondi – 8 minuti)
@@ -532,7 +570,8 @@ export default function SonaraRemixProPanel() {
       </div>}
       {available!==true&&<small>Remix tradizionale disponibile. Remix Pro sarà abilitato solo dopo autenticazione e verifica del servizio GPU dedicato.</small>}
       <div className="sonara-v6-section-label"><span><FolderOpen size={17}/></span><div><strong>Il tuo archivio personale</strong><small>Master salvati e disponibili dopo ogni generazione.</small></div></div>
-      <SonaraRemixProLibrary refreshToken={archiveRefresh} onEdit={setEditorTrack}/>
+      <SonaraRemixProLibrary refreshToken={archiveRefresh} onEdit={setEditorTrack}
+        onCreateVersion={entry=>{void createVersionFromArchive(entry);}}/>
       <div className="sonara-v6-section-label"><span><AudioWaveform size={17}/></span><div><strong>Timeline ed equalizzatore</strong><small>Modifica e salva localmente i remix completati, senza toccare il master privato.</small></div></div>
       <SonaraRemixProEditor track={editorTrack}/>
     </div>
