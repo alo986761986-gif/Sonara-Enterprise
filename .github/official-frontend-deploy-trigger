@@ -1,7 +1,6 @@
-SONARA_OFFICIAL_FRONTEND_RELEASE=2026-11-12-V7-ROTATE-LOST-MOLAB-PAIRING
-REASON=Rotate only superseded eighth MoLab relay token fingerprint while preserving all seven original authorized GPU pairings
-SOURCE_PR=130
-SOURCE_COMMIT=e071901c134061bb794ecc64f3983b147dcd3f7d
-EXPECTED=SONARA-V7-CreativeModes,RhythmTempoLock,Unchanged-Main-ACE,Recovered-Relay-Pairing
+SONARA_OFFICIAL_FRONTEND_RELEASE=2026-11-12-REMIX-PRODUCER-THREE-STAGES
+REASON=Publish three-stage arrangement authentic A+B vocal placement and mastering guidance
+SOURCE_COMMITS=b409075460ec7266920c09d39e5f7394c7092471,84465265b02892aa767a85511b7eff6bb9f38aea,2ed973d47b8d435e6e81f3a14a735566db49dc60,facfa539987b32611714ca7bcc616f55df1f1548,bfc7314321314793f67c08444a5cae8cccc9775b
+VERIFICATION=node scripts/verify-remix-producer-three-stages.cjs && npm run build
 DEPLOY_TARGET=Cloudflare-Worker-sonaraenterprise.com
-AUTHORIZATION=SHA256-FINGERPRINT-ONLY-NO-SECRET-COMMITTED
+SAFETY=Keep-MoLab-V7-GPU-and-Quality-Gate-unchanged
