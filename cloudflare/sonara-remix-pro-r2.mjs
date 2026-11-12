@@ -150,6 +150,7 @@ async function gpuState(b){
     formatsReady:d?.formatsReady===true,
     v5Ready:fresh&&d?.v5Ready===true&&d?.revision===PRO_AGENT_REVISION,
     v6Ready:fresh&&d?.v6Ready===true&&d?.v5Ready===true&&d?.revision===PRO_AGENT_REVISION,
+    v7Ready:fresh&&d?.v7Ready===true&&d?.v6Ready===true&&d?.v5Ready===true&&d?.revision===PRO_AGENT_REVISION,
     explosiveReady:fresh&&d?.v6Ready===true&&d?.v6ExplosiveReady===true&&d?.revision===PRO_AGENT_REVISION};
 }
 async function beat(b){
@@ -163,6 +164,7 @@ export async function proCapabilities(env) {
   return {mode:'remix-pro-private-2-source',available,
     fusionAvailable:available&&gpu.ready,v5Available:available&&gpu.v5Ready,
     v6Available:available&&gpu.v6Ready,
+    v7Available:available&&gpu.v7Ready,
     explosiveAvailable:available&&gpu.explosiveReady,engine:'Demucs 4.1 + ACE-Step XL Turbo',
     model:'htdemucs',expectedAgentRevision:PRO_AGENT_REVISION,
     multiformatAvailable:available&&gpu.formatsReady,
@@ -193,6 +195,7 @@ function publicStatus(j){
     audioUrl:j.status==='COMPLETE'?'/api/sonara-relay/pro-job/'+id+'/audio':null,
     ...(j.status==='COMPLETE'&&j.v5Result?{v5Result:j.v5Result}:{}),
     ...(j.status==='COMPLETE'&&j.v6Result?{v6Result:j.v6Result}:{}),
+    ...(j.status==='COMPLETE'&&j.v7Result?{v7Result:j.v7Result}:{}),
     stems:j.status==='COMPLETE'?Object.keys(j.stems||{}).filter(k=>ROLES.has(k)).map(role=>({
       role,url:'/api/sonara-relay/pro-job/'+id+'/stem/'+role
     })):[]};
@@ -253,6 +256,10 @@ async function enqueue(req,e,auth,b) {
   if(body.rightsConfirmed!==true)return fail('Conferma i diritti di utilizzo dei due brani.');
   const v5=body.v5===true;
   const v6=body.v6===true;
+  const v7=body.v7===true;
+  if(v7 && !v6)return fail('V7 Deep Fusion richiede la pipeline V6.',400);
+  if(v7 && !(await gpuState(b)).v7Ready)
+    return fail('Il motore V7 non risulta installato sul worker MoLab. V6 resta disponibile.',503);
   let v6Controls=null;
   if(v6) {
     if(!v5)return fail('Remix V6 requires the V5 private pipeline.',400);
@@ -321,7 +328,7 @@ if(!(await proQuota(e,'verify',id,uid,duration)))return fail('Registrazione priv
   const j={kind:'sonara-remix-pro',id,ownerUid:uid,
     title:safeTitle(body.title)||('Remix Pro '+new Date().toISOString().slice(0,10)),
     ...(parentJobId?{parentJobId}:{}),
-    engineVersion:v6?'v6':v5?'v5':'legacy',
+    engineVersion:v7?'v7':v6?'v6':v5?'v5':'legacy',
     status:'PREPARING',stage:'queued',attempts:0,
     leaseId:null,leaseUntil:0,createdAt:now,updatedAt:now,
     sourceA:refs[0],sourceB:refs[1],audio:null,stems:{},durationSeconds:duration,
@@ -336,7 +343,8 @@ if(!(await proQuota(e,'verify',id,uid,duration)))return fail('Registrazione priv
       key:String(body.key||'').slice(0,40),
       ...(v5?{v5:true,genre:body.genre,bInfluence:body.bInfluence,
                candidateCount:acceptedCandidateCount,durationMode:body.durationMode}:{}),
-      ...(v6?{v6:true,v6Controls}:{})
+      ...(v6?{v6:true,v6Controls}:{ }),
+      ...(v7?{v7Studio:true}:{})
     }};
   if(!j.params.prompt)return fail('Scrivi il prompt del Remix Pro.');
   const saved=await save(b,j);
@@ -450,6 +458,7 @@ export async function handleRemixPro(req,env,ctx,auth) {
     await b.put(heartbeatKey,JSON.stringify({revision:agentRevision(req),gpuReady:true,
       formatsReady:payload?.formatsReady===true,v5Ready:payload?.v5Ready===true,
       v6Ready:payload?.v5Ready===true&&payload?.v6Ready===true,
+      v7Ready:payload?.v5Ready===true&&payload?.v6Ready===true&&payload?.v7Ready===true,
       v6ExplosiveReady:payload?.v5Ready===true&&payload?.v6Ready===true&&payload?.v6ExplosiveReady===true,
       lastSeen:Date.now()}));
     return json({authenticated:true,revision:agentRevision(req)});
@@ -630,6 +639,20 @@ export async function handleRemixPro(req,env,ctx,auth) {
          continuityProxy:safeV6.continuityProxy,
          masterProfile:reported.v6Master,
          artisticListeningRequired:true,isArtisticJudgment:false} : null;
+    const safeV7=reported?.v7Result;
+    const v7Master=safeV7?.master;
+    const v7Result=action==='complete' && j.params?.v7Studio===true &&
+      safeV7?.originalVoiceContractVerified===true&&safeV7?.oneClockSourceA===true &&
+      Number.isFinite(safeV7.measuredSelectionPriority)&&safeV7.measuredSelectionPriority>=0&&safeV7.measuredSelectionPriority<=100 &&
+      ['compatible-estimated-tonal-centers','different-estimated-tonal-centers','key-uncertain'].includes(safeV7.harmonicEstimate) &&
+      v7Master?.qualityGateBypassed===false &&
+      ['measuredLufs','measuredTruePeakDbTp','measuredCrestDb'].every(k=>
+        Number.isFinite(v7Master[k])&&v7Master[k]>-100&&v7Master[k]<100)
+      ? {priority:safeV7.measuredSelectionPriority,
+         harmonicEstimate:safeV7.harmonicEstimate,
+         master:{lufs:v7Master.measuredLufs,truePeakDbTp:v7Master.measuredTruePeakDbTp,
+           crestDb:v7Master.measuredCrestDb},
+         audioPreviewGenerated:false,artisticListeningRequired:true}:null;
     const selectedDuration=Number(j.durationSeconds||j.params?.durationSec);
     if(action==='complete' && reported?.actualDurationSeconds!==undefined &&
        (!Number.isFinite(claimedDuration) ||
@@ -664,7 +687,8 @@ export async function handleRemixPro(req,env,ctx,auth) {
         ...(action==='complete'?{completionLeaseHash:proof}:{}),
         ...(action==='fail'?{failureCode,failurePhase}:{}),
         ...(v5Result?{v5Result}:{}),
-        ...(v6Result?{v6Result}:{})};
+        ...(v6Result?{v6Result}:{}),
+        ...(v7Result?{v7Result}:{})};
       if(!(await save(b,next,currentObj.etag)))continue;
       if(action==='complete')await saveLibraryIndex(b,next).catch(()=>{});
       // Quota settlement failures must not reverse a confirmed R2 master.
