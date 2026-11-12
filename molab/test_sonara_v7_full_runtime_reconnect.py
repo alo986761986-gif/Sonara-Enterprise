@@ -63,7 +63,7 @@ class SafeReconnectTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             home=Path(folder)
             import hashlib
-            files={name:("def hello():\\n    return True\\n"+name+"\\n").encode()
+            files={name:("def hello():\n    return True\n"+name+"\n").encode()
                    for name in reconnect.RELAY_SOURCE_BLOBS}
             expected={name:reconnect.git_blob(data)
                       for name,data in files.items()}
