@@ -479,8 +479,19 @@ def pro_heartbeat_payload():
                     mastering_safety_snapshot)))
         except (ImportError, AttributeError):
             pass
+    rhythm_ready = False
+    if v7_ready:
+        try:
+            from sonara_remix_pro_v7_rhythm import (
+                REVISION, rhythm_controls, measure_a_rhythm, retime_real_a_loop)
+            rhythm_ready = (REVISION == "sonara-v7-rhythm-lock-v1"
+                and all(callable(x) for x in (
+                    rhythm_controls, measure_a_rhythm, retime_real_a_loop)))
+        except (ImportError, AttributeError):
+            pass
     return {"gpuReady": True, "formatsReady": multiformat_ready(),
             "v5Ready": ready, "v6Ready": v6_ready, "v7Ready": v7_ready,
+            "v7RhythmReady": rhythm_ready,
             "v6ExplosiveReady": explosive_ready}
 
 
@@ -721,7 +732,7 @@ def run_job(item, auth_mode):
                 # Never adopt B's BPM when A is the authoritative house clock.
                 # Without a credible A pulse, require the creator's A BPM.
                 bpm_a = select_fusion_tempo(params.get("bpmA"), report_a, None, {})
-                if bpm_a is None:
+                if bpm_a is None and params.get("v7RhythmControls") is None:
                     raise ProAgentError("Remix V6 requires source A tempo or explicit BPM A")
             else:
                 bpm_a = select_fusion_tempo(params.get("bpmA"), report_a,
@@ -739,6 +750,25 @@ def run_job(item, auth_mode):
             manifest_b = separate_stems(b, stem_cache, device="cuda")
             source_a = stem_cache / manifest_a["sourceSha256"][:20]
             source_b = stem_cache / manifest_b["sourceSha256"][:20]
+            rhythm_data = None
+            if params.get("v7RhythmControls") is not None:
+                failure_step = "rhythm_lock"
+                if params.get("v7Studio") is not True:
+                    raise ProAgentError("Rhythm Lock requires authenticated V7")
+                from sonara_remix_pro_v7_rhythm import (
+                    rhythm_controls, measure_a_rhythm)
+                controls = rhythm_controls(params["v7RhythmControls"])
+                if controls["tempoMode"] == "manual" and params.get("bpmA") is None:
+                    raise ProAgentError("Manual A tempo is required for Rhythm Lock")
+                rhythm_data = measure_a_rhythm(
+                    source_a / "drums.wav",
+                    report_bpm=report_a.get("tempoBpm"),
+                    requested_bpm=params.get("bpmA"),
+                    tempo_mode=controls["tempoMode"])
+                rhythm_data.update({
+                    "vocalGrid": controls["vocalGrid"],
+                    "phraseBars": controls["phraseBars"]})
+                bpm_a = rhythm_data["outputBpm"]
             failure_step = "fusion_plan"
             progress(job, lease, "arranging", renewal)
             requested_seconds = int(params.get("durationSec") or 60)
@@ -816,7 +846,9 @@ def run_job(item, auth_mode):
                         base_prompt=prompt,
                         params={**params, **({"sourceReportA": report_a,
                                            "sourceReportB": report_b}
-                                          if params.get("v6") is True else {})},
+                                          if params.get("v6") is True else {}),
+                                **({"v7Rhythm": rhythm_data}
+                                   if rhythm_data is not None else {})},
                         b_drums=(source_a if params.get("v6") is True else source_b) / "drums.wav", engine=ace_cover,
                         vocals_a=source_a / "vocals.wav",
                         vocals_b=source_b / "vocals.wav",
@@ -860,6 +892,12 @@ def run_job(item, auth_mode):
                     }
                     v5_metadata["v6Master"] = params.get("v6Controls", {}).get("master", "streaming")
                     if params.get("v7Studio") is True:
+                        if rhythm_data is not None:
+                            measured_rhythm = preserved.get("v7RhythmLock")
+                            if not isinstance(measured_rhythm, dict) or abs(
+                                    float(measured_rhythm.get("outputBpm", 0))
+                                    - float(rhythm_data["outputBpm"])) > .05:
+                                raise ProAgentError("V7 rhythm report does not match the verified A clock")
                         measurements = choice.get("v7Measurements")
                         if not isinstance(measurements, dict) or not isinstance(
                                 measurements.get("master"), dict):
@@ -871,6 +909,16 @@ def run_job(item, auth_mode):
                             "originalVoiceContractVerified": True,
                             "oneClockSourceA": preserved.get("oneClockSource")
                                 == "original-A-demucs-drums",
+                            **({"rhythm": {
+                                "sourceBpm": rhythm_data["sourceBpm"],
+                                "outputBpm": rhythm_data["outputBpm"],
+                                "confidence": rhythm_data["confidence"],
+                                "retimeRatio": rhythm_data["retimeRatio"],
+                                "beatGridBasis": rhythm_data["beatGridBasis"],
+                                "meter": rhythm_data["meter"],
+                                "phraseBars": rhythm_data["phraseBars"],
+                                "vocalGrid": rhythm_data["vocalGrid"],
+                            }} if rhythm_data is not None else {}),
                         }
             else:
                 failure_step = "ace_step"
