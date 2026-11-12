@@ -53,6 +53,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Validate three-stage Remix Producer prompt contract
+        run: node scripts/verify-remix-producer-three-stages.cjs
+
       - name: Build official SONARA frontend
         run: npm run build
 
