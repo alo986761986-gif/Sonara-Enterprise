@@ -1,0 +1,41 @@
+name: Validate Remix Pro Studio UI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/components/remix/SonaraRemixProPanel.tsx'
+      - 'src/components/remix/SonaraRemixProProgress.tsx'
+      - 'src/components/remix/SonaraRemixProStudio.css'
+  push:
+    branches:
+      - feat/remix-pro-v6-progress-studio-ui-20261112
+    paths:
+      - 'src/components/remix/**'
+      - '.github/workflows/validate-remix-pro-studio.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install application dependencies
+        run: npm install --no-audit --no-fund
+      - name: Build Remix Pro frontend
+        run: npm run build
+      - name: Confirm new progress dashboard is bundled
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d dist/assets
+          grep -R -Fq 'MONITORAGGIO DELLA PRODUZIONE' dist/assets
+          grep -R -Fq 'Prenotazione GPU' dist/assets
+          grep -R -Fq 'Generazione ACE-Step' dist/assets
+          echo 'SONARA REMIX PRO PROGRESS UI BUILD OK'

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AudioWaveform, Check, Download, LoaderCircle, ShieldCheck, UploadCloud, FolderOpen, Sparkles } from 'lucide-react';
 import SonaraRemixProLibrary from './SonaraRemixProLibrary';
+import SonaraRemixProProgress, { type RemixProTransfer } from './SonaraRemixProProgress';
 import SonaraRemixProEditor, { type RemixEditorTrack } from './SonaraRemixProEditor';
 import { createIntelligentRemixDirection } from './sonaraRemixIntelligentDirection';
 import './SonaraRemixProStudio.css';
@@ -53,6 +54,9 @@ export default function SonaraRemixProPanel() {
   const [bpmB,setBpmB]=useState('');
   const [rights,setRights]=useState(false);
   const [submitting,setSubmitting]=useState(false);
+  const [transfer,setTransfer]=useState<RemixProTransfer|null>(null);
+  const [lastConfirmedAt,setLastConfirmedAt]=useState<number|null>(null);
+  const [monitoringDelayed,setMonitoringDelayed]=useState(false);
   const [job,setJob]=useState<ProJob|null>(null);
   const [submittedDuration,setSubmittedDuration]=useState<number|null>(null);
   const [error,setError]=useState('');
@@ -137,6 +141,8 @@ export default function SonaraRemixProPanel() {
           if(!response.ok)throw new Error(safeError(data.error,'Monitoraggio temporaneamente non disponibile'));
           if(cancelled||!mounted.current)return;
           errors=0;
+          setMonitoringDelayed(false);
+          setLastConfirmedAt(Date.now());
           setJob(data);
           if (submittedDuration!==null && data.requestedDurationSeconds!==undefined &&
               Number(data.requestedDurationSeconds)!==submittedDuration) {
@@ -156,6 +162,7 @@ export default function SonaraRemixProPanel() {
           await sleep(5000);
         }catch{
           errors++;
+          if(errors>=2 && mounted.current)setMonitoringDelayed(true);
           if(errors>10){if(mounted.current)setError('Connessione al job interrotta. Il job '+id+' resta salvato: riapri Remix Pro per controllarlo. Non inviare un nuovo job finche lo stato non e verificato.');return;}
           await sleep(Math.min(errors*2000,12000));
         }
@@ -172,6 +179,7 @@ export default function SonaraRemixProPanel() {
     const suffix=audioSuffix(file.name);
     if(suffix!=='wav'&&!multiformatAvailable)
       throw new Error('Audio multiformato in aggiornamento su MoLab. Al momento usa WAV.');
+    setTransfer({phase:sourceLabel==='A'?'a':'b',name:file.name,confirmedBytes:0,totalBytes:file.size});
     const buffer=await file.slice(0,12).arrayBuffer();
     const bytes=new Uint8Array(buffer);
     if(suffix==='wav'&&(String.fromCharCode(...bytes.slice(0,4))!=='RIFF'||String.fromCharCode(...bytes.slice(8,12))!=='WAVE')){
@@ -187,6 +195,7 @@ export default function SonaraRemixProPanel() {
       if(!r.ok||!/^sref_[0-9a-f-]{36}$/.test(String(data.referenceId||''))){
         throw new Error(safeError(data.error,'Caricamento privato R2 non riuscito.'));
       }
+      setTransfer({phase:sourceLabel==='A'?'a':'b',name:file.name,confirmedBytes:file.size,totalBytes:file.size});
       return String(data.referenceId);
     }
     const start=await fetch('/api/sonara-relay/reference-multipart/start',{
@@ -216,6 +225,8 @@ export default function SonaraRemixProPanel() {
           if(!response.ok||typeof answer.etag!=='string')
             throw new Error(safeError(answer.error,'Blocco non caricato.'));
           parts.push({partNumber:n,etag:answer.etag});uploaded=true;
+          setTransfer({phase:sourceLabel==='A'?'a':'b',name:file.name,
+            confirmedBytes:Math.min(file.size,n*chunk),totalBytes:file.size});
         }catch(e){
           if(attempt===2)throw e;
           await sleep((attempt+1)*1000);
@@ -254,6 +265,7 @@ export default function SonaraRemixProPanel() {
       const a=await upload(sourceA,'A');
       setInfo('Caricamento privato del brano B…');
       const b=await upload(sourceB,'B');
+      setTransfer({phase:'registering',name:'Conferma',confirmedBytes:0,totalBytes:0});
       setInfo('Avvio del job autenticato…');
       const response=await fetch('/api/billing/generate',{
         method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},
@@ -321,7 +333,7 @@ export default function SonaraRemixProPanel() {
         requestedDurationSeconds:requestedDuration});
       setInfo('Job '+id.slice(0,17)+' confermato dal server con durata '+durationLabel(requestedDuration)+'.');
     }catch(e){setError(e instanceof Error?e.message:'Avvio Remix Pro non riuscito.');}
-    finally{setSubmitting(false);}
+    finally{setSubmitting(false);setTransfer(null);}
   };
 
   const output=job?.status==='COMPLETED'&&job.audioUrl?job.audioUrl:null;
@@ -333,12 +345,12 @@ export default function SonaraRemixProPanel() {
   };
 
   return (
-    <div className="sonara-remix-pro sonara-v6-studio" data-sonara-remix-v5-studio="true" data-sonara-remix-v6-primary="true" style={{padding:24,border:'1px solid #363145',borderRadius:22,background:'linear-gradient(160deg,#11111b 0%,#191428 55%,#101017 100%)',color:'#edeaf5',display:'grid',gap:18,boxShadow:'0 16px 45px rgba(0,0,0,.25)'}}>
+    <div className="sonara-remix-pro sonara-v6-studio" data-sonara-remix-v5-studio="true" data-sonara-remix-v6-primary="true" style={{padding:24,border:'1px solid #363145',borderRadius:22,background:'#101215',color:'#edeaf5',display:'grid',gap:18,boxShadow:'0 16px 45px rgba(0,0,0,.25)'}}>
       <div className="sonara-v6-hero" style={{display:'flex',gap:8,alignItems:'center',justifyContent:'space-between'}}>
         <strong className="sonara-v6-title" style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',fontSize:18,letterSpacing:'.04em'}}><AudioWaveform size={19}/> SONARA REMIX PRO <span className="sonara-v6-version" style={{fontSize:10,background:'#32234e',border:'1px solid #664c92',borderRadius:99,padding:'5px 9px'}}>V6 · CREATIVE DNA FUSION</span></strong>
         <span style={{fontSize:10,color:available?'#97e5b8':'#d5b6ef'}}>{available?'GPU ONLINE':available===null?'CONNESSIONE…':'NON ANCORA ATTIVO'}</span>
       </div>
-      <small style={{color:'#b8adc8',lineHeight:1.6}}>Unisci due brani A+B in una nuova composizione: analisi musicale, direzione artistica, groove naturale, selezione tecnica e mastering. V6 quando la GPU lo conferma; il motore V5 resta disponibile in sicurezza.</small>
+      <small className="sonara-pro-intro">DUE SORGENTI, UN BRANO ORIGINALE. Un unico groove dal brano A, le due voci originali e un arrangiamento nuovo. Tutte le fasi operative saranno visibili durante la generazione.</small>
       <div role="status" style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
         <span style={{padding:'6px 11px',borderRadius:99,background:v6Available?'#15342c':'#382b21',color:v6Available?'#9eeac3':'#e6c38e',fontSize:11}}>{v6Available?'CREATIVE DNA V6 GPU PRONTO':v5Available?'MOTORE V5 DISPONIBILE':'GPU IN ATTESA'}</span>
         <small style={{color:'#9a91a9'}}>{v6Available?'Fusione V6 attivabile · V5 disponibile come ripiego':v5Available?'Anteprima Creative DNA sul motore V5; GPU V6 non confermata':'In attesa del motore privato Remix Pro'}</small>
@@ -348,7 +360,7 @@ export default function SonaraRemixProPanel() {
         <div data-sonara-pro-source="a" onDragOver={e=>{e.preventDefault();e.dataTransfer.dropEffect='copy';}}
           onDrop={e=>{e.preventDefault();chooseSource(e.dataTransfer.files?.[0]||null,'a');}}
           style={{display:'grid',gap:10,minWidth:0,padding:16,border:'1px dashed #9869dc',borderRadius:12,background:'#20172c'}}>
-          <strong>BRANO A — Voce e armonie</strong>
+          <strong>BRANO A — Cassa, tempo e voce originale</strong>
           <small>Trascina qui un brano audio o un video musicale.</small>
           <input id="sonara-remix-pro-file-a" ref={sourceAInput} type="file" accept={AUDIO_PICKER_ACCEPT}
             aria-label="Seleziona file audio o video brano A" data-testid="sonara-remix-pro-input-a"
@@ -366,7 +378,7 @@ export default function SonaraRemixProPanel() {
         <div data-sonara-pro-source="b" onDragOver={e=>{e.preventDefault();e.dataTransfer.dropEffect='copy';}}
           onDrop={e=>{e.preventDefault();chooseSource(e.dataTransfer.files?.[0]||null,'b');}}
           style={{display:'grid',gap:10,minWidth:0,padding:16,border:'1px dashed #9869dc',borderRadius:12,background:'#20172c'}}>
-          <strong>BRANO B — Batteria e groove</strong>
+          <strong>BRANO B — Seconda voce e identità musicale</strong>
           <small>Trascina qui un brano audio o un video musicale.</small>
           <input id="sonara-remix-pro-file-b" ref={sourceBInput} type="file" accept={AUDIO_PICKER_ACCEPT}
             aria-label="Seleziona file audio o video brano B" data-testid="sonara-remix-pro-input-b"
@@ -494,10 +506,11 @@ export default function SonaraRemixProPanel() {
       </button>
       {info&&<small role="status">{info}</small>}
       {error&&<small role="alert" style={{color:'#ffb3b9'}}>{error}</small>}
+      <SonaraRemixProProgress job={job} transfer={transfer}
+        lastConfirmedAt={lastConfirmedAt} monitoringDelayed={monitoringDelayed} />
       {job&&<div className="sonara-v6-current-job" style={{display:'grid',gap:8}}>
-        <strong>Job {job.jobId?.slice(0,18)} · {job.status||'PROCESSING'}</strong>
+        <strong>Dettagli lavoro · {job.jobId?.slice(0,18)}</strong>
         <small data-testid="sonara-remix-pro-job-duration">Durata del JOB {job.jobId?.slice(0,12)}: {Number(job.requestedDurationSeconds)>0?durationLabel(Number(job.requestedDurationSeconds)):'da recuperare dal server'}{Number(job.actualDurationSeconds)>0?' · WAV verificato: '+durationLabel(Number(job.actualDurationSeconds)):''}. {Number(job.requestedDurationSeconds)>0&&Number(job.requestedDurationSeconds)!==duration?'Questo è un job precedente: la nuova selezione '+durationLabel(duration)+' NON lo modifica.':''}</small>
-        <progress value={Math.max(0,Math.min(100,job.progress||0))} max={100} style={{width:'100%'}} />
         {job.status==='FAILED'&&<small role="alert">{job.error||'Job non riuscito.'}</small>}
         {job.v6Result&&<small role="status">Creative DNA V6: profilo {job.v6Result.masterProfile}; indice tecnico composito {job.v6Result.selectionScore}/100, differenza spettrale misurata {job.v6Result.spectralDiversityProxy}/100. Sono indicatori tecnici, non giudizi artistici. Ascolta prima di pubblicare.</small>}
         {job.v5Result&&<small role="status">V5: {job.v5Result.candidatesAccepted} candidati tecnicamente validi su {job.v5Result.candidatesGenerated}. Indicatore tecnico: {job.v5Result.technicalScore}/100 (non misura la qualità artistica). Ascolto consigliato prima della pubblicazione.</small>}

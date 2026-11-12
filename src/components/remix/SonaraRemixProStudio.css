@@ -42,3 +42,152 @@
 .sonara-v6-direction-field textarea{font-size:12px!important;line-height:1.65;min-height:145px;max-height:280px;overflow:auto;resize:vertical}
 .sonara-v6-direction-hint{color:#b8accb;font-size:11px;line-height:1.55}
 @media(max-width:620px){.sonara-v6-direction-field{padding:12px}.sonara-v6-direction-shuffle{width:100%}}
+
+
+/* SONARA PRO 2026 — graphite / soft lilac studio system. */
+.sonara-v6-studio {
+  --s6-panel:#15191e;
+  --s6-panel-edge:#303740;
+  --s6-muted:#a1aab7;
+  --s6-ink:#eff3f9;
+  --s6-accent:#b0a6fa;
+  color:var(--s6-ink)!important;
+  font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  max-width:1180px;
+  margin-inline:auto;
+  gap:24px!important;
+}
+.sonara-v6-studio .sonara-v6-hero {
+  background:radial-gradient(ellipse 110% 110% at 12% 0%,#282d43 0%,#171c23 57%,#13171c 100%)!important;
+  border:1px solid #363e4a!important;
+  padding:30px!important;
+  border-radius:20px!important;
+}
+.sonara-v6-studio .sonara-v6-title {font-size:clamp(19px,2.6vw,27px)!important;letter-spacing:-.035em!important;font-weight:760!important}
+.sonara-v6-studio .sonara-v6-version {
+  background:#252a3b!important;color:#c4bfff!important;border:1px solid #40455e!important;
+  letter-spacing:.035em!important
+}
+.sonara-v6-studio .sonara-pro-intro {color:#aeb7c5!important;font-size:13px;line-height:1.75;max-width:780px}
+.sonara-v6-studio .sonara-v6-section-label {gap:15px;padding:0}
+.sonara-v6-studio .sonara-v6-section-label>span {
+  border:1px solid #3c4452;background:#1b222b;color:#c6c2f9;border-radius:11px
+}
+.sonara-v6-studio .sonara-v6-section-label strong {font-size:15px;color:#f4f6fc}
+.sonara-v6-studio .sonara-v6-section-label small {font-size:12px;color:#9ea8b7}
+.sonara-v6-studio .sonara-v6-uploads>[data-sonara-pro-source] {
+  background:#191e25!important;border:1px dashed #4c5869!important;border-radius:18px!important;
+  padding:24px!important;transition:border-color .15s ease,background .15s ease;
+}
+.sonara-v6-studio .sonara-v6-uploads>[data-sonara-pro-source]:hover {border-color:#929bcd!important;background:#1e252f!important}
+.sonara-v6-studio .sonara-v6-uploads>[data-sonara-pro-source] button {
+  background:#2b3144!important;border:1px solid #565b82!important;color:#f0eeff!important;
+  box-shadow:none!important;border-radius:10px!important;font-weight:700!important
+}
+.sonara-v6-studio .sonara-v6-uploads>[data-sonara-pro-source] button:hover {background:#373e55!important}
+.sonara-v6-studio .sonara-v6-controls,
+.sonara-v6-studio .sonara-v6-direction-field,
+.sonara-v6-studio .sonara-v6-production,
+.sonara-v6-studio .sonara-v6-current-job {
+  background:#171c23!important;border:1px solid #323b48!important;border-radius:17px!important;
+  box-shadow:none!important;
+}
+.sonara-v6-studio .sonara-v6-controls>[data-testid="sonara-v6-fusion-controls"] {
+  background:#1d222d!important;border:1px solid #394252!important
+}
+.sonara-v6-studio .sonara-v6-direction-shuffle,
+.sonara-v6-studio .sonara-v6-create {
+  background:#7a72ce!important;border:1px solid #aca5f2!important;
+  box-shadow:0 7px 22px rgba(73,61,145,.13)!important;color:white!important
+}
+.sonara-v6-studio .sonara-v6-create:hover:not(:disabled) {background:#8c83da!important}
+.sonara-v6-studio select,
+.sonara-v6-studio input[type="number"],
+.sonara-v6-studio input[type="text"],
+.sonara-v6-studio textarea {
+  background:#11161c!important;border-color:#434d5b!important;color:#eef1f6!important
+}
+.sonara-v6-studio input[type="range"] {accent-color:#aaa2ee}
+.sonara-v6-studio input[type="checkbox"] {accent-color:#aaa2ee}
+
+/* The GPU dashboard: stage milestones are truthful, not interpolated timers. */
+.sonara-pro-progress-card {
+  display:grid;gap:22px;padding:clamp(18px,2.3vw,28px);
+  border:1px solid #41485c;border-radius:22px;
+  background:linear-gradient(155deg,#1d2330 0%,#171c24 52%,#131922 100%);
+  box-shadow:0 16px 48px rgba(0,0,0,.14);
+  min-width:0;
+}
+.sonara-pro-progress-header {
+  display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap;
+}
+.sonara-pro-progress-intro {flex:1 1 340px;max-width:740px}
+.sonara-pro-eyebrow {display:block;font-size:10px;font-weight:800;letter-spacing:.18em;color:#aaa5eb;margin-bottom:10px}
+.sonara-pro-progress-header h3 {margin:0 0 9px;font-size:clamp(20px,3vw,27px);font-weight:750;letter-spacing:-.035em;line-height:1.2;color:#f6f7fc}
+.sonara-pro-progress-header p {margin:0;font-size:13px;color:#aab6c7;line-height:1.65}
+.sonara-pro-state-pill {
+  display:inline-flex;align-items:center;gap:7px;min-height:30px;padding:7px 11px;
+  border-radius:99px;background:#283045;border:1px solid #434d68;
+  font-size:10px;letter-spacing:.05em;font-weight:800;color:#c5cafa;white-space:nowrap;
+}
+.sonara-pro-state-done {background:#1b3a32;border-color:#396e5d;color:#a7e7c4}
+.sonara-pro-state-error {background:#40242e;border-color:#69434b;color:#ffc4ca}
+.sonara-pro-progress-readout {display:flex;align-items:end;justify-content:space-between;gap:16px;min-width:0}
+.sonara-pro-progress-readout>span {font-size:12px;font-weight:700;color:#c4cbd7;overflow-wrap:anywhere}
+.sonara-pro-progress-stage-number {display:grid;gap:3px}
+.sonara-pro-progress-stage-number>span {font-size:11px;font-weight:800;letter-spacing:.09em;color:#d6d3ff}
+.sonara-pro-progress-stage-number>small {font-size:11px;color:#8e9bac}
+.sonara-pro-progress-readout>strong {
+  font-size:clamp(28px,4vw,42px);font-weight:760;letter-spacing:-.05em;
+  line-height:1;color:#f6f5ff;font-variant-numeric:tabular-nums;
+}
+.sonara-pro-meter {height:12px;border:1px solid #3d4656;border-radius:99px;background:#0c131b;overflow:hidden;position:relative}
+.sonara-pro-meter>span {display:block;height:100%;border-radius:inherit;
+  background:linear-gradient(90deg,#746ac2,#b9afff);transition:width .5s ease;
+}
+.sonara-pro-meter-wait>span {background:linear-gradient(95deg,#4f537a,#8f8be8,#4f537a);
+  background-size:200% 100%;animation:sonara-progress-shimmer 2.2s ease-in-out infinite;
+}
+@keyframes sonara-progress-shimmer {from{background-position:100% 0}to{background-position:-100% 0}}
+.sonara-pro-progress-facts {display:flex;align-items:center;flex-wrap:wrap;gap:9px 18px;color:#a6b3c5;font-size:11px}
+.sonara-pro-progress-facts>span {display:inline-flex;align-items:center;gap:7px}
+.sonara-pro-progress-facts svg {color:#aaa6ed;flex:none}
+.sonara-pro-fact-warning {color:#ffd6aa}
+.sonara-pro-phases {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
+.sonara-pro-phase {
+  display:flex;align-items:flex-start;gap:10px;min-width:0;min-height:98px;
+  background:#171d26;border:1px solid #333e4c;border-radius:12px;padding:13px 12px;
+}
+.sonara-pro-phase.is-active {background:#282b43;border-color:#9891de;box-shadow:inset 0 0 0 1px #6d69a5}
+.sonara-pro-phase.is-done {background:#172b28;border-color:#305249}
+.sonara-pro-phase-icon {
+  display:grid;place-items:center;flex:0 0 24px;width:24px;height:24px;
+  background:#262e3b;border-radius:8px;color:#8593a9;
+}
+.sonara-pro-phase.is-active .sonara-pro-phase-icon {background:#4f4a81;color:#e2deff}
+.sonara-pro-phase.is-done .sonara-pro-phase-icon {background:#285347;color:#9ce5be}
+.sonara-pro-phase-body {display:grid;align-content:start;gap:4px;min-width:0}
+.sonara-pro-phase-index {font-size:10px;font-weight:800;color:#8d98aa}
+.sonara-pro-phase-body strong {font-size:11px;line-height:1.4;font-weight:750;color:#dbe2ed}
+.sonara-pro-phase-body p,.sonara-pro-phase-body small {margin:2px 0 0;font-size:10px;line-height:1.5;color:#b1b8c9}
+.sonara-pro-meter-footnote {
+  display:flex;align-items:flex-start;gap:9px;font-size:11px;
+  color:#9daabb;line-height:1.6;border-top:1px solid #313947;padding-top:15px;
+}
+.sonara-pro-meter-footnote svg {flex:none;margin-top:1px;color:#aaa6ef}
+.sonara-pro-progress-failed {border-color:#6c4b55}
+.sonara-pro-spin {animation:sonara-pro-turn 1.8s linear infinite}
+@keyframes sonara-pro-turn {to{transform:rotate(360deg)}}
+@media(max-width:930px){.sonara-pro-phases{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:580px){
+  .sonara-v6-studio .sonara-v6-hero{padding:20px!important}
+  .sonara-pro-progress-card{padding:17px;gap:17px}
+  .sonara-pro-phases{grid-template-columns:1fr;gap:7px}
+  .sonara-pro-phase{min-height:65px}
+  .sonara-pro-progress-header{gap:12px}
+  .sonara-pro-state-pill{white-space:normal}
+}
+@media(prefers-reduced-motion:reduce){
+  .sonara-pro-meter>span{transition:none}
+  .sonara-pro-spin,.sonara-pro-meter-wait>span{animation:none}
+}
