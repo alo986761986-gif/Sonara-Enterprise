@@ -152,6 +152,7 @@ async function gpuState(b){
     v6Ready:fresh&&d?.v6Ready===true&&d?.v5Ready===true&&d?.revision===PRO_AGENT_REVISION,
     v7Ready:fresh&&d?.v7Ready===true&&d?.v6Ready===true&&d?.v5Ready===true&&d?.revision===PRO_AGENT_REVISION,
     v7RhythmReady:fresh&&d?.v7RhythmReady===true&&d?.v7Ready===true&&d?.revision===PRO_AGENT_REVISION,
+    v7CreativeModesReady:fresh&&d?.v7CreativeModesReady===true&&d?.v7Ready===true&&d?.revision===PRO_AGENT_REVISION,
     explosiveReady:fresh&&d?.v6Ready===true&&d?.v6ExplosiveReady===true&&d?.revision===PRO_AGENT_REVISION};
 }
 async function beat(b){
@@ -167,6 +168,7 @@ export async function proCapabilities(env) {
     v6Available:available&&gpu.v6Ready,
     v7Available:available&&gpu.v7Ready,
     v7RhythmAvailable:available&&gpu.v7RhythmReady,
+    v7CreativeModesAvailable:available&&gpu.v7CreativeModesReady,
     explosiveAvailable:available&&gpu.explosiveReady,engine:'Demucs 4.1 + ACE-Step XL Turbo',
     model:'htdemucs',expectedAgentRevision:PRO_AGENT_REVISION,
     multiformatAvailable:available&&gpu.formatsReady,
@@ -262,6 +264,8 @@ async function enqueue(req,e,auth,b) {
   if(v7 && !v6)return fail('V7 Deep Fusion richiede la pipeline V6.',400);
   if(v7 && !(await gpuState(b)).v7Ready)
     return fail('Il motore V7 non risulta installato sul worker MoLab. V6 resta disponibile.',503);
+  if(body.v7CreativeModes===true && (!v7 || !(await gpuState(b)).v7CreativeModesReady))
+    return fail('Le nuove modalità creative richiedono il worker V7 aggiornato.',503);
   let rhythmControls=null;
   if(body.v7RhythmControls!==undefined) {
     if(!v7 || !(await gpuState(b)).v7RhythmReady)
@@ -367,7 +371,8 @@ if(!(await proQuota(e,'verify',id,uid,duration)))return fail('Registrazione priv
                candidateCount:acceptedCandidateCount,durationMode:body.durationMode}:{}),
       ...(v6?{v6:true,v6Controls}:{ }),
       ...(v7?{v7Studio:true}:{}),
-      ...(rhythmControls?{v7RhythmControls:rhythmControls}:{})
+      ...(rhythmControls?{v7RhythmControls:rhythmControls}:{}),
+      ...(body.v7CreativeModes===true?{v7CreativeModes:true}:{})
     }};
   if(!j.params.prompt)return fail('Scrivi il prompt del Remix Pro.');
   const saved=await save(b,j);
@@ -483,6 +488,7 @@ export async function handleRemixPro(req,env,ctx,auth) {
       v6Ready:payload?.v5Ready===true&&payload?.v6Ready===true,
       v7Ready:payload?.v5Ready===true&&payload?.v6Ready===true&&payload?.v7Ready===true,
       v7RhythmReady:payload?.v5Ready===true&&payload?.v6Ready===true&&payload?.v7Ready===true&&payload?.v7RhythmReady===true,
+      v7CreativeModesReady:payload?.v5Ready===true&&payload?.v6Ready===true&&payload?.v7Ready===true&&payload?.v7CreativeModesReady===true,
       v6ExplosiveReady:payload?.v5Ready===true&&payload?.v6Ready===true&&payload?.v6ExplosiveReady===true,
       lastSeen:Date.now()}));
     return json({authenticated:true,revision:agentRevision(req)});
@@ -677,6 +683,11 @@ export async function handleRemixPro(req,env,ctx,auth) {
          master:{lufs:v7Master.measuredLufs,truePeakDbTp:v7Master.measuredTruePeakDbTp,
            crestDb:v7Master.measuredCrestDb},
          audioPreviewGenerated:false,artisticListeningRequired:true}:null;
+    const v7CreativeMode=(
+      j.params?.v7CreativeModes===true &&
+      safeV7?.creativeMode===j.params?.v6Controls?.mode &&
+      ['balanced','experimental','wild','explosive'].includes(safeV7.creativeMode)
+      ? safeV7.creativeMode : null);
     const v7Rhythm=safeV7?.rhythm;
     const safeRhythm=v7Result&&j.params?.v7RhythmControls&&
       v7Rhythm?.meter==='4/4' &&
@@ -730,7 +741,9 @@ export async function handleRemixPro(req,env,ctx,auth) {
         ...(action==='fail'?{failureCode,failurePhase}:{}),
         ...(v5Result?{v5Result}:{}),
         ...(v6Result?{v6Result}:{}),
-        ...(v7Result?{v7Result:{...v7Result,...(safeRhythm?{rhythm:safeRhythm}:{})}}:{})};
+        ...(v7Result?{v7Result:{...v7Result,
+          ...(safeRhythm?{rhythm:safeRhythm}:{}),
+          ...(v7CreativeMode?{creativeMode:v7CreativeMode}:{})}}:{})};
       if(!(await save(b,next,currentObj.etag)))continue;
       if(action==='complete')await saveLibraryIndex(b,next).catch(()=>{});
       // Quota settlement failures must not reverse a confirmed R2 master.
