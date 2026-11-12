@@ -27,7 +27,7 @@ PYTHON = ROOT / ".venv/bin/python"
 AGENT = ROOT / "sonara_remix_pro_r2_agent.py"
 LOG = HOME / "remix-pro-v6-agent.log"
 REVISION = "sonara-remix-pro-r2-agent-v3-dual-reference-fusion"
-SOURCE_COMMIT = "1cdc0a34d1d1a8eb3d79e9227d0decc66a040b7b"
+SOURCE_COMMIT = "b369c71981ed7f9ed2fb7b0b679a47eb6450690b"
 REMOTE = ("https://raw.githubusercontent.com/alo986761986-gif/"
           "Sonara-Enterprise/" + SOURCE_COMMIT + "/molab/")
 PINNED = {
@@ -36,7 +36,7 @@ PINNED = {
          "28a5cdfd3729c68f4a0a93b55b01bb3b0f83a360"),
     "sonara_remix_pro_v5.py":
         ("255cf86773f9fc908242178e4786fac9fe881c6a",
-         "e1cfbcb4984f8ce3034544bfe45caec08f2f0c2b"),
+         "41eaac9cba28ca34a6e916ec6d79fc820739b4e6"),
     "sonara_remix_pro_r2_agent.py":
         ("4dc8c1bec5d0a71d7995229658d40122c4d1fa9d",
          "363327ccbe0e2d48f61e5d83be2779440726bdbc"),
