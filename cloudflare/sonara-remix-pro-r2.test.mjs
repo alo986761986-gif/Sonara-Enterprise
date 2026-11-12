@@ -689,3 +689,25 @@ test('Rhythm Lock cannot be queued until GPU worker declares real V7 rhythm modu
     {v5Ready:true,v6Ready:true},agent)).json();
   assert.deepEqual(claimed.params.v7RhythmControls,r);
 });
+
+
+test('Distinct creative modes require an authenticated worker reporting real mode audio support',async()=>{
+  const e=env();
+  const v6Controls={mode:'wild',master:'streaming',melody:65,harmony:60,groove:65,timbre:55,humanize:60};
+  const request={...spec,v5:true,v6:true,v7:true,v7CreativeModes:true,
+    v6Controls,genre:'house',bInfluence:50,candidateCount:1,durationMode:'manual'};
+  const beat={gpuReady:true,v5Ready:true,v6Ready:true,v7Ready:true,v7RhythmReady:true,
+    v7CreativeModesReady:false};
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',beat,agent);
+  assert.equal((await proCapabilities(e)).v7CreativeModesAvailable,false);
+  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',request,gate)).status,503);
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',
+    {...beat,v7CreativeModesReady:true},agent);
+  assert.equal((await proCapabilities(e)).v7CreativeModesAvailable,true);
+  const result=await call(e,'POST','/api/sonara-relay/pro-enqueue',request,gate);
+  assert.equal(result.status,202);
+  const claim=await (await call(e,'POST','/api/sonara-relay/pro-claim',
+    {v5Ready:true,v6Ready:true},agent)).json();
+  assert.equal(claim.params.v7CreativeModes,true);
+  assert.equal(claim.params.v6Controls.mode,'wild');
+});
