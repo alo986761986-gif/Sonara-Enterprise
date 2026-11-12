@@ -312,6 +312,11 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
     v6 = None
     dna = None
     v7_studio = params.get("v7Studio") is True
+    song_form = params.get("v8SongFormPlan") if params.get("v8SongForm") is True else None
+    if song_form is not None:
+        from sonara_remix_pro_songform import SONGFORM_REVISION
+        if not v7_studio or not isinstance(song_form, dict) or song_form.get("revision") != SONGFORM_REVISION:
+            raise V5ControlError("V8 musical structure requires verified V7 Studio plan")
     if v7_studio and params.get("v6") is not True:
         raise V5ControlError("V7 requires verified V6 source pipeline")
     v7_harmony = None
@@ -366,6 +371,15 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
                                                controls["candidateCount"])
             harmonic_note = v7_harmony["prompt"] if v7_harmony else ""
             creator_text = str(params.get("creatorPrompt") or base_prompt or "").strip()[:1000]
+            if song_form is not None:
+                mode_direction = (
+                    "SIX-PART MUSICAL FORM, KEEP ONE RECOGNIZABLE MAIN A-DERIVED THEME. "
+                    "Intro establishes the groove; main theme presents it; development "
+                    "responds with B-influenced instruments; break makes room for A/B "
+                    "vocal dialogue; theme return restates the SAME recognizable "
+                    "motif; outro resolves it smoothly. No pasted A-B-A loops. "
+                    + mode_direction
+                )[:1700]
             genre_text = GENRE_PROFILES[controls["genre"]]
             prompt = ("SOURCE A CLOCK, TWO REAL VOCAL STEMS A+B, "
                       "NEW INSTRUMENTAL BACKING ONLY. No synthesized vocals. "
@@ -412,7 +426,8 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
                 tempo_a=bpm, lease_check=lease_check,
                 v7_studio=v7_studio,
                 rhythm_lock=params.get("v7Rhythm"),
-                creative_mode=v6.mode)
+                creative_mode=v6.mode,
+                song_form=song_form)
             generated = original_mix
         if phase_callback:
             phase_callback("mastering")
