@@ -3,6 +3,10 @@ on:
   pull_request:
     paths:
       - 'molab/sonara_remix_pro_songform.py'
+      - 'cloudflare/sonara-remix-pro-r2.mjs'
+      - 'cloudflare/sonara-remix-pro-r2.test.mjs'
+      - 'cloudflare/sonara-ab-player-visibility-edge.mjs'
+      - 'src/components/remix/SonaraRemixProPanel.tsx'
       - 'molab/sonara_remix_pro_a_clock_fusion.py'
       - 'molab/sonara_remix_pro_fusion.py'
       - 'molab/sonara_remix_pro_v5.py'
@@ -19,6 +23,13 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install numpy
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify V8 authenticated gateway and legacy job behavior
+        run: node --test cloudflare/sonara-remix-pro-r2.test.mjs
+      - name: Verify native generation forwarding remains safe
+        run: node --test cloudflare/sonara-ab-player-visibility-edge.test.mjs
       - name: Syntax-check guarded worker and music modules
         run: |
           python -m py_compile molab/sonara_remix_pro_songform.py molab/sonara_remix_pro_fusion.py molab/sonara_remix_pro_a_clock_fusion.py molab/sonara_remix_pro_v5.py molab/sonara_remix_pro_r2_agent.py
