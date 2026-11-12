@@ -153,6 +153,7 @@ async function gpuState(b){
     v7Ready:fresh&&d?.v7Ready===true&&d?.v6Ready===true&&d?.v5Ready===true&&d?.revision===PRO_AGENT_REVISION,
     v7RhythmReady:fresh&&d?.v7RhythmReady===true&&d?.v7Ready===true&&d?.revision===PRO_AGENT_REVISION,
     v7CreativeModesReady:fresh&&d?.v7CreativeModesReady===true&&d?.v7Ready===true&&d?.revision===PRO_AGENT_REVISION,
+    v8SongFormReady:fresh&&d?.v8SongFormReady===true&&d?.v7Ready===true&&d?.revision===PRO_AGENT_REVISION,
     explosiveReady:fresh&&d?.v6Ready===true&&d?.v6ExplosiveReady===true&&d?.revision===PRO_AGENT_REVISION};
 }
 async function beat(b){
@@ -169,6 +170,7 @@ export async function proCapabilities(env) {
     v7Available:available&&gpu.v7Ready,
     v7RhythmAvailable:available&&gpu.v7RhythmReady,
     v7CreativeModesAvailable:available&&gpu.v7CreativeModesReady,
+    v8SongFormAvailable:available&&gpu.v8SongFormReady,
     explosiveAvailable:available&&gpu.explosiveReady,engine:'Demucs 4.1 + ACE-Step XL Turbo',
     model:'htdemucs',expectedAgentRevision:PRO_AGENT_REVISION,
     multiformatAvailable:available&&gpu.formatsReady,
@@ -261,6 +263,13 @@ async function enqueue(req,e,auth,b) {
   const v5=body.v5===true;
   const v6=body.v6===true;
   const v7=body.v7===true;
+  const v8SongForm=body.v8SongForm===true;
+  if(body.v8SongForm!==undefined && typeof body.v8SongForm!=='boolean')
+    return fail('Controllo struttura V8 non valido.',400);
+  if(v8SongForm && (!v7 || !v6 || !v5))
+    return fail('La struttura musicale V8 richiede V7 Studio e la pipeline V6.',400);
+  if(v8SongForm && !(await gpuState(b)).v8SongFormReady)
+    return fail('Arrangiatore V8 non installato sul worker MoLab.',503);
   if(v7 && !v6)return fail('V7 Deep Fusion richiede la pipeline V6.',400);
   if(v7 && !(await gpuState(b)).v7Ready)
     return fail('Il motore V7 non risulta installato sul worker MoLab. V6 resta disponibile.',503);
@@ -354,7 +363,7 @@ if(!(await proQuota(e,'verify',id,uid,duration)))return fail('Registrazione priv
   const j={kind:'sonara-remix-pro',id,ownerUid:uid,
     title:safeTitle(body.title)||('Remix Pro '+new Date().toISOString().slice(0,10)),
     ...(parentJobId?{parentJobId}:{}),
-    engineVersion:v7?'v7':v6?'v6':v5?'v5':'legacy',
+    engineVersion:v8SongForm?'v8-songform':v7?'v7':v6?'v6':v5?'v5':'legacy',
     status:'PREPARING',stage:'queued',attempts:0,
     leaseId:null,leaseUntil:0,createdAt:now,updatedAt:now,
     sourceA:refs[0],sourceB:refs[1],audio:null,stems:{},durationSeconds:duration,
@@ -371,6 +380,7 @@ if(!(await proQuota(e,'verify',id,uid,duration)))return fail('Registrazione priv
                candidateCount:acceptedCandidateCount,durationMode:body.durationMode}:{}),
       ...(v6?{v6:true,v6Controls}:{ }),
       ...(v7?{v7Studio:true}:{}),
+      ...(v8SongForm?{v8SongForm:true}:{}),
       ...(rhythmControls?{v7RhythmControls:rhythmControls}:{}),
       ...(body.v7CreativeModes===true?{v7CreativeModes:true}:{})
     }};
@@ -387,7 +397,7 @@ if(!(await proQuota(e,'verify',id,uid,duration)))return fail('Registrazione priv
   await saveLibraryIndex(b,j).catch(()=>{});
   return json({...publicStatus(j),model:'Demucs+ACE-Step-XL-Turbo'},202);
 }
-async function claim(e,b,ctx,v5WorkerReady=false,v6WorkerReady=false){
+async function claim(e,b,ctx,v5WorkerReady=false,v6WorkerReady=false,v8WorkerReady=false){
   const now=Date.now();
   async function tryObject(obj) {
     if(!obj)return null;
@@ -408,6 +418,7 @@ async function claim(e,b,ctx,v5WorkerReady=false,v6WorkerReady=false){
     // Legacy V4.2 agents sharing this queue must not claim V5-only tasks.
     if(j.params?.v5===true&&!v5WorkerReady)return null;
     if(j.params?.v6===true&&!v6WorkerReady)return null;
+    if(j.params?.v8SongForm===true&&!v8WorkerReady)return null;
     const leaseId=crypto.randomUUID();
     const updated={...j,status:'LEASED',attempts:j.attempts+1,leaseId,
       leaseUntil:now+15*60*1000,updatedAt:now,stage:'downloading'};
@@ -489,6 +500,7 @@ export async function handleRemixPro(req,env,ctx,auth) {
       v7Ready:payload?.v5Ready===true&&payload?.v6Ready===true&&payload?.v7Ready===true,
       v7RhythmReady:payload?.v5Ready===true&&payload?.v6Ready===true&&payload?.v7Ready===true&&payload?.v7RhythmReady===true,
       v7CreativeModesReady:payload?.v5Ready===true&&payload?.v6Ready===true&&payload?.v7Ready===true&&payload?.v7CreativeModesReady===true,
+      v8SongFormReady:payload?.v5Ready===true&&payload?.v6Ready===true&&payload?.v7Ready===true&&payload?.v8SongFormReady===true,
       v6ExplosiveReady:payload?.v5Ready===true&&payload?.v6Ready===true&&payload?.v6ExplosiveReady===true,
       lastSeen:Date.now()}));
     return json({authenticated:true,revision:agentRevision(req)});
@@ -497,7 +509,7 @@ export async function handleRemixPro(req,env,ctx,auth) {
     if(!(await auth.agent(req,env))||agentRevision(req)!==PRO_AGENT_REVISION)return fail('V3 agent required for fusion claims',401);
     if(!enabled(env))return fail('Remix Pro disabled',503);
     const claimInfo=await req.json().catch(()=>({}));
-    return json(await claim(env,b,ctx,claimInfo?.v5Ready===true,claimInfo?.v6Ready===true));
+    return json(await claim(env,b,ctx,claimInfo?.v5Ready===true,claimInfo?.v6Ready===true,claimInfo?.v8SongFormReady===true));
   }
   const match=p.match(/^\/api\/sonara-relay\/pro-job\/(srpro_[0-9a-f-]{36})(?:\/(.+))?$/);
   if(!match)return fail('Not found',404);
