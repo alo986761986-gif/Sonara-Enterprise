@@ -30,28 +30,29 @@ class CreativeV6Test(unittest.TestCase):
         self.assertEqual(dna["a"]["energyBoundariesSeconds"],[11.0,23.0,55.0])
         self.assertEqual(dna["grooveOnsetsPerSecond"],2.2)
 
-    def test_composer_generates_different_and_bounded_directions(self):
+    def test_composer_generates_distinct_mode_and_candidate_instructions(self):
         dna=musical_dna({"tempoBpm":122,"tempoConfidence":.9},{})
-        c=CreativeControls(mode="experimental")
-        prompts=[compose_direction(c,dna,i,3) for i in range(3)]
-        self.assertEqual(len(set(prompts)),3)
-        for prompt in prompts:
-            self.assertIn("never overlay",prompt)
-            self.assertLessEqual(len(prompt),2100)
-        explosive=CreativeControls(mode="explosive")
-        explosive_prompt=compose_direction(explosive,dna,0,2)
-        self.assertIn("DUAL SOURCE CHORUS PLAN",explosive_prompt)
-        self.assertIn("choir",explosive_prompt)
-        self.assertIn("CONTINUITY LOCK",explosive_prompt)
-        self.assertIn("VOICE IDENTITY LOCK", explosive_prompt)
-        self.assertIn("INSTRUMENT PALETTE LOCK", explosive_prompt)
-        self.assertIn("SAME identifiable lead voice", explosive_prompt)
-        balanced_prompt = compose_direction(CreativeControls(mode="balanced"), dna, 0, 1)
-        self.assertNotIn("VOICE IDENTITY LOCK", balanced_prompt)
-        self.assertIn("No breakdowns",explosive_prompt)
-        self.assertLessEqual(len(explosive_prompt),2100)
+        mode_prompts={}
+        for mode in ("balanced","experimental","wild","explosive"):
+            c=CreativeControls(mode=mode)
+            prompts=[compose_direction(c,dna,i,3) for i in range(3)]
+            if mode != "explosive":
+                self.assertEqual(len(set(prompts)),3)
+            for prompt in prompts:
+                self.assertIn("Never overlay",prompt)
+                self.assertLessEqual(len(prompt),1550)
+                self.assertIn("TWO DISTINCT ORIGINAL A and B",prompt)
+                self.assertIn("Instrumental backing only",prompt)
+                self.assertNotIn("SAME identifiable lead voice",prompt)
+                self.assertNotIn("choir",prompt.lower())
+            mode_prompts[mode]=prompts[0]
+        self.assertEqual(len(set(mode_prompts.values())),4)
+        self.assertIn("EXPERIMENTAL MODE",mode_prompts["experimental"])
+        self.assertIn("WILD MODE",mode_prompts["wild"])
+        self.assertIn("CONTINUITY LOCK",mode_prompts["explosive"])
+        self.assertNotIn("CONTINUITY LOCK",mode_prompts["balanced"])
         with self.assertRaises(V6ControlError):
-            compose_direction(c,dna,3,3)
+            compose_direction(CreativeControls(),dna,3,3)
 
 if __name__=="__main__":
     unittest.main()
