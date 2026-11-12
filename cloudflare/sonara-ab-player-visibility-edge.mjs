@@ -327,6 +327,7 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
           key: source.key_scale,
           v5: source.sonaraRemixProV5 === true,
           v6: source.sonaraRemixProV6 === true,
+          v7: source.sonaraRemixProV7 === true,
           ...(creativeControls ? {v6Controls:creativeControls} : {}),
           genre: source.sonaraRemixProGenre,
           bInfluence: source.sonaraRemixProBInfluence,
