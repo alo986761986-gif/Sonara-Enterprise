@@ -8,7 +8,7 @@ on:
       - "molab/test_sonara_v7_full_runtime_reconnect.py"
       - ".github/workflows/verify-sonara-v7-live-recovery.yml"
   push:
-    branches: [ops/sonara-v7-public-ready-reconnect-20261112]
+    branches: [ops/sonara-v7-public-ready-reconnect-20261112, fix/sonara-v7-reconnect-after-authorized-pairing-20261112]
     paths:
       - "molab/sonara_v7_full_runtime_reconnect.py"
       - "molab/test_sonara_v7_full_runtime_reconnect.py"
