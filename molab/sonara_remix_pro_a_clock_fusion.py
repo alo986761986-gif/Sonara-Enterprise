@@ -174,7 +174,7 @@ def _plan_vocals(profile_a, profile_b, seconds, tempo):
                               "fixedChorusAlternation": False}
 
 
-def _choose_a_drum_loop(path, tempo):
+def _choose_a_drum_loop(path, tempo, *, phase_seconds=None, phrase_bars=8, return_info=False):
     """Select a continuous *real A-drum* phrase for the single House clock.
 
     The former highest-RMS eight-bar selector sometimes selected a loud phrase
@@ -187,6 +187,11 @@ def _choose_a_drum_loop(path, tempo):
     if (not isinstance(tempo, (int, float)) or not math.isfinite(float(tempo))
             or not 55 <= float(tempo) <= 200):
         raise OneClockFusionError("Invalid source A clock tempo")
+    if phrase_bars not in (4, 8, 16):
+        raise OneClockFusionError('Unsupported 4/4 section length')
+    if phase_seconds is not None and (not isinstance(phase_seconds,(int,float))
+            or not math.isfinite(phase_seconds) or phase_seconds < 0):
+        raise OneClockFusionError('Unknown measured A beat phase')
     bar_frames = round(4 * 60 / float(tempo) * RATE)
     beat_frames = max(1, round(60 / float(tempo) * RATE))
     window_frames = max(256, round(.25 * RATE))
@@ -202,15 +207,19 @@ def _choose_a_drum_loop(path, tempo):
         bars_available = stream.frames // bar_frames
         if bars_available < 2:
             raise OneClockFusionError("A drums need at least two full bars of groove")
-        for bars in (8, 4, 2):
+        for bars in ((16, 8, 4, 2) if phrase_bars == 16 else
+                     (8, 4, 2) if phrase_bars == 8 else (4, 2)):
             if bars > bars_available:
                 continue
             phrase = bars * bar_frames
             maximum = max(0, stream.frames - phrase)
             # Bounded 25 probes, sampled across A rather than just its intro.
             probes = 24
+            phase_frames = round((phase_seconds or 0.) * RATE)
             positions = sorted({
-                min(maximum, (round(maximum * i / probes) // beat_frames) * beat_frames)
+                max(0,min(maximum, phase_frames + round(
+                    (maximum * i / probes - phase_frames) / beat_frames
+                ) * beat_frames))
                 for i in range(probes + 1)
             })
             for pos in positions:
@@ -262,7 +271,7 @@ def _choose_a_drum_loop(path, tempo):
     if fade > 2:
         curve = np.linspace(0, 1, fade, dtype=np.float32)[:, None]
         chosen[:fade] = chosen[-fade:] * (1 - curve) + chosen[:fade] * curve
-    return chosen
+    return (chosen, int(best_key[0])) if return_info else chosen
 
 
 def _voice_chunk(events, voices, start, frames):
@@ -294,7 +303,7 @@ def _voice_chunk(events, voices, start, frames):
 
 def compose_one_a_clock(*, bass, other, drums_a, vocals_a, vocals_b,
                         destination, expected_seconds, tempo_a, lease_check=None,
-                        v7_studio=False):
+                        v7_studio=False, rhythm_lock=None):
     """Write private FLOAT premaster. Exactly one authentic A drum clock.
 
     This is not a promise of automatic harmonic/semantic fidelity. The caller
@@ -323,16 +332,30 @@ def compose_one_a_clock(*, bass, other, drums_a, vocals_a, vocals_b,
     profiles = {"a": _profile(vocals_a), "b": _profile(vocals_b)}
     if not profiles["a"]["audible"] or not profiles["b"]["audible"]:
         raise OneClockFusionError("Both source songs must contain usable original vocals")
+    rhythm = rhythm_lock if v7_studio and isinstance(rhythm_lock, dict) else None
     if v7_studio:
         from sonara_remix_pro_v7 import arrange_vocal_phrases
         events, repeats, structure = arrange_vocal_phrases(
-            profiles["a"], profiles["b"], expected_seconds, tempo)
+            profiles["a"], profiles["b"], expected_seconds, tempo,
+            grid_mode=rhythm["vocalGrid"] if rhythm else "half-bar",
+            phrase_bars=rhythm["phraseBars"] if rhythm else 8)
     else:
         events, repeats, structure = _plan_vocals(
             profiles["a"], profiles["b"], expected_seconds, tempo)
     if lease_check:
         lease_check("a_kick_lock")
-    a_drums = _choose_a_drum_loop(drums_a, tempo)
+    if rhythm:
+        from sonara_remix_pro_v7_rhythm import retime_real_a_loop
+        a_drums, selected_bars = _choose_a_drum_loop(
+            drums_a, rhythm["sourceBpm"],
+            phase_seconds=(rhythm["kickPhaseSeconds"]
+                           if rhythm["measured"] else None),
+            phrase_bars=rhythm["phraseBars"],return_info=True)
+        a_drums = retime_real_a_loop(
+            a_drums,source_bpm=rhythm["sourceBpm"],
+            output_bpm=tempo,bars=selected_bars)
+    else:
+        a_drums = _choose_a_drum_loop(drums_a, tempo)
     chunk_frames = max(round(4 * 4 * 60. / tempo * RATE), RATE * 2)
     highpass_other = butter(2, 145, fs=RATE, btype="highpass", output="sos")
     highpass_voice = butter(2, 75, fs=RATE, btype="highpass", output="sos")
@@ -400,6 +423,17 @@ def compose_one_a_clock(*, bass, other, drums_a, vocals_a, vocals_b,
             "oneClockSource": "original-A-demucs-drums",
             "tempoSource": "A",
             "tempoBpm": round(tempo, 2),
+            "v7RhythmLock": ({
+                "sourceBpm": rhythm["sourceBpm"],
+                "outputBpm": rhythm["outputBpm"],
+                "tempoMode": rhythm["tempoMode"], "meter": "4/4",
+                "phraseBars": rhythm["phraseBars"],
+                "vocalGrid": rhythm["vocalGrid"],
+                "confidence": rhythm["confidence"],
+                "measured": rhythm["measured"],
+                "retimeRatio": rhythm["retimeRatio"],
+                "beatGridBasis": rhythm["beatGridBasis"],
+            } if rhythm else None),
             "voiceBlend": ("v7-balanced-authentic-source-phrases" if v7_studio
                            else "source-phrase-dialogue-in-new-A-pulse-arrangement"),
             "v7StudioApplied": v7_studio is True,

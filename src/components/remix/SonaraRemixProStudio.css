@@ -230,3 +230,20 @@
 .sonara-v7-origin button{border:1px solid #528678;border-radius:9px;background:#2a4b44;color:#e6fff4;padding:8px 11px;cursor:pointer}
 @media(max-width:780px){.sonara-v7-directions{grid-template-columns:1fr}}
 @media(max-width:600px){.sonara-v7-sliders{grid-template-columns:1fr}.sonara-v7-studio{padding:16px}}
+
+
+/* Rhythm Lock: measured original A groove, minimal 4/4 stage controls */
+.sonara-v7-rhythm{display:grid;gap:17px;padding:clamp(17px,2vw,26px);border:1px solid #474969;border-radius:20px;background:linear-gradient(140deg,#1e2332,#161d27);color:#edf1fb}
+.sonara-v7-rhythm-header{display:grid;gap:6px}
+.sonara-v7-rhythm-header strong{font-size:20px;letter-spacing:-.035em;color:#f5f6fc}
+.sonara-v7-rhythm-header p{margin:0;color:#acb7c9;font-size:12px;line-height:1.7}
+.sonara-v7-rhythm-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.sonara-v7-rhythm-grid label{display:grid!important;gap:9px;padding:13px 15px;background:#1b2430;border:1px solid #3b4759;border-radius:13px;font-size:12px;color:#d9e0ef;font-weight:650}
+.sonara-v7-rhythm-grid input,.sonara-v7-rhythm-grid select{width:100%;max-width:100%;min-width:0;border-radius:9px;padding:11px 10px;background:#111922!important;color:#e9eafa!important;border:1px solid #495569!important;font-size:12px;font-weight:500}
+.sonara-v7-rhythm-grid input:disabled,.sonara-v7-rhythm-grid select:disabled{opacity:.60;cursor:not-allowed}
+.sonara-v7-rhythm>small{font-size:11px;line-height:1.65;color:#b2c0d2}
+.sonara-v7-bar-visual{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px;padding:11px;border:1px solid #394455;border-radius:12px;background:#111821;min-height:44px}
+.sonara-v7-bar{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;align-items:center}
+.sonara-v7-bar span{height:19px;background:#3d4559;border-radius:3px}
+.sonara-v7-bar span.is-downbeat{height:26px;background:#a79bef}
+@media(max-width:650px){.sonara-v7-rhythm-grid{grid-template-columns:1fr}.sonara-v7-bar-visual{gap:3px}.sonara-v7-bar{gap:2px}}

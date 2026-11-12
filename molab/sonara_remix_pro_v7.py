@@ -53,7 +53,7 @@ def harmonic_guidance(report_a, report_b):
         "prompt": "Source key estimates are insufficiently reliable. Use sparse non-conflicting harmony and avoid strong asserted chord changes; do not infer or force a key."}
 
 
-def arrange_vocal_phrases(profile_a, profile_b, seconds, tempo):
+def arrange_vocal_phrases(profile_a, profile_b, seconds, tempo, *, grid_mode='half-bar', phrase_bars=8):
     """Real-phrase voice scheduling on the A half-bar grid.
 
     Select an unused region whenever available, prioritize balanced voice
@@ -63,13 +63,15 @@ def arrange_vocal_phrases(profile_a, profile_b, seconds, tempo):
     t = _valid_tempo(tempo)
     if type(seconds) is not int or seconds < 30 or seconds > 480:
         raise ValueError("Unsupported duration")
+    if grid_mode not in ("bar", "half-bar") or phrase_bars not in (4, 8, 16):
+        raise ValueError("Unsupported 4/4 phrase alignment")
     profiles = {"a": profile_a, "b": profile_b}
     for role in ("a", "b"):
         item = profiles[role]
         if not isinstance(item, dict) or not item.get("audible") or not item.get("regions"):
             raise ValueError("Both authentic sources need usable vocal regions")
     bar = 4 * 60 / t
-    half_bar = 2 * 60 / t
+    half_bar = (4 if grid_mode == 'bar' else 2) * 60 / t
     intro = min(seconds * .11, 2 * bar)
     outro = min(seconds * .10, 2 * bar)
     end = seconds - outro
@@ -122,6 +124,8 @@ def arrange_vocal_phrases(profile_a, profile_b, seconds, tempo):
         "vocalPhrases": len(events), "musicalGrid": "half-bar-A",
         "fixedChorusAlternation": False,
         "v7PhrasePlanner": "balance-and-fresh-region-v1",
+        "vocalGrid": grid_mode,
+        "phraseBars": phrase_bars,
         "voiceASeconds": round(used["a"], 2),
         "voiceBSeconds": round(used["b"], 2),
     }

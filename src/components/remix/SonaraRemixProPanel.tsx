@@ -13,7 +13,8 @@ type ProJob = {jobId?: string;status?: string;stage?: string;progress?: number;a
   requestedDurationSeconds?:number;actualDurationSeconds?:number;
   v5Result?: {candidatesGenerated:number;candidatesAccepted:number;technicalScore:number;artisticListeningRequired:boolean};
   v6Result?: {selectionScore:number;spectralDiversityProxy:number;continuityProxy:number;masterProfile:string;artisticListeningRequired:boolean;isArtisticJudgment:false};
-  v7Result?: {priority:number;harmonicEstimate:string;master:{lufs:number;truePeakDbTp:number;crestDb:number}};
+  v7Result?: {priority:number;harmonicEstimate:string;master:{lufs:number;truePeakDbTp:number;crestDb:number};
+    rhythm?:{sourceBpm:number;outputBpm:number;confidence:number;retimeRatio:number;meter:string;phraseBars:number;vocalGrid:string;beatGridBasis:string}};
 };
 const isJob = (id:string) => /^srpro_[0-9a-f-]{36}$/.test(id);
 const sleep=(ms:number)=>new Promise(resolve=>window.setTimeout(resolve,ms));
@@ -31,6 +32,10 @@ export default function SonaraRemixProPanel() {
   const [v5Available,setV5Available]=useState(false);
   const [v6Available,setV6Available]=useState(false);
   const [v7Available,setV7Available]=useState(false);
+  const [v7RhythmAvailable,setV7RhythmAvailable]=useState(false);
+  const [rhythmMode,setRhythmMode]=useState<'source-a'|'manual'>('source-a');
+  const [phraseBars,setPhraseBars]=useState<4|8|16>(8);
+  const [vocalGrid,setVocalGrid]=useState<'bar'|'half-bar'>('half-bar');
   const [explosiveAvailable,setExplosiveAvailable]=useState(false);
   const [dnaMode,setDnaMode]=useState<'balanced'|'experimental'|'wild'|'explosive'>('balanced');
   const [masterProfile,setMasterProfile]=useState<'streaming'|'club'>('streaming');
@@ -134,7 +139,7 @@ export default function SonaraRemixProPanel() {
       setInfo('Recupero un job precedente. La sua durata potrebbe essere diversa dalla nuova selezione.');}
     fetch('/api/sonara-relay/pro-capabilities',{cache:'no-store',credentials:'include'})
       .then(r=>r.ok?r.json():{available:false})
-      .then(x=>{if(mounted.current){setAvailable(x.available===true);setMultiformatAvailable(x.multiformatAvailable===true);setV5Available(x.v5Available===true);setV6Available(x.v6Available===true);setV7Available(x.v7Available===true);setExplosiveAvailable(x.explosiveAvailable===true);}})
+      .then(x=>{if(mounted.current){setAvailable(x.available===true);setMultiformatAvailable(x.multiformatAvailable===true);setV5Available(x.v5Available===true);setV6Available(x.v6Available===true);setV7Available(x.v7Available===true);setV7RhythmAvailable(x.v7RhythmAvailable===true);setExplosiveAvailable(x.explosiveAvailable===true);}})
       .catch(()=>{if(mounted.current)setAvailable(false);});
     return()=>{mounted.current=false;};
   },[]);
@@ -280,6 +285,11 @@ export default function SonaraRemixProPanel() {
     if(sourceA===sourceB){setError('Le sorgenti A e B devono essere diverse.');return;}
     if(!rights){setError('Conferma di avere il diritto di utilizzare entrambi i brani.');return;}
     if(!prompt.trim()){setError('Inserisci le indicazioni musicali per il nuovo brano.');return;}
+    if(v7Enabled&&v7RhythmAvailable&&rhythmMode==='manual'&&
+      (!bpmA||!Number.isFinite(Number(bpmA))||Number(bpmA)<55||Number(bpmA)>200)){
+      setError('Imposta BPM A tra 55 e 200: la correzione è ammessa solo entro ±12% dal ritmo reale di A.');
+      return;
+    }
     if(dnaMode==='explosive'&&!explosiveAvailable){setError('Explosive Fusion richiede l’aggiornamento del worker GPU MoLab.');return;}
     // Auto duration is chosen ONCE before enqueue, so the private job still
     // carries an exact, verifiable duration: never change it during polling.
@@ -315,11 +325,15 @@ export default function SonaraRemixProPanel() {
             sonaraRemixProDurationMode:durationMode,
             sonaraRemixProV6:true,
             sonaraRemixProV7:v7Enabled&&v7Available,
+            ...(v7Enabled&&v7Available&&v7RhythmAvailable
+              ?{sonaraRemixProV7RhythmControls:{
+                 tempoMode:rhythmMode,meter:'4/4',
+                 phraseBars,vocalGrid}}:{}),
             ...(v6Available?{sonaraRemixProV6Controls:{
               mode:dnaMode, master:masterProfile,...dnaLevels
             }}:{})
           }:{}),
-          ...(bpmA?{sonaraRemixProBpmA:Number(bpmA)}:{}),
+          ...((bpmA&&!(v7Enabled&&v7RhythmAvailable&&rhythmMode==='source-a'))?{sonaraRemixProBpmA:Number(bpmA)}:{}),
           ...(bpmB?{sonaraRemixProBpmB:Number(bpmB)}:{}),
           durationSec:requestedDuration,
           prompt:(v7Enabled
@@ -514,6 +528,57 @@ export default function SonaraRemixProPanel() {
       <SonaraRemixV7Studio enabled={v7Enabled} onEnabledChange={setV7Enabled}
         intent={v7Intent} onIntentChange={setV7Intent}
         direction={v7Direction} onDirectionChange={setV7Direction}/>
+      <section className="sonara-v7-rhythm" data-testid="sonara-v7-rhythm-controls"
+        aria-label="Regolazione ritmo, battute e tempo">
+        <div className="sonara-v7-rhythm-header">
+          <span className="sonara-v7-kicker">RHYTHM & TEMPO LOCK · HOUSE</span>
+          <strong>Ritmo, battute e tempo</strong>
+          <p>Una sola batteria dal brano A. Griglia 4/4, frasi regolari e ingressi vocali musicali.</p>
+        </div>
+        <div className="sonara-v7-rhythm-grid">
+          <label>Tempo del remix
+            <select data-testid="sonara-v7-tempo-mode" value={rhythmMode}
+              disabled={!v7Enabled} onChange={e=>setRhythmMode(e.target.value==='manual'?'manual':'source-a')}>
+              <option value="source-a">Automatico: misura dal brano A</option>
+              <option value="manual">Manuale: BPM A desiderato</option>
+            </select>
+          </label>
+          <label>BPM obiettivo
+            <input data-testid="sonara-v7-target-bpm" type="number" inputMode="numeric"
+              min={55} max={200} step={1} placeholder={rhythmMode==='source-a'?'Rilevamento automatico':'Es. 124'}
+              disabled={!v7Enabled||rhythmMode==='source-a'}
+              value={rhythmMode==='manual'?bpmA:''}
+              onChange={e=>setBpmA(e.target.value)}/>
+          </label>
+          <label>Metro musicale
+            <input type="text" readOnly value="4/4 · House" aria-label="Metro musicale bloccato a quattro quarti"/>
+          </label>
+          <label>Struttura delle frasi
+            <select data-testid="sonara-v7-phrase-bars" value={phraseBars}
+              disabled={!v7Enabled} onChange={e=>setPhraseBars(Number(e.target.value) as 4|8|16)}>
+              <option value={4}>4 battute per frase breve</option>
+              <option value={8}>8 battute · Standard House</option>
+              <option value={16}>16 battute · Struttura estesa</option>
+            </select>
+          </label>
+          <label>Ingresso delle voci A+B
+            <select data-testid="sonara-v7-vocal-grid" value={vocalGrid}
+              disabled={!v7Enabled} onChange={e=>setVocalGrid(e.target.value==='bar'?'bar':'half-bar')}>
+              <option value="half-bar">Ogni mezza battuta musicale (2 beat)</option>
+              <option value="bar">Su inizio battuta (4 beat)</option>
+            </select>
+          </label>
+        </div>
+        <div className="sonara-v7-bar-visual" aria-hidden="true">
+          {Array.from({length:8},(_,bar)=><div key={bar} className="sonara-v7-bar">
+            {Array.from({length:4},(_,beat)=><span key={beat} className={beat===0?'is-downbeat':''}/>)}
+          </div>)}
+        </div>
+        <small role="status">{v7RhythmAvailable
+          ?'GPU Rhythm Lock pronta: verifica il BPM di A, allinea le battute e applica solo piccole correzioni del tempo con preservazione dell’altezza. Se il BPM richiesto è troppo distante da A, rifiuta il job prima della generazione.'
+          :'Rhythm Lock audio non ancora disponibile sul worker MoLab: le preferenze sono visibili, ma la correzione ritmica si attiverà solo dopo l’aggiornamento GPU.'}
+        </small>
+      </section>
       {parentJobId&&<div className="sonara-v7-origin" role="status">
         <strong>Versione collegata all'archivio</strong>
         <span>Nuovo remix derivato dal master {parentJobId.slice(6,14)}. La versione originale resterà salvata.</span>
@@ -538,7 +603,12 @@ export default function SonaraRemixProPanel() {
           </select>
         </label>
         <label>Basso<select value={bassFrom} onChange={e=>setBassFrom(e.target.value==='b'?'b':'a')}><option value="a">Dal brano A</option><option value="b">Dal brano B</option></select></label>
-        <label>BPM A (facoltativo)<input type="number" min={55} max={200} placeholder="Analisi automatica" value={bpmA} onChange={e=>setBpmA(e.target.value)} /></label>
+        <label>BPM A {v7Enabled&&v7RhythmAvailable&&rhythmMode==='manual'?'(obbligatorio)':'(facoltativo)'}
+          <input type="number" min={55} max={200} placeholder="Analisi automatica"
+            disabled={v7Enabled&&v7RhythmAvailable&&rhythmMode==='source-a'}
+            value={v7Enabled&&v7RhythmAvailable&&rhythmMode==='source-a'?'':bpmA}
+            onChange={e=>setBpmA(e.target.value)} />
+        </label>
         <label>BPM B (facoltativo)<input type="number" min={55} max={200} placeholder="Analisi automatica" value={bpmB} onChange={e=>setBpmB(e.target.value)} /></label>
       </div>
       <label style={{display:'flex',alignItems:'flex-start',gap:8}}>
@@ -559,6 +629,11 @@ export default function SonaraRemixProPanel() {
         <strong>Dettagli lavoro · {job.jobId?.slice(0,18)}</strong>
         <small data-testid="sonara-remix-pro-job-duration">Durata del JOB {job.jobId?.slice(0,12)}: {Number(job.requestedDurationSeconds)>0?durationLabel(Number(job.requestedDurationSeconds)):'da recuperare dal server'}{Number(job.actualDurationSeconds)>0?' · WAV verificato: '+durationLabel(Number(job.actualDurationSeconds)):''}. {Number(job.requestedDurationSeconds)>0&&Number(job.requestedDurationSeconds)!==duration?'Questo è un job precedente: la nuova selezione '+durationLabel(duration)+' NON lo modifica.':''}</small>
         {job.status==='FAILED'&&<small role="alert">{job.error||'Job non riuscito.'}</small>}
+        {job.v7Result?.rhythm&&<small role="status" data-testid="sonara-v7-rhythm-result">
+          Rhythm Lock: sorgente A {job.v7Result.rhythm.sourceBpm} BPM · uscita {job.v7Result.rhythm.outputBpm} BPM · metro 4/4 ·
+          frasi {job.v7Result.rhythm.phraseBars} battute · confidenza di periodicità {Math.round(job.v7Result.rhythm.confidence*100)}%.
+          La confidenza riguarda la periodicità della cassa, non il riconoscimento certo del downbeat.
+        </small>}
         {job.v7Result&&<small role="status">
           V7 Deep Fusion: priorità tecnica {job.v7Result.priority}/100 ·
           armonia {job.v7Result.harmonicEstimate} ·

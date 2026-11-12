@@ -657,3 +657,35 @@ test('Version archive parent must be completed, owned and backed by a real priva
   assert.equal(state.parentJobId,parent);
   assert.equal((await call(e,'GET','/api/sonara-relay/pro-job/'+JOB,undefined,{'x-mock-user':OTHER})).status,404);
 });
+
+
+test('Rhythm Lock cannot be queued until GPU worker declares real V7 rhythm module readiness',async()=>{
+  const e=env();
+  const controls={mode:'balanced',master:'streaming',melody:65,harmony:60,groove:65,timbre:55,humanize:60};
+  const r={tempoMode:'manual',meter:'4/4',phraseBars:8,vocalGrid:'bar'};
+  const input={...spec,bpmA:124,v5:true,v6:true,v7:true,v6Controls:controls,
+    v7RhythmControls:r,genre:'house',bInfluence:50,
+    candidateCount:1,durationMode:'manual'};
+  const beat={gpuReady:true,v5Ready:true,v6Ready:true,v7Ready:true,v7RhythmReady:false};
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',beat,agent);
+  assert.equal((await proCapabilities(e)).v7RhythmAvailable,false);
+  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',input,gate)).status,503);
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',{...beat,v7RhythmReady:true},agent);
+  assert.equal((await proCapabilities(e)).v7RhythmAvailable,true);
+  const invalids=[
+    {...r,meter:'3/4'}, {...r,phraseBars:7}, {...r,vocalGrid:'quarter'},
+    {...r,bypassQuality:true}, {...r,phraseBars:true}
+  ];
+  for(const item of invalids){
+    const rejected=await call(e,'POST','/api/sonara-relay/pro-enqueue',
+      {...input,v7RhythmControls:item},gate);
+    assert.equal(rejected.status,400);
+  }
+  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',
+    {...input,bpmA:null},gate)).status,400);
+  const accepted=await call(e,'POST','/api/sonara-relay/pro-enqueue',input,gate);
+  assert.equal(accepted.status,202);
+  const claimed=await (await call(e,'POST','/api/sonara-relay/pro-claim',
+    {v5Ready:true,v6Ready:true},agent)).json();
+  assert.deepEqual(claimed.params.v7RhythmControls,r);
+});
