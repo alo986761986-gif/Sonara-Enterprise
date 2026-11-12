@@ -167,7 +167,8 @@ class TwoSourceFusionTests(unittest.TestCase):
             {"tempoBpm":98,"tempoConfidence":.8,"key":"G minor","keyConfidence":.9},
             requested_seconds=180,explosive=True)
         self.assertIn("DUAL-HOOK FORM",p)
-        self.assertIn("choir harmonies",p)
+        self.assertIn("never synthesize a third singer",p)
+        self.assertIn("reserve clean space for the actual original vocals",p)
         self.assertIn("No audible cut",p)
         self.assertIn("FINAL NON-NEGOTIABLE RHYTHM LOCK",p)
         self.assertIn("NO silent bars",p)
