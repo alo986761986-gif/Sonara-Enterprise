@@ -1,0 +1,43 @@
+name: Verify SONARA Private MoLab Pairing Recovery
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'cloudflare/sonara-r2-https-relay.mjs'
+      - 'cloudflare/sonara-r2-https-relay.test.mjs'
+      - 'molab/sonara_v7_restore_private_pairing.py'
+  push:
+    branches: [fix/sonara-v7-repair-private-pairing-20261112]
+    paths:
+      - 'cloudflare/sonara-r2-https-relay.mjs'
+      - 'cloudflare/sonara-r2-https-relay.test.mjs'
+      - 'molab/sonara_v7_restore_private_pairing.py'
+      - '.github/workflows/verify-sonara-private-pairing.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify previous seven tokens and guarded eighth pairing
+        run: node --test cloudflare/sonara-r2-https-relay.test.mjs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify private pairing utility syntax
+        run: python -m py_compile molab/sonara_v7_restore_private_pairing.py
+      - name: Check script does not contain fixed credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'secrets.token_urlsafe(48)' molab/sonara_v7_restore_private_pairing.py
+          grep -Fq 'RELAY_FINGERPRINT_SHA256=' molab/sonara_v7_restore_private_pairing.py
+          grep -Fq 'SONARA_PAIRING_STATUS=AWAITING_CLOUDFLARE_FINGERPRINT_AUTHORIZATION' molab/sonara_v7_restore_private_pairing.py

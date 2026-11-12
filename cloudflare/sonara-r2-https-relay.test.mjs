@@ -20,6 +20,7 @@ const fourthNotebook = 'fourth-notebook-independent-sample-private-token-long';
 const fifthNotebook = 'fifth-notebook-independent-sample-private-token-long';
 const sixthNotebook = 'sixth-notebook-separate-rtx6000-local-token-test-long';
 const seventhNotebook = 'seventh-notebook-independent-rtx6000-local-token-long';
+const eighthNotebook = 'eighth-notebook-independent-rtx6000-recovery-token-long';
 const pairingEnv = {
   SONARA_RELAY_TOKEN_SHA256: hashToken(primary),
   SONARA_RELAY_TOKEN_SHA256_SECONDARY: hashToken(newNotebook),
@@ -28,6 +29,7 @@ const pairingEnv = {
   SONARA_RELAY_TOKEN_SHA256_QUINARY: hashToken(fifthNotebook),
   SONARA_RELAY_TOKEN_SHA256_SENARY: hashToken(sixthNotebook),
   SONARA_RELAY_TOKEN_SHA256_SEPTENARY: hashToken(seventhNotebook),
+  SONARA_RELAY_TOKEN_SHA256_OCTONARY: hashToken(eighthNotebook),
   SONARA_R2_RELAY_ENABLED: 'true',
   SONARA_INTERNAL_PROXY_SECRET: 'gateway-test-secret',
 };
@@ -39,7 +41,7 @@ async function authenticate(token, env=pairingEnv) {
   return runtime.fetch(request, env, {});
 }
 
-test('all seven paired notebook fingerprints authenticate', async () => {
+test('all eight paired notebook fingerprints authenticate without revoking old ones', async () => {
   const first = await authenticate(primary);
   const second = await authenticate(newNotebook);
   const third = await authenticate(thirdNotebook);
@@ -47,6 +49,7 @@ test('all seven paired notebook fingerprints authenticate', async () => {
   const fifth = await authenticate(fifthNotebook);
   const sixth = await authenticate(sixthNotebook);
   const seventh = await authenticate(seventhNotebook);
+  const eighth = await authenticate(eighthNotebook);
   assert.equal(first.status, 200);
   assert.equal(second.status, 200);
   assert.equal(third.status, 200);
@@ -54,6 +57,7 @@ test('all seven paired notebook fingerprints authenticate', async () => {
   assert.equal(fifth.status, 200);
   assert.equal(sixth.status, 200);
   assert.equal(seventh.status, 200);
+  assert.equal(eighth.status, 200);
   const data = await second.json();
   assert.equal(data.authenticated, true);
   assert.equal(data.referenceAgentRevision, 'sonara-https-agent-guard-v5');
@@ -68,12 +72,14 @@ test('unpaired notebook, near-match and missing fingerprint are rejected', async
   assert.equal((await authenticate(fifthNotebook + 'x')).status, 401);
   assert.equal((await authenticate(sixthNotebook + 'x')).status, 401);
   assert.equal((await authenticate(seventhNotebook + 'x')).status, 401);
+  assert.equal((await authenticate(eighthNotebook + 'x')).status, 401);
   assert.equal((await authenticate(newNotebook, { SONARA_RELAY_TOKEN_SHA256_SECONDARY:'bad' })).status, 401);
   assert.equal((await authenticate(thirdNotebook, { SONARA_RELAY_TOKEN_SHA256_TERTIARY:'bad' })).status, 401);
   assert.equal((await authenticate(fourthNotebook, { SONARA_RELAY_TOKEN_SHA256_QUATERNARY:'bad' })).status, 401);
   assert.equal((await authenticate(fifthNotebook, { SONARA_RELAY_TOKEN_SHA256_QUINARY:'bad' })).status, 401);
   assert.equal((await authenticate(sixthNotebook, { SONARA_RELAY_TOKEN_SHA256_SENARY:'bad' })).status, 401);
   assert.equal((await authenticate(seventhNotebook, { SONARA_RELAY_TOKEN_SHA256_SEPTENARY:'bad' })).status, 401);
+  assert.equal((await authenticate(eighthNotebook, { SONARA_RELAY_TOKEN_SHA256_OCTONARY:'bad' })).status, 401);
 });
 
 test('existing Worker-only secret remains valid separately', async () => {
