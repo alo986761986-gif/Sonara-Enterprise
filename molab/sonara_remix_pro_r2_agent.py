@@ -511,11 +511,27 @@ def pro_heartbeat_payload():
                 and callable(plan_song_form) and callable(section_gains))
         except (ImportError, AttributeError):
             pass
+    v9_director_ready = False
+    if song_form_ready:
+        try:
+            from sonara_remix_pro_music_director import (
+                DIRECTOR_REVISION, analyse_sources, create_music_direction,
+                musical_direction_prompt, arrange_vocal_dialogue,
+                SpectralPocket, evaluate_arrangement)
+            v9_director_ready = (
+                DIRECTOR_REVISION == "sonara-v9-measured-music-director-r1"
+                and all(callable(x) for x in
+                    (analyse_sources, create_music_direction,
+                     musical_direction_prompt, arrange_vocal_dialogue,
+                     SpectralPocket, evaluate_arrangement)))
+        except (ImportError, AttributeError):
+            pass
     return {"gpuReady": True, "formatsReady": multiformat_ready(),
             "v5Ready": ready, "v6Ready": v6_ready, "v7Ready": v7_ready,
             "v7RhythmReady": rhythm_ready,
             "v7CreativeModesReady": creative_modes_ready,
             "v8SongFormReady": song_form_ready,
+            "v9MusicDirectorReady": v9_director_ready,
             "v6ExplosiveReady": explosive_ready}
 
 
@@ -811,6 +827,21 @@ def run_job(item, auth_mode):
                 song_form = plan_song_form(
                     requested_seconds, bpm_a,
                     b_influence=int(params.get("bInfluence", 50)))
+            director_plan = None
+            if params.get("v9MusicDirector") is True:
+                if (song_form is None or params.get("v8SongForm") is not True
+                        or pro_heartbeat_payload().get("v9MusicDirectorReady") is not True):
+                    raise ProAgentError("V9 authentic music director is not ready")
+                from sonara_remix_pro_music_director import (
+                    analyse_sources, create_music_direction)
+                evidence = analyse_sources(
+                    a, b,
+                    {"vocals": source_a / "vocals.wav", "drums": source_a / "drums.wav"},
+                    {"vocals": source_b / "vocals.wav", "drums": source_b / "drums.wav"},
+                    lease_check=lambda step: renewal.verify())
+                director_plan = create_music_direction(
+                    song_form, evidence, report_a, report_b,
+                    creative_mode=params.get("v6Controls", {}).get("mode", "balanced"))
             # In V6, BOTH real source hooks reach ACE-Step's primary
             # conditioning guide in short alternating phrases. B is also an
             # independent style reference. This is a PRIVATE GUIDE only:
@@ -829,6 +860,7 @@ def run_job(item, auth_mode):
                     b_influence=int(params.get('bInfluence', 50)),
                     homogeneous=explosive,
                     song_form=song_form,
+                    director_plan=director_plan,
                 )
                 if (guide_report.get('containsSourceA') is not True or
                         guide_report.get('containsSourceB') is not True or
@@ -888,7 +920,9 @@ def run_job(item, auth_mode):
                                 **({"v7Rhythm": rhythm_data}
                                    if rhythm_data is not None else {}),
                                 **({"v8SongFormPlan": song_form}
-                                   if song_form is not None else {})},
+                                   if song_form is not None else {}),
+                                **({"v9MusicDirectorPlan": director_plan}
+                                   if director_plan is not None else {})},
                         b_drums=(source_a if params.get("v6") is True else source_b) / "drums.wav", engine=ace_cover,
                         vocals_a=source_a / "vocals.wav",
                         vocals_b=source_b / "vocals.wav",
@@ -932,6 +966,19 @@ def run_job(item, auth_mode):
                     }
                     v5_metadata["v6Master"] = params.get("v6Controls", {}).get("master", "streaming")
                     if params.get("v7Studio") is True:
+                        if director_plan is not None:
+                            director_report = choice.get("v9Director")
+                            if not isinstance(director_report, dict):
+                                raise ProAgentError("V9 musical assessment missing")
+                            v5_metadata["v9MusicDirector"] = {
+                                "revision": director_report["revision"],
+                                "measuredDynamicContrastDb": director_report["measuredDynamicContrastDb"],
+                                "measuredThemeReturnDifferenceDb": director_report["measuredThemeReturnDifferenceDb"],
+                                "measuredProxyScore": director_report["measuredProxyScore"],
+                                "musicalQualityListeningStillRequired": True,
+                                "notAProofOfMelodicOrSemanticOriginality": True,
+                                "voiceAAndBNotOverlaid": True,
+                            }
                         if song_form is not None:
                             v5_metadata["v8SongForm"] = {
                                 "revision": song_form["revision"],
@@ -1146,7 +1193,8 @@ def main(argv=None):
             response = request("POST","/api/sonara-relay/pro-claim",
                                {"v5Ready": readiness.get("v5Ready") is True,
                                 "v6Ready": readiness.get("v6Ready") is True,
-                                "v8SongFormReady": readiness.get("v8SongFormReady") is True})
+                                "v8SongFormReady": readiness.get("v8SongFormReady") is True,
+                                "v9MusicDirectorReady": readiness.get("v9MusicDirectorReady") is True})
             if response.get("jobId"):
                 run_job(response,args.auth_mode)
             else:
