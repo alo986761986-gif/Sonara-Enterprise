@@ -788,6 +788,16 @@ def run_job(item, auth_mode):
             if requested_seconds not in range(30, 481, 30):
                 raise SourceTransferError("REMIX_INVALID_DURATION")
 
+            song_form = None
+            if params.get("v8SongForm") is True:
+                if params.get("v7Studio") is not True or params.get("v6") is not True:
+                    raise ProAgentError("V8 song form requires V7 Studio and V6 original-source path")
+                if bpm_a is None:
+                    raise ProAgentError("V8 song form needs a verified A tempo")
+                from sonara_remix_pro_songform import plan_song_form
+                song_form = plan_song_form(
+                    requested_seconds, bpm_a,
+                    b_influence=int(params.get("bInfluence", 50)))
             # In V6, BOTH real source hooks reach ACE-Step's primary
             # conditioning guide in short alternating phrases. B is also an
             # independent style reference. This is a PRIVATE GUIDE only:
@@ -805,6 +815,7 @@ def run_job(item, auth_mode):
                     vocals_b=source_b / 'vocals.wav',
                     b_influence=int(params.get('bInfluence', 50)),
                     homogeneous=explosive,
+                    song_form=song_form,
                 )
                 if (guide_report.get('containsSourceA') is not True or
                         guide_report.get('containsSourceB') is not True or
@@ -862,7 +873,9 @@ def run_job(item, auth_mode):
                                            "sourceReportB": report_b}
                                           if params.get("v6") is True else {}),
                                 **({"v7Rhythm": rhythm_data}
-                                   if rhythm_data is not None else {})},
+                                   if rhythm_data is not None else {}),
+                                **({"v8SongFormPlan": song_form}
+                                   if song_form is not None else {})},
                         b_drums=(source_a if params.get("v6") is True else source_b) / "drums.wav", engine=ace_cover,
                         vocals_a=source_a / "vocals.wav",
                         vocals_b=source_b / "vocals.wav",
@@ -906,6 +919,13 @@ def run_job(item, auth_mode):
                     }
                     v5_metadata["v6Master"] = params.get("v6Controls", {}).get("master", "streaming")
                     if params.get("v7Studio") is True:
+                        if song_form is not None:
+                            v5_metadata["v8SongForm"] = {
+                                "revision": song_form["revision"],
+                                "sectionNames": [s["name"] for s in song_form["sections"]],
+                                "estimatedGridNotVerifiedDownbeat": True,
+                                "artisticListeningRequired": True,
+                            }
                         if rhythm_data is not None:
                             measured_rhythm = preserved.get("v7RhythmLock")
                             if not isinstance(measured_rhythm, dict) or abs(
