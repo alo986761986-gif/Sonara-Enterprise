@@ -13,7 +13,7 @@ type ProJob = {jobId?: string;status?: string;stage?: string;progress?: number;a
   requestedDurationSeconds?:number;actualDurationSeconds?:number;
   v5Result?: {candidatesGenerated:number;candidatesAccepted:number;technicalScore:number;artisticListeningRequired:boolean};
   v6Result?: {selectionScore:number;spectralDiversityProxy:number;continuityProxy:number;masterProfile:string;artisticListeningRequired:boolean;isArtisticJudgment:false};
-  v7Result?: {priority:number;harmonicEstimate:string;master:{lufs:number;truePeakDbTp:number;crestDb:number};
+  v7Result?: {priority:number;harmonicEstimate:string;creativeMode?:'balanced'|'experimental'|'wild'|'explosive';master:{lufs:number;truePeakDbTp:number;crestDb:number};
     rhythm?:{sourceBpm:number;outputBpm:number;confidence:number;retimeRatio:number;meter:string;phraseBars:number;vocalGrid:string;beatGridBasis:string}};
 };
 const isJob = (id:string) => /^srpro_[0-9a-f-]{36}$/.test(id);
@@ -33,6 +33,7 @@ export default function SonaraRemixProPanel() {
   const [v6Available,setV6Available]=useState(false);
   const [v7Available,setV7Available]=useState(false);
   const [v7RhythmAvailable,setV7RhythmAvailable]=useState(false);
+  const [v7CreativeModesAvailable,setV7CreativeModesAvailable]=useState(false);
   const [rhythmMode,setRhythmMode]=useState<'source-a'|'manual'>('source-a');
   const [phraseBars,setPhraseBars]=useState<4|8|16>(8);
   const [vocalGrid,setVocalGrid]=useState<'bar'|'half-bar'>('half-bar');
@@ -139,7 +140,7 @@ export default function SonaraRemixProPanel() {
       setInfo('Recupero un job precedente. La sua durata potrebbe essere diversa dalla nuova selezione.');}
     fetch('/api/sonara-relay/pro-capabilities',{cache:'no-store',credentials:'include'})
       .then(r=>r.ok?r.json():{available:false})
-      .then(x=>{if(mounted.current){setAvailable(x.available===true);setMultiformatAvailable(x.multiformatAvailable===true);setV5Available(x.v5Available===true);setV6Available(x.v6Available===true);setV7Available(x.v7Available===true);setV7RhythmAvailable(x.v7RhythmAvailable===true);setExplosiveAvailable(x.explosiveAvailable===true);}})
+      .then(x=>{if(mounted.current){setAvailable(x.available===true);setMultiformatAvailable(x.multiformatAvailable===true);setV5Available(x.v5Available===true);setV6Available(x.v6Available===true);setV7Available(x.v7Available===true);setV7RhythmAvailable(x.v7RhythmAvailable===true);setV7CreativeModesAvailable(x.v7CreativeModesAvailable===true);setExplosiveAvailable(x.explosiveAvailable===true);}})
       .catch(()=>{if(mounted.current)setAvailable(false);});
     return()=>{mounted.current=false;};
   },[]);
@@ -325,6 +326,7 @@ export default function SonaraRemixProPanel() {
             sonaraRemixProDurationMode:durationMode,
             sonaraRemixProV6:true,
             sonaraRemixProV7:v7Enabled&&v7Available,
+            sonaraRemixProV7CreativeModes:v7Enabled&&v7Available&&v7CreativeModesAvailable,
             ...(v7Enabled&&v7Available&&v7RhythmAvailable
               ?{sonaraRemixProV7RhythmControls:{
                  tempoMode:rhythmMode,meter:'4/4',
@@ -452,6 +454,11 @@ export default function SonaraRemixProPanel() {
           <small style={{color:'#beb0d5'}}>{v6Available?'Motore V6 GPU disponibile: analisi DNA, composizione differenziata, selezione misurabile e mastering dedicato.':'Anteprima Creative DNA su V5: le indicazioni compositive sono reali, ma analisi e selezione V6 richiedono un aggiornamento del worker MoLab.'}</small>
           {dnaMode==='explosive'&&<small role="status">Explosive Fusion mantiene un'unica cassa House dal brano A, con le due voci originali fuse in una struttura fluida, senza ritornelli incollati. Le parole e la fedeltà musicale non sono garantite automaticamente: serve ascoltare il master. Disponibile solo con worker V6 aggiornato.</small>}
           <small role="status" style={{color:'#d8c1f0'}}>Fusione House A+B · cassa e BPM solo dal brano A, voci autentiche in frasi naturali senza alternanza di ritornelli fissi. Niente ricanto o traduzione automatica. Il mix va ascoltato prima della pubblicazione.</small>
+          <small className="sonara-pro-mode-capability" role="status">
+            {v7CreativeModesAvailable
+              ?'MODALITÀ V7 DIFFERENZIATE ATTIVE · Ogni profilo modifica davvero il trattamento musicale e l’arrangiamento.'
+              :'Modalità V7 avanzate in attesa del nuovo modulo MoLab: resta attiva la compatibilità con il motore precedente.'}
+          </small>
           <label style={{display:'grid',gap:5}}>Modalità creativa
             <select value={dnaMode} onChange={e=>setDnaMode(e.target.value as 'balanced'|'experimental'|'wild'|'explosive')} style={{background:'#272036',color:'#fff',border:'1px solid #6e5488',borderRadius:8,padding:10}}>
               <option value="balanced">Balanced · Fusione coerente</option>
@@ -460,6 +467,14 @@ export default function SonaraRemixProPanel() {
               <option value="explosive" disabled={!explosiveAvailable}>Explosive Fusion A+B · Cassa unica, due voci naturali {explosiveAvailable?'':'(GPU in aggiornamento)'}</option>
             </select>
           </label>
+          <div className="sonara-pro-mode-explainer" data-testid="sonara-mode-difference-description" role="status">
+            {({
+              balanced:'BALANCED · Una canzone coerente e musicale. Voci A+B distribuite in modo equilibrato, accompagnamento caldo e sviluppo graduale.',
+              experimental:'EXPERIMENTAL · Nuove armonie e risposte musicali, ordine delle frasi vocali meno prevedibile e strumentazione più esplorativa.',
+              wild:'WILD · Trasformazione audace, timbri contrastanti, frasi vocali meno lineari e dinamica del basso più marcata.',
+              explosive:'EXPLOSIVE · Energia da club sempre alta, un solo groove e un solo kit di batteria A, voci autentiche integrate senza pause ritmiche.'
+            } as const)[dnaMode]}
+          </div>
           {([
             ['melody','Melodia A'],['harmony','Armonia A'],['groove','Groove A'],
             ['timbre','Timbri B'],['humanize','Naturalezza degli strumenti']
@@ -629,6 +644,10 @@ export default function SonaraRemixProPanel() {
         <strong>Dettagli lavoro · {job.jobId?.slice(0,18)}</strong>
         <small data-testid="sonara-remix-pro-job-duration">Durata del JOB {job.jobId?.slice(0,12)}: {Number(job.requestedDurationSeconds)>0?durationLabel(Number(job.requestedDurationSeconds)):'da recuperare dal server'}{Number(job.actualDurationSeconds)>0?' · WAV verificato: '+durationLabel(Number(job.actualDurationSeconds)):''}. {Number(job.requestedDurationSeconds)>0&&Number(job.requestedDurationSeconds)!==duration?'Questo è un job precedente: la nuova selezione '+durationLabel(duration)+' NON lo modifica.':''}</small>
         {job.status==='FAILED'&&<small role="alert">{job.error||'Job non riuscito.'}</small>}
+        {job.v7Result?.creativeMode&&<small role="status" data-testid="sonara-creative-mode-applied">
+          Modalità creativa confermata dal worker: <strong>{job.v7Result.creativeMode.toUpperCase()}</strong>.
+          Il master applica effettivamente l'arrangiamento della modalità selezionata.
+        </small>}
         {job.v7Result?.rhythm&&<small role="status" data-testid="sonara-v7-rhythm-result">
           Rhythm Lock: sorgente A {job.v7Result.rhythm.sourceBpm} BPM · uscita {job.v7Result.rhythm.outputBpm} BPM · metro 4/4 ·
           frasi {job.v7Result.rhythm.phraseBars} battute · confidenza di periodicità {Math.round(job.v7Result.rhythm.confidence*100)}%.
