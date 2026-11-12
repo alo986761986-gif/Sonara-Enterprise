@@ -60,6 +60,18 @@ class VoiceContracts(unittest.TestCase):
         self.assertIn('sourceVocalsResung', text)
         self.assertIn('measured_peak > .92', text)
 
+    def test_v6_reports_actual_phase_instead_of_always_ace_step(self):
+        worker = source("sonara_remix_pro_r2_agent.py")
+        controls = source("sonara_remix_pro_v5.py")
+        bridge = source("sonara_remix_pro_ace_bridge.py")
+        self.assertIn('"vocal_fusion": "REMIX_VOCAL_FUSION_FAILED"', worker)
+        self.assertIn('phase_callback=mark_render_phase', worker)
+        self.assertIn('phase_callback("vocal_fusion" if v6 is not None else "mastering")', controls)
+        self.assertIn('phase_callback("quality_gate")', controls)
+        self.assertIn('"instruction": instruction.strip() if instruction is not None', bridge)
+        self.assertIn('phase_callback("ace_step")', controls)
+        self.assertIn('**({"instruction": (', controls)
+
     def test_maintenance_is_idle_only_and_has_rollback(self):
         text = source("sonara_remix_pro_original_voices_install.py")
         self.assertIn("two_idle_heartbeats(pid)", text)
