@@ -52,6 +52,39 @@ class ACEBridgeTests(unittest.TestCase):
                 render(input_wav,output_wav,"No overwrites",mode="none")
 
 
+    def test_house_edit_instruction_is_short_and_separate_from_caption(self):
+        with tempfile.TemporaryDirectory() as directory:
+            input_wav = Path(directory) / "source.wav"
+            output_wav = Path(directory) / "result.wav"
+            wav_source(input_wav)
+            expected_audio = input_wav.read_bytes()
+            calls = []
+            def fake_request(path, data=None, **kwargs):
+                calls.append(path)
+                if path == "/release_task":
+                    self.assertIn("Long creative caption", data["prompt"])
+                    self.assertEqual(data["instruction"],
+                                     "Instrumental House backing; no synthetic vocals.")
+                    self.assertNotEqual(data["prompt"], data["instruction"])
+                    return {"data": {"task_id": "one-existing-task"}}
+                if path == "/query_result":
+                    return {"data": [{"status": 1, "result": [
+                        {"audio_path": "/tmp/real-house.wav"}]}]}
+                if path.startswith("/v1/audio?"):
+                    return expected_audio
+                raise AssertionError(path)
+            with patch("sonara_remix_pro_ace_bridge._request", side_effect=fake_request):
+                render(input_wav, output_wav, "Long creative caption " * 50,
+                       instruction="Instrumental House backing; no synthetic vocals.",
+                       mode="none")
+            self.assertEqual(calls.count("/release_task"), 1)
+            self.assertTrue(output_wav.is_file())
+            with patch("sonara_remix_pro_ace_bridge._request",
+                       side_effect=AssertionError("No GPU request allowed")):
+                with self.assertRaisesRegex(ACEBridgeError, "editing instruction"):
+                    render(input_wav, Path(directory) / "second.wav",
+                           "House", instruction="x" * 601, mode="none")
+
     def test_dual_reference_uses_distinct_trusted_temporary_files(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
