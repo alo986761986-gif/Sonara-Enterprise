@@ -20,6 +20,7 @@ GENRE_PROFILES = {
     "pop": "Contemporary pop structure, lively acoustic and electronic instrumentation, coherent hooks and a polished but dynamic mix.",
 }
 VERSIONS = ("groove-first", "melody-first", "balanced-arrangement")
+V7_CANDIDATE_REVISION = 'v7-measured-candidate-harmony-v1'
 
 
 class V5QualityRejected(RuntimeError):
@@ -310,6 +311,14 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
     controls = v5_controls(params, int(params["durationSec"]))
     v6 = None
     dna = None
+    v7_studio = params.get("v7Studio") is True
+    if v7_studio and params.get("v6") is not True:
+        raise V5ControlError("V7 requires verified V6 source pipeline")
+    v7_harmony = None
+    if v7_studio:
+        from sonara_remix_pro_v7 import harmonic_guidance
+        v7_harmony = harmonic_guidance(
+            params.get("sourceReportA"), params.get("sourceReportB"))
     if params.get("v6") is True:
         from sonara_remix_pro_v6 import v6_controls, musical_dna
         v6 = v6_controls(params)
@@ -352,7 +361,8 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
             )
             prompt = (rhythmic_priority + compose_direction(
                 v6, dna, index, controls["candidateCount"]
-            ) + "\n" + prompt)[:3000]
+            ) + "\n" + (v7_harmony["prompt"] if v7_harmony is not None else "")
+              + "\n" + prompt)[:3000]
         result = engine(
             guide, generated, prompt, mode=mode,
             strength=float(params.get("coverStrength") if params.get("coverStrength") is not None else .72),
@@ -386,7 +396,8 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
                 drums_a=a_drums, vocals_a=vocals_a, vocals_b=vocals_b,
                 destination=original_mix,
                 expected_seconds=controls["durationSec"],
-                tempo_a=bpm, lease_check=lease_check)
+                tempo_a=bpm, lease_check=lease_check,
+                v7_studio=v7_studio)
             generated = original_mix
         if phase_callback:
             phase_callback("mastering")
@@ -452,11 +463,23 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
                 rejection_codes.append("explosive-unwanted-rhythmic-break")
                 continue
         continuity = continuity_report(mastered_path)
+        v7_measurements = None
+        if v7_studio:
+            from sonara_remix_pro_v7 import (
+                measured_candidate_priority, mastering_safety_snapshot)
+            v7_measurements = {
+                "priority": measured_candidate_priority(
+                    technical_score(report, continuity=continuity),
+                    voice_report, continuity),
+                "master": mastering_safety_snapshot(report),
+                "harmonicEstimate": v7_harmony["mode"],
+            }
         valid.append({
             "generated": generated, "master": mastered_path, "audit": report,
             "gate": verdict, "technicalScore": technical_score(report, continuity=continuity),
             "candidateIndex": index, "continuity": continuity,
-            "originalVoices": voice_report
+            "originalVoices": voice_report,
+            "v7Measurements": v7_measurements,
         })
     if not valid:
         raise V5QualityRejected(",".join(sorted(set(rejection_codes)))[:300])
@@ -470,7 +493,12 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
                 candidate["audit"], candidate["technicalScore"], dna,
                 candidate["master"], others
             )
-        winner = max(valid, key=lambda item: item["v6Judge"]["selectionScore"])
+        if v7_studio:
+            winner = max(valid, key=lambda item: (
+                item["v7Measurements"]["priority"],
+                item["v6Judge"]["selectionScore"]))
+        else:
+            winner = max(valid, key=lambda item: item["v6Judge"]["selectionScore"])
     else:
         # V5 continues to rank by measurable technical quality only.
         winner = max(valid, key=lambda item: item["technicalScore"])

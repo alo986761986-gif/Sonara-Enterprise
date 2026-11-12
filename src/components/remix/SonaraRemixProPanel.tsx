@@ -4,13 +4,17 @@ import SonaraRemixProLibrary from './SonaraRemixProLibrary';
 import SonaraRemixProProgress, { type RemixProTransfer } from './SonaraRemixProProgress';
 import SonaraRemixProEditor, { type RemixEditorTrack } from './SonaraRemixProEditor';
 import { createIntelligentRemixDirection } from './sonaraRemixIntelligentDirection';
+import SonaraRemixV7Studio from './SonaraRemixV7Studio';
+import { addV7Direction, v7Directions, type V7Intent, type V7Direction } from './sonaraRemixV7Director';
 import './SonaraRemixProStudio.css';
 
 type ProJob = {jobId?: string;status?: string;stage?: string;progress?: number;audioUrl?: string;
   stems?: {role:string;url:string}[];error?: string;title?:string;createdAt?:number;
   requestedDurationSeconds?:number;actualDurationSeconds?:number;
   v5Result?: {candidatesGenerated:number;candidatesAccepted:number;technicalScore:number;artisticListeningRequired:boolean};
-  v6Result?: {selectionScore:number;spectralDiversityProxy:number;continuityProxy:number;masterProfile:string;artisticListeningRequired:boolean;isArtisticJudgment:false};};
+  v6Result?: {selectionScore:number;spectralDiversityProxy:number;continuityProxy:number;masterProfile:string;artisticListeningRequired:boolean;isArtisticJudgment:false};
+  v7Result?: {priority:number;harmonicEstimate:string;master:{lufs:number;truePeakDbTp:number;crestDb:number}};
+};
 const isJob = (id:string) => /^srpro_[0-9a-f-]{36}$/.test(id);
 const sleep=(ms:number)=>new Promise(resolve=>window.setTimeout(resolve,ms));
 const durationLabel=(seconds:number)=>`${Math.floor(seconds/60)}:${String(Math.round(seconds%60)).padStart(2,'0')}`;
@@ -26,6 +30,7 @@ export default function SonaraRemixProPanel() {
   const [available,setAvailable]=useState<boolean|null>(null);
   const [v5Available,setV5Available]=useState(false);
   const [v6Available,setV6Available]=useState(false);
+  const [v7Available,setV7Available]=useState(false);
   const [explosiveAvailable,setExplosiveAvailable]=useState(false);
   const [dnaMode,setDnaMode]=useState<'balanced'|'experimental'|'wild'|'explosive'>('balanced');
   const [masterProfile,setMasterProfile]=useState<'streaming'|'club'>('streaming');
@@ -36,6 +41,10 @@ export default function SonaraRemixProPanel() {
   const [durationMode,setDurationMode]=useState<'auto'|'manual'>('auto');
   const [multiformatAvailable,setMultiformatAvailable]=useState(false);
   const [sourceA,setSourceA]=useState<File|null>(null);
+  const [parentJobId,setParentJobId]=useState('');
+  const [v7Enabled,setV7Enabled]=useState(true);
+  const [v7Intent,setV7Intent]=useState<V7Intent>({vocalFlow:85,houseGroove:90,harmony:85,arrangement:80});
+  const [v7Direction,setV7Direction]=useState<V7Direction['id']>('dialogue');
   const [trackTitle,setTrackTitle]=useState('');
   const [archiveRefresh,setArchiveRefresh]=useState(0);
   const [editorTrack,setEditorTrack]=useState<RemixEditorTrack|null>(null);
@@ -80,6 +89,27 @@ export default function SonaraRemixProPanel() {
     setError('');
     setInfo('Nuova direzione musicale pronta. Puoi modificarla prima di generare il brano.');
   };
+  const createVersionFromArchive=async(entry:{jobId:string;title:string;audioUrl:string})=>{
+    if(!isJob(entry.jobId)||entry.audioUrl!=='/api/sonara-relay/pro-job/'+entry.jobId+'/audio'){
+      setError('Origine della versione non verificata.');return;
+    }
+    if(submitting||job?.status==='PROCESSING'){
+      setError('Completa il lavoro attivo prima di avviare una nuova versione.');return;
+    }
+    setError('');setInfo('Recupero privato del master originale dal tuo archivio…');
+    try{
+      const response=await fetch(entry.audioUrl,{credentials:'include',cache:'no-store'});
+      if(!response.ok)throw new Error('Non riesco a recuperare il tuo remix originale.');
+      const blob=await response.blob();
+      if(blob.size<44||blob.size>512*1024*1024)
+        throw new Error('Il master non rispetta i limiti audio Remix Pro.');
+      const file=new File([blob],entry.title.replace(/[^a-zA-Z0-9 _-]/g,'').slice(0,65)+'.wav',{type:'audio/wav'});
+      setSourceA(file);
+      setParentJobId(entry.jobId);
+      setTrackTitle((entry.title+' · V2').slice(0,96));
+      setInfo('Versione derivata da '+entry.title+'. Seleziona il secondo brano B, conferma i diritti e avvia una nuova generazione.');
+    }catch(e){setError(e instanceof Error?e.message:'Impossibile preparare la versione.');}
+  };
   const changeDuration=(seconds:number)=>{
     if (!validDuration(seconds)) return;
     setDuration(seconds);
@@ -91,7 +121,7 @@ export default function SonaraRemixProPanel() {
       setError('Il brano '+role.toUpperCase()+' deve essere audio o video musicale supportato, massimo 512 MiB.');
       return;
     }
-    if(role==='a')setSourceA(file);
+    if(role==='a'){setSourceA(file);setParentJobId('');}
     else setSourceB(file);
     setError('');
     setInfo('Brano '+role.toUpperCase()+' selezionato: '+file.name);
@@ -104,7 +134,7 @@ export default function SonaraRemixProPanel() {
       setInfo('Recupero un job precedente. La sua durata potrebbe essere diversa dalla nuova selezione.');}
     fetch('/api/sonara-relay/pro-capabilities',{cache:'no-store',credentials:'include'})
       .then(r=>r.ok?r.json():{available:false})
-      .then(x=>{if(mounted.current){setAvailable(x.available===true);setMultiformatAvailable(x.multiformatAvailable===true);setV5Available(x.v5Available===true);setV6Available(x.v6Available===true);setExplosiveAvailable(x.explosiveAvailable===true);}})
+      .then(x=>{if(mounted.current){setAvailable(x.available===true);setMultiformatAvailable(x.multiformatAvailable===true);setV5Available(x.v5Available===true);setV6Available(x.v6Available===true);setV7Available(x.v7Available===true);setExplosiveAvailable(x.explosiveAvailable===true);}})
       .catch(()=>{if(mounted.current)setAvailable(false);});
     return()=>{mounted.current=false;};
   },[]);
@@ -273,6 +303,7 @@ export default function SonaraRemixProPanel() {
           sonaraRemixPro:true,
           sonaraRemixProRightsConfirmed:true,
           sonaraRemixProSourceA:a,
+          ...(parentJobId?{sonaraRemixProParentJobId:parentJobId}:{}),
           sonaraRemixProSourceB:b,
           sonaraRemixProTitle:trackTitle.trim().slice(0,96)||('Creative Fusion '+new Date().toLocaleDateString('it-IT')),
           sonaraRemixProBassFrom:bassFrom,
@@ -283,6 +314,7 @@ export default function SonaraRemixProPanel() {
             sonaraRemixProCandidates:safeCandidateCount,
             sonaraRemixProDurationMode:durationMode,
             sonaraRemixProV6:true,
+            sonaraRemixProV7:v7Enabled&&v7Available,
             ...(v6Available?{sonaraRemixProV6Controls:{
               mode:dnaMode, master:masterProfile,...dnaLevels
             }}:{})
@@ -290,7 +322,9 @@ export default function SonaraRemixProPanel() {
           ...(bpmA?{sonaraRemixProBpmA:Number(bpmA)}:{}),
           ...(bpmB?{sonaraRemixProBpmB:Number(bpmB)}:{}),
           durationSec:requestedDuration,
-          prompt:prompt.trim().slice(0,6500),
+          prompt:(v7Enabled
+            ?addV7Direction(prompt,v7Directions(v7Intent).find(item=>item.id===v7Direction)!)
+            :prompt.trim()).slice(0,6500),
           candidateCount:1,
           audio_cover_strength:0.76,
           cover_noise_strength:0.14
@@ -472,6 +506,19 @@ export default function SonaraRemixProPanel() {
           Cambiare proposta non consuma GPU e non crea un remix.
         </small>
       </div>
+      <small className="sonara-v7-engine-status" role="status">
+        {v7Available
+          ?'V7 audio GPU verificato: il motore eseguirà la pianificazione vocale avanzata, la dinamica A e la selezione tecnica migliorata.'
+          :'V7 Studio Director attivo come guida creativa sul motore V6. La parte audio V7 richiede l’installazione separata sul worker RTX PRO 6000.'}
+      </small>
+      <SonaraRemixV7Studio enabled={v7Enabled} onEnabledChange={setV7Enabled}
+        intent={v7Intent} onIntentChange={setV7Intent}
+        direction={v7Direction} onDirectionChange={setV7Direction}/>
+      {parentJobId&&<div className="sonara-v7-origin" role="status">
+        <strong>Versione collegata all'archivio</strong>
+        <span>Nuovo remix derivato dal master {parentJobId.slice(6,14)}. La versione originale resterà salvata.</span>
+        <button type="button" onClick={()=>{setParentJobId('');setSourceA(null);}}>Annulla nuova versione</button>
+      </div>}
       <div className="sonara-v6-section-label"><span>03</span><div><strong>Durata e produzione</strong><small>Imposta la lunghezza e i dettagli del brano.</small></div></div>
       <div className="sonara-v6-production" style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:8}}>
         <label>Durata Remix AI (30 secondi – 8 minuti)
@@ -512,6 +559,13 @@ export default function SonaraRemixProPanel() {
         <strong>Dettagli lavoro · {job.jobId?.slice(0,18)}</strong>
         <small data-testid="sonara-remix-pro-job-duration">Durata del JOB {job.jobId?.slice(0,12)}: {Number(job.requestedDurationSeconds)>0?durationLabel(Number(job.requestedDurationSeconds)):'da recuperare dal server'}{Number(job.actualDurationSeconds)>0?' · WAV verificato: '+durationLabel(Number(job.actualDurationSeconds)):''}. {Number(job.requestedDurationSeconds)>0&&Number(job.requestedDurationSeconds)!==duration?'Questo è un job precedente: la nuova selezione '+durationLabel(duration)+' NON lo modifica.':''}</small>
         {job.status==='FAILED'&&<small role="alert">{job.error||'Job non riuscito.'}</small>}
+        {job.v7Result&&<small role="status">
+          V7 Deep Fusion: priorità tecnica {job.v7Result.priority}/100 ·
+          armonia {job.v7Result.harmonicEstimate} ·
+          master {job.v7Result.master.lufs} LUFS ·
+          picco {job.v7Result.master.truePeakDbTp} dBTP.
+          Sono misure tecniche, non una valutazione artistica: ascolta il risultato.
+        </small>}
         {job.v6Result&&<small role="status">Creative DNA V6: profilo {job.v6Result.masterProfile}; indice tecnico composito {job.v6Result.selectionScore}/100, differenza spettrale misurata {job.v6Result.spectralDiversityProxy}/100. Sono indicatori tecnici, non giudizi artistici. Ascolta prima di pubblicare.</small>}
         {job.v5Result&&<small role="status">V5: {job.v5Result.candidatesAccepted} candidati tecnicamente validi su {job.v5Result.candidatesGenerated}. Indicatore tecnico: {job.v5Result.technicalScore}/100 (non misura la qualità artistica). Ascolto consigliato prima della pubblicazione.</small>}
         {output&&<>
@@ -532,7 +586,8 @@ export default function SonaraRemixProPanel() {
       </div>}
       {available!==true&&<small>Remix tradizionale disponibile. Remix Pro sarà abilitato solo dopo autenticazione e verifica del servizio GPU dedicato.</small>}
       <div className="sonara-v6-section-label"><span><FolderOpen size={17}/></span><div><strong>Il tuo archivio personale</strong><small>Master salvati e disponibili dopo ogni generazione.</small></div></div>
-      <SonaraRemixProLibrary refreshToken={archiveRefresh} onEdit={setEditorTrack}/>
+      <SonaraRemixProLibrary refreshToken={archiveRefresh} onEdit={setEditorTrack}
+        onCreateVersion={entry=>{void createVersionFromArchive(entry);}}/>
       <div className="sonara-v6-section-label"><span><AudioWaveform size={17}/></span><div><strong>Timeline ed equalizzatore</strong><small>Modifica e salva localmente i remix completati, senza toccare il master privato.</small></div></div>
       <SonaraRemixProEditor track={editorTrack}/>
     </div>

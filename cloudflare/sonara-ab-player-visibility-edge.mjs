@@ -313,6 +313,7 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
           sourceA: source.sonaraRemixProSourceA,
           sourceB: source.sonaraRemixProSourceB,
           title: String(source.sonaraRemixProTitle||'').slice(0,96),
+          ...(source.sonaraRemixProParentJobId?{parentJobId:String(source.sonaraRemixProParentJobId)}:{}),
           rightsConfirmed: source.sonaraRemixProRightsConfirmed === true,
           prompt: (String(source.prompt || '').slice(0, 4300) +
             (creativeControls && source.sonaraRemixProV6!==true
@@ -326,6 +327,7 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
           key: source.key_scale,
           v5: source.sonaraRemixProV5 === true,
           v6: source.sonaraRemixProV6 === true,
+          v7: source.sonaraRemixProV7 === true,
           ...(creativeControls ? {v6Controls:creativeControls} : {}),
           genre: source.sonaraRemixProGenre,
           bInfluence: source.sonaraRemixProBInfluence,

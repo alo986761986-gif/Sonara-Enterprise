@@ -22,6 +22,7 @@ class OneClockFusionError(RuntimeError):
 
 
 RATE = 44100
+V7_FUSION_REVISION = 'v7-authentic-phrase-groove-v1'
 
 
 def _validate(path, *, min_duration=1):
@@ -292,7 +293,8 @@ def _voice_chunk(events, voices, start, frames):
 
 
 def compose_one_a_clock(*, bass, other, drums_a, vocals_a, vocals_b,
-                        destination, expected_seconds, tempo_a, lease_check=None):
+                        destination, expected_seconds, tempo_a, lease_check=None,
+                        v7_studio=False):
     """Write private FLOAT premaster. Exactly one authentic A drum clock.
 
     This is not a promise of automatic harmonic/semantic fidelity. The caller
@@ -321,8 +323,13 @@ def compose_one_a_clock(*, bass, other, drums_a, vocals_a, vocals_b,
     profiles = {"a": _profile(vocals_a), "b": _profile(vocals_b)}
     if not profiles["a"]["audible"] or not profiles["b"]["audible"]:
         raise OneClockFusionError("Both source songs must contain usable original vocals")
-    events, repeats, structure = _plan_vocals(
-        profiles["a"], profiles["b"], expected_seconds, tempo)
+    if v7_studio:
+        from sonara_remix_pro_v7 import arrange_vocal_phrases
+        events, repeats, structure = arrange_vocal_phrases(
+            profiles["a"], profiles["b"], expected_seconds, tempo)
+    else:
+        events, repeats, structure = _plan_vocals(
+            profiles["a"], profiles["b"], expected_seconds, tempo)
     if lease_check:
         lease_check("a_kick_lock")
     a_drums = _choose_a_drum_loop(drums_a, tempo)
@@ -347,6 +354,9 @@ def compose_one_a_clock(*, bass, other, drums_a, vocals_a, vocals_b,
                     np.isfinite(b).all() and np.isfinite(o).all()):
                     raise OneClockFusionError("Incomplete AI instrumental backing")
                 drums = a_drums[(start + np.arange(n)) % len(a_drums)]
+                if v7_studio:
+                    from sonara_remix_pro_v7 import authentic_a_groove_gain
+                    drums = drums * authentic_a_groove_gain(start, n, RATE, tempo)[:, None]
                 # No second kick: do not read the generated drum stem.
                 vocals, vocal_mask = _voice_chunk(events, voices, start, n)
                 vocals = sosfilt(highpass_voice, vocals, axis=0).astype(np.float32)
@@ -390,7 +400,9 @@ def compose_one_a_clock(*, bass, other, drums_a, vocals_a, vocals_b,
             "oneClockSource": "original-A-demucs-drums",
             "tempoSource": "A",
             "tempoBpm": round(tempo, 2),
-            "voiceBlend": "source-phrase-dialogue-in-new-A-pulse-arrangement",
+            "voiceBlend": ("v7-balanced-authentic-source-phrases" if v7_studio
+                           else "source-phrase-dialogue-in-new-A-pulse-arrangement"),
+            "v7StudioApplied": v7_studio is True,
             "onlyOneDeliberateDrumStem": True,
             "generatedDrumsDiscarded": True,
             # The generated vocal stem is never read or mixed. The post-QC
