@@ -20,6 +20,7 @@ GENRE_PROFILES = {
     "pop": "Contemporary pop structure, lively acoustic and electronic instrumentation, coherent hooks and a polished but dynamic mix.",
 }
 VERSIONS = ("groove-first", "melody-first", "balanced-arrangement")
+V7_CANDIDATE_REVISION = 'v7-measured-candidate-harmony-v1'
 
 
 class V5QualityRejected(RuntimeError):
