@@ -738,3 +738,33 @@ test('V8 song form fails closed without matching authenticated GPU capability an
   assert.equal(newClaim.jobId,JOB);
   assert.equal(newClaim.params.v8SongForm,true);
 });
+
+test('V9 Music Director refuses until complete private GPU V8 attestation and correct lease',async()=>{
+  const e=env();
+  const v6Controls={mode:'balanced',master:'streaming',melody:65,harmony:60,groove:65,timbre:55,humanize:60};
+  const request={...spec,v5:true,v6:true,v7:true,v8SongForm:true,v9MusicDirector:true,
+    v6Controls,genre:'house',bInfluence:50,candidateCount:1,durationMode:'manual'};
+  const beat={gpuReady:true,v5Ready:true,v6Ready:true,v7Ready:true,v8SongFormReady:true,
+    v9MusicDirectorReady:false};
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',beat,agent);
+  assert.equal((await proCapabilities(e)).v9MusicDirectorAvailable,false);
+  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',request,gate)).status,503);
+  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',
+    {...request,v8SongForm:false},gate)).status,400);
+  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',
+    {...request,v9MusicDirector:1},gate)).status,400);
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',
+    {...beat,v9MusicDirectorReady:true},agent);
+  assert.equal((await proCapabilities(e)).v9MusicDirectorAvailable,true);
+  const accepted=await call(e,'POST','/api/sonara-relay/pro-enqueue',request,gate);
+  assert.equal(accepted.status,202);
+  const state=await (await call(e,'GET','/api/sonara-relay/pro-job/'+JOB,undefined,owner)).json();
+  assert.equal(state.engineVersion,'v9-music-director');
+  const oldClaim=await (await call(e,'POST','/api/sonara-relay/pro-claim',
+    {v5Ready:true,v6Ready:true,v8SongFormReady:true,v9MusicDirectorReady:false},agent)).json();
+  assert.equal(oldClaim.jobId,null);
+  const newer=await (await call(e,'POST','/api/sonara-relay/pro-claim',
+    {v5Ready:true,v6Ready:true,v8SongFormReady:true,v9MusicDirectorReady:true},agent)).json();
+  assert.equal(newer.jobId,JOB);
+  assert.equal(newer.params.v9MusicDirector,true);
+});
