@@ -126,7 +126,10 @@ def measure_a_rhythm(drums_a, *, report_bpm=None, requested_bpm=None,
         raise ValueError("Original A kick onset evidence unavailable")
     # Prior favours the analyzed tempo to avoid half/double-time ambiguity;
     # grid coherence supplies the waveform measurement for actual drift.
-    prior=report if report is not None else requested
+    # A requested manual tempo must NEVER become evidence of source A's BPM.
+    # Otherwise a 170 BPM request could falsely make a 124 BPM recording
+    # appear to have a 170 BPM groove merely by restricting the search.
+    prior=report
     candidates=np.arange(55.,200.001,.20,dtype=np.float64)
     if prior is not None:
         # True tempo may differ a little from librosa's estimate.
