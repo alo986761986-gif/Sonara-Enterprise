@@ -1,0 +1,48 @@
+name: SONARA V9 Music Director Safety and Integration
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'molab/sonara_remix_pro_music_director.py'
+      - 'molab/test_sonara_remix_pro_music_director.py'
+      - 'molab/sonara_remix_pro_r2_agent.py'
+      - 'molab/sonara_remix_pro_v5.py'
+      - 'molab/sonara_remix_pro_a_clock_fusion.py'
+      - 'molab/sonara_remix_pro_fusion.py'
+      - 'cloudflare/sonara-remix-pro-r2.mjs'
+      - 'cloudflare/sonara-remix-pro-r2.test.mjs'
+      - 'cloudflare/sonara-ab-player-visibility-edge.mjs'
+      - 'src/components/remix/SonaraRemixProPanel.tsx'
+      - '.github/workflows/validate-sonara-remix-v9.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install actual audio test dependencies
+        run: python -m pip install --disable-pip-version-check numpy scipy soundfile
+      - name: Syntax check V9 private worker
+        run: |
+          python -m py_compile molab/sonara_remix_pro_music_director.py molab/sonara_remix_pro_fusion.py molab/sonara_remix_pro_r2_agent.py molab/sonara_remix_pro_v5.py molab/sonara_remix_pro_a_clock_fusion.py
+      - name: Test authentic V9 audio and safety
+        run: PYTHONPATH=molab python -m unittest -v test_sonara_remix_pro_music_director
+      - name: Preserve V8 song form
+        run: PYTHONPATH=molab python -m unittest -v test_sonara_remix_pro_songform
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Gateway capabilities and authorized private lease tests
+        run: node --test cloudflare/sonara-remix-pro-r2.test.mjs
+      - name: Site build
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
