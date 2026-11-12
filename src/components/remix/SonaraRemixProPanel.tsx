@@ -36,6 +36,8 @@ export default function SonaraRemixProPanel() {
   const [v7CreativeModesAvailable,setV7CreativeModesAvailable]=useState(false);
   const [v8SongFormAvailable,setV8SongFormAvailable]=useState(false);
   const [v8SongFormEnabled,setV8SongFormEnabled]=useState(true);
+  const [v9MusicDirectorAvailable,setV9MusicDirectorAvailable]=useState(false);
+  const [v9MusicDirectorEnabled,setV9MusicDirectorEnabled]=useState(true);
   const [rhythmMode,setRhythmMode]=useState<'source-a'|'manual'>('source-a');
   const [phraseBars,setPhraseBars]=useState<4|8|16>(8);
   const [vocalGrid,setVocalGrid]=useState<'bar'|'half-bar'>('half-bar');
@@ -142,7 +144,7 @@ export default function SonaraRemixProPanel() {
       setInfo('Recupero un job precedente. La sua durata potrebbe essere diversa dalla nuova selezione.');}
     fetch('/api/sonara-relay/pro-capabilities',{cache:'no-store',credentials:'include'})
       .then(r=>r.ok?r.json():{available:false})
-      .then(x=>{if(mounted.current){setAvailable(x.available===true);setMultiformatAvailable(x.multiformatAvailable===true);setV5Available(x.v5Available===true);setV6Available(x.v6Available===true);setV7Available(x.v7Available===true);setV7RhythmAvailable(x.v7RhythmAvailable===true);setV7CreativeModesAvailable(x.v7CreativeModesAvailable===true);setV8SongFormAvailable(x.v8SongFormAvailable===true);setExplosiveAvailable(x.explosiveAvailable===true);}})
+      .then(x=>{if(mounted.current){setAvailable(x.available===true);setMultiformatAvailable(x.multiformatAvailable===true);setV5Available(x.v5Available===true);setV6Available(x.v6Available===true);setV7Available(x.v7Available===true);setV7RhythmAvailable(x.v7RhythmAvailable===true);setV7CreativeModesAvailable(x.v7CreativeModesAvailable===true);setV8SongFormAvailable(x.v8SongFormAvailable===true);setV9MusicDirectorAvailable(x.v9MusicDirectorAvailable===true);setExplosiveAvailable(x.explosiveAvailable===true);}})
       .catch(()=>{if(mounted.current)setAvailable(false);});
     return()=>{mounted.current=false;};
   },[]);
@@ -329,6 +331,7 @@ export default function SonaraRemixProPanel() {
             sonaraRemixProV6:true,
             sonaraRemixProV7:v7Enabled&&v7Available,
             sonaraRemixProV8SongForm:v7Enabled&&v7Available&&v8SongFormAvailable&&v8SongFormEnabled,
+            sonaraRemixProV9MusicDirector:v7Enabled&&v7Available&&v8SongFormAvailable&&v8SongFormEnabled&&v9MusicDirectorAvailable&&v9MusicDirectorEnabled,
             sonaraRemixProV7CreativeModes:v7Enabled&&v7Available&&v7CreativeModesAvailable,
             ...(v7Enabled&&v7Available&&v7RhythmAvailable
               ?{sonaraRemixProV7RhythmControls:{
@@ -555,6 +558,19 @@ export default function SonaraRemixProPanel() {
             :'Arrangiamento V8 in attesa della versione aggiornata sul worker MoLab. Il remix V7 rimane disponibile.'}
         </small>
       </div>
+      <section className="sonara-v9-music-director" data-testid="sonara-v9-music-director"
+        style={{display:'grid',gap:7,padding:'14px 16px',borderRadius:13,
+          border:'1px solid rgba(128,202,191,.3)',background:'rgba(15,110,105,.095)'}}>
+        <label style={{display:'flex',alignItems:'center',gap:10,fontWeight:700}}>
+          <input type="checkbox" checked={v9MusicDirectorEnabled}
+            disabled={!v9MusicDirectorAvailable||!v8SongFormAvailable||!v8SongFormEnabled||!v7Enabled}
+            onChange={event=>setV9MusicDirectorEnabled(event.target.checked)}/>
+          SONARA V9 · AI Music Director A+B
+        </label>
+        <small role="status">{v9MusicDirectorAvailable
+          ?'Disponibile: analisi dei momenti distintivi A+B, tema A e risposta B, groove House con variazioni, dialogo delle voci originali, mix anti-impasto e analisi della dinamica. La qualità artistica si valuta anche con ascolto.'
+          :'Music Director V9 in attesa di aggiornamento MoLab. Il motore V8 continua a funzionare.'}</small>
+      </section>
       <SonaraRemixV7Studio enabled={v7Enabled} onEnabledChange={setV7Enabled}
         intent={v7Intent} onIntentChange={setV7Intent}
         direction={v7Direction} onDirectionChange={setV7Direction}/>
