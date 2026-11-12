@@ -1,4 +1,6 @@
-SONARA_OFFICIAL_FRONTEND_RELEASE=2026-09-03-SONARA-REMIX-YOUTUBE-V3
-REASON=Fix failed Remix deployment, use stable sidebar injection under Crea la mia musica and compatible YouTube reference bridge
-SOURCE_COMMIT=0374b934d706f6883e8c3eeaadf573acb02c5202
-EXPECTED=Crea-la-mia-musica,Remix,YouTube-link,Upload-audio,Use-reference,Create-remix
+SONARA_OFFICIAL_FRONTEND_RELEASE=2026-11-12-REMIX-PRO-STUDIO-PROGRESS-V6
+REASON=Publish verified Remix Pro V6 professional UI and backend-confirmed progress stages
+SOURCE_PR=124
+SOURCE_COMMIT=bb2666e631de54239eb7180b43376e49b03e8263
+EXPECTED=Remix-Pro-A-B,Timeline-stages,Confirmed-upload-byte-progress,Professional-minimal-layout
+DEPLOY_TARGET=Cloudflare-Worker-sonaraenterprise.com
