@@ -169,7 +169,9 @@ def make_dual_hook_conditioning_guide(source_a, source_b, destination, seconds, 
         if (sum(lengths) != total_frames or any(n <= 0 for n in lengths)
                 or set(roles) != {"a", "b"}):
             raise FusionPlanError("V8 song form contains invalid section lengths")
-    if sum(lengths) != total_frames or any(x < sr * 6 for x in lengths):
+    minimum_frames = (max(1024, round(.75 * sr))
+                      if song_form is not None else sr * 6)
+    if sum(lengths) != total_frames or any(x < minimum_frames for x in lengths):
         raise FusionPlanError("Dual-hook section layout is invalid")
 
     def best_excerpt(song_path, vocals_path, required_frames, variant=0):
