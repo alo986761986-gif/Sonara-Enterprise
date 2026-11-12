@@ -12,7 +12,9 @@ type ProJob = {jobId?: string;status?: string;stage?: string;progress?: number;a
   stems?: {role:string;url:string}[];error?: string;title?:string;createdAt?:number;
   requestedDurationSeconds?:number;actualDurationSeconds?:number;
   v5Result?: {candidatesGenerated:number;candidatesAccepted:number;technicalScore:number;artisticListeningRequired:boolean};
-  v6Result?: {selectionScore:number;spectralDiversityProxy:number;continuityProxy:number;masterProfile:string;artisticListeningRequired:boolean;isArtisticJudgment:false};};
+  v6Result?: {selectionScore:number;spectralDiversityProxy:number;continuityProxy:number;masterProfile:string;artisticListeningRequired:boolean;isArtisticJudgment:false};
+  v7Result?: {priority:number;harmonicEstimate:string;master:{lufs:number;truePeakDbTp:number;crestDb:number}};
+};
 const isJob = (id:string) => /^srpro_[0-9a-f-]{36}$/.test(id);
 const sleep=(ms:number)=>new Promise(resolve=>window.setTimeout(resolve,ms));
 const durationLabel=(seconds:number)=>`${Math.floor(seconds/60)}:${String(Math.round(seconds%60)).padStart(2,'0')}`;
@@ -28,6 +30,7 @@ export default function SonaraRemixProPanel() {
   const [available,setAvailable]=useState<boolean|null>(null);
   const [v5Available,setV5Available]=useState(false);
   const [v6Available,setV6Available]=useState(false);
+  const [v7Available,setV7Available]=useState(false);
   const [explosiveAvailable,setExplosiveAvailable]=useState(false);
   const [dnaMode,setDnaMode]=useState<'balanced'|'experimental'|'wild'|'explosive'>('balanced');
   const [masterProfile,setMasterProfile]=useState<'streaming'|'club'>('streaming');
@@ -131,7 +134,7 @@ export default function SonaraRemixProPanel() {
       setInfo('Recupero un job precedente. La sua durata potrebbe essere diversa dalla nuova selezione.');}
     fetch('/api/sonara-relay/pro-capabilities',{cache:'no-store',credentials:'include'})
       .then(r=>r.ok?r.json():{available:false})
-      .then(x=>{if(mounted.current){setAvailable(x.available===true);setMultiformatAvailable(x.multiformatAvailable===true);setV5Available(x.v5Available===true);setV6Available(x.v6Available===true);setExplosiveAvailable(x.explosiveAvailable===true);}})
+      .then(x=>{if(mounted.current){setAvailable(x.available===true);setMultiformatAvailable(x.multiformatAvailable===true);setV5Available(x.v5Available===true);setV6Available(x.v6Available===true);setV7Available(x.v7Available===true);setExplosiveAvailable(x.explosiveAvailable===true);}})
       .catch(()=>{if(mounted.current)setAvailable(false);});
     return()=>{mounted.current=false;};
   },[]);
@@ -311,6 +314,7 @@ export default function SonaraRemixProPanel() {
             sonaraRemixProCandidates:safeCandidateCount,
             sonaraRemixProDurationMode:durationMode,
             sonaraRemixProV6:true,
+            sonaraRemixProV7:v7Enabled&&v7Available,
             ...(v6Available?{sonaraRemixProV6Controls:{
               mode:dnaMode, master:masterProfile,...dnaLevels
             }}:{})
@@ -502,6 +506,11 @@ export default function SonaraRemixProPanel() {
           Cambiare proposta non consuma GPU e non crea un remix.
         </small>
       </div>
+      <small className="sonara-v7-engine-status" role="status">
+        {v7Available
+          ?'V7 audio GPU verificato: il motore eseguirà la pianificazione vocale avanzata, la dinamica A e la selezione tecnica migliorata.'
+          :'V7 Studio Director attivo come guida creativa sul motore V6. La parte audio V7 richiede l’installazione separata sul worker RTX PRO 6000.'}
+      </small>
       <SonaraRemixV7Studio enabled={v7Enabled} onEnabledChange={setV7Enabled}
         intent={v7Intent} onIntentChange={setV7Intent}
         direction={v7Direction} onDirectionChange={setV7Direction}/>
@@ -550,6 +559,13 @@ export default function SonaraRemixProPanel() {
         <strong>Dettagli lavoro · {job.jobId?.slice(0,18)}</strong>
         <small data-testid="sonara-remix-pro-job-duration">Durata del JOB {job.jobId?.slice(0,12)}: {Number(job.requestedDurationSeconds)>0?durationLabel(Number(job.requestedDurationSeconds)):'da recuperare dal server'}{Number(job.actualDurationSeconds)>0?' · WAV verificato: '+durationLabel(Number(job.actualDurationSeconds)):''}. {Number(job.requestedDurationSeconds)>0&&Number(job.requestedDurationSeconds)!==duration?'Questo è un job precedente: la nuova selezione '+durationLabel(duration)+' NON lo modifica.':''}</small>
         {job.status==='FAILED'&&<small role="alert">{job.error||'Job non riuscito.'}</small>}
+        {job.v7Result&&<small role="status">
+          V7 Deep Fusion: priorità tecnica {job.v7Result.priority}/100 ·
+          armonia {job.v7Result.harmonicEstimate} ·
+          master {job.v7Result.master.lufs} LUFS ·
+          picco {job.v7Result.master.truePeakDbTp} dBTP.
+          Sono misure tecniche, non una valutazione artistica: ascolta il risultato.
+        </small>}
         {job.v6Result&&<small role="status">Creative DNA V6: profilo {job.v6Result.masterProfile}; indice tecnico composito {job.v6Result.selectionScore}/100, differenza spettrale misurata {job.v6Result.spectralDiversityProxy}/100. Sono indicatori tecnici, non giudizi artistici. Ascolta prima di pubblicare.</small>}
         {job.v5Result&&<small role="status">V5: {job.v5Result.candidatesAccepted} candidati tecnicamente validi su {job.v5Result.candidatesGenerated}. Indicatore tecnico: {job.v5Result.technicalScore}/100 (non misura la qualità artistica). Ascolto consigliato prima della pubblicazione.</small>}
         {output&&<>
