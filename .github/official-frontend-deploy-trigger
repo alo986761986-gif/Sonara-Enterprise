@@ -4,3 +4,5 @@ SOURCE_COMMITS=b409075460ec7266920c09d39e5f7394c7092471,84465265b02892aa767a8551
 VERIFICATION=node scripts/verify-remix-producer-three-stages.cjs && npm run build
 DEPLOY_TARGET=Cloudflare-Worker-sonaraenterprise.com
 SAFETY=Keep-MoLab-V7-GPU-and-Quality-Gate-unchanged
+RETRY_RELEASE_COMMIT=d0fc33b9db167515252f5615cfadd8843675a276
+RETRY_REASON=Fixed CommonJS module-shadowing in CI regression test; Cloudflare release gated on successful test
