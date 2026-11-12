@@ -121,20 +121,57 @@ def atomic(path, content):
         Path(name).unlink(missing_ok=True)
 
 
-def launch(mode):
+def launch(mode, python):
     with LOG.open("ab") as output:
         return subprocess.Popen(
-            [str(PYTHON), str(AGENT), "--auth-mode", mode],
+            [str(python), str(AGENT), "--auth-mode", mode],
             cwd=ROOT, stdin=subprocess.DEVNULL,
             stdout=output, stderr=subprocess.STDOUT,
             start_new_session=True)
 
 
+def validate_private_python():
+    """Select only an existing executable of SONARA's isolated virtualenv.
+
+    A .venv/bin/python symlink to the base Python is normal on Linux.
+    Confirm its sys.prefix is the private environment before using it.
+    """
+    venv = ROOT / ".venv"
+    if venv.is_symlink() or not (venv / "pyvenv.cfg").is_file():
+        raise Blocked("Private Remix Pro virtual environment is missing")
+    expected = str(venv.resolve())
+    candidates = [venv / "bin/python", venv / "bin/python3",
+                  venv / "bin/python3.13", venv / "bin/python3.12"]
+    for candidate in candidates:
+        if not candidate.is_file() or not os.access(candidate, os.X_OK):
+            continue
+        try:
+            result = subprocess.run(
+                [str(candidate), "-c",
+                 "import sys, pathlib; print(pathlib.Path(sys.prefix).resolve())"],
+                cwd=ROOT, timeout=15, capture_output=True, text=True,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if result.returncode == 0 and result.stdout.strip() == expected:
+            print("SONARA_PRIVATE_PYTHON_VALID=True", flush=True)
+            print("SONARA_PRIVATE_PYTHON_ENTRY=" + candidate.name, flush=True)
+            return candidate
+    raise Blocked(
+        "No valid private Python found in existing .venv; "
+        "update not attempted and environment not changed")
+
+
 def main():
     print("=== SONARA V6 - A CLOCK PULSE RECOVERY ===", flush=True)
-    for path in (ROOT, MODULE, AGENT, PYTHON, STATUS, TOKEN):
+    # Python in a virtual environment is normally a symlink to a trusted
+    # system interpreter. Validate its *virtual-environment prefix*, not the
+    # presence of a symlink. Never create or repair an interpreter implicitly.
+    for path in (ROOT, MODULE, AGENT, STATUS, TOKEN):
         if path.is_symlink() or not path.exists():
             raise Blocked("Missing or unsafe runtime dependency: " + path.name)
+    private_python = validate_private_python()
     previous = MODULE.read_bytes()
     before = digest(previous)
     if before == NEW:
@@ -189,15 +226,15 @@ def main():
         try:
             atomic(MODULE, incoming)
             check = subprocess.run(
-                [str(PYTHON), "-c",
+                [str(private_python), "-c",
                  "import sonara_remix_pro_a_clock_fusion as m; "
                  "assert callable(m._choose_a_drum_loop); "
                  "import sonara_remix_pro_r2_agent"],
                 cwd=ROOT, timeout=90, capture_output=True, text=True)
             if check.returncode:
                 raise Blocked("Isolated import test failed")
-            child = launch(mode)
-            started = time.time()
+            started = int(time.time())
+            child = launch(mode, private_python)
             deadline = time.monotonic() + 45
             while time.monotonic() < deadline:
                 if child.poll() is not None:
@@ -219,7 +256,7 @@ def main():
             if child is not None and child.poll() is None:
                 raise Blocked("New worker alive: no unsafe rollback")
             atomic(MODULE, previous)
-            restored = launch(mode)
+            restored = launch(mode, private_python)
             print("SONARA_A_CLOCK_PULSE_ROLLED_BACK=True")
             print("SONARA_RESTORED_WORKER_PID=" + str(restored.pid))
             raise
