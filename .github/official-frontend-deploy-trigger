@@ -1,7 +1,7 @@
-SONARA_OFFICIAL_FRONTEND_RELEASE=2026-11-12-V7-RHYTHM-TEMPO-LOCK
-REASON=Publish verified original-A kick BPM, 4-4 bar-grid and vocal alignment controls
-SOURCE_PR=126
-SOURCE_COMMIT=01755f118d98067bfc329b71f6c5ed13718f1d77
-EXPECTED=RhythmTempoLock,House4-4,SourceA-BPM,ManualTempoSafety,VocalGrid
+SONARA_OFFICIAL_FRONTEND_RELEASE=2026-11-12-V7-DISTINCT-CREATIVE-MODES
+REASON=Publish distinct Balanced Experimental Wild Explosive creative mode UI, gateway attestation and mode reporting
+SOURCE_PR=127
+SOURCE_COMMIT=6e7afaa2d00a2a499187b01a174938df310c03ac
+EXPECTED=DistinctCreativeModes,OriginalABVoices,AuthenticAKick,RhythmLockPreserved,GPUVerifiedAppliedMode
 DEPLOY_TARGET=Cloudflare-Worker-sonaraenterprise.com
-GPU_GATE=RHYTHM-READY-ONLY-AFTER-GUARDED-MOLAB-INSTALL
+GPU_GATE=NEW-MODES-READY-ONLY-AFTER-GUARDED-MOLAB-INSTALL
