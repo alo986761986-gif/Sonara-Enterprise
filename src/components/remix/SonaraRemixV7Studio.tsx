@@ -2,6 +2,12 @@ import type { V7Intent, V7Direction } from './sonaraRemixV7Director';
 import { v7Directions } from './sonaraRemixV7Director';
 import { AudioWaveform, Check, Music2, ShieldCheck } from 'lucide-react';
 
+const PRODUCER_STAGES = [
+  {step:'01',title:'Nuovo arrangiamento',detail:'Nuovi basso e strumenti, struttura musicale con intro, sviluppo, variazioni e finale. Un solo tempo House coerente.'},
+  {step:'02',title:'Voci A+B musicali',detail:'Frasi originali, ingressi naturali, pause e spazio per la voce. Nessuna semplice sovrapposizione dei due brani.'},
+  {step:'03',title:'Mix e mastering',detail:'Priorità a chiarezza vocale, equilibrio cassa-basso, dinamica e controlli tecnici prima della consegna.'},
+] as const;
+
 const CONTROLS=[
   ['vocalFlow','Fusione voci A+B','Frasi originali, pause e dialogo senza ritornelli incollati'],
   ['houseGroove','House Groove A','Una sola cassa, swing naturale e piccole variazioni'],
@@ -20,9 +26,9 @@ export default function SonaraRemixV7Studio({
   return <section className="sonara-v7-studio" aria-label="SONARA V7 Studio Director" data-testid="sonara-v7-director">
     <header className="sonara-v7-heading">
       <span className="sonara-v7-heading-icon"><AudioWaveform size={20}/></span>
-      <div><span className="sonara-v7-kicker">NUOVO · STUDIO DIRECTOR</span>
-        <h3>SONARA V7 · Deep Fusion</h3>
-        <p>Sette strumenti creativi, sempre con verifica tecnica e master privato.</p>
+      <div><span className="sonara-v7-kicker">PRODUCER · TRE FASI</span>
+        <h3>SONARA Remix Producer · V7</h3>
+        <p>Arrangiamento, integrazione delle voci e mastering guidati in un unico flusso.</p>
       </div>
       <label className="sonara-v7-toggle">
         <input aria-label="Attiva direzione creativa V7" type="checkbox" checked={enabled}
@@ -35,6 +41,13 @@ export default function SonaraRemixV7Studio({
       L'audio viene elaborato solo all'avvio di un job autorizzato.
     </p>
     {enabled&&<>
+      <div className="sonara-producer-three-stages" aria-label="Tre fasi di produzione musicale" data-testid="sonara-producer-three-stages">
+        {PRODUCER_STAGES.map(stage=><div className="sonara-producer-stage" key={stage.step}>
+          <span className="sonara-producer-stage-number">{stage.step}</span>
+          <strong>{stage.title}</strong>
+          <p>{stage.detail}</p>
+        </div>)}
+      </div>
       <div className="sonara-v7-sliders">
         {CONTROLS.map(([field,title,description])=><label key={field} className="sonara-v7-slider">
           <span><strong>{title}</strong><em>{intent[field]}%</em></span>
@@ -57,9 +70,8 @@ export default function SonaraRemixV7Studio({
         </button>)}
       </div>
       <div className="sonara-v7-pipeline">
-        <span>01 · Voci intelligenti</span><span>02 · Groove A</span>
-        <span>03 · Armonia</span><span>04 · Arrangiamento</span>
-        <span>05 · Mastering</span><span>06 · Varianti</span><span>07 · Archivio versioni</span>
+        <span>01 · Arrangiamento</span><span>02 · Voci originali A+B</span>
+        <span>03 · Mastering e verifica</span><span>Archivio privato</span>
       </div>
       <small className="sonara-v7-disclaimer">Voci, armonia, realismo e arrangiamento richiedono ascolto umano.
         La selezione automatica dei candidati dipende dal numero autorizzato per la durata scelta;
