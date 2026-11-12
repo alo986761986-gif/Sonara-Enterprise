@@ -1,7 +1,7 @@
-SONARA_OFFICIAL_FRONTEND_RELEASE=2026-11-12-V7-MOLAB-REPAIR-PAIRING
-REASON=Authorize recovered private RTX PRO 6000 notebook SHA256 relay token through additive Cloudflare slot
-SOURCE_PR=129
-SOURCE_COMMIT=b0c2fec999f7714661b242ebcc5da791f09d8d4b
-EXPECTED=Private-Relay-Auth,Eighth-Token-Fingerprint,V7-Creative-Modes,V7-Rhythm-Lock
+SONARA_OFFICIAL_FRONTEND_RELEASE=2026-11-12-V7-ROTATE-LOST-MOLAB-PAIRING
+REASON=Rotate only superseded eighth MoLab relay token fingerprint while preserving all seven original authorized GPU pairings
+SOURCE_PR=130
+SOURCE_COMMIT=e071901c134061bb794ecc64f3983b147dcd3f7d
+EXPECTED=SONARA-V7-CreativeModes,RhythmTempoLock,Unchanged-Main-ACE,Recovered-Relay-Pairing
 DEPLOY_TARGET=Cloudflare-Worker-sonaraenterprise.com
-TOKEN_VALUE=NEVER-IN-GIT-OR-LOGS
+AUTHORIZATION=SHA256-FINGERPRINT-ONLY-NO-SECRET-COMMITTED
