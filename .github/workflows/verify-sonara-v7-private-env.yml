@@ -1,0 +1,49 @@
+name: Verify SONARA V7 Missing Private Python Recovery
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "molab/sonara_v7_private_python_recovery.py"
+      - "molab/test_sonara_v7_private_python_recovery.py"
+      - ".github/workflows/verify-sonara-v7-private-env.yml"
+  push:
+    branches: [fix/sonara-v7-private-python-recovery-20261112]
+    paths:
+      - "molab/sonara_v7_private_python_recovery.py"
+      - "molab/test_sonara_v7_private_python_recovery.py"
+      - ".github/workflows/verify-sonara-v7-private-env.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile only audited isolated runtime recovery files
+        run: python -m py_compile molab/sonara_v7_private_python_recovery.py molab/test_sonara_v7_private_python_recovery.py
+      - name: Test no V7 downgrade, no token changes, no double worker and no ACE modifications
+        run: python -m unittest discover -s molab -p 'test_sonara_v7_private_python_recovery.py' -v
+      - name: Verify pinned runtime and preserved creative modes
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          path=Path('molab/sonara_v7_private_python_recovery.py')
+          code=path.read_text()
+          ast.parse(code)
+          assert 'sonara-v7-mode-differentiation-r1' in code
+          assert 'sonara-v7-creative-voice-motion-r1' in code
+          assert 'torch.__version__.startswith' in code
+          assert 'demucs' in code
+          assert 'GPU_KERNEL_TEST_OK=True' in code
+          assert 'DEMUCS_REAL_GPU_INFERENCE_VERIFIED=True' in code
+          assert 'ACE_STEP_UNMODIFIED=True' in Path('molab/sonara_remix_pro_gpu_setup.py').read_text()
+          print("SONARA_V7_PRIVATE_GPU_RECOVERY_VALIDATED=True")
+          PY
