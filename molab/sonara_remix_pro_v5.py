@@ -243,7 +243,17 @@ def continuous_pulse_report(audio_path, *, step_seconds=0.25):
     internal_low = np.asarray(band[trim:len(band)-trim], dtype=np.float64)
     internal_full = np.asarray(overall[trim:len(overall)-trim], dtype=np.float64)
     baseline = float(np.median(internal_low))
-    low_threshold = max(.0015, baseline * .12)
+    # A single full-song median is not a stable kick floor when the new
+    # instrumental bass enters/exits. The bass can be 20 dB louder for one
+    # verse while the original A kick continues steadily underneath; comparing
+    # its quieter section to 12% of the louder verse incorrectly labels that
+    # continuous House clock as a long rhythmic dropout.
+    #
+    # Use the sustained lower-quartile energy as the *clock floor* instead.
+    # The absolute floor remains active: genuinely missing 35-180 Hz energy
+    # (and independent full-band silence) still triggers a hard veto.
+    clock_floor = float(np.quantile(internal_low, .25))
+    low_threshold = max(.0015, clock_floor * .15)
     def longest(flag):
         current = longest_run = 0
         for x in flag:
@@ -257,6 +267,8 @@ def continuous_pulse_report(audio_path, *, step_seconds=0.25):
         "lowBandHz": [35, 180],
         "stepSeconds": step_seconds,
         "medianLowBandRms": round(baseline, 5),
+        "lowerQuartileLowBandRms": round(clock_floor, 5),
+        "lowBandGapThresholdRms": round(low_threshold, 5),
         "longestInternalSilenceSeconds": longest_silence,
         "longestLowBandGapSeconds": longest_bass_gap,
         "hasUnwantedBreak": longest_silence >= 1.25 or longest_bass_gap >= 1.75,
