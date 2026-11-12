@@ -1,0 +1,26 @@
+name: Validate SONARA Remix Pro V8 Song Form
+on:
+  pull_request:
+    paths:
+      - 'molab/sonara_remix_pro_songform.py'
+      - 'molab/sonara_remix_pro_a_clock_fusion.py'
+      - 'molab/sonara_remix_pro_fusion.py'
+      - 'molab/sonara_remix_pro_v5.py'
+      - 'molab/sonara_remix_pro_r2_agent.py'
+      - 'molab/test_sonara_remix_pro_songform.py'
+      - '.github/workflows/validate-sonara-remix-songform-v8.yml'
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install numpy
+      - name: Syntax-check guarded worker and music modules
+        run: |
+          python -m py_compile molab/sonara_remix_pro_songform.py molab/sonara_remix_pro_fusion.py molab/sonara_remix_pro_a_clock_fusion.py molab/sonara_remix_pro_v5.py molab/sonara_remix_pro_r2_agent.py
+      - name: Test V8 song form
+        run: PYTHONPATH=molab python -m unittest -v test_sonara_remix_pro_songform
