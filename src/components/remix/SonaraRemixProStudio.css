@@ -191,3 +191,42 @@
   .sonara-pro-meter>span{transition:none}
   .sonara-pro-spin,.sonara-pro-meter-wait>span{animation:none}
 }
+
+
+/* SONARA V7 Deep Fusion Studio — private, responsive, minimal. */
+.sonara-v7-studio{display:grid;gap:20px;padding:clamp(17px,2vw,28px);background:#151b24;border:1px solid #343f50;border-radius:20px;color:#eef2fa}
+.sonara-v7-heading{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.sonara-v7-heading-icon{display:grid;place-items:center;width:45px;height:45px;border:1px solid #5b5688;border-radius:13px;background:#282b42;color:#cec5ff}
+.sonara-v7-heading>div{flex:1 1 260px}
+.sonara-v7-kicker{color:#aea7fc;font-weight:800;font-size:10px;letter-spacing:.13em}
+.sonara-v7-heading h3{margin:3px 0;font-size:clamp(20px,2.5vw,26px);letter-spacing:-.035em;line-height:1.2}
+.sonara-v7-heading p{margin:0;color:#a7b3c4;font-size:12px;line-height:1.7}
+.sonara-v7-studio .sonara-v7-toggle{display:flex!important;align-items:center;gap:10px;background:#222b36;border:1px solid #455265;border-radius:30px;padding:8px 14px;font-size:12px;color:#e6eafa}
+.sonara-v7-toggle input{accent-color:#aaa3f3}
+.sonara-v7-note{display:flex;align-items:flex-start;gap:9px;margin:0;padding:13px 14px;color:#c3cce0;font-size:11px;line-height:1.6;background:#202837;border-radius:11px}
+.sonara-v7-note svg{flex:none;color:#aaa6ed}
+.sonara-v7-sliders{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}
+.sonara-v7-slider{display:grid!important;gap:7px;padding:15px;background:#1d2530;border:1px solid #353f4d;border-radius:13px;min-width:0}
+.sonara-v7-slider>span{display:flex;justify-content:space-between;gap:8px}
+.sonara-v7-slider strong{font-weight:750;color:#e6ebf8;font-size:12px}
+.sonara-v7-slider em{font-style:normal;font-size:12px;font-variant-numeric:tabular-nums;color:#b6b0f4}
+.sonara-v7-slider small{font-size:11px;color:#a2acbc}
+.sonara-v7-slider input{width:100%;accent-color:#aaa2ed}
+.sonara-v7-subsection{display:grid;gap:5px}
+.sonara-v7-subsection strong{display:flex;align-items:center;gap:8px;font-size:13px;color:#eef1fc}
+.sonara-v7-subsection small{font-size:11px;color:#a4afc2}
+.sonara-v7-directions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.sonara-v7-directions button{display:grid;align-content:start;gap:8px;min-height:92px;padding:15px;cursor:pointer;background:#1c2530;border:1px solid #3d4b5b;border-radius:14px;color:#e6ebf6;text-align:left}
+.sonara-v7-directions button.is-selected{background:#30314c;border-color:#a6a0eb;box-shadow:inset 0 0 0 1px #807abb}
+.sonara-v7-directions button>span{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:12px}
+.sonara-v7-directions button>span svg{color:#c9c4ff}
+.sonara-v7-directions button small{font-size:11px;color:#abb5c5;line-height:1.5}
+.sonara-v7-pipeline{display:flex;flex-wrap:wrap;gap:7px}
+.sonara-v7-pipeline span{font-size:10px;color:#cbd3df;background:#262d3a;border:1px solid #414c5b;border-radius:99px;padding:7px 9px}
+.sonara-v7-disclaimer{color:#94a1b4;font-size:11px;line-height:1.65}
+.sonara-v7-origin{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#182d2a;border:1px solid #3e645b;border-radius:12px;padding:14px;color:#c9ecde;font-size:12px}
+.sonara-v7-origin strong{font-size:12px}
+.sonara-v7-origin span{flex:1 1 220px}
+.sonara-v7-origin button{border:1px solid #528678;border-radius:9px;background:#2a4b44;color:#e6fff4;padding:8px 11px;cursor:pointer}
+@media(max-width:780px){.sonara-v7-directions{grid-template-columns:1fr}}
+@media(max-width:600px){.sonara-v7-sliders{grid-template-columns:1fr}.sonara-v7-studio{padding:16px}}
