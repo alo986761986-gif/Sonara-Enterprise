@@ -1145,7 +1145,8 @@ def main(argv=None):
             readiness = pro_heartbeat_payload()
             response = request("POST","/api/sonara-relay/pro-claim",
                                {"v5Ready": readiness.get("v5Ready") is True,
-                                "v6Ready": readiness.get("v6Ready") is True})
+                                "v6Ready": readiness.get("v6Ready") is True,
+                                "v8SongFormReady": readiness.get("v8SongFormReady") is True})
             if response.get("jobId"):
                 run_job(response,args.auth_mode)
             else:
