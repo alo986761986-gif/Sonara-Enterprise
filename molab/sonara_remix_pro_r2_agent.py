@@ -857,7 +857,8 @@ def run_job(item, auth_mode):
                     choice = render_candidates(
                         guide=guide, style=style, folder=folder,
                         base_prompt=prompt,
-                        params={**params, **({"sourceReportA": report_a,
+                        params={**params, "creatorPrompt": str(params.get("prompt") or "")[:1800],
+                                **({"sourceReportA": report_a,
                                            "sourceReportB": report_b}
                                           if params.get("v6") is True else {}),
                                 **({"v7Rhythm": rhythm_data}
