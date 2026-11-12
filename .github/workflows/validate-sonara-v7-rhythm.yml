@@ -1,0 +1,56 @@
+name: SONARA V7 Rhythm and Tempo Lock
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'molab/sonara_remix_pro_v7_rhythm.py'
+      - 'molab/sonara_remix_pro_v7.py'
+      - 'molab/sonara_remix_pro_a_clock_fusion.py'
+      - 'molab/sonara_remix_pro_v5.py'
+      - 'molab/sonara_remix_pro_r2_agent.py'
+      - 'molab/sonara_remix_pro_v7_rhythm_lock_install.py'
+      - 'cloudflare/sonara-remix-pro-r2.mjs'
+      - 'src/components/remix/**'
+  push:
+    branches: [feat/sonara-v7-rhythm-tempo-lock-20261112]
+    paths:
+      - 'molab/**'
+      - 'cloudflare/sonara-remix-pro-r2*'
+      - 'src/components/remix/**'
+      - '.github/workflows/validate-sonara-v7-rhythm.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify private R2 queue and rhythm authorization
+        run: node --test cloudflare/sonara-remix-pro-r2.test.mjs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install synthetic-audio test tools
+        run: python -m pip install --disable-pip-version-check numpy==2.2.6 scipy soundfile librosa
+      - name: Verify private engine and installer syntax
+        run: python -m py_compile molab/sonara_remix_pro_v7_rhythm.py molab/sonara_remix_pro_v7.py molab/sonara_remix_pro_a_clock_fusion.py molab/sonara_remix_pro_v5.py molab/sonara_remix_pro_r2_agent.py molab/sonara_remix_pro_v7_rhythm_lock_install.py
+      - name: Verify 4/4 BPM detection, source-only kicks and bounded retiming
+        run: python -m unittest discover -s molab -p 'test_sonara_remix_pro_v7_rhythm.py' -v
+      - name: Validate earlier Deep Fusion safety tests
+        run: python -m unittest discover -s molab -p 'test_sonara_remix_pro_v7.py' -v
+      - name: Install frontend dependencies
+        run: npm install --no-audit --no-fund
+      - name: Verify compiled Remix Pro frontend
+        run: npm run build
+      - name: Verify rhythm UI in production bundle
+        run: |
+          set -euo pipefail
+          grep -R -Fq 'RHYTHM & TEMPO LOCK' dist/assets
+          grep -R -Fq 'Regolazione ritmo, battute e tempo' dist/assets || grep -R -Fq 'Ritmo, battute e tempo' dist/assets
