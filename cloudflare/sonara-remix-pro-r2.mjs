@@ -180,6 +180,7 @@ function publicStatus(j){
   return {jobId:id,status:j.status==='COMPLETE'?'COMPLETED':j.status==='FAILED'?'FAILED':'PROCESSING',
     title:safeTitle(j.title)||'Remix Pro '+id.slice(6,14),
     createdAt:Number(j.createdAt)||0,engineVersion:j.engineVersion||'legacy',
+    ...(idPattern.test(String(j.parentJobId||''))?{parentJobId:j.parentJobId}:{}),
     requestedDurationSeconds:Number(j.durationSeconds||j.params?.durationSec||0),
     ...(Number.isFinite(Number(j.actualDurationSeconds)) && Number(j.actualDurationSeconds)>0
        ? {actualDurationSeconds:Number(j.actualDurationSeconds)} : {}),
@@ -279,6 +280,14 @@ async function enqueue(req,e,auth,b) {
   const acceptedCandidateCount=v5
     ? Math.min(body.candidateCount===undefined?1:Number(body.candidateCount),candidateLimit)
     : 1;
+  const parentJobId=body.parentJobId===undefined||body.parentJobId===null?'':String(body.parentJobId);
+  if(parentJobId && !idPattern.test(parentJobId))return fail('Versione di origine non valida.',400);
+  if(parentJobId===id)return fail('Una versione non può derivare da se stessa.',409);
+  if(parentJobId){
+    const parent=await record(b,parentJobId);
+    if(!parent||parent.kind!=='sonara-remix-pro'||parent.ownerUid!==uid||parent.status!=='COMPLETE'||!parent.audio)
+      return fail('Remix originale non disponibile nel tuo archivio.',404);
+  }
   const a=String(body.sourceA||''),c=String(body.sourceB||'');
   if(a===c)return fail('Seleziona due sorgenti differenti.');
   const refs=await Promise.all([ownedReference(b,a,uid),ownedReference(b,c,uid)]);
@@ -294,7 +303,8 @@ if(!(await proQuota(e,'verify',id,uid,duration)))return fail('Registrazione priv
   if(existingObj){
     if(!existing||existing.kind!=='sonara-remix-pro'||existing.ownerUid!==uid||
        Number(existing.durationSeconds)!==duration||
-       existing.sourceA?.id!==a||existing.sourceB?.id!==c)
+       existing.sourceA?.id!==a||existing.sourceB?.id!==c||
+       String(existing.parentJobId||'')!==parentJobId)
       return fail('Job id collision or incompatible reservation',409);
     if(existing.status==='QUEUED'||existing.status==='LEASED'||existing.status==='COMPLETE')
       return json({...publicStatus(existing),reused:true},existing.status==='QUEUED'?202:200);
@@ -310,6 +320,7 @@ if(!(await proQuota(e,'verify',id,uid,duration)))return fail('Registrazione priv
   // A PREPARING record is never claimable; a failed enqueue may be refunded.
   const j={kind:'sonara-remix-pro',id,ownerUid:uid,
     title:safeTitle(body.title)||('Remix Pro '+new Date().toISOString().slice(0,10)),
+    ...(parentJobId?{parentJobId}:{}),
     engineVersion:v6?'v6':v5?'v5':'legacy',
     status:'PREPARING',stage:'queued',attempts:0,
     leaseId:null,leaseUntil:0,createdAt:now,updatedAt:now,
