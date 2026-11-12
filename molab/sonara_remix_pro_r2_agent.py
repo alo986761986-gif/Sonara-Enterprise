@@ -226,11 +226,59 @@ def safe_quality_codes(values):
                    if isinstance(v, str) and v in QUALITY_REASON_CODES})[:16]
 
 
+# Only class *names* from this fixed list may persist in local diagnostics.
+# Never persist raw exception messages, tracebacks, customer paths, job IDs or audio.
+SAFE_FAILURE_EXCEPTION_CLASSES = frozenset((
+    "MemoryError", "ValueError", "TypeError", "OSError", "RuntimeError",
+    "RemixProError", "OneClockFusionError", "V5ControlError",
+    "V5QualityRejected", "V6ControlError", "ProAgentError",
+    "SourceTransferError", "TimeoutError", "FileNotFoundError",
+    "PermissionError", "AssertionError", "AttributeError", "KeyError",
+    "IndexError", "ZeroDivisionError", "OverflowError",
+    "UnboundLocalError", "NameError", "SoundFileRuntimeError",
+    "LinAlgError", "OtherException",
+))
+SAFE_FAILURE_KINDS = frozenset((
+    "measured_audio_rejection", "quality_stage_exception", "other_failure",
+))
+
+
+def safe_failure_exception_class(value):
+    candidate = value if isinstance(value, str) else type(value).__name__
+    return (candidate if candidate in SAFE_FAILURE_EXCEPTION_CLASSES
+            else "OtherException")
+
+
+def classify_failure_code(error, *, step, phase, quality_codes):
+    """Only measured technical vetoes may be reported as 'audio rejected'.
+
+    Previously *any* exception while the agent was in its quality_gate stage
+    became REMIX_AUDIO_QUALITY_REJECTED even without a QC verdict; this masked
+    runtime failures and caused repeated ineffective threshold changes.
+    """
+    if isinstance(error, SourceTransferError):
+        return error.code
+    if phase in ("normalize_a", "normalize_b"):
+        return "SOURCE_DECODER_FAILED"
+    if step == "quality_gate":
+        return ("REMIX_AUDIO_QUALITY_REJECTED"
+                if safe_quality_codes(quality_codes)
+                else "REMIX_PROCESSING_ERROR")
+    return FAILURE_CODES.get(step, "REMIX_PROCESSING_ERROR")
+
+
 def status(state, **safe):
     HOME.mkdir(mode=0o700, exist_ok=True)
     safe_data = {"revision": REVISION, "state": state, "updatedAt": int(time.time()), **safe}
     if "lastQualityFailureCodes" in safe:
         safe_data["lastQualityFailureCodes"] = safe_quality_codes(safe["lastQualityFailureCodes"])
+    if "lastFailureExceptionClass" in safe:
+        safe_data["lastFailureExceptionClass"] = safe_failure_exception_class(
+            safe["lastFailureExceptionClass"])
+    if "lastFailureKind" in safe:
+        safe_data["lastFailureKind"] = (
+            safe["lastFailureKind"]
+            if safe["lastFailureKind"] in SAFE_FAILURE_KINDS else "other_failure")
     # Preserve only fixed, non-sensitive failure codes between idle polls.
     # Never retain a user ID, job ID, source path, token, prompt or traceback.
     if "lastFailureCode" not in safe and state != "processing":
@@ -246,6 +294,12 @@ def status(state, **safe):
                 safe_data["lastQualityFailureCodes"] = safe_quality_codes(
                     previous.get("lastQualityFailureCodes", [])
                 )
+                safe_data["lastFailureExceptionClass"] = safe_failure_exception_class(
+                    previous.get("lastFailureExceptionClass", "OtherException")
+                )
+                previous_kind = previous.get("lastFailureKind")
+                if previous_kind in SAFE_FAILURE_KINDS:
+                    safe_data["lastFailureKind"] = previous_kind
         except (OSError, ValueError, TypeError):
             pass
     path = STATUS_FILE.with_suffix(".tmp")
@@ -850,10 +904,18 @@ def run_job(item, auth_mode):
         status("waiting_for_authorized_job", lastCompleted=job, lastFailureCode=None)
         print("SONARA PRO job completed:", job, flush=True)
     except Exception as error:
-        code = (error.code if isinstance(error, SourceTransferError)
-                else FAILURE_CODES.get(failure_step, "REMIX_PROCESSING_ERROR"))
-        if failure_phase in ("normalize_a", "normalize_b") and not isinstance(error, SourceTransferError):
-            code = "SOURCE_DECODER_FAILED"
+        code = classify_failure_code(
+            error, step=failure_step, phase=failure_phase,
+            quality_codes=quality_codes)
+        safe_class = safe_failure_exception_class(error)
+        failure_kind = (
+            "measured_audio_rejection" if code == "REMIX_AUDIO_QUALITY_REJECTED"
+            else "quality_stage_exception" if failure_step == "quality_gate"
+            else "other_failure")
+        # Only the allowlisted class and fixed reason codes reach logs/status.
+        if failure_step == "quality_gate":
+            print("SONARA PRO quality gate diagnostic:",
+                  failure_kind, safe_class, flush=True)
         print("SONARA PRO job failed:", job, code, failure_phase, failure_step, flush=True)
         try:
             request("POST",f"/api/sonara-relay/pro-job/{job}/fail",
@@ -861,9 +923,11 @@ def run_job(item, auth_mode):
         except Exception:
             pass
         status("waiting_for_authorized_job", lastFailed=job,
-               errorClass=type(error).__name__, errorCode=code,
+               errorClass=safe_class, errorCode=code,
                failurePhase=failure_phase, lastFailureCode=code,
                lastFailureStep=failure_step, lastFailureAt=int(time.time()),
+               lastFailureExceptionClass=safe_class,
+               lastFailureKind=failure_kind,
                lastQualityFailureCodes=quality_codes if failure_step == "quality_gate" else [])
     finally:
         shutil.rmtree(folder, ignore_errors=True)
