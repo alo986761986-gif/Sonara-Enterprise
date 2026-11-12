@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AudioLines, Check, Download, FolderOpen, LoaderCircle, Music2, Pencil, Play, RefreshCcw, X } from 'lucide-react';
+import { AudioLines, Check, Download, FolderOpen, LoaderCircle, Music2, Pencil, Play, RefreshCcw, X, GitBranchPlus } from 'lucide-react';
 import './SonaraRemixProLibrary.css';
 import type { RemixEditorTrack } from './SonaraRemixProEditor';
 
@@ -12,6 +12,7 @@ type ArchivedRemix = {
   actualDurationSeconds?: number;
   requestedDurationSeconds?: number;
   engineVersion?: string;
+  parentJobId?: string;
   v6Result?: {masterProfile?: string};
 };
 type ArchiveResponse = {
@@ -30,7 +31,7 @@ function safeName(name: string) {
   return (name.normalize('NFKD').replace(/[^a-zA-Z0-9 _-]+/g,'').trim().replace(/\s+/g,'-') || 'SONARA-REMIX') + '.wav';
 }
 
-export default function SonaraRemixProLibrary({refreshToken=0,onEdit}:{refreshToken?:number;onEdit?:(track:RemixEditorTrack)=>void}) {
+export default function SonaraRemixProLibrary({refreshToken=0,onEdit,onCreateVersion}:{refreshToken?:number;onEdit?:(track:RemixEditorTrack)=>void;onCreateVersion?:(track:{jobId:string;title:string;audioUrl:string})=>void}) {
   const [items,setItems] = useState<ArchivedRemix[]>([]);
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState('');
@@ -154,6 +155,7 @@ export default function SonaraRemixProLibrary({refreshToken=0,onEdit}:{refreshTo
                 }
                 <div className="sonara-pro-library-meta">
                   <span>{entry.engineVersion?.toUpperCase()||'REMIX PRO'}</span>
+                  {entry.parentJobId&&<span title={'Versione derivata dal remix '+entry.parentJobId.slice(6,14)}>VERSIONE DERIVATA</span>}
                   <span>{duration(entry.actualDurationSeconds||entry.requestedDurationSeconds)}</span>
                   <span>{entry.createdAt?new Date(entry.createdAt).toLocaleDateString('it-IT'):'—'}</span>
                 </div>
@@ -164,6 +166,10 @@ export default function SonaraRemixProLibrary({refreshToken=0,onEdit}:{refreshTo
                     {selected===entry.jobId?<Check size={14}/>:<Play size={14}/>}
                     {selected===entry.jobId?'Nel player':'Usa nel player'}
                   </button>
+                  {entry.audioUrl&&onCreateVersion&&<button type="button" data-testid={"sonara-pro-version-"+entry.jobId}
+                    onClick={()=>onCreateVersion({jobId:entry.jobId,title:entry.title,audioUrl:entry.audioUrl!})}>
+                    <GitBranchPlus size={14}/> Crea una nuova versione
+                  </button>}
                   {entry.audioUrl&&onEdit&&<button type="button" data-testid={"sonara-pro-edit-"+entry.jobId}
                     onClick={()=>onEdit({jobId:entry.jobId,title:entry.title,audioUrl:entry.audioUrl!})}>
                     <Pencil size={14}/> Modifica nella timeline
