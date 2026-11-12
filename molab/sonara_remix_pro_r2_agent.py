@@ -899,13 +899,19 @@ def run_job(item, auth_mode):
                                     - float(rhythm_data["outputBpm"])) > .05:
                                 raise ProAgentError("V7 rhythm report does not match the verified A clock")
                         measurements = choice.get("v7Measurements")
-                        if not isinstance(measurements, dict) or not isinstance(
+                        mode_used = params.get("v6Controls", {}).get("mode")
+                        if (not isinstance(measurements, dict) or
+                                measurements.get("creativeMode") != mode_used or
+                                preserved.get("creativeModeApplied") != mode_used):
+                            raise ProAgentError("Selected creative mode was not applied to actual audio")
+                        if not isinstance(
                                 measurements.get("master"), dict):
                             raise ProAgentError("V7 measured mastering not verified")
                         v5_metadata["v7Result"] = {
                             "measuredSelectionPriority": measurements.get("priority"),
                             "master": measurements.get("master"),
                             "harmonicEstimate": measurements.get("harmonicEstimate"),
+                            "creativeMode": mode_used,
                             "originalVoiceContractVerified": True,
                             "oneClockSourceA": preserved.get("oneClockSource")
                                 == "original-A-demucs-drums",
