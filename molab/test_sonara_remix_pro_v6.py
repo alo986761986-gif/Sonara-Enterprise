@@ -44,7 +44,7 @@ class CreativeV6Test(unittest.TestCase):
                 self.assertIn("TWO DISTINCT ORIGINAL A and B",prompt)
                 self.assertIn("Instrumental backing only",prompt)
                 self.assertNotIn("SAME identifiable lead voice",prompt)
-                self.assertNotIn("choir",prompt.lower())
+                self.assertIn("never synthesize",prompt.lower())
             mode_prompts[mode]=prompts[0]
         self.assertEqual(len(set(mode_prompts.values())),4)
         self.assertIn("EXPERIMENTAL MODE",mode_prompts["experimental"])
