@@ -313,6 +313,7 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
           sourceA: source.sonaraRemixProSourceA,
           sourceB: source.sonaraRemixProSourceB,
           title: String(source.sonaraRemixProTitle||'').slice(0,96),
+          ...(source.sonaraRemixProParentJobId?{parentJobId:String(source.sonaraRemixProParentJobId)}:{}),
           rightsConfirmed: source.sonaraRemixProRightsConfirmed === true,
           prompt: (String(source.prompt || '').slice(0, 4300) +
             (creativeControls && source.sonaraRemixProV6!==true
