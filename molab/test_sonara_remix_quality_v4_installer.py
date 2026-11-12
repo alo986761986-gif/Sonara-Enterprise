@@ -1,6 +1,7 @@
 """No-network static tests for immutable SONARA Remix Pro V4 installer."""
 from __future__ import annotations
 import importlib.util
+import subprocess
 from pathlib import Path
 import unittest
 import tempfile
@@ -28,22 +29,18 @@ class InstallerV4Tests(unittest.TestCase):
                          installer.EXPECTED["sonara_remix_pro_r2_agent.py"])
         self.assertEqual(installer.EXPECTED["sonara_remix_pro_quality.py"],
                          "496428a8af25492246f49d5bf25d281781d17315")
-        released_updates = {
-            "sonara_remix_pro_r2_agent.py":
-                "25327ad052be63c1f86450afb56c478b1a43f528",
-            "sonara_remix_pro_quality.py":
-                "d31e42a4ba52e15fee08436f997f95b0b7561054",
-            "sonara_remix_pro_fusion.py":
-                "dad0b477a3dfb02761c971f05db849945ab39f56",
-        }
+        # Audit the historical V4 snapshot, not mutable modern V8 sources.
+        # A newer V8 module may legitimately have different bytes, while the
+        # installer must still point to exactly the original pinned release.
         for name, pinned in installer.EXPECTED.items():
             with self.subTest(name=name):
-                data = (HERE / name).read_bytes()
-                self.assertEqual(installer.git_blob_sha(data),
-                                 released_updates.get(
-                                     name, V41_BLOBS[name][1] if name in V41_BLOBS
-                                     else pinned))
-                compile(data, name, "exec")
+                snapshot = subprocess.run(
+                    ["git", "show", f"{installer.PINNED_COMMIT}:molab/{name}"],
+                    cwd=HERE.parent, check=False, capture_output=True)
+                self.assertEqual(snapshot.returncode, 0,
+                                 "Full historical git commit required for V4 pin audit")
+                self.assertEqual(installer.git_blob_sha(snapshot.stdout), pinned)
+                compile(snapshot.stdout, name, "exec")
 
     def test_live_agent_is_detected_without_relying_on_lock(self):
         with tempfile.TemporaryDirectory() as d:
