@@ -365,7 +365,7 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
             mode_direction = compose_direction(v6, dna, index,
                                                controls["candidateCount"])
             harmonic_note = v7_harmony["prompt"] if v7_harmony else ""
-            creator_text = str(base_prompt or "").strip()[:750]
+            creator_text = str(params.get("creatorPrompt") or base_prompt or "").strip()[:1000]
             genre_text = GENRE_PROFILES[controls["genre"]]
             prompt = ("SOURCE A CLOCK, TWO REAL VOCAL STEMS A+B, "
                       "NEW INSTRUMENTAL BACKING ONLY. No synthesized vocals. "
