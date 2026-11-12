@@ -129,7 +129,6 @@ export default function SonaraRemixProProgress({
 
   if (!job) return null;
   const backendPercent = pending && knownStage ? clampPercentage(job.progress) : null;
-  const confirmedPhases = finished ? PHASES.length : knownStage ? stageIndex : 0;
   const title = finished ? 'Master pronto nel tuo archivio'
     : failed ? 'Elaborazione interrotta'
     : job.stage === 'reconciling' ? 'Verifica della prenotazione'
