@@ -128,10 +128,10 @@ jobs:
         run: |
           python3 -m py_compile molab/sonara_remix_pro_original_voices.py molab/sonara_remix_pro_original_voices_install.py
           python3 -m unittest discover -s molab -p 'test_sonara_original_voices_contract.py' -v
+          python3 -m pip install --quiet numpy scipy soundfile
           python3 -m py_compile molab/sonara_remix_pro_ace_bridge.py molab/sonara_remix_pro_ace_failure_fix_install.py
           python3 -m unittest discover -s molab -p 'test_sonara_remix_pro_ace_bridge.py' -v
           python3 -m py_compile molab/sonara_remix_pro_a_clock_fusion.py molab/sonara_remix_pro_a_clock_install.py
-          python3 -m pip install --quiet numpy scipy soundfile
           python3 -m unittest discover -s molab -p 'test_sonara_a_clock_fusion.py' -v
 
       - name: Verify audio extraction from MP3, M4A and music video using FFmpeg
