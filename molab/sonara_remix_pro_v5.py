@@ -492,14 +492,12 @@ def render_candidates(*, guide, style, folder, base_prompt, params, b_drums,
                 candidate["audit"], candidate["technicalScore"], dna,
                 candidate["master"], others
             )
-        winner = max(
-            valid,
-            key=(lambda item: (
+        if v7_studio:
+            winner = max(valid, key=lambda item: (
                 item["v7Measurements"]["priority"],
-                item["v6Judge"]["selectionScore"])
-                if v7_studio else
-                lambda item: item["v6Judge"]["selectionScore"])
-        )
+                item["v6Judge"]["selectionScore"]))
+        else:
+            winner = max(valid, key=lambda item: item["v6Judge"]["selectionScore"])
     else:
         # V5 continues to rank by measurable technical quality only.
         winner = max(valid, key=lambda item: item["technicalScore"])
