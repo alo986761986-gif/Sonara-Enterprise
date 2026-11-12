@@ -613,3 +613,47 @@ test('Fresh Remix Pro is claimable even after more than one page of stale queue 
   b.list=originalList;
   b.get=originalGet;
 });
+
+
+test('V7 jobs fail closed until all private GPU modules attest readiness',async()=>{
+  const e=env();
+  const controls={mode:'balanced',master:'streaming',melody:65,harmony:60,groove:65,timbre:55,humanize:60};
+  const newJob={...spec,v5:true,v6:true,v7:true,v6Controls:controls,
+    genre:'house',bInfluence:50,candidateCount:1,durationMode:'manual'};
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',
+    {gpuReady:true,v5Ready:true,v6Ready:true,v7Ready:false},agent);
+  assert.equal((await proCapabilities(e)).v7Available,false);
+  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',newJob,gate)).status,503);
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',
+    {gpuReady:true,v5Ready:true,v6Ready:true,v7Ready:true},agent);
+  assert.equal((await proCapabilities(e)).v7Available,true);
+  const result=await call(e,'POST','/api/sonara-relay/pro-enqueue',newJob,gate);
+  assert.equal(result.status,202);
+  const state=await (await call(e,'GET','/api/sonara-relay/pro-job/'+JOB,undefined,owner)).json();
+  assert.equal(state.engineVersion,'v7');
+  const claim=await (await call(e,'POST','/api/sonara-relay/pro-claim',{v5Ready:true,v6Ready:true},agent)).json();
+  assert.equal(claim.params.v7Studio,true);
+  assert.equal(claim.params.v6,true);
+});
+
+test('Version archive parent must be completed, owned and backed by a real private WAV',async()=>{
+  const e=env();
+  const parent='srpro_44444444-4444-4444-8444-444444444444';
+  const key='relay-v1/pro/outputs/'+parent+'/master.wav';
+  const parentPath='relay-v1/pro/jobs/'+parent+'.json';
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',{gpuReady:true},agent);
+  const version={...spec,parentJobId:parent};
+  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',version,gate)).status,404);
+  await e.SONARA_AUDIO_BUCKET.put(parentPath,JSON.stringify({
+    id:parent,kind:'sonara-remix-pro',ownerUid:USER,
+    status:'COMPLETE',audio:key,createdAt:Date.now()-1000
+  }));
+  // An archive record alone is not evidence that the private master exists.
+  assert.equal((await call(e,'POST','/api/sonara-relay/pro-enqueue',version,gate)).status,404);
+  await e.SONARA_AUDIO_BUCKET.put(key,wav());
+  const authorized=await call(e,'POST','/api/sonara-relay/pro-enqueue',version,gate);
+  assert.equal(authorized.status,202);
+  const state=await (await call(e,'GET','/api/sonara-relay/pro-job/'+JOB,undefined,owner)).json();
+  assert.equal(state.parentJobId,parent);
+  assert.equal((await call(e,'GET','/api/sonara-relay/pro-job/'+JOB,undefined,{'x-mock-user':OTHER})).status,404);
+});
