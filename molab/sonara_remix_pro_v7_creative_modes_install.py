@@ -29,20 +29,20 @@ STATUS = HOME / "remix-pro-agent-status.json"
 LOG = HOME / "remix-pro-v6-agent.log"
 LOCK = HOME / "remix-pro-v7-modes-maintenance.lock"
 REVISION = "sonara-remix-pro-r2-agent-v3-dual-reference-fusion"
-COMMIT = "e6ffa1c517c9563ec59a86aa06a3d4ce218abaf6"
+COMMIT = "1188cadd7f4b3576095f7f79268cc618050a514a"
 BASE = ("https://raw.githubusercontent.com/alo986761986-gif/"
         "Sonara-Enterprise/" + COMMIT + "/molab/")
-# Exact verified previous state (V6-R6 / R3 / R5); V7 may not exist.
+# Verified previous state: V7 Rhythm Lock with all original modules.
 FILES = {
     "sonara_remix_pro_a_clock_fusion.py": (
         "1d4a349637f7b415d1298780479b9cfd5e273210",
         "e44b010e34d46886bd76a07cfff99f927b6c3d21"),
     "sonara_remix_pro_v5.py": (
         "922b3b1ec239be7ed31479b87202e7ce248feaf5",
-        "3b1e78593f9e4507b8f794c1ea7669ea14732fbb"),
+        "58474a9db887e6a16ab9a57889789f4b0f987d95"),
     "sonara_remix_pro_r2_agent.py": (
         "15693fdad6c1af435572db6f3a1359ada1713717",
-        "a8ec16ad8265e3141d9dd767c26097d7d84e8cc6"),
+        "66dac4702e2418902172c50a07fe268ac9e44b78"),
     "sonara_remix_pro_v7.py": (
         "9913729e43142e3359914a85f5d13652bbf91b40",
         "3ddd13f6e0211e6dcab942d886ae36993384158a"),
