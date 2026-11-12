@@ -247,3 +247,12 @@
 .sonara-v7-bar span{height:19px;background:#3d4559;border-radius:3px}
 .sonara-v7-bar span.is-downbeat{height:26px;background:#a79bef}
 @media(max-width:650px){.sonara-v7-rhythm-grid{grid-template-columns:1fr}.sonara-v7-bar-visual{gap:3px}.sonara-v7-bar{gap:2px}}
+
+
+/* SONARA Producer — three-stage composition overview. */
+.sonara-producer-three-stages{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.sonara-producer-stage{display:grid;align-content:start;gap:9px;padding:17px;min-width:0;background:#1d2631;border:1px solid #405066;border-radius:14px}
+.sonara-producer-stage-number{font-size:11px;font-weight:800;letter-spacing:.12em;color:#beb8ff}
+.sonara-producer-stage strong{font-size:13px;font-weight:750;color:#f2f3ff;line-height:1.35}
+.sonara-producer-stage p{font-size:11px;line-height:1.6;margin:0;color:#aebccc}
+@media(max-width:720px){.sonara-producer-three-stages{grid-template-columns:1fr}.sonara-producer-stage{padding:15px}}
