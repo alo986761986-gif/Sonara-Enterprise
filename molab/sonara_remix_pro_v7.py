@@ -53,7 +53,7 @@ def harmonic_guidance(report_a, report_b):
         "prompt": "Source key estimates are insufficiently reliable. Use sparse non-conflicting harmony and avoid strong asserted chord changes; do not infer or force a key."}
 
 
-def arrange_vocal_phrases(profile_a, profile_b, seconds, tempo, *, grid_mode='half-bar', phrase_bars=8):
+def arrange_vocal_phrases(profile_a, profile_b, seconds, tempo, *, grid_mode='half-bar', phrase_bars=8, creative_mode='balanced'):
     """Real-phrase voice scheduling on the A half-bar grid.
 
     Select an unused region whenever available, prioritize balanced voice
@@ -65,6 +65,8 @@ def arrange_vocal_phrases(profile_a, profile_b, seconds, tempo, *, grid_mode='ha
         raise ValueError("Unsupported duration")
     if grid_mode not in ("bar", "half-bar") or phrase_bars not in (4, 8, 16):
         raise ValueError("Unsupported 4/4 phrase alignment")
+    if creative_mode not in ("balanced", "experimental", "wild", "explosive"):
+        raise ValueError("Invalid original-voice arrangement mode")
     profiles = {"a": profile_a, "b": profile_b}
     for role in ("a", "b"):
         item = profiles[role]
@@ -77,6 +79,20 @@ def arrange_vocal_phrases(profile_a, profile_b, seconds, tempo, *, grid_mode='ha
     end = seconds - outro
     cursor = math.ceil(intro / half_bar) * half_bar
     indices = {"a": 0, "b": 0}
+    # Real regions only. Deterministic different phrase paths per mode;
+    # no AI-generated singing or repeated 30-second vocal hooks.
+    orders = {}
+    for role in ("a", "b"):
+        total = len(profiles[role]["regions"])
+        if creative_mode == "balanced":
+            order = list(range(total))
+        elif creative_mode == "experimental":
+            order = list(range(0, total, 2)) + list(range(1, total, 2))
+        elif creative_mode == "wild":
+            order = list(range(total - 1, -1, -1))
+        else:  # Explosive: evolve from earlier source phrases, no abrupt reset.
+            order = list(range(total))
+        orders[role] = order
     used = {"a": 0., "b": 0.}
     repeats = {"a": False, "b": False}
     events = []
@@ -89,7 +105,7 @@ def arrange_vocal_phrases(profile_a, profile_b, seconds, tempo, *, grid_mode='ha
         options = []
         for role in ("a", "b"):
             regions = profiles[role]["regions"]
-            original_index = indices[role] % len(regions)
+            original_index = orders[role][indices[role] % len(regions)]
             source, duration, rms = regions[original_index]
             if not all(math.isfinite(float(z)) for z in (source, duration, rms)):
                 raise ValueError("Non-finite vocal boundary metadata")
@@ -98,13 +114,22 @@ def arrange_vocal_phrases(profile_a, profile_b, seconds, tempo, *, grid_mode='ha
                 continue
             shortage = used[role] / max(1., used["a"] + used["b"])
             novelty = 3 if indices[role] < len(regions) else -2
-            switch = .7 if role != last_role else -.6
-            # Prefer fresh long phrases and the less represented voice.
-            score = 4 * (1 - shortage) + novelty + switch + min(3, remaining / 4)
+            mode_prefs = {
+                "balanced": (4.0, .7, 3.0),
+                "experimental": (2.8, 1.7, 2.2),
+                "wild": (1.6, 2.4, 1.2),
+                "explosive": (3.2, .3, 3.6),
+            }
+            balance_weight, switch_weight, duration_weight = mode_prefs[creative_mode]
+            switch = switch_weight if role != last_role else -switch_weight
+            # Fresh authentic phrases, but mode changes actual choice and length.
+            score = balance_weight * (1 - shortage) + novelty + switch + min(duration_weight, remaining / 4)
             options.append((score, role, source, remaining, rms))
         if not options:
             break
         _, role, source, duration, rms = max(options, key=lambda o: (o[0], o[1]))
+        max_bars = {"balanced":4, "experimental":3, "wild":2, "explosive":4}[creative_mode]
+        duration = min(duration, max_bars * bar)
         if indices[role] >= len(profiles[role]["regions"]):
             repeats[role] = True
         indices[role] += 1
@@ -115,7 +140,9 @@ def arrange_vocal_phrases(profile_a, profile_b, seconds, tempo, *, grid_mode='ha
         })
         used[role] += duration
         last_role = role
-        cursor = math.ceil((cursor + duration + .25 * 60 / t) / half_bar) * half_bar
+        breathing = {"balanced":.25, "experimental":.75,
+                     "wild":.50, "explosive":.08}[creative_mode] * 60 / t
+        cursor = math.ceil((cursor + duration + breathing) / half_bar) * half_bar
         section += 1
     if len(events) < 2 or {e["role"] for e in events} != {"a", "b"}:
         raise ValueError("Cannot arrange both original voices into the requested duration")
@@ -123,7 +150,8 @@ def arrange_vocal_phrases(profile_a, profile_b, seconds, tempo, *, grid_mode='ha
         "introSeconds": round(intro, 2), "outroSeconds": round(outro, 2),
         "vocalPhrases": len(events), "musicalGrid": "half-bar-A",
         "fixedChorusAlternation": False,
-        "v7PhrasePlanner": "balance-and-fresh-region-v1",
+        "v7PhrasePlanner": "mode-distinct-authentic-phrases-v2",
+        "creativeMode": creative_mode,
         "vocalGrid": grid_mode,
         "phraseBars": phrase_bars,
         "voiceASeconds": round(used["a"], 2),
@@ -187,3 +215,38 @@ def mastering_safety_snapshot(audit):
         "measuredCrestDb": round(float(crest), 2),
         "qualityGateBypassed": False,
     }
+
+
+def creative_accompaniment_gain(start_frame, frames, rate, tempo, mode):
+    """Per-mode smooth dynamics of GENERATED instrumental accompaniment only.
+
+    Does not touch the sole A kick or alter time/BPM; never adds instruments,
+    generated vocals, or modifies authentic source vocal recordings. These
+    differences are deliberately measurable on the same input material.
+    """
+    import numpy as np
+    t=_valid_tempo(tempo)
+    if mode not in ("balanced", "experimental", "wild", "explosive"):
+        raise ValueError("Invalid creative mode")
+    if not isinstance(start_frame, int) or start_frame<0 or frames<0 or rate<22050:
+        raise ValueError("Invalid frame boundaries")
+    seconds=(start_frame+np.arange(frames,dtype=np.float64))/rate
+    bars=seconds*t/(60*4)
+    # Smooth 8- and 16-bar movements; no hard block boundaries, cuts or
+    # stop-time effects. The actual A kick is deliberately left untouched.
+    wave8=np.sin(2*np.pi*bars/8.)
+    wave16=np.sin(2*np.pi*bars/16.)
+    if mode=="balanced":
+        bass=.91+.045*wave16
+        other=.91+.055*wave16
+    elif mode=="experimental":
+        bass=.83+.10*wave8
+        other=.78+.15*wave16
+    elif mode=="wild":
+        bass=.77+.16*wave8
+        other=.72+.20*wave16
+    else:
+        bass=.97+.022*wave16
+        other=.97+.025*wave8
+    return (np.asarray(bass,dtype=np.float32),
+            np.asarray(other,dtype=np.float32))
