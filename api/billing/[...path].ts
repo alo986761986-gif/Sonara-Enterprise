@@ -768,7 +768,10 @@ async function proxyGeneration(user: AuthenticatedUser, body: Record<string, any
   }
 
   const provider = String(process.env.SONARA_MUSIC_PROVIDER || 'eleven_music').trim().toLowerCase();
-  const useEleven = provider === 'eleven' || provider === 'eleven_music' || provider === 'elevenlabs';
+  // New open-model jobs stay behind the same account checks and metered billing.
+  // They must go through the SONARA Cloudflare engine instead of the ElevenMusic API.
+  const selectedOpenModel = ['heartmula-3b', 'stable-audio-3-medium'].includes(String(body.sonaraModelId || ''));
+  const useEleven = !selectedOpenModel && (provider === 'eleven' || provider === 'eleven_music' || provider === 'elevenlabs');
   const targetUrl = useEleven
     ? String(process.env.SONARA_ELEVEN_MUSIC_URL || DEFAULT_ELEVEN_MUSIC_URL).trim()
     : `${String(process.env.SONARA_ENGINE_API_URL || DEFAULT_ENGINE_URL).replace(/\/$/, '')}/api/engine/generate`;
