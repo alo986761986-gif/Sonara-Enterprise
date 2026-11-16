@@ -1,0 +1,27 @@
+name: Validate SONARA MoLab XL SFT Safe Installer
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "molab/sonara_xl_sft_safe_install.py"
+      - "molab/test_sonara_xl_sft_safe_install.py"
+      - ".github/workflows/validate-sonara-xl-sft-install.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate offline installer syntax
+        run: python -m py_compile molab/sonara_xl_sft_safe_install.py
+      - name: Validate non-destructive installer behavior
+        run: python -m unittest discover -s molab -p test_sonara_xl_sft_safe_install.py -v
