@@ -41,7 +41,7 @@ export async function isCreatorOpenModelJob(request, env) {
   // The legacy ACE-Step job IDs are also sr2_. Only intercept when this job
   // exists in the isolated multi-engine R2 namespace.
   try {
-    return Boolean(await env.SONARA_AUDIO_BUCKET.head(MULTI_JOB_PREFIX + jobId));
+    return Boolean(await env.SONARA_AUDIO_BUCKET.head(MULTI_JOB_PREFIX + jobId + '.json'));
   } catch {
     // If R2 is unavailable, fail closed rather than pretending legacy owns it.
     throw new Error('Multi-engine job lookup unavailable');
