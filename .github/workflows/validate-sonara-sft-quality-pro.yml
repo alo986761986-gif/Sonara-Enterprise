@@ -1,0 +1,45 @@
+name: Validate SONARA XL SFT Quality Pro R2 Routing
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "molab/sonara_r2_pull_agent.py"
+      - "molab/test_sonara_xl_sft_relay.py"
+      - "cloudflare/sonara-r2-https-relay.mjs"
+      - "cloudflare/sonara-r2-https-relay.test.mjs"
+      - "cloudflare/sonara-r2-generation-profile.mjs"
+      - "cloudflare/sonara-r2-generation-profile.test.mjs"
+      - "src/components/generator/GenerationProfileControl.tsx"
+      - ".github/workflows/validate-sonara-sft-quality-pro.yml"
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check Python relay syntax and safety
+        run: |
+          python -m py_compile molab/sonara_r2_pull_agent.py
+          python -m unittest discover -s molab -p test_sonara_xl_sft_relay.py -v
+          python -m unittest discover -s molab -p test_sonara_r2_source_paths.py -v
+      - name: Check Cloudflare relay compatibility and SFT gating
+        run: |
+          node --test cloudflare/sonara-r2-https-relay.test.mjs
+          node --test --test-name-pattern='opt-in XL SFT Quality Pro' cloudflare/sonara-r2-generation-profile.test.mjs
+      - name: Build official SONARA frontend
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+      - name: Confirm Pro selector compiled
+        run: |
+          test -d dist/assets
+          grep -R -Fq 'sonaraSftQualityPro' dist/assets
+          grep -R -Fq 'xl-sft' dist/assets

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ShieldCheck, Sparkles, Zap } from 'lucide-react';
 
-export type GenerationProfileV3 = 'fast' | 'quality' | 'ultra';
+export type GenerationProfileV3 = 'fast' | 'quality' | 'ultra' | 'pro';
 
 
 const MODEL_KEY = 'sonara.generation.model.v1';
@@ -44,13 +44,20 @@ const PROFILES: Array<{
     subtitle: 'Composizione approfondita',
     detail: '2 brani · pianificazione musicale aggiuntiva',
     icon: ShieldCheck
+  },
+  {
+    id: 'pro',
+    label: 'QUALITÀ PRO',
+    subtitle: 'ACE-Step XL SFT · LM 4B',
+    detail: '1 brano · 50 passaggi · modello SFT dedicato',
+    icon: Sparkles
   }
 ];
 
 function readProfile(): GenerationProfileV3 {
   if (typeof window === 'undefined') return 'quality';
   const value = window.localStorage.getItem(PROFILE_KEY);
-  return value === 'fast' || value === 'ultra' || value === 'quality' ? value : 'quality';
+  return value === 'fast' || value === 'ultra' || value === 'quality' || value === 'pro' ? value : 'quality';
 }
 
 function ensureHost(): HTMLElement | null {
@@ -98,6 +105,7 @@ function installNativeFetchBridge() {
   const runtime = window as typeof window & {
     __sonaraNativeGenerationProfileV3?: boolean;
     __sonaraNativeGenerationProfileFetchV3?: boolean;
+    __sonaraSftReady?: boolean;
   };
   runtime.__sonaraNativeGenerationProfileV3 = true;
   document.documentElement.dataset.sonaraGenerationProfileUi = 'react-v1';
@@ -133,9 +141,19 @@ function installNativeFetchBridge() {
           // The dedicated A/B action is explicitly a two-track quality render.
           // Do not let the global Instant selector silently turn it into a
           // single-track 1-step job after the user has paid for two tracks.
+          const useSft = selectedProfile === 'pro' && runtime.__sonaraSftReady === true && body.sonaraRemixPro !== true && body.sonaraForcePairQuality !== true;
           const profile = body.sonaraForcePairQuality === true
             ? (selectedProfile === 'ultra' ? 'ultra' : 'quality')
-            : selectedProfile;
+            : selectedProfile === 'pro' ? 'quality' : selectedProfile;
+          // SFT is opt-in and only advertised when the authenticated MoLab
+          // relay reports the model loaded. Old/cached clients stay Turbo.
+          if (useSft) {
+            body.sonaraAceVariant = 'xl-sft';
+            body.sonaraSftQualityPro = true;
+          } else {
+            delete body.sonaraAceVariant;
+            delete body.sonaraSftQualityPro;
+          }
           // Music Creator uses ACE-Step only; never route a generation to the
           // retired multi-engine queues, even with stale saved preferences.
           delete body.sonaraModelId;
@@ -177,12 +195,28 @@ function installNativeFetchBridge() {
 
 export default function GenerationProfileControl() {
   const [profile, setProfile] = useState<GenerationProfileV3>(readProfile);
+  const [sftReady, setSftReady] = useState(false);
   const [host, setHost] = useState<HTMLElement | null>(null);
   const active = useMemo(() => PROFILES.find(item => item.id === profile) || PROFILES[1], [profile]);
 
   useEffect(() => {
     enforceAceStepOnly();
     installNativeFetchBridge();
+    fetch('/api/sonara-relay/sft-capabilities', { credentials: 'include', cache: 'no-store' })
+      .then(async response => response.ok ? response.json() : { available: false })
+      .then(result => {
+        const available = result?.available === true;
+        (window as typeof window & { __sonaraSftReady?: boolean }).__sonaraSftReady = available;
+        setSftReady(available);
+        if (!available && readProfile() === 'pro') {
+          window.localStorage.setItem(PROFILE_KEY, 'quality');
+          setProfile('quality');
+        }
+      })
+      .catch(() => {
+        (window as typeof window & { __sonaraSftReady?: boolean }).__sonaraSftReady = false;
+        setSftReady(false);
+      });
     const connect = () => {
       const next = ensureHost();
       if (next) setHost(current => current === next ? current : next);
@@ -194,6 +228,7 @@ export default function GenerationProfileControl() {
   }, []);
 
   const choose = (next: GenerationProfileV3) => {
+    if (next === 'pro' && !sftReady) return;
     window.localStorage.setItem(PROFILE_KEY, next);
     setProfile(next);
     window.dispatchEvent(new CustomEvent('sonara:generation-profile-v3', { detail: next }));
@@ -215,14 +250,14 @@ export default function GenerationProfileControl() {
                 <Sparkles className="h-3.5 w-3.5" />SONARA AI QUALITY
               </div>
               <div className="mt-1 text-xs font-bold text-white">{active.subtitle}</div>
-              <div className="mt-1 text-[10px] text-slate-400">REALISTIC FAST è il profilo consigliato: 4 step Turbo, realism V3 e DCW per mantenere naturalezza con tempi molto più bassi. ULTRA usa 8 step + LM planning.</div>
+              <div className="mt-1 text-[10px] text-slate-400">Turbo resta attivo per INSTANT, REALISTIC FAST e ULTRA. QUALITÀ PRO utilizza XL SFT sulla GPU MoLab solo quando il secondo motore è online.</div>
             </div>
             <div className="rounded-lg border border-white/10 bg-slate-950/45 px-2.5 py-1.5 text-[9px] font-black uppercase tracking-wider text-violet-200">
-              {profile === 'ultra' ? 'PIANIFICAZIONE MUSICALE' : profile === 'quality' ? 'REALISMO STRUMENTALE' : 'GENERAZIONE INSTANT'}
+              {profile === 'pro' ? 'XL SFT · 50 STEP' : profile === 'ultra' ? 'PIANIFICAZIONE MUSICALE' : profile === 'quality' ? 'REALISMO STRUMENTALE' : 'GENERAZIONE INSTANT'}
             </div>
           </div>
 
-          <div className="mt-4 grid gap-2 sm:grid-cols-3">
+          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {PROFILES.map(item => {
               const Icon = item.icon;
               const selected = item.id === profile;
@@ -230,12 +265,13 @@ export default function GenerationProfileControl() {
                 <button
                   key={item.id}
                   type="button"
-                  disabled={false}
+                  disabled={item.id === 'pro' && !sftReady}
+                  title={item.id === 'pro' && !sftReady ? 'XL SFT non ancora collegato al relay MoLab' : undefined}
                   onClick={() => choose(item.id)}
                   data-profile={item.id}
                   data-active={selected ? 'true' : 'false'}
                   aria-pressed={selected}
-                  className={`group rounded-xl border p-3 text-left transition ${selected
+                  className={`group rounded-xl border p-3 text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${selected
                     ? 'border-violet-300/60 bg-gradient-to-br from-fuchsia-600/55 via-violet-600/55 to-blue-600/55 text-white shadow-lg shadow-violet-950/30'
                     : 'border-white/10 bg-slate-950/55 text-slate-300 hover:border-violet-400/35 hover:bg-violet-500/10'}`}
                 >
@@ -254,8 +290,8 @@ export default function GenerationProfileControl() {
           <div className="mt-4 border-t border-white/10 pt-4">
             <div className="text-[10px] font-black uppercase tracking-[0.18em] text-violet-200">Motore musicale SONARA</div>
             <div data-sonara-model="ace-step" className="mt-3 rounded-xl border border-violet-300/40 bg-violet-700/25 p-3 text-white">
-              <span className="block text-xs font-bold">ACE-Step XL Turbo</span>
-              <span className="mt-1 block text-[11px] text-slate-300">Unico motore musicale · INSTANT, REALISTIC FAST e ULTRA</span>
+              <span className="block text-xs font-bold">ACE-Step XL Turbo + XL SFT</span>
+              <span className="mt-1 block text-[11px] text-slate-300">Turbo: INSTANT, REALISTIC FAST e ULTRA · SFT: QUALITÀ PRO {sftReady ? "(disponibile)" : "(in attesa del relay)"}</span>
             </div>
           </div>
         </section>,

@@ -31,6 +31,9 @@ except ImportError:
 ROOT = pathlib.Path.home() / '.sonara'
 ENDPOINT = 'https://api.sonaraenterprise.com/api/sonara-relay'
 LOCAL = 'http://127.0.0.1:8001'
+SFT_LOCAL = 'http://127.0.0.1:8003'
+SFT_MODEL = 'acestep-v15-xl-sft'
+_SFT_PROBE = {'at': 0.0, 'ready': False}
 TOKEN_FILE = ROOT / 'relay.token'
 ACE_KEY_FILE = pathlib.Path('/home/marimo/ACE-STEP/.sonara-api-key')
 STATUS_FILE = ROOT / 'relay-agent-status.json'
@@ -51,7 +54,7 @@ OPENER = urllib.request.build_opener(NoRedirect())
 def request(method: str, url: str, payload=None, headers=None, timeout=45):
     parsed = urllib.parse.urlsplit(url)
     if (parsed.scheme, parsed.netloc) not in {
-        ('https', 'api.sonaraenterprise.com'), ('http', '127.0.0.1:8001')
+        ('https', 'api.sonaraenterprise.com'), ('http', '127.0.0.1:8001'), ('http', '127.0.0.1:8003')
     }:
         raise ValueError('Unapproved relay destination')
     raw = json.dumps(payload).encode() if isinstance(payload, (dict, list)) else payload
@@ -70,11 +73,26 @@ def request(method: str, url: str, payload=None, headers=None, timeout=45):
             return data
         return response.read()
 
+def sft_ready():
+    now = time.monotonic()
+    if now - _SFT_PROBE['at'] < 5:
+        return _SFT_PROBE['ready']
+    _SFT_PROBE['at'] = now
+    try:
+        response = request('GET', SFT_LOCAL + '/health', headers=ace_headers(), timeout=3)
+        health = response.get('data', response)
+        _SFT_PROBE['ready'] = bool(isinstance(health, dict) and health.get('models_initialized') is True
+                                   and health.get('loaded_model') == SFT_MODEL)
+    except (OSError, ValueError, RuntimeError, urllib.error.HTTPError):
+        _SFT_PROBE['ready'] = False
+    return _SFT_PROBE['ready']
+
 def claim_headers():
     value = TOKEN_FILE.read_text(encoding='utf-8').strip()
     if len(value) < 32 or not value.isascii() or any(c.isspace() for c in value):
         raise ValueError('Invalid private relay credential')
-    return {'X-Sonara-Relay-Token': value, 'X-Sonara-Agent-Revision': REVISION}
+    return {'X-Sonara-Relay-Token': value, 'X-Sonara-Agent-Revision': REVISION,
+            'X-Sonara-Sft-Ready': '1' if sft_ready() else '0'}
 
 def request_shutdown(_signum, _frame):
     # Finish any claimed job before releasing the single-agent lock.
@@ -97,6 +115,9 @@ def ace_headers():
 
 def local(method, path, payload=None, timeout=60):
     return request(method, LOCAL + path, payload, ace_headers(), timeout)
+
+def sft_local(method, path, payload=None, timeout=60):
+    return request(method, SFT_LOCAL + path, payload, ace_headers(), timeout)
 
 def reference_suffix(reference):
     name = pathlib.Path(str(reference.get('filename') or '')).suffix.lower()
@@ -535,6 +556,17 @@ def process(job):
 
     try:
         payload = dict(job['payload'])
+        use_sft = (payload.get('sonaraAceVariant') == 'xl-sft'
+                   and payload.get('sonaraSftQualityPro') is True)
+        if use_sft and not sft_ready():
+            raise RuntimeError('SFT runtime unavailable after queue claim')
+        actual_model = SFT_MODEL if use_sft else 'acestep-v15-xl-turbo'
+        engine_local = sft_local if use_sft else local
+        payload.pop('sonaraAceVariant', None)
+        payload.pop('sonaraSftQualityPro', None)
+        if use_sft:
+            payload.update({'model': SFT_MODEL, 'inference_steps': 50, 'guidance_scale': 7.0,
+                            'shift': 1.0, 'batch_size': 1, 'thinking': False})
         remix_source = job.get('remixSource') if isinstance(job.get('remixSource'), dict) else None
         if remix_source and remix_source.get('available') is True:
             progress('downloading_remix_source')
@@ -563,7 +595,7 @@ def process(job):
                 payload.pop(field, None)
             timings['referenceDownloadSeconds'] = round(time.monotonic() - started, 2)
         progress('submitting')
-        answer = local('POST', '/release_task', payload, timeout=120)
+        answer = engine_local('POST', '/release_task', payload, timeout=120)
         timings['submitSeconds'] = round(time.monotonic() - started, 2)
         nested = answer.get('data', answer)
         task_id = nested.get('task_id') if isinstance(nested, dict) else None
@@ -581,7 +613,7 @@ def process(job):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 break
-            answer = local('POST', '/query_result', {'task_id_list': [task_id]}, timeout=min(50, remaining))
+            answer = engine_local('POST', '/query_result', {'task_id_list': [task_id]}, timeout=min(50, remaining))
             progress('generating')
             data = answer.get('data', [])
             task = data[0] if isinstance(data, list) and data else data if isinstance(data, dict) else {}
@@ -670,7 +702,7 @@ def process(job):
                     progress('uploading', track=index + 1, trackCount=expected, qualityScore=item['score'])
                     request('POST', base + '/renew', {}, head, 20)
                     fetched = time.monotonic()
-                    data = local('GET', '/v1/audio?' + urllib.parse.urlencode({'path': path}), timeout=90)
+                    data = engine_local('GET', '/v1/audio?' + urllib.parse.urlencode({'path': path}), timeout=90)
                     timings['fetch' + str(index + 1) + 'Seconds'] = round(time.monotonic() - fetched, 2)
                     if not isinstance(data, bytes) or len(data) < 44 or data[:4] != b'RIFF' or data[8:12] != b'WAVE':
                         raise RuntimeError('Invalid WAV response')
@@ -681,7 +713,8 @@ def process(job):
                     timings['upload' + str(index + 1) + 'Seconds'] = round(time.monotonic() - uploaded, 2)
                     del data
                 completed = time.monotonic()
-                request('POST', base + '/complete', {'quality': quality_summary, 'rankingVersion': 'sonara-local-critic-v2-physical'}, head, 30)
+                request('POST', base + '/complete', {'quality': quality_summary,
+                      'rankingVersion': 'sonara-local-critic-v2-physical', 'actualModel': actual_model}, head, 30)
                 timings['completeSeconds'] = round(time.monotonic() - completed, 2)
                 timings['totalSeconds'] = round(time.monotonic() - started, 2)
                 bpm_verified_count = sum(1 for item in evaluated

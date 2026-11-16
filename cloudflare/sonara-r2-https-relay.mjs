@@ -24,6 +24,8 @@ const PREFIX = 'relay-v1/';
 const REQUIRED_AGENT_REVISION = 'sonara-https-agent-guard-v4';
 const REFERENCE_AGENT_REVISION = 'sonara-https-agent-guard-v5';
 const REMIX_AGENT_REVISION = 'sonara-remix-r2-agent-v6';
+const SFT_MODEL = 'acestep-v15-xl-sft';
+const TURBO_MODEL = 'acestep-v15-xl-turbo';
 const json = (body, status=200) => new Response(JSON.stringify(body), {status,headers:{'content-type':'application/json','cache-control':'no-store','access-control-allow-origin':'https://sonaraenterprise.com'}});
 const bearer = (r) => r.headers.get('X-Sonara-Relay-Token') || (r.headers.get('Authorization')||'').replace(/^Bearer /i,'');
 // Authorize the notebook's high-entropy machine token by its public fingerprint.
@@ -99,7 +101,7 @@ const writeAgentHeartbeat=async(b,request)=>{
   if(!b)return;
   const revision=String(request.headers.get('X-Sonara-Agent-Revision')||'').slice(0,80);
   const now=Date.now();
-  await b.put(AGENT_HEARTBEAT_KEY,JSON.stringify({revision,lastSeen:now}),{httpMetadata:{contentType:'application/json'}});
+  await b.put(AGENT_HEARTBEAT_KEY,JSON.stringify({revision,lastSeen:now,sftReady:request.headers.get('X-Sonara-Sft-Ready')==='1'}),{httpMetadata:{contentType:'application/json'}});
 };
 const readAgentHeartbeat=async b=>{
   if(!b)return {online:false,revision:'',ageMs:null,lastSeen:null};
@@ -108,7 +110,7 @@ const readAgentHeartbeat=async b=>{
     const value=obj?await obj.json():null;
     const lastSeen=Number(value?.lastSeen||0);
     const ageMs=lastSeen>0?Math.max(0,Date.now()-lastSeen):null;
-    return {online:ageMs!==null&&ageMs<=AGENT_ONLINE_MS,revision:String(value?.revision||''),ageMs,lastSeen:lastSeen||null};
+    return {online:ageMs!==null&&ageMs<=AGENT_ONLINE_MS,revision:String(value?.revision||''),ageMs,lastSeen:lastSeen||null,sftReady:value?.sftReady===true};
   }catch{return {online:false,revision:'',ageMs:null,lastSeen:null};}
 };
 export const relayQueueKey=(createdAt,id)=>PREFIX+'queue/'+String(Math.max(0,Number(createdAt)||0)).padStart(13,'0')+'/'+id;
@@ -188,6 +190,12 @@ export default {
     return handleRemixPro(request,env,ctx,{
       gateway:hasSubmitAuth,gatewayOwner:ownerUid,user:nativeUser,agent:hasRemixProAuth
     });
+  }
+  // Public, read-only capability. Never claim SFT ready from disk presence alone.
+  if(p==='/api/sonara-relay/sft-capabilities'&&request.method==='GET'){
+    const beat=await readAgentHeartbeat(b);
+    const available=env.SONARA_R2_RELAY_ENABLED==='true'&&beat.online&&beat.sftReady===true;
+    return json({available,model:available?SFT_MODEL:null,defaultModel:TURBO_MODEL,qualityProSteps:50});
   }
   // Read-only authentication probe. No queue claims, storage writes or generation.
   // It works while the public relay switch is off, permitting safe provisioning.
@@ -298,11 +306,26 @@ export default {
       const influence=Number.isFinite(requested)?Math.max(0.1,Math.min(0.35,requested)):0.2;
       reference={id:referenceId,objectKey:meta.objectKey,contentType:meta.contentType||'audio/wav',filename:meta.filename||'sonara-instrument-reference.wav',influence};
     }
+    // Quality Pro is an explicit server-verified opt-in. Never queue a job
+    // advertised as SFT when only Turbo is reachable.
+    const wantsSft=payload.sonaraAceVariant==='xl-sft'&&payload.sonaraSftQualityPro===true;
+    if(wantsSft){
+      const beat=await readAgentHeartbeat(b);
+      if(!beat.online||beat.sftReady!==true)return json({error:'XL SFT non disponibile sulla GPU MoLab. Seleziona REALISTIC FAST.'},503);
+      payload.model=SFT_MODEL;
+      payload.inference_steps=50;
+      payload.guidance_scale=7.0;
+      payload.shift=1.0;
+      payload.batch_size=1;
+    }else{
+      delete payload.sonaraAceVariant;
+      delete payload.sonaraSftQualityPro;
+    }
     const id='sr2_'+crypto.randomUUID(),now=Date.now();
-    const record={id,ownerUid:owner,status:'QUEUED',createdAt:now,updatedAt:now,leaseUntil:0,attempts:0,payload,reference,remixSource,files:[],error:null};
+    const record={id,ownerUid:owner,status:'QUEUED',createdAt:now,updatedAt:now,leaseUntil:0,attempts:0,payload,reference,remixSource,files:[],error:null,actualModel:null};
     await saveRecord(b,id,record);
     await b.put(relayQueueKey(now,id),id,{httpMetadata:{contentType:'text/plain'}});
-    return json({jobId:id,status:'PROCESSING',progress:0,provider:'molab',model:'acestep-v15-xl-turbo'},202);
+    return json({jobId:id,status:'PROCESSING',progress:0,provider:'molab',model:wantsSft?SFT_MODEL:TURBO_MODEL},202);
   }
   // MoLab polls through HTTPS/443, authenticates with a Worker secret.
   if(p==='/api/sonara-relay/claim'&&request.method==='POST') {
@@ -322,7 +345,10 @@ export default {
       if(j.remixSource&&agentRevision!==REMIX_AGENT_REVISION)return {state:'reference'};
       if(j.reference&&agentRevision!==REFERENCE_AGENT_REVISION&&agentRevision!==REMIX_AGENT_REVISION)return {state:'reference'};
       const lease=crypto.randomUUID();
-      const next={...j,status:'LEASED',leaseUntil:now+15*60*1000,leaseId:lease,attempts:j.attempts+1,updatedAt:now};
+      const sftJob=j.payload?.sonaraAceVariant==='xl-sft'&&j.payload?.sonaraSftQualityPro===true;
+       // An outdated agent must never claim and misroute an SFT job to Turbo.
+       if(sftJob&&request.headers.get('X-Sonara-Sft-Ready')!=='1')return {state:'reference'};
+       const next={...j,status:'LEASED',leaseUntil:now+15*60*1000,leaseId:lease,attempts:j.attempts+1,updatedAt:now};
       const saved=await b.put(key(j.id),JSON.stringify(next),{onlyIf:{etagMatches:obj.etag},httpMetadata:{contentType:'application/json'}});
       if(!saved)return {state:'race'};
       return {state:'claimed',response:{jobId:j.id,payload:j.payload,leaseId:lease,reference:j.reference?{available:true,contentType:j.reference.contentType,filename:j.reference.filename,influence:j.reference.influence}:null,remixSource:j.remixSource?{available:true,filename:j.remixSource.filename,contentType:j.remixSource.contentType}:null}};
@@ -375,7 +401,7 @@ export default {
       const progress=j.status==='COMPLETE'?100:j.status==='LEASED'?50:heartbeat.online?18:8;
       const quality=Array.isArray(j.quality)?j.quality:[];
       const tempoVerification=r2TempoVerification(quality,urls.length);
-      return json({jobId:id,status:j.status==='COMPLETE'?'COMPLETED':j.status==='FAILED'?'FAILED':'PROCESSING',progress,error:j.error,provider:'molab',model:'acestep-v15-xl-turbo',metadata:{audioFormat:'wav',currentStage,relayOnline:heartbeat.online,relayRevision:heartbeat.revision,relayAgeMs:heartbeat.ageMs,queueState:j.status,queuedAt:j.createdAt||null,updatedAt:j.updatedAt||null,automaticCandidateRanking:quality.length>0,automaticQualityRepair:quality.some(item=>item?.autoRepaired===true),rankingVersion:j.rankingVersion||null,qualityReports:quality,bpmVerification:tempoVerification.status,bpmVerifiedTracks:tempoVerification.verifiedCount,bpmTrackCount:tempoVerification.trackCount,requestedBpm:tempoVerification.requestedBpm},audioUrl:urls[0]||null,audioUrls:urls,candidates:urls.map((u,i)=>({id:i===0?'A':'B',audioUrl:u,audioFormat:'wav',provider:'molab',model:'acestep-v15-xl-turbo',sonaraQuality:quality[i]||null,sonaraTempo:quality[i]?.tempo||null,sonaraRecommended:i===0&&quality.length>0&&(quality[i]?.tempo?.bpmStatus==='verified'&&quality[i]?.tempo?.bpmVerified===true||quality[i]?.tempo?.bpmStatus==='not-requested'),directorRank:i+1}))});
+      return json({jobId:id,status:j.status==='COMPLETE'?'COMPLETED':j.status==='FAILED'?'FAILED':'PROCESSING',progress,error:j.error,provider:'molab',model:j.actualModel||(j.payload?.sonaraAceVariant==='xl-sft'?SFT_MODEL:TURBO_MODEL),metadata:{audioFormat:'wav',currentStage,relayOnline:heartbeat.online,relayRevision:heartbeat.revision,relayAgeMs:heartbeat.ageMs,queueState:j.status,queuedAt:j.createdAt||null,updatedAt:j.updatedAt||null,automaticCandidateRanking:quality.length>0,automaticQualityRepair:quality.some(item=>item?.autoRepaired===true),rankingVersion:j.rankingVersion||null,qualityReports:quality,bpmVerification:tempoVerification.status,bpmVerifiedTracks:tempoVerification.verifiedCount,bpmTrackCount:tempoVerification.trackCount,requestedBpm:tempoVerification.requestedBpm},audioUrl:urls[0]||null,audioUrls:urls,candidates:urls.map((u,i)=>({id:i===0?'A':'B',audioUrl:u,audioFormat:'wav',provider:'molab',model:j.actualModel||(j.payload?.sonaraAceVariant==='xl-sft'?SFT_MODEL:TURBO_MODEL),sonaraQuality:quality[i]||null,sonaraTempo:quality[i]?.tempo||null,sonaraRecommended:i===0&&quality.length>0&&(quality[i]?.tempo?.bpmStatus==='verified'&&quality[i]?.tempo?.bpmVerified===true||quality[i]?.tempo?.bpmStatus==='not-requested'),directorRank:i+1}))});
     }
     if(action==='audio'&&(request.method==='GET'||request.method==='HEAD')) {
       const idx=Number(parts[2]);
@@ -450,6 +476,11 @@ export default {
       if(!j.files.length)return json({error:'No audio uploaded'},409);
       let completion={};
       try{completion=await request.json();}catch{}
+      const requestedSft=j.payload?.sonaraAceVariant==='xl-sft'&&j.payload?.sonaraSftQualityPro===true;
+      const actual=String(completion?.actualModel||(requestedSft?'':TURBO_MODEL));
+      if(![TURBO_MODEL,SFT_MODEL].includes(actual))return json({error:'Verified engine model required'},409);
+      if(requestedSft&&actual!==SFT_MODEL)return json({error:'SFT requested but generated by another engine'},409);
+      j.actualModel=actual;
       if(Array.isArray(completion?.quality))j.quality=completion.quality.slice(0,2);
       if(typeof completion?.rankingVersion==='string')j.rankingVersion=completion.rankingVersion.slice(0,80);
       const reference=j.reference;

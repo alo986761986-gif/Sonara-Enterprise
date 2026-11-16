@@ -208,6 +208,25 @@ export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody 
     sonara_target_peak_db: mixMaster ? normalizationDb : null,
     sonara_instant_mode: profile === 'fast'
   };
+  // Explicit SFT Quality Pro only: keep the other three Turbo profiles intact.
+  // The relay still validates live SFT readiness before accepting the job.
+  const wantsSft = sourceBody?.sonaraAceVariant === 'xl-sft'
+    && sourceBody?.sonaraSftQualityPro === true
+    && sourceBody?.sonaraRemixPro !== true
+    && !sourceBody?.sonaraRemixSourceId;
+  if (wantsSft) {
+    next.sonaraAceVariant = 'xl-sft';
+    next.sonaraSftQualityPro = true;
+    next.model = 'acestep-v15-xl-sft';
+    next.inference_steps = 50;
+    next.guidance_scale = 7.0;
+    next.shift = 1.0;
+    next.batch_size = 1;
+    next.thinking = false;
+    next.sonara_speed_inference_steps = 50;
+    next.sonara_r2_generation_profile = 'pro';
+    next.sonara_instant_mode = false;
+  }
   delete next.lm_batch_chunk_size;
   delete next.use_cot_metas;
   delete next.use_constrained_decoding;
