@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Download, Image as ImageIcon, Pause, Play, RefreshCw, Sparkles, Volume2, VolumeX } from 'lucide-react';
 import { buildGenerationPrompt, type VocalMode } from '../../generationPrompt';
+import { resolveMusicTaxonomyHierarchy } from '../../musicTaxonomyHierarchy';
+import { getMusicStyleProfile as getConciseMusicStyleProfile } from '../../musicStyleIntelligenceLegacy';
+import { getMusicAtmosphereProfile } from '../../musicAtmosphereIntelligence';
 import { getFirebaseIdToken } from '../../lib/firebaseClient';
 import { archiveGeneratedProject } from '../../services/generatedAssetVault';
 
@@ -85,6 +88,35 @@ const empty = (id: CandidateId): CandidateState => ({
 });
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/** HeartMuLa expects short tags, not the ACE-Step instruction contract. */
+function openModelMusicDNA(context: Context) {
+  const hierarchy = resolveMusicTaxonomyHierarchy({
+    family: context.genreFamily, genre: context.genre,
+    subgenre: context.subgenre, atmosphere: context.mood
+  });
+  const style = getConciseMusicStyleProfile(
+    hierarchy.family, hierarchy.genre, hierarchy.subgenre
+  );
+  const atmosphere = getMusicAtmosphereProfile(hierarchy.atmosphere, {
+    family: hierarchy.family, genre: hierarchy.genre, subgenre: hierarchy.subgenre
+  });
+  return {
+    genreFamily: hierarchy.family,
+    genre: hierarchy.genre,
+    subgenre: hierarchy.subgenre,
+    mood: hierarchy.atmosphere,
+    sonaraStyleDNA: {
+      identity: style.identity.slice(0, 450),
+      instrumentation: style.instrumentation.slice(0, 700),
+      rhythm: style.rhythm.slice(0, 700),
+      harmony: style.harmony.slice(0, 450),
+      production: style.production.slice(0, 450),
+      atmosphere: atmosphere.identity.slice(0, 400)
+    }
+  };
+}
+
 const GENERATION_PROFILE_KEY = 'sonara.generation.profile.v6';
 const readGenerationProfile = (): 'fast' | 'quality' | 'ultra' => {
   const value = window.localStorage.getItem(GENERATION_PROFILE_KEY);
@@ -643,6 +675,7 @@ export default function ElevenMusicGenerationControl() {
           rawPrompt: context.rawPrompt,
           creatorPrompt: context.rawPrompt,
           sonaraMultiEngineCreatorRequest: true,
+          ...(openModel ? openModelMusicDNA(context) : {}),
           sonaraCreatorPromptAuthoritative: context.rawPrompt,
           sonaraOriginalCreatorBrief: context.rawPrompt,
           genreFamily: context.genreFamily,

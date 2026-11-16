@@ -99,3 +99,43 @@ test('internal failures return diagnostic-safe JSON rather than HTML 500',async(
   assert.equal(response.headers.get('x-sonara-open-model-stage'),'plan');
   assert.equal(JSON.stringify(await response.json()).includes('private secret'),false);
 });
+
+test('native gateway preserves worldwide style hierarchy and curated sonic DNA in worker job',async()=>{
+  const choices=[
+    {genreFamily:'Electronic / Dance',genre:'House',subgenre:'Deep House',mood:'Warm',phrase:'rounded deep bass'},
+    {genreFamily:'Jazz',genre:'Jazz Fusion',subgenre:'Jazz Fusion',mood:'Electric',phrase:'electric'},
+    {genreFamily:'Hip-Hop / Rap',genre:'Hip-Hop',subgenre:'Boom Bap',mood:'Gritty',phrase:'kick'},
+    {genreFamily:'Latin America',genre:'Brazilian',subgenre:'Bossa Nova',mood:'Intimate',phrase:'nylon'},
+    {genreFamily:'Rock',genre:'Rock',subgenre:'Progressive Rock',mood:'Energetic',phrase:'guitar'},
+  ];
+  for(const input of choices){
+    const e=environment(); await heartbeat(e);
+    // The React Creator builds these cues from SONARA's existing canonical
+    // taxonomy with musicStyleIntelligenceLegacy before posting to Cloudflare.
+    const body={...modelBody,genreFamily:input.genreFamily,genre:input.genre,
+      subgenre:input.subgenre,mood:input.mood,rawPrompt:'an original song',
+      sonaraStyleDNA:{
+        instrumentation:input.phrase+',authentic instruments',
+        rhythm:'genre-specific syncopation and natural groove',
+        identity:input.subgenre+' sonic identity',
+        harmony:'style-appropriate harmonic movement',
+        production:'genre-appropriate production',
+        atmosphere:input.mood+' atmosphere'
+      }};
+    const result=await handleNativeOpenModelCreator(req('/api/billing/generate',body),e,context,nativeAuth());
+    assert.equal(result.status,202,input.subgenre);
+    const id=(await result.json()).jobId;
+    const saved=JSON.parse(e.SONARA_AUDIO_BUCKET.data.get('multi-engine-v1/jobs/'+id+'.json'));
+    const job=saved.request;
+    assert.ok(job.genreFamily,input.subgenre);
+    assert.ok(job.genre,input.subgenre);
+    assert.ok(job.subgenre,input.subgenre);
+    assert.ok(job.mood,input.subgenre);
+    assert.ok(job.sonaraStyleDNA?.instrumentation,input.subgenre);
+    assert.ok(job.sonaraStyleDNA?.rhythm,input.subgenre);
+    assert.ok(job.sonaraStyleDNA?.atmosphere,input.subgenre);
+    assert.equal(job.rawPrompt,'an original song');
+    assert.ok(job.sonaraStyleDNA.instrumentation.toLowerCase().includes(input.phrase),input.subgenre);
+    assert.notEqual(job.prompt.length,0);
+  }
+});

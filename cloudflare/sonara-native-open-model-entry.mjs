@@ -122,10 +122,15 @@ export async function handleNativeOpenModelCreator(request,env,ctx,authHandler=h
       if(session.error)return session.error;
       stage='gateway';
       const secret=await deriveRelayGatewayInternalKey(env);
+      // SONARA Music Creator resolves its world-music catalog in the
+      // frontend bundle, which is already compiled by Vite. Keep the server
+      // protected by native account, plan, owner and length validation.
+      // This style metadata affects only model conditioning, not privilege.
+      const conditioned={...body};
       stage='enqueue';
       // Important: NEVER retry this POST through a legacy router. An R2
       // queue write can succeed even when the acknowledgement is lost.
-      const result=await enqueueCreatorOpenModel(body,env,ctx,session.uid,secret,request.url);
+      const result=await enqueueCreatorOpenModel(conditioned,env,ctx,session.uid,secret,request.url);
       if(!result)return error('INVALID_CREATOR_MODEL','Modello Music Creator non supportato.',400,stage);
       return withStage(result,'native-open-model-enqueue');
     }
