@@ -49,12 +49,33 @@ def clone(url, dst):
         print("Existing git source retained:", dst)
 
 
+def repair_heartmula_compatibility():
+    """Repair only the private HeartMuLa venv; leave ACE-Step and checkpoints alone."""
+    py = ROOT / "heartlib-venv" / "bin" / "python"
+    if not py.is_file():
+        raise RuntimeError("HeartMuLa venv missing: run --heartmula first")
+    # datasets 2.14.4 (via torchtune 0.4.0) uses the removed
+    # pyarrow.PyExtensionType symbol. PyArrow 20 still provides it.
+    run([UV, "pip", "install", "--python", str(py), "--no-deps", "pyarrow==20.0.0"])
+    check = (
+        "import pyarrow, datasets; "
+        "assert hasattr(pyarrow, 'PyExtensionType'); "
+        "print('SONARA_PYARROW=' + pyarrow.__version__); "
+        "print('SONARA_DATASETS=' + datasets.__version__); "
+        "from heartlib import HeartMuLaGenPipeline; "
+        "print('SONARA_HEARTMULA_IMPORT_OK=True')"
+    )
+    run([str(py), "-c", check])
+    print("SONARA_HEARTMULA_COMPAT_REPAIR_OK=True")
+
+
 def heartmula():
     clone("https://github.com/HeartMuLa/heartlib.git", HEART)
     venv = ROOT / "heartlib-venv"
     if not (venv / "bin" / "python").exists():
         run([UV, "venv", "--python", "3.10", str(venv)])
     run([UV, "pip", "install", "--python", str(venv / "bin/python"), "-e", str(HEART)])
+    repair_heartmula_compatibility()
     checkpoint = HEART / "ckpt"
     download("HeartMuLa/HeartMuLaGen", checkpoint)
     download("HeartMuLa/HeartMuLa-oss-3B-happy-new-year", checkpoint / "HeartMuLa-oss-3B")
@@ -96,14 +117,18 @@ if __name__ == "__main__":
     ROOT.mkdir(parents=True, exist_ok=True)
     parser = argparse.ArgumentParser()
     parser.add_argument("--heartmula", action="store_true")
+    parser.add_argument("--repair-heartmula", action="store_true",
+                        help="Fix only HeartMuLa Python imports, preserve downloaded models")
     parser.add_argument("--stable-audio", action="store_true")
     parser.add_argument("--all", action="store_true")
     opts = parser.parse_args()
-    if not (opts.heartmula or opts.stable_audio or opts.all):
-        parser.error("Select --heartmula, --stable-audio or --all")
+    if not (opts.heartmula or opts.repair_heartmula or opts.stable_audio or opts.all):
+        parser.error("Select --heartmula, --repair-heartmula, --stable-audio or --all")
     if not shutil.which("git") or not shutil.which("ffmpeg"):
         parser.error("git and ffmpeg are required; install them privately first")
     UV = uv()
+    if opts.repair_heartmula:
+        repair_heartmula_compatibility()
     if opts.all or opts.heartmula:
         heartmula()
     if opts.all or opts.stable_audio:
