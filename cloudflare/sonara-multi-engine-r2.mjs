@@ -118,6 +118,15 @@ export async function handleSonaraMultiEngine(request, env, ctx) {
   const bucket = env.SONARA_AUDIO_BUCKET;
   if (!bucket) return namespace ? json({ error:'Storage non configurato' }, 503) : null;
   if (modelRequest) {
+    // Retired models cannot accept new jobs, including from cached site builds.
+    // Keep old R2 job retrieval intact for existing customers.
+    if (!enabled(env)) {
+      const posted = await readJson(request.clone(), 50_000);
+      if (validModel(safeText(posted?.sonaraModelId, 80))) {
+        return json({ error: 'Questo motore è stato ritirato. SONARA utilizza esclusivamente ACE-Step XL Turbo.' }, 410);
+      }
+      return null;
+    }
     // Only intercept explicit model requests; existing ACE-Step behavior remains unchanged.
     if (!(String(request.headers.get('content-type')||'').toLowerCase().includes('application/json'))) return null;
     const payload = await readJson(request.clone(), 50_000);
@@ -177,7 +186,10 @@ export async function handleSonaraMultiEngine(request, env, ctx) {
     }
     return json(result);
   }
-  if (p === '/api/sonara-multi/capabilities' && request.method === 'GET') return json(await agentHealth(bucket, env));
+  if (p === '/api/sonara-multi/capabilities' && request.method === 'GET') {
+    if (!enabled(env)) return json({ version:'sonara-ace-step-only', agentOnline:false, models:{} });
+    return json(await agentHealth(bucket, env));
+  }
   const audioMatch = p.match(/^\/api\/sonara-multi\/audio\/(sr2_[0-9a-f-]{36})$/);
   if (audioMatch && ['GET','HEAD'].includes(request.method)) {
     const id=audioMatch[1];
