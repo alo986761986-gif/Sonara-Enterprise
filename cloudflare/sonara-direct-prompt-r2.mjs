@@ -14,6 +14,8 @@ function directProfileOf(body = {}) {
  */
 export function buildFreeMolabR2Payload(body = {}) {
   const prompt = String(body.rawPrompt || body.prompt || '').trim().slice(0, 7600);
+  const explicitInstrumental = /\b(?:instrumental(?:e)?|no vocals?|without vocals?|sans voix|senza voce|solo strumenti|only instruments?)\b/i.test(prompt);
+  const lyrics = explicitInstrumental ? '[Instrumental]' : String(body.lyrics || '').slice(0, 4096);
   if (!prompt) throw new TypeError('SONARA Prompt Libero requires a prompt');
   const bpmMatch = /\b(?:bpm\s*[:=]?\s*(\d{2,3})|(\d{2,3})\s*bpm)\b/i.exec(prompt);
   const proposedBpm = bpmMatch ? Number(bpmMatch[1] || bpmMatch[2]) : null;
@@ -28,7 +30,9 @@ export function buildFreeMolabR2Payload(body = {}) {
     model: wantsSft ? 'acestep-v15-xl-sft' : 'acestep-v15-xl-turbo',
     task_type: 'text2music',
     prompt,
-    lyrics: typeof body.lyrics === 'string' ? body.lyrics.slice(0, 4096) : '',
+    lyrics,
+    instrumental: explicitInstrumental,
+    audio_format: 'wav',
     audio_duration: audioDuration,
     batch_size: 1,
     inference_steps: steps,
