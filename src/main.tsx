@@ -3,7 +3,6 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import BootAuth from './components/auth/BootAuth';
 import LegalDocumentPage from './components/legal/LegalDocumentPage';
-import IntelligentPromptControl from './components/generator/IntelligentPromptControl';
 import IntelligentLyricsControl from './components/generator/IntelligentLyricsControl';
 import VocalCharacterControl from './components/generator/VocalCharacterControl';
 import ElevenMusicGenerationControl from './components/generator/ElevenMusicGenerationControl';
@@ -57,7 +56,6 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <LyricsApiCompatibilityBridge />
         <RealMusicIntelligenceBridge />
         <BpmModeControl />
-        <IntelligentPromptControl />
         <IntelligentLyricsControl />
         <VocalCharacterControl />
         <ElevenMusicGenerationControl />
