@@ -5,6 +5,7 @@ import { proCapabilities } from './sonara-remix-pro-r2.mjs';
 import { parseV6Controls, v6PreviewBrief } from './sonara-remix-pro-v6-controls.mjs';
 import { prepareMolabR2RelayPayload } from './sonara-molab-xl-router.mjs';
 import { deriveRelayGatewayInternalKey } from './sonara-gateway-verifier.mjs';
+import { selectedCreatorOpenModel, enqueueCreatorOpenModel, isCreatorOpenModelJob, pollCreatorOpenModelJob } from './sonara-creator-open-model-route.mjs';
 import { REMIX_PRO_DURATION_EDGE_SCRIPT } from './sonara-remix-pro-duration-edge.mjs';
 
 export { SonaraJobState, SonaraAuthStore };
@@ -231,6 +232,14 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
   // Remix Pro has its own heartbeat and does not depend on the classic relay.
   const requested=(await request.clone().json().catch(()=>({})));
   const proRequested=requested?.sonaraRemixPro===true;
+  // Open-model creator jobs use their own authenticated R2 queue and GPU
+  // heartbeat. They must not depend on the unrelated ACE-Step relay heartbeat.
+  const explicitCreatorModel = requested?.sonaraMultiEngineCreatorRequest === true
+    && requested?.sonaraModelId != null;
+  const openCreatorModel = selectedCreatorOpenModel(requested);
+  if (explicitCreatorModel && !openCreatorModel) {
+    return nativeGenerationError('INVALID_CREATOR_MODEL', 'Modello Music Creator non supportato.', 400);
+  }
   if(proRequested) {
     const caps=await proCapabilities(env);
     if(!caps.available)return nativeGenerationError(
@@ -248,7 +257,7 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
        requested.sonaraRemixProV6Controls?.mode==='explosive' && !caps.explosiveAvailable)
       return nativeGenerationError('REMIX_EXPLOSIVE_WORKER_NOT_READY',
         'Explosive Fusion A+B richiede la versione GPU dedicata aggiornata.',503);
-  } else if (!(await relayAgentAvailable(env))) {
+  } else if (!openCreatorModel && !(await relayAgentAvailable(env))) {
     return nativeGenerationError(
       'MOLAB_RELAY_OFFLINE',
       'MoLab RTX PRO 6000 non è collegato. Il relay SONARA si sta ripristinando: riprova tra pochi secondi.',
@@ -274,6 +283,17 @@ async function forwardVerifiedRelayGeneration(request, env, ctx) {
   const uid = String(session?.user?.uid || '').trim();
   if (session?.authenticated !== true || !uid || uid.length > 128) {
     return nativeGenerationError('AUTH_TOKEN_INVALID', 'Accedi con un account SONARA valido.', 401);
+  }
+
+  if (openCreatorModel) {
+    // Native quota/auth validation above still applies. The new GPU model
+    // bypasses only the old ACE-Step online gate, never the account check.
+    try {
+      const internalSecret = await deriveRelayGatewayInternalKey(env);
+      return await enqueueCreatorOpenModel(requested, env, ctx, uid, internalSecret, request.url);
+    } catch {
+      return nativeGenerationError('OPEN_MODEL_GATEWAY_UNAVAILABLE', 'Collegamento al modello selezionato non disponibile.', 503);
+    }
   }
 
   let source;
@@ -495,6 +515,39 @@ export default {
     ) {
       const authResponse = await handleSonaraNativeAuth(request, env);
       if (authResponse) return authResponse;
+    }
+
+    // The legacy ACE-Step and HeartMuLa queues both use sr2_ job IDs.
+    // Only claim billing/job requests proven to belong to our isolated R2
+    // namespace. No other job family's polling behavior is modified.
+    if (publicHost && request.method === 'GET' && url.pathname === '/api/billing/job') {
+      let openJob = false;
+      try {
+        openJob = await isCreatorOpenModelJob(request, env);
+      } catch {
+        return nativeGenerationError('OPEN_MODEL_POLL_UNAVAILABLE', 'Stato del modello temporaneamente non disponibile.', 503);
+      }
+      if (openJob) {
+        const sessionHeaders = new Headers();
+        const cookie = request.headers.get('cookie');
+        if (cookie) sessionHeaders.set('cookie',cookie);
+        const sessionResponse = await handleSonaraNativeAuth(new Request(
+          new URL('/api/sonara-auth/session',request.url),{method:'GET',headers:sessionHeaders,redirect:'manual'}
+        ),env);
+        if (!sessionResponse?.ok) return nativeGenerationError('AUTH_TOKEN_INVALID','Accedi nuovamente al tuo account SONARA.',401);
+        const session = await sessionResponse.json().catch(()=>({}));
+        const uid=String(session?.user?.uid || '').trim();
+        if (session?.authenticated !== true || !uid || uid.length > 128) {
+          return nativeGenerationError('AUTH_TOKEN_INVALID','Accedi nuovamente al tuo account SONARA.',401);
+        }
+        try {
+          const internalSecret = await deriveRelayGatewayInternalKey(env);
+          const result = await pollCreatorOpenModelJob(request,env,ctx,uid,internalSecret);
+          return withVersion(result);
+        } catch {
+          return nativeGenerationError('OPEN_MODEL_POLL_UNAVAILABLE','Stato del modello temporaneamente non disponibile.',503);
+        }
+      }
     }
 
     if (publicHost && request.method === 'POST' && url.pathname === '/api/billing/generate') {
