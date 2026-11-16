@@ -27,3 +27,7 @@ SONARA_OPEN_MODEL_CREATOR_HTTP500_JSON_GATEWAY=2026-11-16
 PR_140_MERGE=babb7f8958a5b225a5d9a9c9c904a2fbca7a5d10
 REASON=Bypass-legacy-chain-for-open-model-generation-and-return-authenticated-JSON
 SAFETY=Authenticated-plan-checks-and-job-ownership-preserved-No-double-POST
+SONARA_HEARTMULA_WORLD_STYLE_CONDITIONING=2026-11-16
+PR_141_MERGED=fcdb67fb4d6ed7bafe8e625228ca3147a065eab1
+STYLE=Family-Genre-Subgenre-Atmosphere-and-catalog-sonic-DNA-in-R2
+SAFETY=ACE-Step-Remix-Pro-unmodified;GPU-worker-restart-required
