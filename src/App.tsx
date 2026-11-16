@@ -265,6 +265,7 @@ export default function App() {
   const [promptMode, setPromptMode] = useState<SonaraPromptMode>(() => normalizePromptMode(localStorage.getItem(SONARA_PROMPT_MODE_KEY)));
   const selectPromptMode = (value: SonaraPromptMode) => {
     setPromptMode(value);
+    if (automaticTitleRef.current) setTitle(value === 'free' ? 'Nuovo brano SONARA' : `Sonara ${subgenre} Track`);
     localStorage.setItem(SONARA_PROMPT_MODE_KEY, value);
     window.dispatchEvent(new CustomEvent('sonara:prompt-mode-changed', { detail: value }));
   };
@@ -272,7 +273,7 @@ export default function App() {
   const [genre, setGenre] = useState(INITIAL_SELECTION.genre);
   const [subgenre, setSubgenre] = useState(INITIAL_SELECTION.subgenre);
   const [mood, setMood] = useState(INITIAL_SELECTION.mood);
-  const [title, setTitle] = useState(INITIAL_SELECTION.title);
+  const [title, setTitle] = useState(() => localStorage.getItem(SONARA_PROMPT_MODE_KEY) === 'guided' ? INITIAL_SELECTION.title : 'Nuovo brano SONARA');
   const [lyrics, setLyrics] = useState('');
   const [vocalMode, setVocalMode] = useState<VocalMode>(INITIAL_SELECTION.vocalMode);
   const [vocalLanguage, setVocalLanguage] = useState<LanguageCode>(() => {
@@ -615,10 +616,10 @@ export default function App() {
             const archived = await archiveGeneratedProject({
               jobId: id,
               title,
-              genre,
-              subgenre,
-              bpm,
-              keySignature,
+              genre: promptMode === 'free' ? 'Prompt libero' : genre,
+              subgenre: promptMode === 'free' ? 'Composizione AI' : subgenre,
+              bpm: promptMode === 'free' ? (Number(current?.metadata?.requestedBpm) || undefined) : bpm,
+              keySignature: promptMode === 'free' ? undefined : keySignature,
               durationSec,
               primaryAudioUrl: String(url),
               audioFormat: completedAudioFormat,
