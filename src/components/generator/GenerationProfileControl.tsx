@@ -141,7 +141,7 @@ function installNativeFetchBridge() {
           // The dedicated A/B action is explicitly a two-track quality render.
           // Do not let the global Instant selector silently turn it into a
           // single-track 1-step job after the user has paid for two tracks.
-          const useSft = selectedProfile === 'pro' && runtime.__sonaraSftReady === true && body.sonaraRemixPro !== true;
+          const useSft = selectedProfile === 'pro' && runtime.__sonaraSftReady === true && body.sonaraRemixPro !== true && body.sonaraForcePairQuality !== true;
           const profile = body.sonaraForcePairQuality === true
             ? (selectedProfile === 'ultra' ? 'ultra' : 'quality')
             : selectedProfile === 'pro' ? 'quality' : selectedProfile;
