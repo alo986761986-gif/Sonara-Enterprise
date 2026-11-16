@@ -52,3 +52,9 @@ BACKEND=disable-multi-engine-new-jobs-and-preserve-old-records
 GENERATION=ACE-Step-only-exact-selected-profile-no-duplicate-retries
 VERIFICATION=live-HTML-ACE-only-marker-and-empty-multi-engine-capabilities
 DEPLOY_TARGET=Cloudflare-sonaraenterprise.com
+
+SONARA_XL_SFT_QUALITY_PRO_RELEASE=2026-11-16
+PR_149_MERGE=1eb5d5091b12c4b0914433feec994171fbd43ebc
+RELEASE_MODE=Guarded-XL-SFT-Quality-Pro-only-when-MoLab-agent-reports-8003-ready
+ACE_TURBO_FALLBACK=Existing-Turbo-8001-unchanged
+RELEASE_GATE=11-GitHub-workflows-success
