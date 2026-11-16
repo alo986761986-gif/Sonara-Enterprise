@@ -64,3 +64,10 @@ PR_150_MERGED=59d36a379395ec22e18d4cf6cb088489615088fd
 RELEASE=Quality-Pro-verified-LM4B-ASR-audit-accurate-UI
 VALIDATION=11-GitHub-workflows-passed
 GPU_RELAY_HANDOFF=Required-on-authorized-MoLab-after-release
+
+SONARA_PROMPT_LIBERO_DEFAULT_RELEASE=2026-11-16
+PR_152_MERGED=ac6b26227e3843a0536a2e66a9558e257b0f3833
+MODES=Prompt-Libero-default;Guidata-optional
+ENGINE=ACE-Step-XL-Turbo-and-XL-SFT-through-existing-Cloudflare-R2-relay
+SAFETY=No-MoLab-restart;No-Vercel;No-TinyFish;Existing-auth-and-billing-preserved
+VALIDATION=8-of-8-GitHub-workflows-success
