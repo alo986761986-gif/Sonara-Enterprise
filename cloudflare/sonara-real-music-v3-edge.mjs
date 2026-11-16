@@ -1,3 +1,4 @@
+import { handleSonaraMultiEngine } from './sonara-multi-engine-r2.mjs';
 import runtime, { SonaraJobState, SonaraAuthStore } from './sonara-ultra-diversity-v1-edge.mjs';
 import relayRuntime from './sonara-r2-https-relay.mjs';
 import { prepareMolabR2RelayPayload } from './sonara-molab-xl-router.mjs';
@@ -220,6 +221,8 @@ function capabilities() {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    const multiResponse = await handleSonaraMultiEngine(request, env, ctx);
+    if (multiResponse) return multiResponse;
     if (url.pathname.startsWith('/api/sonara-relay/')) return relayRuntime.fetch(request, env, ctx);
     if (env.SONARA_R2_RELAY_ENABLED === 'true') {
       if (request.method === 'POST' && url.pathname === '/api/engine/generate') {
