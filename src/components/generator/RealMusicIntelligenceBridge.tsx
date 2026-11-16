@@ -158,6 +158,8 @@ export default function RealMusicIntelligenceBridge() {
         if (contentType.includes('application/json')) {
           try {
             const originalBody = await baseRequest.clone().json() as Record<string, any>;
+            // Prompt Libero is the creator's direct prompt, not a taxonomy template.
+            if (originalBody.sonaraPromptMode === 'free') return nativeFetch(input as any, init);
             const live = readLiveContext();
 
             // Always use the CURRENT visible prompt. The old bridge cached a stale prompt
