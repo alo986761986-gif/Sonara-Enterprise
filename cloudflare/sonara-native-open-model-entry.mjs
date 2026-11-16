@@ -8,7 +8,6 @@ import { handleSonaraNativeAuth } from './sonara-native-auth.mjs';
 import { deriveRelayGatewayInternalKey } from './sonara-gateway-verifier.mjs';
 import { resolveMusicTaxonomyHierarchy } from '../src/musicTaxonomyHierarchy.ts';
 import { getMusicStyleProfile } from '../src/musicStyleIntelligence.ts';
-import { getMusicStyleProfile as getLegacyStyleProfile } from '../src/musicStyleIntelligenceLegacy.ts';
 import { getMusicAtmosphereProfile } from '../src/musicAtmosphereIntelligence.ts';
 import {
   selectedCreatorOpenModel, enqueueCreatorOpenModel,
@@ -135,10 +134,6 @@ export async function handleNativeOpenModelCreator(request,env,ctx,authHandler=h
         subgenre:body.subgenre,atmosphere:body.mood
       });
       const dna=getMusicStyleProfile(selection.family,selection.genre,selection.subgenre);
-      // Prefer concise, genuine instruments and rhythmic cues from SONARA's
-      // curated musical catalog. The full DNA text contains long behavioral
-      // instructions that would confuse the HeartMuLa tags tokenizer.
-      const concise=getLegacyStyleProfile(selection.family,selection.genre,selection.subgenre);
       const atmosphere=getMusicAtmosphereProfile(selection.atmosphere,{
         family:selection.family,genre:selection.genre,subgenre:selection.subgenre
       });
@@ -147,11 +142,11 @@ export async function handleNativeOpenModelCreator(request,env,ctx,authHandler=h
         genreFamily:selection.family,genre:selection.genre,
         subgenre:selection.subgenre,mood:selection.atmosphere,
         sonaraStyleDNA:{
-          identity:String(concise.identity||dna.identity||'').slice(0,450),
-          instrumentation:String(concise.instrumentation||dna.instrumentation||'').slice(0,700),
-          rhythm:String(concise.rhythm||dna.rhythm||'').slice(0,700),
-          harmony:String(concise.harmony||dna.harmony||'').slice(0,450),
-          production:String(concise.production||dna.production||'').slice(0,450),
+          identity:String(dna.identity||'').slice(0,450),
+          instrumentation:String(dna.instrumentation||'').slice(0,700),
+          rhythm:String(dna.rhythm||'').slice(0,700),
+          harmony:String(dna.harmony||'').slice(0,450),
+          production:String(dna.production||'').slice(0,450),
           atmosphere:String(atmosphere.identity||'').slice(0,400)
         }
       };
