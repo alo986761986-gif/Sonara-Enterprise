@@ -45,10 +45,24 @@ const payloadMarker = `        body: JSON.stringify({\n          prompt: finalPr
 const payloadReplacement = `        body: JSON.stringify({\n          prompt: finalPrompt,\n          rawPrompt,\n          genre,\n          genreFamily,\n          subgenre,\n          mood,\n          styleCaption: buildUniversalStyleCaption({ genreFamily, genre, subgenre, mood }),`;
 
 if (!source.includes('styleCaption: buildUniversalStyleCaption')) {
-  if (!source.includes(payloadMarker)) {
-    throw new Error('SONARA universal style caption activation failed: generation payload marker not found.');
+  if (source.includes(payloadMarker)) {
+    source = source.replace(payloadMarker, payloadReplacement);
+  } else {
+    // Prompt Libero has a separate minimal billing request. Insert the old
+    // taxonomy caption exclusively inside the opt-in Guided object.
+    const guidedMarker = `          sonaraPromptMode: 'guided',
+          prompt: finalPrompt,
+          rawPrompt,
+          genre,
+          genreFamily,
+          subgenre,
+          mood,`;
+    if (!source.includes(guidedMarker)) {
+      throw new Error('SONARA universal style caption activation failed: guided payload marker not found.');
+    }
+    source = source.replace(guidedMarker,
+      guidedMarker + '\n          styleCaption: buildUniversalStyleCaption({ genreFamily, genre, subgenre, mood }),');
   }
-  source = source.replace(payloadMarker, payloadReplacement);
 }
 
 fs.writeFileSync(appPath, source, 'utf8');
