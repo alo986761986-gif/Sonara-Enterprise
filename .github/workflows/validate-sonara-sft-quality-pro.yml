@@ -41,5 +41,5 @@ jobs:
       - name: Confirm Pro selector compiled
         run: |
           test -d dist/assets
-          grep -R -Fq 'QUALITÀ PRO' dist/assets
+          grep -R -Fq 'sonaraSftQualityPro' dist/assets
           grep -R -Fq 'acestep-v15-xl-sft' dist/assets
