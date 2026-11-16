@@ -109,6 +109,12 @@ export async function handleNativeOpenModelCreator(request,env,ctx,authHandler=h
       if(!body||typeof body!=='object'||Array.isArray(body))return null;
       if(body.sonaraMultiEngineCreatorRequest!==true)return null;
       if(body.sonaraRemixPro===true)return null;
+      // ACE-Step is the only supported Creator engine. Ignore stale UI
+      // selections before they can reach a retired GPU queue.
+      if(env.SONARA_MULTI_ENGINE_ENABLED!=='true') {
+        return error('CREATOR_MODEL_RETIRED',
+          'SONARA utilizza solo ACE-Step XL Turbo. Aggiorna la pagina e riprova.',410,stage);
+      }
       const model=selectedCreatorOpenModel(body);
       if(!MODEL_IDS.has(model)) {
         // Fail closed; do not silently fall back to legacy ACE-Step.

@@ -75,6 +75,16 @@ jobs:
           set -euo pipefail
           npx --yes wrangler@latest deploy --config wrangler.jsonc
 
+      - name: Verify ACE-Step-only Creator and retired models on production
+        shell: bash
+        run: |
+          set -euo pipefail
+          page="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?ace_step_only=${GITHUB_SHA}")"
+          printf '%s' "${page}" | grep -Fq 'sonara-creator-engine'
+          payload="$(curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "https://api.sonaraenterprise.com/api/sonara-multi/capabilities?ace_step_only=${GITHUB_SHA}")"
+          MULTI_CAPS="${payload}" node -e "const x=JSON.parse(process.env.MULTI_CAPS); if (x.version!=='sonara-ace-step-only'||Object.keys(x.models||{}).length)process.exit(1);"
+          echo "ACE-Step only Creator is published and retired model capabilities are empty."
+
       - name: Verify Creator Audio on sonaraenterprise.com
         shell: bash
         run: |

@@ -19,8 +19,19 @@ test('capabilities fail closed until GPU heartbeat and explicit activation',asyn
   const resp=await handleSonaraMultiEngine(new Request('https://api.sonaraenterprise.com/api/sonara-multi/capabilities'),env,context);
   assert.equal(resp.status,200);
   const payload=await resp.json();
-  assert.equal(payload.models['heartmula-3b'].ready,false);
-  assert.equal(payload.models['stable-audio-3-medium'].ready,false);
+  assert.deepEqual(payload.models, {});
+  assert.equal(payload.version, 'sonara-ace-step-only');
+});
+
+test('retired models cannot enqueue even with old cached Creator requests',async()=>{
+  const bucket=makeBucket();
+  const env={SONARA_AUDIO_BUCKET:bucket,SONARA_MULTI_ENGINE_ENABLED:'false'};
+  const response=await handleSonaraMultiEngine(new Request('https://api.sonaraenterprise.com/api/engine/generate',{
+    method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({sonaraModelId:'heartmula-3b',prompt:'House',durationSec:30})
+  }),env,context);
+  assert.equal(response.status,410);
+  assert.equal(bucket.data.size,0);
 });
 test('an unauthenticated generation request cannot enqueue a model job',async()=>{
   const bucket=makeBucket();
