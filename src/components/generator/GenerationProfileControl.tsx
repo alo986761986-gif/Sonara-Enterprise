@@ -140,7 +140,10 @@ function installNativeFetchBridge() {
             ? (selectedProfile === 'ultra' ? 'ultra' : 'quality')
             : selectedProfile;
           const requestedModel = readModel();
-          if (requestedModel !== 'ace-step') {
+          // Only the Music Creator's explicit request can select a model.
+          // Remix Pro, Studio and third-party jobs must never inherit the
+          // user's Music Creator model preference implicitly.
+          if (requestedModel !== 'ace-step' && body.sonaraMultiEngineCreatorRequest === true) {
             body.sonaraModelId = requestedModel;
           } else {
             delete body.sonaraModelId;
