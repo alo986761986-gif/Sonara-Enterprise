@@ -2,9 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Download, Image as ImageIcon, Pause, Play, RefreshCw, Sparkles, Volume2, VolumeX } from 'lucide-react';
 import { buildGenerationPrompt, type VocalMode } from '../../generationPrompt';
-import { resolveMusicTaxonomyHierarchy } from '../../musicTaxonomyHierarchy';
-import { getMusicStyleProfile as getConciseMusicStyleProfile } from '../../musicStyleIntelligenceLegacy';
-import { getMusicAtmosphereProfile } from '../../musicAtmosphereIntelligence';
 import { getFirebaseIdToken } from '../../lib/firebaseClient';
 import { archiveGeneratedProject } from '../../services/generatedAssetVault';
 
@@ -88,34 +85,6 @@ const empty = (id: CandidateId): CandidateState => ({
 });
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-/** HeartMuLa expects short tags, not the ACE-Step instruction contract. */
-function openModelMusicDNA(context: Context) {
-  const hierarchy = resolveMusicTaxonomyHierarchy({
-    family: context.genreFamily, genre: context.genre,
-    subgenre: context.subgenre, atmosphere: context.mood
-  });
-  const style = getConciseMusicStyleProfile(
-    hierarchy.family, hierarchy.genre, hierarchy.subgenre
-  );
-  const atmosphere = getMusicAtmosphereProfile(hierarchy.atmosphere, {
-    family: hierarchy.family, genre: hierarchy.genre, subgenre: hierarchy.subgenre
-  });
-  return {
-    genreFamily: hierarchy.family,
-    genre: hierarchy.genre,
-    subgenre: hierarchy.subgenre,
-    mood: hierarchy.atmosphere,
-    sonaraStyleDNA: {
-      identity: style.identity.slice(0, 450),
-      instrumentation: style.instrumentation.slice(0, 700),
-      rhythm: style.rhythm.slice(0, 700),
-      harmony: style.harmony.slice(0, 450),
-      production: style.production.slice(0, 450),
-      atmosphere: atmosphere.identity.slice(0, 400)
-    }
-  };
-}
 
 const GENERATION_PROFILE_KEY = 'sonara.generation.profile.v6';
 const readGenerationProfile = (): 'fast' | 'quality' | 'ultra' => {
@@ -610,29 +579,13 @@ export default function ElevenMusicGenerationControl() {
     setSelected(null);
     setError('');
     const generationProfile = readGenerationProfile();
-    const selectedModel = window.localStorage.getItem('sonara.generation.model.v1');
-    const openModel = selectedModel === 'heartmula-3b' || selectedModel === 'stable-audio-3-medium';
     const instant = generationProfile === 'fast';
-    // HeartMuLa and Stable Audio return one WAV. Even under ULTRA we must not
-    // demand a second master from a single-track GPU job.
-    const expectedCount = openModel ? 1 : generationProfile === 'ultra' ? 2 : 1;
+    const expectedCount = generationProfile === 'ultra' ? 2 : 1;
     setCandidates(expectedCount === 1 ? [empty('A')] : [empty('A'), empty('B')]);
     try {
       const textarea = document.getElementById('sonara-prompt') as HTMLTextAreaElement | null;
       if (!textarea) throw new Error('Apri il Music Creator prima di generare.');
       const context = readContext(textarea);
-      // Check the selected model BEFORE generating covers or metering minutes.
-      if (selectedModel === 'heartmula-3b' && context.durationSec > 240) {
-        throw new Error('HeartMuLa supporta brani fino a 4 minuti. Riduci la durata o seleziona ACE-Step.');
-      }
-      if (selectedModel === 'stable-audio-3-medium') {
-        if (context.durationSec > 380) {
-          throw new Error('Stable Audio 3 supporta al massimo 6 minuti e 20 secondi. Riduci la durata.');
-        }
-        if (context.vocalMode !== 'instrumental') {
-          throw new Error('Stable Audio 3 produce strumentali. Seleziona HeartMuLa o ACE-Step per brani cantati.');
-        }
-      }
       if (!context.rawPrompt) throw new Error('Scrivi o crea prima il prompt musicale.');
       if (context.vocalMode !== 'instrumental' && !context.lyrics) throw new Error('Inserisci il testo prima della generazione vocale.');
 
@@ -656,9 +609,7 @@ export default function ElevenMusicGenerationControl() {
       const token = await getFirebaseIdToken(true);
       const generationId = crypto.randomUUID ? crypto.randomUUID() : `generation-${Date.now()}`;
       localStorage.setItem('sonara.lastGenerationPairId', generationId);
-      processing('', 8, openModel
-        ? (selectedModel === 'heartmula-3b' ? 'HeartMuLa 3B: preparazione canzone' : 'Stable Audio 3: preparazione strumentale')
-        : instant ? 'SONARA INSTANT: generazione prioritaria'
+      processing('', 8, instant ? 'SONARA INSTANT: generazione prioritaria'
         : generationProfile === 'quality' ? 'SONARA REALISTIC FAST: 4 step + realism V3'
         : autoCover ? 'SONARA ULTRA: audio + copertine A/B' : 'SONARA ULTRA: generazione dei 2 master');
 
@@ -674,8 +625,6 @@ export default function ElevenMusicGenerationControl() {
           prompt: finalPrompt,
           rawPrompt: context.rawPrompt,
           creatorPrompt: context.rawPrompt,
-          sonaraMultiEngineCreatorRequest: true,
-          ...(openModel ? openModelMusicDNA(context) : {}),
           sonaraCreatorPromptAuthoritative: context.rawPrompt,
           sonaraOriginalCreatorBrief: context.rawPrompt,
           genreFamily: context.genreFamily,
