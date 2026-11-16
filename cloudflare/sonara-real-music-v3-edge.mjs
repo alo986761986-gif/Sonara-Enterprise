@@ -127,6 +127,7 @@ function hookContract(genome) {
 }
 
 function enrich(body = {}) {
+  if (body?.sonaraPromptMode === 'free') return body;
   const profile = profileOf(body);
   if (profile === 'fast') return { ...body, sonaraRealMusicV3: false, sonaraRealMusicV3Version: VERSION };
 
