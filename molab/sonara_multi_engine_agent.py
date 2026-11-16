@@ -79,18 +79,24 @@ def heartmula(request: dict, out: pathlib.Path, working: pathlib.Path):
     if not py.is_file() or not (repo / "examples/run_music_generation.py").is_file() or not model_path.is_dir():
         raise RuntimeError("HeartMuLa not installed")
     seconds = prepare(request, working)
-    mp3 = working / "heartmula-output.mp3"
+    # TorchAudio 2.10 delegates saving to TorchCodec. Keep the official
+    # HeartMuLa inference intact but encode its output to WAV via soundfile
+    # in a separate, short-lived Python process.
+    wav_source = working / "heartmula-output.wav"
+    wrapper = pathlib.Path(__file__).resolve().with_name("sonara_heartmula_wav_wrapper.py")
+    if not wrapper.is_file():
+        raise RuntimeError("SONARA HeartMuLa WAV wrapper missing")
     cmd = [
-        str(py), str(repo / "examples/run_music_generation.py"),
+        str(py), str(wrapper), str(repo / "examples/run_music_generation.py"),
         "--model_path", str(model_path), "--version", "3B",
         "--lyrics", str(working / "lyrics.txt"),
         "--tags", str(working / "tags.txt"),
-        "--save_path", str(mp3),
+        "--save_path", str(wav_source),
         "--max_audio_length_ms", str(min(seconds, 240) * 1000),
         "--lazy_load", "true",
     ]
     run(cmd, cwd=repo, timeout=1200)
-    run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(mp3),
+    run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(wav_source),
          "-ar", "44100", "-ac", "2", "-c:a", "pcm_s16le", str(out)], timeout=240)
 
 
