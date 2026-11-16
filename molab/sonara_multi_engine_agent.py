@@ -95,7 +95,7 @@ def heartmula(request: dict, out: pathlib.Path, working: pathlib.Path):
 
 
 def stable_audio(request: dict, out: pathlib.Path, working: pathlib.Path):
-    py = pathlib.Path(os.getenv("SONARA_STABLE_PYTHON", str(ROOT / "stable-venv" / "bin" / "python")))
+    py = pathlib.Path(os.getenv("SONARA_STABLE_PYTHON", str(ROOT / "stable-audio-3" / ".venv" / "bin" / "python")))
     if not py.is_file():
         raise RuntimeError("Stable Audio 3 not installed")
     seconds = prepare(request, working)
