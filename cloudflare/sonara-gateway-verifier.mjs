@@ -87,7 +87,13 @@ export function withGatewayVerifier(runtime) {
       // The public relay switch is not changed or implicitly enabled here.
       const engineRequest = path === '/api/engine/generate' && request.method === 'POST';
       const pollingRequest = musicJob.test(path) && request.method === 'GET';
+      // The multi-engine audio route validates HMAC-signed URLs using the
+      // same derived gateway key as the authenticated /api/music/job poll.
+      // Route this namespace through the verifier so the key is stable even
+      // when clients request WAV directly without the internal header.
+      // Agent endpoints keep their own relay-token authentication below.
       const relayRequest = path.startsWith('/api/sonara-relay/') ||
+        path.startsWith('/api/sonara-multi/') ||
         (env.SONARA_R2_RELAY_ENABLED === 'true' && (engineRequest || pollingRequest));
       if (!relayRequest || !usable) return runtime.fetch(request, env, ctx);
       if (request.method === 'OPTIONS') return runtime.fetch(request, env, ctx);

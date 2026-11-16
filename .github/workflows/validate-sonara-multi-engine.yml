@@ -5,6 +5,8 @@ on:
     paths:
       - 'cloudflare/sonara-multi-engine-r2.mjs'
       - 'cloudflare/sonara-multi-engine-r2.test.mjs'
+      - 'cloudflare/sonara-gateway-verifier.mjs'
+      - 'cloudflare/sonara-gateway-multi-engine.test.mjs'
       - 'cloudflare/sonara-real-music-v3-edge.mjs'
       - 'molab/sonara_multi_engine_agent.py'
       - 'molab/install_sonara_multi_engine.py'
@@ -29,7 +31,7 @@ jobs:
         run: |
           node --check cloudflare/sonara-multi-engine-r2.mjs
           node --check cloudflare/sonara-real-music-v3-edge.mjs
-          node --test cloudflare/sonara-multi-engine-r2.test.mjs
+          node --test cloudflare/sonara-multi-engine-r2.test.mjs cloudflare/sonara-gateway-multi-engine.test.mjs
       - name: Validate MoLab Python agents
         run: |
           python -m py_compile molab/sonara_multi_engine_agent.py molab/install_sonara_multi_engine.py molab/sonara_heartmula_wav_wrapper.py
