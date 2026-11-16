@@ -181,6 +181,16 @@ function decorateDirectEngineResponse(response) {
 }
 
 async function resilientDualGeneration(request, env, ctx) {
+  // Explicit Music Creator open-model jobs are single-WAV jobs in a separate
+  // R2 queue. Do not force dual masters, or retry POST (which could enqueue
+  // a duplicate if an acknowledgement is lost). ACE-Step keeps old routing.
+  try {
+    const body = await request.clone().json();
+    if (body?.sonaraMultiEngineCreatorRequest === true &&
+        ['heartmula-3b','stable-audio-3-medium'].includes(body?.sonaraModelId)) {
+      return decorateGenerationResponse(await sonaraProxy.fetch(request,env,ctx));
+    }
+  } catch { /* Preserve existing request handling for non-JSON bodies. */ }
   const dualRequest = await forceResilientDualGeneration(request);
   let response = await sonaraProxy.fetch(dualRequest.clone(), env, ctx);
   if (RETRYABLE_GENERATION_STATUSES.has(response.status)) {
