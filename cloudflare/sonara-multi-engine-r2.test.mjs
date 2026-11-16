@@ -153,3 +153,25 @@ test('authorized HeartMuLa job can be claimed, completed and polled by its owner
   assert.equal(result.candidates[0].audioFormat,'wav');
   assert.match(result.audioUrl,/^https:\/\/api\.sonaraenterprise\.com\/api\/sonara-multi\/audio\//);
 });
+
+test('new HeartMuLa notebook fingerprint is accepted alongside older relay tokens',async()=>{
+  const bucket=makeBucket();
+  const token='a-new-private-token-with-at-least-32-chars';
+  const digest=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token)))).map(x=>x.toString(16).padStart(2,'0')).join('');
+  const env={SONARA_AUDIO_BUCKET:bucket,SONARA_MULTI_ENGINE_ENABLED:'true',
+    SONARA_RELAY_TOKEN_SHA256_NONARY:digest};
+  const response=await handleSonaraMultiEngine(new Request(
+    'https://api.sonaraenterprise.com/api/sonara-multi/agent/heartbeat',
+    {method:'POST',headers:{'X-Sonara-Relay-Token':token},
+     body:JSON.stringify({models:{'heartmula-3b':true,'stable-audio-3-medium':false},stableLicenseAccepted:false})}
+  ),env,context);
+  assert.equal(response.status,200);
+  const data=await response.json();
+  assert.equal(data.available.models['heartmula-3b'].ready,true);
+  assert.equal(data.available.models['stable-audio-3-medium'].ready,false);
+  const wrong=await handleSonaraMultiEngine(new Request(
+    'https://api.sonaraenterprise.com/api/sonara-multi/agent/heartbeat',
+    {method:'POST',headers:{'X-Sonara-Relay-Token':'other-private-token-with-32-characters'},body:'{}'}
+  ),env,context);
+  assert.equal(wrong.status,401);
+});

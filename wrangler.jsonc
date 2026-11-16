@@ -23,7 +23,8 @@
     "SONARA_REMIX_PRO_BILLING_READY": "true",
     "SONARA_YUE_WORKER_URL": "https://yue.sonaraenterprise.com",
     "SONARA_PRODUCTION_CHAIN": "sonara-real-music-v3-edge.mjs -> sonara-ultra-diversity-v1-edge.mjs -> sonara-speed-v4-edge.mjs -> sonara-real-music-v2-edge.mjs -> sonara-studio-pitch-key-upload-bridge.mjs -> sonara-studio-native-pitch-bridge.mjs -> sonara-studio-key-pitch-guard.mjs -> sonara-quality-ultra-stability-guard.mjs [REAL_MUSIC_V3][TRACK_GENOME][HUMANIZER][VOICE_REALISM][AUTO_REFINE][INDEPENDENT_AB_V3][PROMPT_FIDELITY_V4]",
-    "SONARA_RELAY_TOKEN_SHA256_OCTONARY": "5b6a71b9921bab5de764d65b72f9e9fb1361a90366eb7f90c77a06165c780739"
+    "SONARA_RELAY_TOKEN_SHA256_OCTONARY": "5b6a71b9921bab5de764d65b72f9e9fb1361a90366eb7f90c77a06165c780739",
+    "SONARA_RELAY_TOKEN_SHA256_NONARY": "ff42161601abfa5d527917d0a5abcc2e8056b838c1f899a419f1bca11f72d660"
   },
   "assets": {
     "directory": "./dist",
