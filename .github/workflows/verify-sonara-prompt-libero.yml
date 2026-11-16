@@ -28,7 +28,7 @@ jobs:
         with:
           node-version: "24"
       - name: Install SONARA dependencies
-        run: npm ci --no-audit --no-fund
+        run: npm install --no-audit --no-fund
       - name: Verify direct prompt fidelity and optional tempo
         run: |
           npx tsx --test src/sonaraPromptMode.test.ts
