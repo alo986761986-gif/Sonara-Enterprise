@@ -16,6 +16,8 @@ test('Prompt Libero preserves the creator brief, without default Deep House taxo
   const job = buildFreeMolabR2Payload(source);
   assert.equal(job.prompt, brief);
   assert.equal(job.model, 'acestep-v15-xl-turbo');
+  assert.equal(job.audio_format, 'wav', 'relay requires actual WAV');
+  assert.equal(job.instrumental, false);
   assert.equal(job.batch_size, 1);
   assert.equal(job.audio_duration, 180);
   assert.equal(job.sonaraPromptMode, 'free');
@@ -76,4 +78,18 @@ test('R2 integration branches to direct prompt before invoking the old genre edi
   const later = router.indexOf("await rewriteGenerationRequest(request)", start);
   assert.ok(start > 0 && later > start);
   assert.match(router.slice(start, later), /buildFreeMolabR2Payload\(body\)/);
+});
+
+test('Instrumental prompt conditions actual instrumental mode and lossless WAV', () => {
+  for (const prompt of ['Jazz Fusion strumentale a 150 BPM, Rhodes e basso fretless',
+    'Jazz Fusion instrumental at 150 BPM', 'House senza voce con basso pulsante',
+    'Electronic music without vocals']) {
+    const job = buildFreeMolabR2Payload({rawPrompt: prompt, durationSec: 120});
+    assert.equal(job.instrumental, true, prompt);
+    assert.equal(job.lyrics, '[Instrumental]', prompt);
+    assert.equal(job.audio_format, 'wav', prompt);
+  }
+  const vocal = buildFreeMolabR2Payload({rawPrompt: 'Jazz Fusion with female lead vocals and a melodic chorus'});
+  assert.equal(vocal.instrumental, false);
+  assert.equal(vocal.lyrics, '');
 });

@@ -1,6 +1,10 @@
 import runtime, { SonaraJobState, SonaraAuthStore } from './sonara-real-music-v3-edge.mjs';
 import { withGatewayVerifier } from './sonara-gateway-verifier.mjs';
 import { handleNativeOpenModelCreator } from './sonara-native-open-model-entry.mjs';
+import relayRuntime from './sonara-r2-https-relay.mjs';
+import { handleSonaraNativeAuth } from './sonara-native-auth.mjs';
+import { deriveRelayGatewayInternalKey } from './sonara-gateway-verifier.mjs';
+import { bridgeAceR2BillingJob } from './sonara-r2-billing-job-bridge.mjs';
 
 export { SonaraJobState, SonaraAuthStore };
 
@@ -53,6 +57,12 @@ async function normalizeCachedCreator(request) {
 const nativeOpenModelEntry = {
   async fetch(request, env, ctx) {
     request = await normalizeCachedCreator(request);
+    const aceJob = await bridgeAceR2BillingJob(request, env, ctx, {
+      sessionAuth:handleSonaraNativeAuth,
+      deriveKey:deriveRelayGatewayInternalKey,
+      relayRuntime
+    });
+    if (aceJob) return aceJob;
     const reply = await handleNativeOpenModelCreator(request, env, ctx);
     if (reply) return reply;
     return ensureAceOnlyUi(request,await runtime.fetch(request,env,ctx));
