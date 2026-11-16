@@ -58,3 +58,9 @@ PR_149_MERGE=1eb5d5091b12c4b0914433feec994171fbd43ebc
 RELEASE_MODE=Guarded-XL-SFT-Quality-Pro-only-when-MoLab-agent-reports-8003-ready
 ACE_TURBO_FALLBACK=Existing-Turbo-8001-unchanged
 RELEASE_GATE=11-GitHub-workflows-success
+
+SONARA_SFT_QUALITY_AUDIT_V1=2026-11-16
+PR_150_MERGED=59d36a379395ec22e18d4cf6cb088489615088fd
+RELEASE=Quality-Pro-verified-LM4B-ASR-audit-accurate-UI
+VALIDATION=11-GitHub-workflows-passed
+GPU_RELAY_HANDOFF=Required-on-authorized-MoLab-after-release
