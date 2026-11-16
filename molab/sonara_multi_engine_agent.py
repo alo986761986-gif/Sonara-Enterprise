@@ -14,6 +14,7 @@ import pathlib
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -106,14 +107,11 @@ import torchaudio
 from stable_audio_3 import StableAudioModel
 model=StableAudioModel.from_pretrained('medium', device='cuda')
 output=model.generate(prompt=sys.argv[1],duration=int(sys.argv[2]),steps=8)
-if isinstance(output,tuple):
-    torchaudio.save(sys.argv[3],output[1].detach().float().cpu(),int(output[0]))
-elif hasattr(output,'audio') and hasattr(output,'sample_rate'):
-    audio=output.audio
-    if isinstance(audio,torch.Tensor): audio=audio.detach().float().cpu()
-    torchaudio.save(sys.argv[3],audio,output.sample_rate)
+if isinstance(output,torch.Tensor):
+    audio=output[0].detach().float().cpu()
+    torchaudio.save(sys.argv[3],audio,int(model.model.sample_rate))
 else:
-    raise RuntimeError('Unknown Stable Audio 3 output type; adapter needs official API adjustment')
+    raise RuntimeError('Unknown Stable Audio 3 output type')
 """
     temp = working / "stable-source.wav"
     run([str(py), "-c", program, str(request["prompt"]), str(seconds), str(temp)], timeout=1200)
@@ -150,18 +148,39 @@ def smoke(model: str, allow_stable: bool):
     print("SONARA_MODEL_SMOKE_PASSED=" + model, flush=True)
 
 
-def serve(allow_stable: bool):
-    if not TOKEN.exists():
-        raise RuntimeError("SONARA relay token missing: first pair the existing MoLab relay")
-    if not TOKEN.read_text().strip():
-        raise RuntimeError("SONARA relay token empty")
-    while True:
+
+def renew_while_running(job_id: str, lease: str, stopped: threading.Event):
+    while not stopped.wait(120):
+        try:
+            call("POST", "/job/" + job_id + "/renew", {}, lease=lease, timeout=30)
+        except Exception:
+            pass
+
+
+def maintain_heartbeat(allow_stable: bool, stopped: threading.Event):
+    while not stopped.is_set():
         state = readiness()
         state["stable-audio-3-medium"] = bool(state["stable-audio-3-medium"] and allow_stable)
         try:
             call("POST", "/agent/heartbeat", {
                 "models": state, "stableLicenseAccepted": allow_stable,
             }, timeout=30)
+        except Exception:
+            pass
+        stopped.wait(15)
+
+
+def serve(allow_stable: bool):
+    if not TOKEN.exists():
+        raise RuntimeError("SONARA relay token missing: first pair the existing MoLab relay")
+    if not TOKEN.read_text().strip():
+        raise RuntimeError("SONARA relay token empty")
+    heartbeat_stop = threading.Event()
+    threading.Thread(target=maintain_heartbeat, args=(allow_stable, heartbeat_stop), daemon=True).start()
+    while True:
+        state = readiness()
+        state["stable-audio-3-medium"] = bool(state["stable-audio-3-medium"] and allow_stable)
+        try:
             job = call("POST", "/agent/claim", {}, timeout=45)
             if not job.get("jobId"):
                 time.sleep(5)
@@ -169,6 +188,9 @@ def serve(allow_stable: bool):
             job_id = job["jobId"]
             lease = job["leaseId"]
             model = job["modelId"]
+            lease_stop = threading.Event()
+            renew_thread = threading.Thread(target=renew_while_running, args=(job_id, lease, lease_stop), daemon=True)
+            renew_thread.start()
             try:
                 if not state.get(model):
                     raise RuntimeError("Model not ready")
@@ -187,6 +209,9 @@ def serve(allow_stable: bool):
                     call("POST", "/job/"+job_id+"/fail", {}, lease=lease, timeout=30)
                 except Exception:
                     pass
+            finally:
+                lease_stop.set()
+                renew_thread.join(timeout=3)
         except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
             print("SONARA_MULTI_RELAY_RETRY", type(exc).__name__, flush=True)
             time.sleep(10)
