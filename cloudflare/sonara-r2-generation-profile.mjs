@@ -222,7 +222,10 @@ export function applyR2GenerationProfile(payload, resolvedBody = {}, sourceBody 
     next.guidance_scale = 7.0;
     next.shift = 1.0;
     next.batch_size = 1;
+    // Actual LM 4B availability is checked by the private GPU worker immediately
+    // before submission; false here is a conservative requested-state default.
     next.thinking = false;
+    next.sonara_sft_lm_planning_policy = 'auto-gpu-health-verified';
     next.sonara_speed_inference_steps = 50;
     next.sonara_r2_generation_profile = 'pro';
     next.sonara_instant_mode = false;
