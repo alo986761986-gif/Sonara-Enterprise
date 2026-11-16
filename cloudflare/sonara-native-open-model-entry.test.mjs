@@ -105,7 +105,7 @@ test('native gateway preserves worldwide style hierarchy and curated sonic DNA i
     {genreFamily:'Electronic / Dance',genre:'House',subgenre:'Deep House',mood:'Warm',phrase:'rounded deep bass'},
     {genreFamily:'Jazz',genre:'Jazz Fusion',subgenre:'Jazz Fusion',mood:'Electric',phrase:'electric'},
     {genreFamily:'Hip-Hop / Rap',genre:'Hip-Hop',subgenre:'Boom Bap',mood:'Gritty',phrase:'kick'},
-    {genreFamily:'Latin America',genre:'Latin Brazilian',subgenre:'Bossa Nova',mood:'Intimate',phrase:'nylon'},
+    {genreFamily:'Latin America',genre:'Brazilian',subgenre:'Bossa Nova',mood:'Intimate',phrase:'nylon'},
     {genreFamily:'Rock',genre:'Rock',subgenre:'Progressive Rock',mood:'Energetic',phrase:'guitar'},
   ];
   for(const input of choices){
