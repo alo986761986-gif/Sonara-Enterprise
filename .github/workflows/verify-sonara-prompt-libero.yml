@@ -8,6 +8,12 @@ on:
       - "src/sonaraPromptMode.test.ts"
       - "src/components/generator/**"
       - "cloudflare/sonara-molab-xl-router.mjs"
+      - "cloudflare/sonara-direct-prompt-r2.mjs"
+      - "cloudflare/sonara-r2-billing-job-bridge.mjs"
+      - "cloudflare/sonara-relay-gateway-entry.mjs"
+      - "cloudflare/sonara-generation-chain-audit.test.mjs"
+      - "cloudflare/sonara-r2-billing-job-bridge.test.mjs"
+      - "scripts/sonara-public-generation-audit.mjs"
       - "cloudflare/sonara-prompt-libero.test.mjs"
       - "cloudflare/sonara-real-music-v3-edge.mjs"
       - "cloudflare/sonara-speed-v4-edge.mjs"
@@ -34,6 +40,7 @@ jobs:
           npx tsx --test src/sonaraPromptMode.test.ts
           node --test cloudflare/sonara-prompt-libero.test.mjs
           node --test cloudflare/sonara-generation-chain-audit.test.mjs
+          node --test cloudflare/sonara-r2-billing-job-bridge.test.mjs
       - name: Verify production build compiles free and guided UI
         env:
           WORKERS_CI: "1"
