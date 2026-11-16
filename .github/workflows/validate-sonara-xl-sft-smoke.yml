@@ -1,0 +1,21 @@
+name: Validate SONARA XL SFT Private Smoke Test
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "molab/sonara_xl_sft_private_smoke.py"
+      - "molab/test_sonara_xl_sft_private_smoke.py"
+      - ".github/workflows/validate-sonara-xl-sft-smoke.yml"
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m py_compile molab/sonara_xl_sft_private_smoke.py
+      - run: python -m unittest discover -s molab -p test_sonara_xl_sft_private_smoke.py -v
