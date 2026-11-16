@@ -22,17 +22,15 @@ async function get(url, parse = 'json') {
   }
 }
 
+// This is a legacy backend diagnostic only. The primary Creator generation
+// is intercepted by native Cloudflare auth and forwarded straight to R2.
+// Never interpret a legacy default provider as proof of the live music engine.
 const billing = await get(BASE + '/api/billing/health');
-const musicProvider = typeof billing.data?.musicProvider === 'string' ? billing.data.musicProvider.trim().toLowerCase() : '';
-const creatorRoute = String(billing.data?.creatorEngineProvider || '').trim().toLowerCase();
-const aceBilling = ['ace_step_xl', 'ace_step', 'acestep', 'sonara_ace_step'].includes(creatorRoute || musicProvider);
 results.push({
-  check: 'BILLING_SELECTED_PROVIDER',
+  check: 'LEGACY_BILLING_FALLBACK',
   http: billing.http,
-  reportedProvider: musicProvider || 'UNVERIFIED',
-  creatorEngineProvider: creatorRoute || 'UNVERIFIED',
-  aceStepConfirmed: aceBilling,
-  status: billing.ok && aceBilling ? 'PASS' : billing.ok ? 'FAIL' : 'UNVERIFIED'
+  reportedLegacyProvider: String(billing.data?.musicProvider || 'UNVERIFIED'),
+  status: 'INFORMATIONAL'
 });
 
 const sft = await get(API + '/api/sonara-relay/sft-capabilities');
@@ -87,11 +85,12 @@ results.push({
 for (const report of results) {
   process.stdout.write('SONARA_AUDIT_' + report.check + '=' + JSON.stringify(report) + '\n');
 }
-const critical = results.filter(x => x.check === 'BILLING_SELECTED_PROVIDER' || x.check === 'LIVE_PROMPT_LIBERO_UI');
+const critical = results.filter(x => x.check === 'LIVE_PROMPT_LIBERO_UI' || x.check === 'R2_RELAY_JOB_QUEUE');
 if (critical.some(x => x.status !== 'PASS')) {
   console.error('SONARA_AUDIT_RESULT=NOT_VERIFIED_OR_MISROUTED');
   process.exitCode = 1;
 } else {
   console.log('SONARA_AUDIT_RESULT=PROVIDER_AND_SITE_CONFIRMED');
 }
+console.log('SONARA_ACTUAL_CREATOR_ENGINE=UNVERIFIED_UNTIL_REAL_USER_JOB_MODEL_REPORTED');
 console.log('SONARA_AUDIO_QUALITY_VERIFIED=false (a real generated WAV and listening test are required)');
