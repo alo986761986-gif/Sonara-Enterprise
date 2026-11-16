@@ -62,17 +62,26 @@ def valid_wav(path: pathlib.Path, min_seconds: float = 1.0):
     return duration
 
 
-def prepare(request: dict, directory: pathlib.Path):
+def prepare(request: dict, directory: pathlib.Path, *, heartmula_style: bool = False):
     prompt = str(request.get("prompt") or "").strip()
     if not prompt:
         raise ValueError("Prompt missing")
     secs = int(request.get("durationSec") or 30)
     if not 10 <= secs <= 380:
         raise ValueError("Duration out of range")
-    tags = ", ".join(s for s in [request.get("genre"), request.get("subgenre"), prompt] if s)
-    lyric_text = str(request.get("lyrics") or "").strip()
+    if heartmula_style:
+        # Official HeartMuLa guidance expects SHORT, comma-separated tags,
+        # unlike the full SONARA ACE-Step instruction prompt. Preserve every
+        # selected family/genre/subgenre/mood and SONARA's curated style DNA.
+        from sonara_heartmula_style import build_heartmula_tags, build_heartmula_lyrics
+        tags = build_heartmula_tags(request)
+        lyric_text = build_heartmula_lyrics(request)
+    else:
+        # Stable Audio and legacy model behavior are intentionally untouched.
+        tags = ", ".join(str(s) for s in [request.get("genre"), request.get("subgenre"), prompt] if s)
+        lyric_text = str(request.get("lyrics") or "").strip() or "[Instrumental]"
     (directory / "tags.txt").write_text(tags[:4000], encoding="utf-8")
-    (directory / "lyrics.txt").write_text(lyric_text or "[Instrumental]", encoding="utf-8")
+    (directory / "lyrics.txt").write_text(lyric_text, encoding="utf-8")
     return secs
 
 
@@ -83,7 +92,7 @@ def heartmula(request: dict, out: pathlib.Path, working: pathlib.Path):
     py = pathlib.Path(os.getenv("SONARA_HEARTMULA_PYTHON", str(ROOT / "heartlib-venv" / "bin" / "python")))
     if not py.is_file() or not (repo / "examples/run_music_generation.py").is_file() or not model_path.is_dir():
         raise RuntimeError("HeartMuLa not installed")
-    seconds = prepare(request, working)
+    seconds = prepare(request, working, heartmula_style=True)
     # TorchAudio 2.10 delegates saving to TorchCodec. Keep the official
     # HeartMuLa inference intact but encode its output to WAV via soundfile
     # in a separate, short-lived Python process.
