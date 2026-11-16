@@ -51,7 +51,8 @@ class HeartMuLaGenreConditioningTests(unittest.TestCase):
         for family,genre,subgenre,mood,instr,rhythm in choices:
             with self.subTest(subgenre=subgenre):
                 tags=build_heartmula_tags(request(family,genre,subgenre,mood,instr,rhythm))
-                self.assertEqual(tags.split(",")[:4],[subgenre,genre,family,mood])
+                expected=list(dict.fromkeys([subgenre,genre,family,mood]))
+                self.assertEqual(tags.split(",")[:len(expected)],expected)
                 self.assertIn(instr.split(",")[0],tags)
                 self.assertIn(rhythm.split(",")[0],tags)
                 self.assertNotIn("EXECUTION PRIORITY",tags)
