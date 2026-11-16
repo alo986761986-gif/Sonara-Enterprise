@@ -493,13 +493,6 @@ export default function ElevenMusicGenerationControl() {
     if (!textarea) return;
     try {
       const context = readContext(textarea);
-      const selectedModel = window.localStorage.getItem('sonara.generation.model.v1');
-      if (selectedModel === 'heartmula-3b' && context.durationSec > 240) {
-        throw new Error('HeartMuLa supporta brani fino a 4 minuti. Riduci la durata o seleziona ACE-Step.');
-      }
-      if (selectedModel === 'stable-audio-3-medium' && context.vocalMode !== 'instrumental') {
-        throw new Error('Stable Audio 3 Medium in SONARA è dedicato agli strumentali. Per brani cantati seleziona HeartMuLa o ACE-Step.');
-      }
       const token = await getFirebaseIdToken(true);
       const stored = localStorage.getItem('sonara.lastGenerationPairId');
       const generationId = stored || `cover-${Date.now()}`;
@@ -585,13 +578,29 @@ export default function ElevenMusicGenerationControl() {
     setSelected(null);
     setError('');
     const generationProfile = readGenerationProfile();
+    const selectedModel = window.localStorage.getItem('sonara.generation.model.v1');
+    const openModel = selectedModel === 'heartmula-3b' || selectedModel === 'stable-audio-3-medium';
     const instant = generationProfile === 'fast';
-    const expectedCount = generationProfile === 'ultra' ? 2 : 1;
+    // HeartMuLa and Stable Audio return one WAV. Even under ULTRA we must not
+    // demand a second master from a single-track GPU job.
+    const expectedCount = openModel ? 1 : generationProfile === 'ultra' ? 2 : 1;
     setCandidates(expectedCount === 1 ? [empty('A')] : [empty('A'), empty('B')]);
     try {
       const textarea = document.getElementById('sonara-prompt') as HTMLTextAreaElement | null;
       if (!textarea) throw new Error('Apri il Music Creator prima di generare.');
       const context = readContext(textarea);
+      // Check the selected model BEFORE generating covers or metering minutes.
+      if (selectedModel === 'heartmula-3b' && context.durationSec > 240) {
+        throw new Error('HeartMuLa supporta brani fino a 4 minuti. Riduci la durata o seleziona ACE-Step.');
+      }
+      if (selectedModel === 'stable-audio-3-medium') {
+        if (context.durationSec > 380) {
+          throw new Error('Stable Audio 3 supporta al massimo 6 minuti e 20 secondi. Riduci la durata.');
+        }
+        if (context.vocalMode !== 'instrumental') {
+          throw new Error('Stable Audio 3 produce strumentali. Seleziona HeartMuLa o ACE-Step per brani cantati.');
+        }
+      }
       if (!context.rawPrompt) throw new Error('Scrivi o crea prima il prompt musicale.');
       if (context.vocalMode !== 'instrumental' && !context.lyrics) throw new Error('Inserisci il testo prima della generazione vocale.');
 
@@ -615,7 +624,11 @@ export default function ElevenMusicGenerationControl() {
       const token = await getFirebaseIdToken(true);
       const generationId = crypto.randomUUID ? crypto.randomUUID() : `generation-${Date.now()}`;
       localStorage.setItem('sonara.lastGenerationPairId', generationId);
-      processing('', 8, instant ? 'SONARA INSTANT: generazione prioritaria' : generationProfile === 'quality' ? 'SONARA REALISTIC FAST: 4 step + realism V3' : autoCover ? 'SONARA ULTRA: audio + copertine A/B' : 'SONARA ULTRA: generazione dei 2 master');
+      processing('', 8, openModel
+        ? (selectedModel === 'heartmula-3b' ? 'HeartMuLa 3B: preparazione canzone' : 'Stable Audio 3: preparazione strumentale')
+        : instant ? 'SONARA INSTANT: generazione prioritaria'
+        : generationProfile === 'quality' ? 'SONARA REALISTIC FAST: 4 step + realism V3'
+        : autoCover ? 'SONARA ULTRA: audio + copertine A/B' : 'SONARA ULTRA: generazione dei 2 master');
 
       if (autoCover) {
         void generateCover('A', context, generationId, token, 0);
