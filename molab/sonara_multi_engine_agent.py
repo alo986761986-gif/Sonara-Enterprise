@@ -28,7 +28,12 @@ MAX_SIZE = 80 * 1024 * 1024
 
 
 def call(method: str, path: str, payload=None, lease: str = "", timeout=60):
-    headers = {"X-Sonara-Relay-Token": TOKEN.read_text().strip(), "X-Sonara-Agent-Revision": "sonara-multi-engine-v1"}
+    headers = {
+        "X-Sonara-Relay-Token": TOKEN.read_text(encoding="utf-8").strip(),
+        "X-Sonara-Agent-Revision": "sonara-multi-engine-v1",
+        "User-Agent": "SONARA-MoLab-Relay/1.0",
+        "Accept": "application/json",
+    }
     if lease:
         headers["X-Sonara-Lease"] = lease
     if isinstance(payload, (dict, list)):
@@ -171,8 +176,11 @@ def maintain_heartbeat(allow_stable: bool, stopped: threading.Event):
             call("POST", "/agent/heartbeat", {
                 "models": state, "stableLicenseAccepted": allow_stable,
             }, timeout=30)
-        except Exception:
-            pass
+        except urllib.error.HTTPError as exc:
+            # Log only safe HTTP metadata. Never print the machine token.
+            print("SONARA_MULTI_HEARTBEAT_HTTP=" + str(exc.code), flush=True)
+        except Exception as exc:
+            print("SONARA_MULTI_HEARTBEAT_ERROR=" + type(exc).__name__, flush=True)
         stopped.wait(15)
 
 
@@ -218,6 +226,9 @@ def serve(allow_stable: bool):
             finally:
                 lease_stop.set()
                 renew_thread.join(timeout=3)
+        except urllib.error.HTTPError as exc:
+            print("SONARA_MULTI_RELAY_HTTP=" + str(exc.code), flush=True)
+            time.sleep(10)
         except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
             print("SONARA_MULTI_RELAY_RETRY", type(exc).__name__, flush=True)
             time.sleep(10)
