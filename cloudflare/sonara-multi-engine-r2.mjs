@@ -37,7 +37,8 @@ async function agentAuthorized(request, env) {
   const names = ['SONARA_RELAY_TOKEN_SHA256', 'SONARA_RELAY_TOKEN_SHA256_SECONDARY',
     'SONARA_RELAY_TOKEN_SHA256_TERTIARY','SONARA_RELAY_TOKEN_SHA256_QUATERNARY',
     'SONARA_RELAY_TOKEN_SHA256_QUINARY','SONARA_RELAY_TOKEN_SHA256_SENARY',
-    'SONARA_RELAY_TOKEN_SHA256_SEPTENARY','SONARA_RELAY_TOKEN_SHA256_OCTONARY'];
+    'SONARA_RELAY_TOKEN_SHA256_SEPTENARY','SONARA_RELAY_TOKEN_SHA256_OCTONARY',
+    'SONARA_RELAY_TOKEN_SHA256_NONARY'];
   return names.some(name => /^[a-f0-9]{64}$/i.test(String(env[name] || '')) && constantEqual(digest, String(env[name]).toLowerCase()));
 }
 async function readJson(request, max = 20_000) {
