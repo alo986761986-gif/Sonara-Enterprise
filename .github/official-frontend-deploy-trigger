@@ -12,3 +12,6 @@ MERGED_COMMIT=3d9c65efb7062f124d7536c0706a3180cb2fee71
 MODEL_SWITCH=HeartMuLa-3B-only-after-MoLab-heartbeat
 STABLE_AUDIO_3=disabled-pending-license-and-GPU-test
 RELEASE_GATE=All-five-PR-checks-green;ACE-Step-and-Remix-unchanged
+SONARA_HEARTMULA_SIGNED_WAV_GATEWAY_FIX=2026-11-16
+PR_136_MERGE=b949ab897b63ece610a1e27cec587278e7573890
+SAFETY=Cloudflare-derived-HMAC-preserved-for-signed-audio-links
