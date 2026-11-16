@@ -6,9 +6,6 @@
 // All accounts, plan limits, and job ownership are verified server-side here.
 import { handleSonaraNativeAuth } from './sonara-native-auth.mjs';
 import { deriveRelayGatewayInternalKey } from './sonara-gateway-verifier.mjs';
-import { resolveMusicTaxonomyHierarchy } from '../src/musicTaxonomyHierarchy.ts';
-import { getMusicStyleProfile } from '../src/musicStyleIntelligence.ts';
-import { getMusicAtmosphereProfile } from '../src/musicAtmosphereIntelligence.ts';
 import {
   selectedCreatorOpenModel, enqueueCreatorOpenModel,
   isCreatorOpenModelJob, pollCreatorOpenModelJob
@@ -125,31 +122,11 @@ export async function handleNativeOpenModelCreator(request,env,ctx,authHandler=h
       if(session.error)return session.error;
       stage='gateway';
       const secret=await deriveRelayGatewayInternalKey(env);
-      stage='style';
-      // Build the canonical hierarchy on the trusted server. The UI's long
-      // instruction prompt is optimized for ACE-Step and cannot substitute
-      // HeartMuLa's short comma-separated --tags conditioning.
-      const selection=resolveMusicTaxonomyHierarchy({
-        family:body.genreFamily,genre:body.genre,
-        subgenre:body.subgenre,atmosphere:body.mood
-      });
-      const dna=getMusicStyleProfile(selection.family,selection.genre,selection.subgenre);
-      const atmosphere=getMusicAtmosphereProfile(selection.atmosphere,{
-        family:selection.family,genre:selection.genre,subgenre:selection.subgenre
-      });
-      const conditioned={
-        ...body,
-        genreFamily:selection.family,genre:selection.genre,
-        subgenre:selection.subgenre,mood:selection.atmosphere,
-        sonaraStyleDNA:{
-          identity:String(dna.identity||'').slice(0,450),
-          instrumentation:String(dna.instrumentation||'').slice(0,700),
-          rhythm:String(dna.rhythm||'').slice(0,700),
-          harmony:String(dna.harmony||'').slice(0,450),
-          production:String(dna.production||'').slice(0,450),
-          atmosphere:String(atmosphere.identity||'').slice(0,400)
-        }
-      };
+      // SONARA Music Creator resolves its world-music catalog in the
+      // frontend bundle, which is already compiled by Vite. Keep the server
+      // protected by native account, plan, owner and length validation.
+      // This style metadata affects only model conditioning, not privilege.
+      const conditioned={...body};
       stage='enqueue';
       // Important: NEVER retry this POST through a legacy router. An R2
       // queue write can succeed even when the acknowledgement is lost.
