@@ -8,7 +8,7 @@ const MULTI_JOB_PREFIX = 'multi-engine-v1/jobs/';
 
 export function selectedCreatorOpenModel(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return '';
-  if (body.sonaraMultiEngineCreatorRequest !== true) return '';
+  if (body.sonaraMultiEngineCreatorRequest !== true || body.sonaraRemixPro === true) return '';
   const model = typeof body.sonaraModelId === 'string' ? body.sonaraModelId : '';
   return MODELS.has(model) ? model : '';
 }
