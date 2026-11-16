@@ -33,6 +33,32 @@ class SFTInstallerTests(unittest.TestCase):
             }}))
             self.assertFalse(installer.weights_verified(p, minimum=1)[0])
 
+    def test_external_checkpoints_for_active_api(self):
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            runtime = home / "runtime"
+            runtime.mkdir()
+            checkpoints = home / "shared-models"
+            (checkpoints / installer.TURBO).mkdir(parents=True)
+            with patch.object(installer, "active_ace_processes", return_value=[(runtime, checkpoints)]), patch.object(
+                installer, "python_for", return_value=Path("/usr/bin/python3")
+            ):
+                self.assertEqual(installer.checkpoints_for(runtime), checkpoints)
+                self.assertTrue(installer.eligible(runtime))
+                self.assertEqual(installer.choose_root(str(runtime)), runtime)
+
+    def test_ambiguous_runtimes_are_not_selected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            roots = [base / "ace-one", base / "ace-two"]
+            for root in roots:
+                root.mkdir()
+            with patch.object(installer, "candidate_roots", return_value=roots), patch.object(
+                installer, "eligible", return_value=True
+            ), patch.object(installer, "active_ace_processes", return_value=[]):
+                with self.assertRaises(installer.Blocked):
+                    installer.choose_root(None)
+
     def test_check_is_read_only(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
