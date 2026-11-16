@@ -361,3 +361,20 @@ test('mix/master describes natural tonal clarity without indiscriminate brighten
   assert.match(plan.cue, /200-500 Hz/);
   assert.match(plan.cue, /do not use a global treble boost/);
 });
+
+test('opt-in XL SFT Quality Pro builds 50-step payload without changing Turbo profiles', () => {
+  const original = applyR2GenerationProfile(payload, { ...source, generationProfileV3: 'quality' }, source);
+  const pro = applyR2GenerationProfile(payload,
+    { ...source, generationProfileV3: 'quality' },
+    { ...source, generationProfileV3: 'quality', sonaraAceVariant: 'xl-sft', sonaraSftQualityPro: true });
+  assert.equal(original.model, payload.model);
+  assert.equal(original.sonaraAceVariant, undefined);
+  assert.equal(pro.model, 'acestep-v15-xl-sft');
+  assert.equal(pro.inference_steps, 50);
+  assert.equal(pro.guidance_scale, 7);
+  assert.equal(pro.batch_size, 1);
+  assert.equal(pro.sonaraSftQualityPro, true);
+  const remix = applyR2GenerationProfile(payload, source,
+    { ...source, sonaraAceVariant: 'xl-sft', sonaraSftQualityPro: true, sonaraRemixPro: true });
+  assert.equal(remix.sonaraAceVariant, undefined);
+});
