@@ -37,3 +37,10 @@ RELEASE_REASON=Single creator-owned Styles prompt; remove legacy Intelligent-Ran
 RELEASE_TESTS=Three GitHub pull-request checks successful; production build validated
 ENGINE_SAFETY=ACE-Step-HeartMuLa-Remix-Pro-unchanged
 RELEASE_TARGET=Cloudflare sonaraenterprise.com
+
+SONARA_ACE_ONLY_CREATOR_RELEASE=2026-11-16
+PR_143_MERGED=f75eb52c130beb482be9ca1fea1a61f352a9d54a
+CREATOR_MODELS=ACE-Step-XL-Turbo-only
+HEARTMULA_STABLE_AUDIO_3=hidden-and-gateway-disabled
+RETAIN=ACE-Step-Cloudflare-Relay-Remix-Pro-and-previous-R2-jobs
+DEPLOY_TARGET=Cloudflare-Worker-sonaraenterprise.com
