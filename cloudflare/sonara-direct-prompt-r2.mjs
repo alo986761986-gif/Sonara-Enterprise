@@ -14,7 +14,7 @@ function directProfileOf(body = {}) {
  */
 export function buildFreeMolabR2Payload(body = {}) {
   const prompt = String(body.rawPrompt || body.prompt || '').trim().slice(0, 7600);
-  const explicitInstrumental = /\b(?:instrumental(?:e)?|no vocals?|without vocals?|sans voix|senza voce|solo strumenti|only instruments?)\b/i.test(prompt);
+  const explicitInstrumental = /\b(?:instrumental(?:e)?|strumentale|no vocals?|without vocals?|sans voix|senza voce|solo strumenti|only instruments?)\b/i.test(prompt);
   const lyrics = explicitInstrumental ? '[Instrumental]' : String(body.lyrics || '').slice(0, 4096);
   if (!prompt) throw new TypeError('SONARA Prompt Libero requires a prompt');
   const bpmMatch = /\b(?:bpm\s*[:=]?\s*(\d{2,3})|(\d{2,3})\s*bpm)\b/i.exec(prompt);
