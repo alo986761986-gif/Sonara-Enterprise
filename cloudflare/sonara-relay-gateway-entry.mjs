@@ -26,8 +26,32 @@ function ensureAceOnlyUi(request, response) {
   }).transform(new Response(response.body,{status:response.status,statusText:response.statusText,headers}));
 }
 
+async function normalizeCachedCreator(request) {
+  if (request.method !== 'POST') return request;
+  const url = new URL(request.url);
+  if (!['sonaraenterprise.com','www.sonaraenterprise.com'].includes(url.hostname)
+      || url.pathname !== '/api/billing/generate') return request;
+  if (!String(request.headers.get('content-type')||'').toLowerCase().includes('application/json')) return request;
+  let body;
+  try { body = await request.clone().json(); } catch { return request; }
+  if (!body || typeof body !== 'object' || Array.isArray(body)
+      || body.sonaraRemixPro === true) return request;
+  if (!['heartmula-3b','stable-audio-3-medium'].includes(body.sonaraModelId)) return request;
+  // A user clicked Generate in a stale browser: keep that deliberate action,
+  // but switch its generation to ACE-Step using the existing entitlement route.
+  const normalized = { ...body };
+  delete normalized.sonaraModelId;
+  delete normalized.sonaraMultiEngineCreatorRequest;
+  delete normalized.sonaraStyleDNA;
+  const headers = new Headers(request.headers);
+  headers.delete('content-length');
+  headers.set('content-type','application/json');
+  return new Request(request,{headers,body:JSON.stringify(normalized)});
+}
+
 const nativeOpenModelEntry = {
   async fetch(request, env, ctx) {
+    request = await normalizeCachedCreator(request);
     const reply = await handleNativeOpenModelCreator(request, env, ctx);
     if (reply) return reply;
     return ensureAceOnlyUi(request,await runtime.fetch(request,env,ctx));
