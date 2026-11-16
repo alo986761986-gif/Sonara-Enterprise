@@ -8,6 +8,7 @@ function makeBucket() {
     data,
     get:async key=>data.has(key)?{json:async()=>JSON.parse(data.get(key)),etag:'test-'+key}:null,
     put:async(key,val)=>{data.set(key,String(val));return {}},
+    delete:async key=>{data.delete(key)},
     head:async key=>data.has(key)?{size:1000}:null,
     list:async ({prefix})=>({objects:[...data.keys()].filter(k=>k.startsWith(prefix)).map(key=>({key})).slice(0,30)})
   };
