@@ -35,7 +35,7 @@ import {
 } from 'lucide-react';
 import { WORLD_MUSIC_GENRES, findGenre } from './data/worldMusicGenres';
 import { buildGenerationPrompt, type VocalMode } from './generationPrompt';
-import { buildFreePromptBody, normalizePromptMode, SONARA_PROMPT_MODE_KEY, type SonaraPromptMode } from './sonaraPromptMode';
+import { buildFreePromptBody, explicitPromptBpm, normalizePromptMode, SONARA_PROMPT_MODE_KEY, type SonaraPromptMode } from './sonaraPromptMode';
 import { buildRandomLyrics } from './randomLyrics';
 import { SONARA_PLANS } from './billing/plans';
 import { getAtmospheresForSelection } from './musicStyleIntelligence';
@@ -618,8 +618,8 @@ export default function App() {
               title,
               genre: promptMode === 'free' ? 'Prompt libero' : genre,
               subgenre: promptMode === 'free' ? 'Composizione AI' : subgenre,
-              bpm: promptMode === 'free' ? (Number(current?.metadata?.requestedBpm) || undefined) : bpm,
-              keySignature: promptMode === 'free' ? undefined : keySignature,
+              bpm: promptMode === 'free' ? (explicitPromptBpm(prompt) ?? 0) : bpm,
+              keySignature: promptMode === 'free' ? 'Automatic' : keySignature,
               durationSec,
               primaryAudioUrl: String(url),
               audioFormat: completedAudioFormat,
@@ -981,7 +981,7 @@ export default function App() {
 
       {status === 'COMPLETED' && audioUrl && (
         <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5">
-          <div className="mb-4 flex items-center justify-between gap-4"><div><div className="font-bold text-emerald-300">{t('audioReady')}</div><div className="mt-1 text-xs text-slate-500">{title} · {genre} / {subgenre} · {durationLabel(durationSec, t)}</div>{qualityScore !== null && <div className="mt-1 text-[10px] font-bold text-emerald-400">Professional audio gate: {qualityScore}/100</div>}</div><div className="text-[10px] font-bold tracking-widest text-slate-500">{engine}</div></div>
+          <div className="mb-4 flex items-center justify-between gap-4"><div><div className="font-bold text-emerald-300">{t('audioReady')}</div><div className="mt-1 text-xs text-slate-500">{title} · {promptMode === 'free' ? 'Prompt libero' : `${genre} / ${subgenre}`} · {durationLabel(durationSec, t)}</div>{qualityScore !== null && <div className="mt-1 text-[10px] font-bold text-emerald-400">Professional audio gate: {qualityScore}/100</div>}</div><div className="text-[10px] font-bold tracking-widest text-slate-500">{engine}</div></div>
           <audio ref={audioRef} controls src={audioUrl} className="w-full" />
           <div className="mt-4 flex flex-wrap gap-2">
             <button onClick={() => setIsPlaying(value => !value)} className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs">{isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}{isPlaying ? t('pause') : t('play')}</button>
