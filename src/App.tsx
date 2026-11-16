@@ -580,8 +580,10 @@ export default function App() {
       setStage(t('generating'));
 
       const relayJob = id.startsWith('sr2_');
+      // XL SFT can legitimately take longer than the old 10-minute browser
+      // deadline. Poll private R2 jobs more gently without losing the job.
       for (let attempt = 0; attempt < 1200; attempt += 1) {
-        await sleep(500);
+        await sleep(relayJob ? 2000 : 500);
         const poll = await fetch(relayJob
           ? `/api/billing/job?jobId=${encodeURIComponent(id)}`
           : `/api/music/job/${encodeURIComponent(id)}`, {
