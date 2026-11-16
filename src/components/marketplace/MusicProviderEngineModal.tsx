@@ -41,7 +41,6 @@ export const MusicProviderEngineModal: React.FC<MusicProviderEngineModalProps> =
     { id: 'udio', name: 'Udio', status: 'Ready for Official Integration', active: true },
     { id: 'suno', name: 'Suno', status: 'Waiting Official Platform Access', active: false },
     { id: 'lyria', name: 'Google Lyria', status: 'Future Integration', active: false },
-    { id: 'stable_audio', name: 'Stable Audio', status: 'Future Integration', active: false },
     { id: 'custom', name: 'Custom Provider API', status: 'Supported', active: true },
   ]);
 
@@ -61,7 +60,7 @@ export const MusicProviderEngineModal: React.FC<MusicProviderEngineModalProps> =
                 <h2 className="text-base font-black text-white tracking-tight">Universal Music Provider Engine (Version 2.1)</h2>
                 <span className="px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-xs font-mono font-bold">MULTI-PROVIDER ROUTER</span>
               </div>
-              <p className="text-xs text-slate-400">Udio, Suno, Google Lyria, Stable Audio & Custom Music Provider Architecture</p>
+              <p className="text-xs text-slate-400">Udio, Suno, Google Lyria & Custom Music Provider Architecture</p>
             </div>
           </div>
           <button 
