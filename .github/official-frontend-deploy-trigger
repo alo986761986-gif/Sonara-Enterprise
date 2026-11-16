@@ -71,3 +71,11 @@ MODES=Prompt-Libero-default;Guidata-optional
 ENGINE=ACE-Step-XL-Turbo-and-XL-SFT-through-existing-Cloudflare-R2-relay
 SAFETY=No-MoLab-restart;No-Vercel;No-TinyFish;Existing-auth-and-billing-preserved
 VALIDATION=8-of-8-GitHub-workflows-success
+
+SONARA_AUDIO_CHAIN_REPAIR_RELEASE=2026-11-16
+PR_153_MERGED=df635af5a0ac95c113d8003c9beb692bf10761e8
+ENGINE_NATIVE_R2=authenticated-ace-step-jobs
+FIXES=WAV-output;Instrumental-condition;Secure-sr2-job-polling;True-model-label;SFT-timeout
+VALIDATED=6-of-6-GitHub-PR-workflows-passed
+REQUIREMENT=Real-WAV-artist-listening-audit-still-mandatory
+DEPLOYMENT=Official-Cloudflare-Only
