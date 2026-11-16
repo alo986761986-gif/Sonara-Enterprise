@@ -1,0 +1,39 @@
+name: Validate SONARA Open Music Engines
+
+on:
+  pull_request:
+    paths:
+      - 'cloudflare/sonara-multi-engine-r2.mjs'
+      - 'cloudflare/sonara-multi-engine-r2.test.mjs'
+      - 'cloudflare/sonara-real-music-v3-edge.mjs'
+      - 'molab/sonara_multi_engine_agent.py'
+      - 'molab/install_sonara_multi_engine.py'
+      - 'src/components/generator/**'
+      - 'api/billing/**'
+      - '.github/workflows/validate-sonara-multi-engine.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate isolated model gateway code
+        run: |
+          node --check cloudflare/sonara-multi-engine-r2.mjs
+          node --check cloudflare/sonara-real-music-v3-edge.mjs
+          node --test cloudflare/sonara-multi-engine-r2.test.mjs
+      - name: Validate MoLab Python agents
+        run: |
+          python -m py_compile molab/sonara_multi_engine_agent.py molab/install_sonara_multi_engine.py
+      - name: Build SONARA production UI
+        run: |
+          npm install
+          npm run build
