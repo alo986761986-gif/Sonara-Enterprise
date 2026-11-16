@@ -33,6 +33,7 @@ jobs:
         run: |
           npx tsx --test src/sonaraPromptMode.test.ts
           node --test cloudflare/sonara-prompt-libero.test.mjs
+          node --test cloudflare/sonara-generation-chain-audit.test.mjs
       - name: Verify production build compiles free and guided UI
         env:
           WORKERS_CI: "1"
