@@ -548,6 +548,8 @@ export async function prepareMolabR2RelayPayload(body) {
     loadedModel: MODEL
   });
   const configured = applyR2GenerationProfile(payload, corrected, body);
+  // The MoLab relay stores lossless PCM WAV and rejects MP3 bytes.
+  configured.audio_format = 'wav';
   if(body?.sonaraRemixSourceId) {
     return preparePreciseRemixPayload(configured, body);
   }
