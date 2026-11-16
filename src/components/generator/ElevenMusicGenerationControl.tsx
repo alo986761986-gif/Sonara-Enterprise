@@ -493,6 +493,13 @@ export default function ElevenMusicGenerationControl() {
     if (!textarea) return;
     try {
       const context = readContext(textarea);
+      const selectedModel = window.localStorage.getItem('sonara.generation.model.v1');
+      if (selectedModel === 'heartmula-3b' && context.durationSec > 240) {
+        throw new Error('HeartMuLa supporta brani fino a 4 minuti. Riduci la durata o seleziona ACE-Step.');
+      }
+      if (selectedModel === 'stable-audio-3-medium' && context.vocalMode !== 'instrumental') {
+        throw new Error('Stable Audio 3 Medium in SONARA è dedicato agli strumentali. Per brani cantati seleziona HeartMuLa o ACE-Step.');
+      }
       const token = await getFirebaseIdToken(true);
       const stored = localStorage.getItem('sonara.lastGenerationPairId');
       const generationId = stored || `cover-${Date.now()}`;
