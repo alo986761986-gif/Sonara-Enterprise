@@ -33,7 +33,14 @@ For Stable Audio 3 Medium:
     python molab/install_sonara_multi_engine.py --stable-audio
 
 The Stable Audio installer uses the official repo and its pinned uv environment
-with CUDA 12.6 wheels. Confirm compatibility with the Blackwell NVIDIA driver.
+with CUDA 12.6 wheels. **Stable Audio 3 Medium also requires Flash Attention 2**.
+Before proceeding, install a compatible `flash-attn` build in the **isolated**
+`~/.sonara/multi-engine-v1/stable-audio-3/.venv` environment (never in the
+ACE-Step environment), matching Python, PyTorch, CUDA and Blackwell GPU.
+The installer deliberately stops if CUDA/Flash Attention 2 is unavailable:
+this is a blocked hardware prerequisite, not an optional optimization.
+See the official installation guidance:
+https://github.com/Stability-AI/stable-audio-3#flash-attention
 
 ## Step 2: prove real generation, not just model presence
 
