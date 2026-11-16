@@ -44,3 +44,11 @@ CREATOR_MODELS=ACE-Step-XL-Turbo-only
 HEARTMULA_STABLE_AUDIO_3=hidden-and-gateway-disabled
 RETAIN=ACE-Step-Cloudflare-Relay-Remix-Pro-and-previous-R2-jobs
 DEPLOY_TARGET=Cloudflare-Worker-sonaraenterprise.com
+
+SONARA_ACE_STEP_ONLY_HARDENING_RELEASE=2026-11-16
+PR_144_MERGED=f2c4ac02c771e545b1a195e461c48e9f10441014
+SITE=remove-HeartMuLa-and-Stable-Audio-3-choices-across-current-and-cached-UI
+BACKEND=disable-multi-engine-new-jobs-and-preserve-old-records
+GENERATION=ACE-Step-only-exact-selected-profile-no-duplicate-retries
+VERIFICATION=live-HTML-ACE-only-marker-and-empty-multi-engine-capabilities
+DEPLOY_TARGET=Cloudflare-sonaraenterprise.com
