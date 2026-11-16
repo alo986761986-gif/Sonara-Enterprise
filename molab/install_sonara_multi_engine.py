@@ -67,7 +67,22 @@ def stable():
     if not os.getenv("HF_TOKEN") and not (Path.home() / ".cache/huggingface/token").exists():
         print("WARNING: Stable Audio weights are gated. Accept terms on Hugging Face and authenticate privately.")
     clone("https://github.com/Stability-AI/stable-audio-3.git", STABLE)
-    run([UV, "sync", "--no-dev"], cwd=str(STABLE))
+    run([UV, "sync", "--no-dev", "--inexact"], cwd=str(STABLE))
+    python = STABLE / ".venv" / "bin" / "python"
+    # Medium inference explicitly requires Flash Attention 2. Not silently
+    # claiming READY if a CUDA/Blackwell-compatible wheel is unavailable.
+    test = subprocess.run([str(python), "-c",
+        "import torch; import flash_attn; assert torch.cuda.is_available()"],
+        capture_output=True, text=True)
+    if test.returncode != 0:
+        raise RuntimeError(
+            "Stable Audio 3 Medium requires Flash Attention 2 + CUDA. "
+            "Install a version matching this GPU, Python and PyTorch build "
+            "inside " + str(STABLE / ".venv") +
+            " and re-run --stable-audio. "
+            "Do not install an incompatible prebuilt wheel or change ACE-Step.")
+    # Load through huggingface_hub's normal cache, which is where
+    # StableAudioModel.from_pretrained('medium') looks for the checkpoint.
     download("stabilityai/stable-audio-3-medium", ROOT / "stable-medium-weights")
     print("SONARA_STABLE_AUDIO_FILES_DOWNLOADED=True")
     print("Use SONARA_STABLE_PYTHON=" + str(STABLE / ".venv/bin/python"))
