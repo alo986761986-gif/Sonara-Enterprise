@@ -6,15 +6,21 @@ import { buildFreeMolabR2Payload } from './sonara-direct-prompt-r2.mjs';
 const root = new URL('../', import.meta.url);
 const read = path => readFileSync(new URL(path, root), 'utf8');
 
-test('Creator billing routes explicitly chosen ACE XL models before legacy provider fallback', () => {
-  const source = read('api/billing/[...path].ts');
-  assert.match(source, /const aceCreator = body\.engineId === 'sonara_ace_step_v15_modal'/);
-  assert.match(source, /body\.sonaraPromptMode === 'free'/);
-  assert.match(source, /body\.sonaraPromptMode === 'guided'/);
-  assert.match(source, /const useEleven = !aceCreator && !selectedOpenModel/);
-  assert.match(source, /creatorEngineProvider: 'ace_step_xl'/);
-  assert.match(source, /SONARA_ENGINE_API_URL/);
+test('Native Cloudflare Creator routes directly to authenticated ACE-Step R2', () => {
+  const gateway = read('cloudflare/sonara-ab-player-visibility-edge.mjs');
+  assert.match(gateway, /const relayEnabled = env\.SONARA_R2_RELAY_ENABLED === 'true'/);
+  assert.match(gateway, /await prepareMolabR2RelayPayload\(\{ \.\.\.source, sonaraUserUid: uid \}\)/);
+  assert.match(gateway, /\/api\/sonara-relay\/enqueue/);
+  const entry = read('cloudflare/sonara-relay-gateway-entry.mjs');
+  assert.match(entry, /bridgeAceR2BillingJob/);
+  const bridge = read('cloudflare/sonara-r2-billing-job-bridge.mjs');
+  assert.match(bridge, /relay-v1\/jobs\//);
+  assert.match(bridge, /sonara-auth\/session/);
+  assert.match(bridge, /X-Sonara-User-Uid/);
+  const legacy = read('api/billing/[...path].ts');
+  assert.match(legacy, /SONARA_MUSIC_PROVIDER/);
 });
+
 
 test('ACE-Step always receives WAV when cloud relay requires RIFF PCM', () => {
   const free = buildFreeMolabR2Payload({
@@ -43,7 +49,7 @@ test('Technical waveform scoring must not be labeled musical quality', () => {
 
 test('Site endpoint audit must be read-only and check real Creator provider', () => {
   const audit = read('scripts/sonara-public-generation-audit.mjs');
-  assert.match(audit, /creatorEngineProvider/);
+  assert.match(audit, /LEGACY_BILLING_FALLBACK/);
   assert.match(audit, /LIVE_PROMPT_LIBERO_UI/);
   assert.match(audit, /GATEWAY_XL_SFT/);
   assert.match(audit, /R2_RELAY_JOB_QUEUE/);
