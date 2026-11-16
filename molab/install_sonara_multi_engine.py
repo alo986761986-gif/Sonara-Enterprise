@@ -83,7 +83,10 @@ def stable():
             "Do not install an incompatible prebuilt wheel or change ACE-Step.")
     # Load through huggingface_hub's normal cache, which is where
     # StableAudioModel.from_pretrained('medium') looks for the checkpoint.
-    download("stabilityai/stable-audio-3-medium", ROOT / "stable-medium-weights")
+    # Match model_configs.py: from_pretrained() resolves checkpoints from
+    # the default Hugging Face cache, not from a custom --local-dir tree.
+    run([UV, "tool", "run", "--from", "huggingface_hub", "hf",
+         "download", "stabilityai/stable-audio-3-medium"])
     print("SONARA_STABLE_AUDIO_FILES_DOWNLOADED=True")
     print("Use SONARA_STABLE_PYTHON=" + str(STABLE / ".venv/bin/python"))
     print("Next: run the actual WAV smoke test with accepted license.")
