@@ -11,7 +11,10 @@ on:
       - 'cloudflare/sonara-ab-player-visibility-edge.mjs'
       - 'cloudflare/sonara-web-v15-router.mjs'
       - 'cloudflare/sonara-creator-open-model-route.mjs'
-      - 'cloudflare/sonara-creator-open-model-route.test.mjs'
+      - 'cloudflare/sonara-creator-open-model-route.test.mjs cloudflare/sonara-native-open-model-entry.test.mjs'
+      - 'cloudflare/sonara-native-open-model-entry.mjs'
+      - 'cloudflare/sonara-native-open-model-entry.test.mjs'
+      - 'cloudflare/sonara-relay-gateway-entry.mjs'
       - 'molab/sonara_multi_engine_agent.py'
       - 'molab/install_sonara_multi_engine.py'
       - 'src/components/generator/**'
@@ -37,6 +40,8 @@ jobs:
           node --check cloudflare/sonara-real-music-v3-edge.mjs
           node --check cloudflare/sonara-ab-player-visibility-edge.mjs
           node --check cloudflare/sonara-web-v15-router.mjs
+          node --check cloudflare/sonara-native-open-model-entry.mjs
+          node --check cloudflare/sonara-relay-gateway-entry.mjs
           node --test cloudflare/sonara-multi-engine-r2.test.mjs cloudflare/sonara-gateway-multi-engine.test.mjs cloudflare/sonara-creator-open-model-route.test.mjs
       - name: Validate MoLab Python agents
         run: |
