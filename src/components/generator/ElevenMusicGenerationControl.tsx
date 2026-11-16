@@ -642,6 +642,7 @@ export default function ElevenMusicGenerationControl() {
           prompt: finalPrompt,
           rawPrompt: context.rawPrompt,
           creatorPrompt: context.rawPrompt,
+          sonaraMultiEngineCreatorRequest: true,
           sonaraCreatorPromptAuthoritative: context.rawPrompt,
           sonaraOriginalCreatorBrief: context.rawPrompt,
           genreFamily: context.genreFamily,
