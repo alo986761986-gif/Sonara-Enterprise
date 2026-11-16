@@ -83,3 +83,72 @@ test('multi-engine server keeps an expired lease in the queue for recovery',asyn
   assert.equal(record.status,'LEASED');
   assert.equal(record.attempts,2);
 });
+
+test('authorized HeartMuLa job can be claimed, completed and polled by its owner',async()=>{
+  const bucket=makeBucket();
+  const secret='internal-gateway-test-key';
+  const agentToken='z'.repeat(56);
+  const user='user-for-music-test';
+  const env={
+    SONARA_AUDIO_BUCKET:bucket,SONARA_MULTI_ENGINE_ENABLED:'true',
+    SONARA_INTERNAL_PROXY_SECRET:secret,SONARA_RELAY_TOKEN:agentToken
+  };
+  const service='https://api.sonaraenterprise.com';
+  const machineHeaders={'X-Sonara-Relay-Token':agentToken};
+  const gatewayHeaders={'X-Sonara-Internal-Secret':secret,'X-Sonara-User-Uid':user};
+  const heartbeat=await handleSonaraMultiEngine(
+    new Request(service+'/api/sonara-multi/agent/heartbeat',{
+      method:'POST',headers:machineHeaders,
+      body:JSON.stringify({models:{'heartmula-3b':true},stableLicenseAccepted:false})
+    }),env,context);
+  assert.equal(heartbeat.status,200);
+  assert.equal((await heartbeat.json()).available.models['heartmula-3b'].ready,true);
+
+  const enqueue=await handleSonaraMultiEngine(
+    new Request(service+'/api/engine/generate',{
+      method:'POST',headers:{...gatewayHeaders,'content-type':'application/json'},
+      body:JSON.stringify({sonaraModelId:'heartmula-3b',prompt:'Deep house at 124 bpm',durationSec:30})
+    }),env,context);
+  assert.equal(enqueue.status,202);
+  const job=await enqueue.json();
+  assert.match(job.jobId,/^sr2_[0-9a-f-]{36}$/);
+
+  const claim=await handleSonaraMultiEngine(
+    new Request(service+'/api/sonara-multi/agent/claim',{
+      method:'POST',headers:machineHeaders,body:'{}'
+    }),env,context);
+  assert.equal(claim.status,200);
+  const lease=await claim.json();
+  assert.equal(lease.jobId,job.jobId);
+  assert.equal(lease.modelId,'heartmula-3b');
+  assert.equal(lease.request.durationSec,30);
+
+  const unauthorized=await handleSonaraMultiEngine(
+    new Request(service+'/api/music/job/'+job.jobId,{
+      headers:{'X-Sonara-Internal-Secret':secret,'X-Sonara-User-Uid':'other-user'}
+    }),env,context);
+  assert.equal(unauthorized.status,404);
+
+  const data=new Uint8Array(64);
+  for(const [pos,word] of [[0,'RIFF'],[8,'WAVE']])for(let i=0;i<word.length;i++)data[pos+i]=word.charCodeAt(i);
+  const upload=await handleSonaraMultiEngine(
+    new Request(service+'/api/sonara-multi/job/'+job.jobId+'/audio',{
+      method:'PUT',headers:{...machineHeaders,'X-Sonara-Lease':lease.leaseId,'content-type':'audio/wav'},
+      body:data
+    }),env,context);
+  assert.equal(upload.status,200);
+  const complete=await handleSonaraMultiEngine(
+    new Request(service+'/api/sonara-multi/job/'+job.jobId+'/complete',{
+      method:'POST',headers:{...machineHeaders,'X-Sonara-Lease':lease.leaseId},body:'{}'
+    }),env,context);
+  assert.equal(complete.status,200);
+  const poll=await handleSonaraMultiEngine(
+    new Request(service+'/api/music/job/'+job.jobId,{headers:gatewayHeaders}),env,context);
+  assert.equal(poll.status,200);
+  const result=await poll.json();
+  assert.equal(result.status,'COMPLETED');
+  assert.equal(result.model,'heartmula-3b');
+  assert.equal(result.candidates.length,1);
+  assert.equal(result.candidates[0].audioFormat,'wav');
+  assert.match(result.audioUrl,/^https:\/\/api\.sonaraenterprise\.com\/api\/sonara-multi\/audio\//);
+});
