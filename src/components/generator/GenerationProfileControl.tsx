@@ -35,21 +35,21 @@ const PROFILES: Array<{
     id: 'quality',
     label: 'REALISTIC FAST',
     subtitle: 'Realismo + velocità',
-    detail: '1 brano · 4 step · realism V3 + DCW',
+    detail: '1 brano · fino a 8 step Turbo (relay R2) · realismo',
     icon: Sparkles
   },
   {
     id: 'ultra',
     label: 'ULTRA',
     subtitle: 'Composizione approfondita',
-    detail: '2 brani · pianificazione musicale aggiuntiva',
+    detail: '2 brani · 8 step Turbo (relay R2) · LM 4B',
     icon: ShieldCheck
   },
   {
     id: 'pro',
     label: 'QUALITÀ PRO',
     subtitle: 'ACE-Step XL SFT · LM 4B',
-    detail: '1 brano · 50 passaggi · modello SFT dedicato',
+    detail: '1 brano · 50 step SFT · pianificazione LM se disponibile',
     icon: Sparkles
   }
 ];

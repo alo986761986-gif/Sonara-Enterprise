@@ -33,7 +33,7 @@ ENDPOINT = 'https://api.sonaraenterprise.com/api/sonara-relay'
 LOCAL = 'http://127.0.0.1:8001'
 SFT_LOCAL = 'http://127.0.0.1:8003'
 SFT_MODEL = 'acestep-v15-xl-sft'
-_SFT_PROBE = {'at': 0.0, 'ready': False}
+_SFT_PROBE = {'at': 0.0, 'ready': False, 'lmReady': False}
 TOKEN_FILE = ROOT / 'relay.token'
 ACE_KEY_FILE = pathlib.Path('/home/marimo/ACE-STEP/.sonara-api-key')
 STATUS_FILE = ROOT / 'relay-agent-status.json'
@@ -73,26 +73,38 @@ def request(method: str, url: str, payload=None, headers=None, timeout=45):
             return data
         return response.read()
 
-def sft_ready():
+def sft_status(force=False):
+    """Probe only the private SFT API; LM planning requires verified LM 4B."""
     now = time.monotonic()
-    if now - _SFT_PROBE['at'] < 5:
-        return _SFT_PROBE['ready']
-    _SFT_PROBE['at'] = now
+    if not force and now - _SFT_PROBE['at'] < 5:
+        return dict(_SFT_PROBE)
+    _SFT_PROBE.update(at=now, ready=False, lmReady=False)
     try:
         response = request('GET', SFT_LOCAL + '/health', headers=ace_headers(), timeout=3)
         health = response.get('data', response)
-        _SFT_PROBE['ready'] = bool(isinstance(health, dict) and health.get('models_initialized') is True
-                                   and health.get('loaded_model') == SFT_MODEL)
+        if isinstance(health, dict):
+            ready = (health.get('models_initialized') is True
+                     and health.get('loaded_model') == SFT_MODEL)
+            _SFT_PROBE['ready'] = ready
+            _SFT_PROBE['lmReady'] = bool(
+                ready and health.get('llm_initialized') is True
+                and health.get('loaded_lm_model') == 'acestep-5Hz-lm-4B')
     except (OSError, ValueError, RuntimeError, urllib.error.HTTPError):
-        _SFT_PROBE['ready'] = False
-    return _SFT_PROBE['ready']
+        pass
+    return dict(_SFT_PROBE)
+
+
+def sft_ready():
+    return sft_status()['ready']
+
 
 def claim_headers():
     value = TOKEN_FILE.read_text(encoding='utf-8').strip()
     if len(value) < 32 or not value.isascii() or any(c.isspace() for c in value):
         raise ValueError('Invalid private relay credential')
     return {'X-Sonara-Relay-Token': value, 'X-Sonara-Agent-Revision': REVISION,
-            'X-Sonara-Sft-Ready': '1' if sft_ready() else '0'}
+            'X-Sonara-Sft-Ready': '1' if sft_ready() else '0',
+            'X-Sonara-Sft-Lm-Ready': '1' if sft_status()['lmReady'] else '0'}
 
 def request_shutdown(_signum, _frame):
     # Finish any claimed job before releasing the single-agent lock.
@@ -380,18 +392,21 @@ def wav_quality_report(path, physical_fidelity=False):
         return {'ok': False, 'score': 0.0}
 
 
-def vocal_report(path, payload):
+def vocal_report(path, payload, engine_local=None):
     lyrics = str(payload.get('lyrics') or '').strip()
     vocal_mode = str(payload.get('vocal_mode') or payload.get('vocalMode') or '').strip().lower()
     profile = str(payload.get('sonara_r2_generation_profile') or payload.get('generationProfileV3') or '').strip().lower()
-    # REALISTIC and ULTRA both audit lyric accuracy on genuine vocal takes.
-    # Instant stays fast; failed/unavailable ASR never becomes a fake pass.
-    if profile not in ('quality', 'ultra'):
+    # REALISTIC, ULTRA and XL SFT PRO audit genuine vocal takes. Instant is
+    # excluded. Missing ASR must never be presented as verified lyric accuracy.
+    if profile not in ('quality', 'ultra', 'pro'):
         return {'performed': False, 'lyricAccuracy': None, 'mismatchRanges': [], 'mode': 'not-requested-fast'}
-    if not lyrics or vocal_mode in ('instrumental', 'none', 'off', 'no vocals'):
+    if (not lyrics or lyrics.lower() in ('[instrumental]', '[no vocals]')
+            or vocal_mode in ('instrumental', 'none', 'off', 'no vocals')):
         return {'performed': False, 'lyricAccuracy': None, 'mismatchRanges': []}
+    # Path-based transcription must use the API owning this generated WAV.
+    transcriber = engine_local or local
     try:
-        answer = local('POST', '/v1/sonara/transcribe', {
+        answer = transcriber('POST', '/v1/sonara/transcribe', {
             'path': str(path),
             'language': str(payload.get('vocal_language') or 'auto'),
             'expected_lyrics': lyrics,
@@ -406,9 +421,12 @@ def vocal_report(path, payload):
             'wordErrorRate': data.get('word_error_rate') if isinstance(data, dict) else None,
             'language': data.get('language') if isinstance(data, dict) else None,
             'mismatchRanges': ranges[:12] if isinstance(ranges, list) else [],
+            'attempted': True,
+            'verified': accuracy is not None,
         }
     except Exception:
-        return {'performed': True, 'lyricAccuracy': None, 'mismatchRanges': [], 'error': 'ASRUnavailable'}
+        return {'performed': False, 'lyricAccuracy': None, 'mismatchRanges': [],
+                'attempted': True, 'error': 'ASRUnavailable'}
 
 
 def independent_bpm_report(audio_path, payload):
@@ -558,15 +576,19 @@ def process(job):
         payload = dict(job['payload'])
         use_sft = (payload.get('sonaraAceVariant') == 'xl-sft'
                    and payload.get('sonaraSftQualityPro') is True)
-        if use_sft and not sft_ready():
+        sft_state = sft_status(force=True) if use_sft else None
+        if use_sft and not sft_state['ready']:
             raise RuntimeError('SFT runtime unavailable after queue claim')
+        lm_planning = bool(use_sft and sft_state['lmReady'])
         actual_model = SFT_MODEL if use_sft else 'acestep-v15-xl-turbo'
         engine_local = sft_local if use_sft else local
         payload.pop('sonaraAceVariant', None)
         payload.pop('sonaraSftQualityPro', None)
+        payload.pop('sonara_sft_lm_planning_policy', None)
         if use_sft:
             payload.update({'model': SFT_MODEL, 'inference_steps': 50, 'guidance_scale': 7.0,
-                            'shift': 1.0, 'batch_size': 1, 'thinking': False})
+                            'shift': 1.0, 'batch_size': 1, 'thinking': lm_planning,
+                            'allow_lm_batch': False, 'use_format': False})
         remix_source = job.get('remixSource') if isinstance(job.get('remixSource'), dict) else None
         if remix_source and remix_source.get('available') is True:
             progress('downloading_remix_source')
@@ -624,6 +646,8 @@ def process(job):
                 raise RuntimeError('ACE-Step task failed')
             if status == 1:
                 timings['engineWaitSeconds'] = round(time.monotonic() - submitted, 2)
+                if use_sft and not sft_status(force=True)['ready']:
+                    raise RuntimeError('SFT model identity changed during the job')
                 paths = extract_paths(task)
                 expected = max(1, min(2, int(job['payload'].get('batch_size', 1))))
                 if len(paths) < expected:
@@ -636,12 +660,12 @@ def process(job):
                 evaluated = []
                 for original_index, candidate_path in enumerate(paths[:4]):
                     audio_report = wav_quality_report(candidate_path, bool(payload.get('sonara_physical_fidelity_required')))
-                    vocal = vocal_report(candidate_path, payload)
+                    vocal = vocal_report(candidate_path, payload, engine_local)
                     repaired_path, repaired = maybe_repair_vocal(candidate_path, payload, vocal)
                     if repaired:
                         candidate_path = repaired_path
                         audio_report = wav_quality_report(candidate_path, bool(payload.get('sonara_physical_fidelity_required')))
-                        vocal = vocal_report(candidate_path, payload)
+                        vocal = vocal_report(candidate_path, payload, engine_local)
                     bpm_report = independent_bpm_report(candidate_path, payload)
                     # Pulse support is comparative evidence only. Never equate it
                     # with verification or modify a candidate's WAV.
@@ -686,6 +710,8 @@ def process(job):
                         'tempoEvidence': item.get('tempoEvidence'),
                         'vocal': {
                             'performed': item['vocal'].get('performed'),
+                            'attempted': item['vocal'].get('attempted', False),
+                            'verified': item['vocal'].get('verified', False),
                             'lyricAccuracy': item['vocal'].get('lyricAccuracy'),
                             'wordErrorRate': item['vocal'].get('wordErrorRate'),
                             'language': item['vocal'].get('language'),
@@ -714,7 +740,9 @@ def process(job):
                     del data
                 completed = time.monotonic()
                 request('POST', base + '/complete', {'quality': quality_summary,
-                      'rankingVersion': 'sonara-local-critic-v2-physical', 'actualModel': actual_model}, head, 30)
+                      'rankingVersion': 'sonara-local-critic-v2-physical',
+                      'actualModel': actual_model,
+                      'lmPlanningUsed': lm_planning if use_sft else bool(payload.get('thinking'))}, head, 30)
                 timings['completeSeconds'] = round(time.monotonic() - completed, 2)
                 timings['totalSeconds'] = round(time.monotonic() - started, 2)
                 bpm_verified_count = sum(1 for item in evaluated
