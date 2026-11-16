@@ -110,8 +110,18 @@ test('native gateway preserves worldwide style hierarchy and curated sonic DNA i
   ];
   for(const input of choices){
     const e=environment(); await heartbeat(e);
+    // The React Creator builds these cues from SONARA's existing canonical
+    // taxonomy with musicStyleIntelligenceLegacy before posting to Cloudflare.
     const body={...modelBody,genreFamily:input.genreFamily,genre:input.genre,
-      subgenre:input.subgenre,mood:input.mood,rawPrompt:'an original song'};
+      subgenre:input.subgenre,mood:input.mood,rawPrompt:'an original song',
+      sonaraStyleDNA:{
+        instrumentation:input.phrase+',authentic instruments',
+        rhythm:'genre-specific syncopation and natural groove',
+        identity:input.subgenre+' sonic identity',
+        harmony:'style-appropriate harmonic movement',
+        production:'genre-appropriate production',
+        atmosphere:input.mood+' atmosphere'
+      }};
     const result=await handleNativeOpenModelCreator(req('/api/billing/generate',body),e,context,nativeAuth());
     assert.equal(result.status,202,input.subgenre);
     const id=(await result.json()).jobId;
