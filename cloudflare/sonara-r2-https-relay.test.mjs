@@ -164,3 +164,33 @@ test('dedicated Pro fingerprint is disabled if missing, malformed or not matchin
   assert.equal((await send(hashToken(token),token+'x')).status,401);
   assert.equal((await send(hashToken(token),'short')).status,401);
 });
+
+test('Quality Pro is advertised only with a fresh SFT-ready heartbeat', async () => {
+  const heartbeat = { revision: 'sonara-remix-r2-agent-v6', lastSeen: Date.now(), sftReady: true };
+  const bucket = {
+    get: async key => key === 'relay-v1/agent/heartbeat.json' ? { json: async () => heartbeat } : null
+  };
+  const env = { ...pairingEnv, SONARA_AUDIO_BUCKET: bucket };
+  const endpoint = 'https://api.sonaraenterprise.com/api/sonara-relay/sft-capabilities';
+  const available = await runtime.fetch(new Request(endpoint), env, {});
+  assert.equal(available.status, 200);
+  assert.equal((await available.json()).available, true);
+  heartbeat.sftReady = false;
+  assert.equal((await (await runtime.fetch(new Request(endpoint), env, {})).json()).available, false);
+  heartbeat.sftReady = true;
+  heartbeat.lastSeen = Date.now() - 60_000;
+  assert.equal((await (await runtime.fetch(new Request(endpoint), env, {})).json()).available, false);
+});
+
+test('SFT enqueue fails closed if no live SFT worker is present', async () => {
+  const url = 'https://api.sonaraenterprise.com/api/sonara-relay/enqueue';
+  const id = 'sr2_12345678-1234-1234-1234-123456789abc';
+  const bucket = { get: async () => null, put: async () => { throw Error('must never queue unavailable SFT'); } };
+  const request = new Request(url, { method: 'POST', headers: {
+    'Content-Type': 'application/json',
+    'X-Sonara-Internal-Secret': pairingEnv.SONARA_INTERNAL_PROXY_SECRET,
+    'X-Sonara-User-Uid': 'owner-test'
+  }, body: JSON.stringify({ sonaraAceVariant: 'xl-sft', sonaraSftQualityPro: true, model: 'acestep-v15-xl-sft' }) });
+  const reply = await runtime.fetch(request, { ...pairingEnv, SONARA_AUDIO_BUCKET: bucket }, {});
+  assert.equal(reply.status, 503);
+});
