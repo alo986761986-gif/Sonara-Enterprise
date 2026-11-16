@@ -536,7 +536,7 @@ function qualityMetadata(count, payload = {}) {
 export function buildFreeMolabR2Payload(body = {}) {
   const prompt = String(body.rawPrompt || body.prompt || '').trim().slice(0, 7600);
   if (!prompt) throw new TypeError('SONARA Prompt Libero requires a prompt');
-  const bpmMatch = /\\b(?:bpm\\s*[:=]?\\s*(\\d{2,3})|(\\d{2,3})\\s*bpm)\\b/i.exec(prompt);
+  const bpmMatch = /\b(?:bpm\s*[:=]?\s*(\d{2,3})|(\d{2,3})\s*bpm)\b/i.exec(prompt);
   const proposedBpm = bpmMatch ? Number(bpmMatch[1] || bpmMatch[2]) : null;
   const bpm = Number.isInteger(proposedBpm) && proposedBpm >= 40 && proposedBpm <= 220 ? proposedBpm : null;
   const durationRaw = Number(body.durationSec ?? body.duration ?? body.audio_duration);
