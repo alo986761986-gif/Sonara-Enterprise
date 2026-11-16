@@ -160,8 +160,13 @@ function installNativeFetchBridge() {
           delete body.sonaraMultiEngineCreatorRequest;
           body.generationProfileV3 = profile;
           body.renderProfile = profile;
-          body.sonaraMusicDirectorV3 = 'sonara-music-director-v3';
-          body.sonaraDirectorBypass = false;
+          if (body.sonaraPromptMode === 'free') {
+            delete body.sonaraMusicDirectorV3;
+            body.sonaraDirectorBypass = true;
+          } else {
+            body.sonaraMusicDirectorV3 = 'sonara-music-director-v3';
+            body.sonaraDirectorBypass = false;
+          }
           body.sonaraGenerationProfileSource = 'react-native-ui';
 
           const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
