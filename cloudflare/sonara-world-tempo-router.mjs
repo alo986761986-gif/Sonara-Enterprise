@@ -137,6 +137,7 @@ async function rewriteGenerationRequest(request) {
   try {
     const body = await request.clone().json();
     if (!body || typeof body !== 'object' || Array.isArray(body)) return request;
+    if (body.sonaraPromptMode === 'free') return request;
     const decision = tempoDecision(body, request);
     const lock = professionalTempoLock(decision);
     const existingPrompt = String(body.prompt || '').trim();
