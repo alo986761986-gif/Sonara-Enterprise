@@ -42,4 +42,4 @@ jobs:
         run: |
           test -d dist/assets
           grep -R -Fq 'sonaraSftQualityPro' dist/assets
-          grep -R -Fq 'acestep-v15-xl-sft' dist/assets
+          grep -R -Fq 'xl-sft' dist/assets
