@@ -214,19 +214,44 @@ export async function handleSonaraMultiEngine(request, env, ctx) {
     const now=Date.now();
     for (const marker of list.objects) {
       const id=marker.key.split('/').pop();
-      if (!JOB_RE.test(id)) continue;
+      if (!JOB_RE.test(id)) {
+        ctx?.waitUntil?.(bucket.delete(marker.key));
+        continue;
+      }
       const object=await bucket.get(jobKey(id));
-      if (!object) {ctx?.waitUntil?.(bucket.delete(marker.key));continue;}
-      const job=await object.json();
+      if (!object) {
+        ctx?.waitUntil?.(bucket.delete(marker.key));
+        continue;
+      }
+      let job;
+      try { job = await object.json(); }
+      catch { ctx?.waitUntil?.(bucket.delete(marker.key)); continue; }
+      if (job.status === 'COMPLETE' || job.status === 'FAILED') {
+        ctx?.waitUntil?.(bucket.delete(marker.key));
+        continue;
+      }
       const expired=job.status==='LEASED'&&Number(job.leaseUntil)<now;
-      if (!(job.status==='QUEUED'||expired)||job.attempts>=3) {ctx?.waitUntil?.(bucket.delete(marker.key));continue;}
+      if (!(job.status==='QUEUED'||expired)) continue;
+      if (job.attempts >= 3) {
+        // An interrupted worker must not leave a job eternally PROCESSING.
+        // Retain a FAILED record so the user's job polling can terminate.
+        const failed = {...job,status:'FAILED',leaseId:null,updatedAt:now};
+        await bucket.put(jobKey(id),JSON.stringify(failed),{
+          onlyIf:{etagMatches:object.etag},httpMetadata:{contentType:'application/json'}
+        });
+        ctx?.waitUntil?.(bucket.delete(marker.key));
+        continue;
+      }
       const caps=await agentHealth(bucket,env);
       if (!modelAllowed(job.modelId,caps)) continue;
       const leaseId=crypto.randomUUID();
       const next={...job,status:'LEASED',leaseId,leaseUntil:now+MAX_LEASE_MS,attempts:job.attempts+1,updatedAt:now};
-      const stored=await bucket.put(jobKey(id),JSON.stringify(next),{onlyIf:{etagMatches:object.etag},httpMetadata:{contentType:'application/json'}});
+      const stored=await bucket.put(jobKey(id),JSON.stringify(next),{
+        onlyIf:{etagMatches:object.etag},httpMetadata:{contentType:'application/json'}
+      });
       if (!stored) continue;
-      ctx?.waitUntil?.(bucket.delete(marker.key));
+      // Keep the queue marker until a terminal status; it allows automatic
+      // recovery if MoLab stops unexpectedly before it publishes the WAV.
       return json({jobId:id,leaseId,modelId:job.modelId,request:job.request});
     }
     return json({jobId:null});
@@ -256,11 +281,13 @@ export async function handleSonaraMultiEngine(request, env, ctx) {
     if (!job.audioReady || !(await bucket.head(waveKey(id)))) return json({error:'Audio not uploaded'},409);
     job.status='COMPLETE';job.leaseId=null;job.updatedAt=Date.now();
     await bucket.put(jobKey(id),JSON.stringify(job),{httpMetadata:{contentType:'application/json'}});
+    await bucket.delete(queueKey(job.createdAt,id));
     return json({ok:true});
   }
   if (action==='fail' && postOnly(request)) {
     job.status='FAILED';job.leaseId=null;job.updatedAt=Date.now();
     await bucket.put(jobKey(id),JSON.stringify(job),{httpMetadata:{contentType:'application/json'}});
+    await bucket.delete(queueKey(job.createdAt,id));
     return json({ok:true});
   }
   return json({error:'Not found'},404);
