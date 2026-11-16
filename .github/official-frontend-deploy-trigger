@@ -23,3 +23,7 @@ SONARA_CREATOR_HEARTMULA_NATIVE_ROUTE_FIX=2026-11-16
 PR_139_MERGE=b152268e8a42c17a26e9f1f36a88c4b385a65145
 REASON=Allow-open-model-creator-jobs-with-HeartMuLa-GPU-heartbeat-even-when-legacy-ACE-Step-relay-is-offline
 SAFETY=Keep-native-auth-quota-and-ACE-Step-Remix-unchanged
+SONARA_OPEN_MODEL_CREATOR_HTTP500_JSON_GATEWAY=2026-11-16
+PR_140_MERGE=babb7f8958a5b225a5d9a9c9c904a2fbca7a5d10
+REASON=Bypass-legacy-chain-for-open-model-generation-and-return-authenticated-JSON
+SAFETY=Authenticated-plan-checks-and-job-ownership-preserved-No-double-POST
