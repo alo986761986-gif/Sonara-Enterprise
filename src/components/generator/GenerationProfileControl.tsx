@@ -289,6 +289,7 @@ export default function GenerationProfileControl() {
                 </button>
               );
             })}
+          </div>
           <div className="mt-4 border-t border-white/10 pt-4">
             <div className="text-[10px] font-black uppercase tracking-[0.18em] text-violet-200">Motore musicale SONARA</div>
             <p className="mt-1 text-[11px] text-slate-300">Seleziona un motore realmente disponibile sulla GPU. ACE-Step rimane il motore di riserva.</p>
@@ -309,7 +310,6 @@ export default function GenerationProfileControl() {
                 </button>;
               })}
             </div>
-          </div>
           </div>
         </section>,
         host
