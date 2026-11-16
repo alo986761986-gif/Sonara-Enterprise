@@ -81,6 +81,8 @@ interface JobResponse {
   status?: JobStatus | string;
   progress?: number;
   audioUrl?: string | null;
+  model?: string;
+  provider?: string;
   error?: string | { code?: string; message?: string } | null;
   message?: string;
   metadata?: Record<string, any>;
@@ -598,7 +600,8 @@ export default function App() {
         const metadata = current.metadata || {};
         setProgress(Number(current.progress || 0));
         setStage(currentStatus === 'COMPLETED' ? t('audioReady') : brandSonara(String(metadata.currentStage || t('generating'))));
-        setEngine('SONARA');
+        const reportedModel = String(current.model || metadata.actualModel || '').trim();
+        setEngine(reportedModel || 'Modello non verificato');
 
         if (currentStatus === 'COMPLETED') {
           const url = current.audioUrl || metadata.audioUrl || responseData.audioUrl || responseData.result?.audioUrl;
