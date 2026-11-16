@@ -37,7 +37,7 @@ test('selects open models only from explicitly marked Creator jobs',()=>{
   assert.equal(selectedCreatorOpenModel({sonaraModelId:'heartmula-3b'}),'');
   assert.equal(selectedCreatorOpenModel({sonaraMultiEngineCreatorRequest:true,sonaraModelId:'ace-step'}),'');
   assert.equal(selectedCreatorOpenModel({sonaraMultiEngineCreatorRequest:true,sonaraModelId:'unknown'}),'');
-  assert.equal(selectedCreatorOpenModel({sonaraMultiEngineCreatorRequest:true,sonaraModelId:'heartmula-3b',sonaraRemixPro:true}),'heartmula-3b');
+  assert.equal(selectedCreatorOpenModel({sonaraMultiEngineCreatorRequest:true,sonaraModelId:'heartmula-3b',sonaraRemixPro:true}),'');
 });
 test('creator routes to HeartMuLa R2 without the ACE-Step heartbeat, and enforces owner on polling',async()=>{
   const e=env();await heartbeat(e);
