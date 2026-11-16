@@ -141,11 +141,22 @@ export async function handleSonaraMultiEngine(request, env, ctx) {
       attempts:0, leaseId:null, leaseUntil:0, audioReady:false,
       request: {
         modelId, prompt,
+        rawPrompt:safeText(payload.rawPrompt || payload.creatorPrompt, 700),
         lyrics: safeText(payload.lyrics, 10000),
+        genreFamily:safeText(payload.genreFamily, 120),
         genre: safeText(payload.genre, 120),
         subgenre: safeText(payload.subgenre, 120),
+        mood:safeText(payload.mood, 90),
         bpm: Number(payload.bpm) || null,
+        key:safeText(payload.key, 40),
+        vocalMode:safeText(payload.vocalMode, 24),
         language: safeText(payload.vocalLanguage || payload.language, 30),
+        // Only the native authenticated gateway computes style DNA; never
+        // trust arbitrary browser-supplied long instruction text.
+        sonaraStyleDNA: Object.fromEntries(
+          ['identity','instrumentation','rhythm','harmony','production','atmosphere']
+            .map(k=>[k,safeText(payload.sonaraStyleDNA?.[k],1100)])
+        ),
         durationSec:duration
       }
     };
