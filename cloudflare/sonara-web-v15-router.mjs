@@ -180,24 +180,18 @@ function decorateDirectEngineResponse(response) {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
+// The Creator is ACE-Step-only. The authenticated native route owns billing,
+// queue submission and profile cardinality. Do not force two masters or retry
+// a POST: a successful R2 enqueue may lose its acknowledgement.
 async function resilientDualGeneration(request, env, ctx) {
-  // Explicit Music Creator open-model jobs are single-WAV jobs in a separate
-  // R2 queue. Do not force dual masters, or retry POST (which could enqueue
-  // a duplicate if an acknowledgement is lost). ACE-Step keeps old routing.
-  try {
-    const body = await request.clone().json();
-    if (body?.sonaraMultiEngineCreatorRequest === true &&
-        ['heartmula-3b','stable-audio-3-medium'].includes(body?.sonaraModelId)) {
-      return decorateGenerationResponse(await sonaraProxy.fetch(request,env,ctx));
-    }
-  } catch { /* Preserve existing request handling for non-JSON bodies. */ }
-  const dualRequest = await forceResilientDualGeneration(request);
-  let response = await sonaraProxy.fetch(dualRequest.clone(), env, ctx);
-  if (RETRYABLE_GENERATION_STATUSES.has(response.status)) {
-    await wait(900);
-    response = await sonaraProxy.fetch(dualRequest.clone(), env, ctx);
-  }
-  return decorateGenerationResponse(response);
+  const bpmLocked = await forceExactBpmRequest(request, false);
+  const response = await sonaraProxy.fetch(bpmLocked, env, ctx);
+  const headers = new Headers(response.headers);
+  headers.set('cache-control', 'no-store');
+  headers.set('x-sonara-music-route', 'ace-step-xl-r2-single-submit');
+  return new Response(response.body, {
+    status: response.status, statusText: response.statusText, headers
+  });
 }
 
 async function directEngineGeneration(request, env, ctx) {
