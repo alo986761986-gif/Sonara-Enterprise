@@ -34,7 +34,7 @@ jobs:
           node --test cloudflare/sonara-multi-engine-r2.test.mjs cloudflare/sonara-gateway-multi-engine.test.mjs
       - name: Validate MoLab Python agents
         run: |
-          python -m py_compile molab/sonara_multi_engine_agent.py molab/install_sonara_multi_engine.py molab/sonara_heartmula_wav_wrapper.py
+          python -m py_compile molab/sonara_multi_engine_agent.py molab/install_sonara_multi_engine.py molab/sonara_heartmula_wav_wrapper.py molab/sonara_multi_gateway_diagnose.py
       - name: Build SONARA production UI
         run: |
           npm install
