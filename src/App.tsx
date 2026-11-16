@@ -34,7 +34,7 @@ import {
   Zap
 } from 'lucide-react';
 import { WORLD_MUSIC_GENRES, findGenre } from './data/worldMusicGenres';
-import { buildGenerationPrompt, buildRandomCreativeBrief, type VocalMode } from './generationPrompt';
+import { buildGenerationPrompt, type VocalMode } from './generationPrompt';
 import { buildRandomLyrics } from './randomLyrics';
 import { SONARA_PLANS } from './billing/plans';
 import { getAtmospheresForSelection } from './musicStyleIntelligence';
@@ -249,7 +249,7 @@ const INITIAL_SELECTION = {
   lyrics: '',
   title: 'Sonara Deep House Track'
 };
-const INITIAL_PROMPT = buildRandomCreativeBrief({ ...INITIAL_SELECTION, variant: 0 });
+const INITIAL_PROMPT = '';
 function durationLabel(seconds: number, t: (key: Parameters<typeof uiText>[1]) => string) {
   if (seconds < 60) return `${seconds} ${t('seconds')}`;
   const minutes = seconds / 60;
@@ -300,7 +300,6 @@ export default function App() {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const automaticTitleRef = useRef(true);
-  const randomVariantRef = useRef(0);
   const lyricsVariantRef = useRef(0);
   const busy = status === 'QUEUED' || status === 'PROCESSING';
   const vocalLyrics = vocalMode === 'instrumental' ? '' : lyrics;
@@ -404,22 +403,7 @@ export default function App() {
     else audio.pause();
   }, [isPlaying, audioUrl]);
 
-  useEffect(() => {
-    setPrompt(buildRandomCreativeBrief({
-      genreFamily,
-      genre,
-      subgenre,
-      mood,
-      bpm,
-      key: keySignature,
-      durationSec,
-      vocalMode,
-      vocalLanguage: LANGUAGE_METADATA[vocalLanguage].name,
-      lyrics: vocalLyrics,
-      title,
-      variant: randomVariantRef.current
-    }));
-  }, [genreFamily, genre, subgenre, mood, bpm, keySignature, durationSec, vocalMode, vocalLanguage, vocalLyrics, title]);
+  // Style text is creator-owned: changing filters, BPM, lyrics or title must never overwrite it.
 
   const refreshDashboard = async () => {
     try {
@@ -479,26 +463,6 @@ export default function App() {
     const safe = clampPercentage(value);
     setStyleInfluence(safe);
     localStorage.setItem(STYLE_INFLUENCE_KEY, String(safe));
-  };
-
-  const randomizePrompt = () => {
-    randomVariantRef.current = (randomVariantRef.current + 1) % 4;
-    automaticTitleRef.current = true;
-    const nextTitle = `Sonara ${subgenre} Track`;
-    setTitle(nextTitle);
-    setPrompt(buildRandomCreativeBrief({
-      genreFamily,
-      genre,
-      subgenre,
-      mood,
-      bpm,
-      key: keySignature,
-      durationSec,
-      vocalMode,
-      lyrics: vocalLyrics,
-      title: nextTitle,
-      variant: randomVariantRef.current
-    }));
   };
 
   const randomizeLyrics = () => {
@@ -781,18 +745,17 @@ export default function App() {
       )}
 
       <div>
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <label htmlFor="sonara-prompt" className="text-xs font-semibold text-slate-400">{t('prompt')}</label>
-          <div className="flex items-center gap-2">
-            <button type="button" onClick={randomizePrompt} disabled={busy} className="inline-flex items-center gap-2 rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-2 text-[11px] font-black tracking-wider text-purple-200 transition hover:bg-purple-500/20 disabled:opacity-50" title="Random prompt">
-              <Shuffle className="h-3.5 w-3.5" />RANDOM
-            </button>
-            <button type="button" onClick={() => setPrompt('')} disabled={busy || !prompt} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700 bg-slate-950 text-slate-400 transition hover:border-rose-500/40 hover:text-rose-300 disabled:opacity-40" aria-label="Clear prompt" title="Clear prompt">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-        <textarea id="sonara-prompt" value={prompt} onChange={event => setPrompt(event.target.value)} rows={10} className="w-full rounded-xl border border-slate-700 bg-slate-950 p-4 text-sm text-white outline-none focus:border-purple-500" />
+        <textarea
+          id="sonara-prompt"
+          aria-label="Stili musicali"
+          value={prompt}
+          onChange={event => setPrompt(event.target.value)}
+          placeholder="Es. Deep House, groove caldo a 124 BPM, basso profondo, piano Rhodes, atmosfera notturna, produzione naturale e professionale."
+          rows={5}
+          className="w-full rounded-xl border border-white/10 bg-[#111114] p-4 text-sm leading-relaxed text-white outline-none transition focus:border-blue-500/50"
+        />
+        <details className="mt-3 rounded-xl border border-white/10 bg-[#171719] px-4 py-3">
+          <summary className="cursor-pointer select-none text-xs font-semibold text-slate-300">Opzioni avanzate · Weirdness e Style Influence</summary>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <CreativeControlSlider
             id="sonara-weirdness"
@@ -811,6 +774,7 @@ export default function App() {
             onChange={updateStyleInfluence}
           />
         </div>
+        </details>
       </div>
 
       <div className="mt-5 grid gap-4 md:grid-cols-3">

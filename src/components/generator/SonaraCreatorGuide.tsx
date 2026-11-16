@@ -16,7 +16,7 @@ const GUIDE_SEEN_KEY = 'sonara.creator.guide.seen.v1';
 const GUIDE_ITEMS: GuideItem[] = [
   {
     id: 'prompt',
-    title: 'Prompt musica',
+    title: 'Stili musicali',
     summary: 'Descrivi il brano che vuoi ottenere: genere, atmosfera, strumenti, struttura, voce e dettagli sonori.',
     how: 'Scrivi in modo naturale. Le istruzioni esplicite nel prompt hanno priorità sui valori generici e puoi indicare anche il BPM, per esempio “Drum & Bass a 170 BPM”.',
     example: 'Melodic techno, 128 BPM, basso profondo, kick deciso, synth analogici e break atmosferico.',
@@ -34,7 +34,7 @@ const GUIDE_ITEMS: GuideItem[] = [
     id: 'styles',
     title: 'Styles',
     summary: 'Aggiunge caratteristiche di produzione, groove, timbro e arrangiamento al prompt.',
-    how: 'Usa i suggerimenti come ingredienti. Un secondo clic rimuove il tag. Il Prompt Intelligente può trasformare pochi tag in una descrizione musicale completa.',
+    how: 'Usa i suggerimenti come ingredienti. Un secondo clic rimuove il tag. Il testo che scrivi resta invariato finché non lo modifichi tu.',
     example: 'deep rolling bassline, warm pads, human groove, release-ready mix.',
     selector: '[data-sonara-suno-prompt="true"]'
   },

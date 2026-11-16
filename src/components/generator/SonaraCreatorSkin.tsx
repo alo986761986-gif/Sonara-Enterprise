@@ -165,14 +165,10 @@ export default function SonaraCreatorSkin() {
   };
 
   const inspire = () => {
-    if (!section) return;
-    const prompt = section.querySelector('#sonara-prompt') as HTMLTextAreaElement | null;
-    const block = prompt ? directChild(prompt, section) : null;
-    const randomButton = Array.from(block?.querySelectorAll('button') || []).find(button => {
-      const text = `${button.getAttribute('title') || ''} ${button.textContent || ''}`.toLowerCase();
-      return text.includes('random');
-    }) as HTMLButtonElement | undefined;
-    randomButton?.click();
+    // The inspiration shortcut now opens the single creator-owned Styles field.
+    const field = section?.querySelector('#sonara-prompt') as HTMLTextAreaElement | null;
+    field?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    field?.focus();
   };
 
   const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -247,7 +243,7 @@ export default function SonaraCreatorSkin() {
       <div className="sonara-creator-actions">
         <button type="button" onClick={() => setMode('sounds')}><Music2 /><span>Audio</span></button>
         <button type="button" onClick={voice}><Mic2 /><span>Voice</span></button>
-        <button type="button" onClick={inspire}><Sparkles /><span>Inspo</span></button>
+        <button type="button" onClick={inspire}><Sparkles /><span>Stili</span></button>
       </div>
     </div>, toolbarHost
   ) : null;
