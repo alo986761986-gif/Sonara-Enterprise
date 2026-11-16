@@ -5,16 +5,13 @@ import { ShieldCheck, Sparkles, Zap } from 'lucide-react';
 export type GenerationProfileV3 = 'fast' | 'quality' | 'ultra';
 
 
-type SonaraModelId = 'ace-step' | 'heartmula-3b' | 'stable-audio-3-medium';
-type MultiCapabilities = {
-  agentOnline?: boolean;
-  models?: Record<string, { ready?: boolean; license?: string; task?: string; maxSeconds?: number }>;
-};
 const MODEL_KEY = 'sonara.generation.model.v1';
-function readModel(): SonaraModelId {
-  if (typeof window === 'undefined') return 'ace-step';
-  const model = window.localStorage.getItem(MODEL_KEY);
-  return model === 'heartmula-3b' || model === 'stable-audio-3-medium' ? model : 'ace-step';
+function enforceAceStepOnly(): void {
+  if (typeof window === 'undefined') return;
+  if (window.localStorage.getItem(MODEL_KEY) !== 'ace-step') {
+    window.localStorage.setItem(MODEL_KEY, 'ace-step');
+    window.dispatchEvent(new CustomEvent('sonara:model-changed', { detail: 'ace-step' }));
+  }
 }
 
 const PROFILE_KEY = 'sonara.generation.profile.v6';
@@ -139,15 +136,10 @@ function installNativeFetchBridge() {
           const profile = body.sonaraForcePairQuality === true
             ? (selectedProfile === 'ultra' ? 'ultra' : 'quality')
             : selectedProfile;
-          const requestedModel = readModel();
-          // Only the Music Creator's explicit request can select a model.
-          // Remix Pro, Studio and third-party jobs must never inherit the
-          // user's Music Creator model preference implicitly.
-          if (requestedModel !== 'ace-step' && body.sonaraMultiEngineCreatorRequest === true) {
-            body.sonaraModelId = requestedModel;
-          } else {
-            delete body.sonaraModelId;
-          }
+          // Music Creator uses ACE-Step only; never route a generation to the
+          // retired multi-engine queues, even with stale saved preferences.
+          delete body.sonaraModelId;
+          delete body.sonaraMultiEngineCreatorRequest;
           body.generationProfileV3 = profile;
           body.renderProfile = profile;
           body.sonaraMusicDirectorV3 = 'sonara-music-director-v3';
@@ -185,13 +177,11 @@ function installNativeFetchBridge() {
 
 export default function GenerationProfileControl() {
   const [profile, setProfile] = useState<GenerationProfileV3>(readProfile);
-  const [model, setModel] = useState<SonaraModelId>(readModel);
-  const [multi, setMulti] = useState<MultiCapabilities>({});
-  const [loadingModels, setLoadingModels] = useState(true);
   const [host, setHost] = useState<HTMLElement | null>(null);
   const active = useMemo(() => PROFILES.find(item => item.id === profile) || PROFILES[1], [profile]);
 
   useEffect(() => {
+    enforceAceStepOnly();
     installNativeFetchBridge();
     const connect = () => {
       const next = ensureHost();
@@ -202,38 +192,6 @@ export default function GenerationProfileControl() {
     observer.observe(document.body, { childList: true, subtree: true });
     return () => observer.disconnect();
   }, []);
-
-  useEffect(() => {
-    let active = true;
-    const refresh = async () => {
-      try {
-        const response = await fetch('/api/sonara-multi/capabilities', { cache: 'no-store' });
-        const next = response.ok ? await response.json() as MultiCapabilities : {};
-        if (active) {
-          setMulti(next);
-          const selected = readModel();
-          if (selected !== 'ace-step' && next.models?.[selected]?.ready !== true) {
-            window.localStorage.setItem(MODEL_KEY, 'ace-step');
-            setModel('ace-step');
-          }
-        }
-      } catch {
-        if (active) setMulti({});
-      } finally {
-        if (active) setLoadingModels(false);
-      }
-    };
-    void refresh();
-    const interval = window.setInterval(() => { void refresh(); }, 20000);
-    return () => { active = false; window.clearInterval(interval); };
-  }, []);
-
-  const chooseModel = (next: SonaraModelId) => {
-    if (next !== 'ace-step' && multi.models?.[next]?.ready !== true) return;
-    window.localStorage.setItem(MODEL_KEY, next);
-    setModel(next);
-    window.dispatchEvent(new CustomEvent('sonara:model-changed', { detail: next }));
-  };
 
   const choose = (next: GenerationProfileV3) => {
     window.localStorage.setItem(PROFILE_KEY, next);
@@ -295,23 +253,9 @@ export default function GenerationProfileControl() {
           </div>
           <div className="mt-4 border-t border-white/10 pt-4">
             <div className="text-[10px] font-black uppercase tracking-[0.18em] text-violet-200">Motore musicale SONARA</div>
-            <p className="mt-1 text-[11px] text-slate-300">Seleziona un motore realmente disponibile sulla GPU. ACE-Step rimane il motore di riserva.</p>
-            <div className="mt-3 grid gap-2 sm:grid-cols-3">
-              {([
-                ['ace-step', 'ACE-Step XL', 'Motore attuale · tutti i profili'],
-                ['heartmula-3b', 'HeartMuLa 3B', 'Canzoni con testo · max 4 min'],
-                ['stable-audio-3-medium', 'Stable Audio 3', 'Strumentali · max 6:20']
-              ] as const).map(([id, label, description]) => {
-                const ready = id === 'ace-step' || multi.models?.[id]?.ready === true;
-                const selected = model === id;
-                return <button key={id} type="button" onClick={() => chooseModel(id)} disabled={!ready}
-                  aria-pressed={selected} data-sonara-model={id}
-                  className={ 'rounded-xl border p-3 text-left transition ' + (selected ? 'border-violet-300 bg-violet-700/40 text-white' : 'border-white/10 bg-slate-950/55 text-slate-300') + (!ready ? ' cursor-not-allowed opacity-45' : ' hover:border-violet-400') }>
-                  <span className="block text-xs font-bold">{label}</span>
-                  <span className="mt-1 block text-[10px]">{description}</span>
-                  <span className="mt-2 block text-[10px] text-slate-300">{ready ? 'Disponibile' : loadingModels ? 'Verifica GPU…' : 'Non ancora attivo'}</span>
-                </button>;
-              })}
+            <div data-sonara-model="ace-step" className="mt-3 rounded-xl border border-violet-300/40 bg-violet-700/25 p-3 text-white">
+              <span className="block text-xs font-bold">ACE-Step XL Turbo</span>
+              <span className="mt-1 block text-[11px] text-slate-300">Unico motore musicale · INSTANT, REALISTIC FAST e ULTRA</span>
             </div>
           </div>
         </section>,
