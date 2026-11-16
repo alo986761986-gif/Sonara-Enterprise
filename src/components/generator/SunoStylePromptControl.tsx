@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Bookmark, Check, Trash2, Undo2 } from 'lucide-react';
 
 const SAVED_STYLES_KEY = 'sonara.savedStylePrompts';
+const PROMPT_MODE_KEY = 'sonara.generation.prompt.mode.v1';
 const MAX_SAVED_STYLES = 20;
 
 function savedStyles(): string[] {
@@ -23,6 +24,16 @@ export default function SunoStylePromptControl() {
   const [textarea, setTextarea] = useState<HTMLTextAreaElement | null>(null);
   const [host, setHost] = useState<HTMLElement | null>(null);
   const [open, setOpen] = useState(false);
+  const [freeMode, setFreeMode] = useState(() => localStorage.getItem(PROMPT_MODE_KEY) !== 'guided');
+  useEffect(() => {
+    const update = () => setFreeMode(localStorage.getItem(PROMPT_MODE_KEY) !== 'guided');
+    window.addEventListener('sonara:prompt-mode-changed', update);
+    window.addEventListener('storage', update);
+    return () => {
+      window.removeEventListener('sonara:prompt-mode-changed', update);
+      window.removeEventListener('storage', update);
+    };
+  }, []);
   const [value, setValue] = useState('');
   const [saved, setSaved] = useState<string[]>(savedStyles);
   const [previous, setPrevious] = useState<string | null>(null);
@@ -84,8 +95,8 @@ export default function SunoStylePromptControl() {
     <div className="sonara-suno-simple">
       <div className="sonara-suno-simple-heading">
         <div>
-          <label htmlFor="sonara-prompt">Stili musicali</label>
-          <p>Scrivi il genere, l'atmosfera, gli strumenti e il sound desiderato.</p>
+          <label htmlFor="sonara-prompt">{freeMode ? 'Prompt musicale' : 'Stili musicali'}</label>
+          <p>{freeMode ? 'Scrivi liberamente cosa vuoi ascoltare: SONARA segue il prompt senza imporre altri stili.' : "Scrivi il genere, l'atmosfera, gli strumenti e il sound desiderato."}</p>
         </div>
         <div className="sonara-suno-simple-actions">
           <button type="button" onClick={() => setOpen(current => !current)} aria-expanded={open} title="Stili salvati"><Bookmark size={16} /> <span>Salvati</span></button>
