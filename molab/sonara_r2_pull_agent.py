@@ -392,7 +392,7 @@ def wav_quality_report(path, physical_fidelity=False):
         return {'ok': False, 'score': 0.0}
 
 
-def vocal_report(path, payload):
+def vocal_report(path, payload, engine_local=None):
     lyrics = str(payload.get('lyrics') or '').strip()
     vocal_mode = str(payload.get('vocal_mode') or payload.get('vocalMode') or '').strip().lower()
     profile = str(payload.get('sonara_r2_generation_profile') or payload.get('generationProfileV3') or '').strip().lower()
@@ -403,8 +403,10 @@ def vocal_report(path, payload):
     if (not lyrics or lyrics.lower() in ('[instrumental]', '[no vocals]')
             or vocal_mode in ('instrumental', 'none', 'off', 'no vocals')):
         return {'performed': False, 'lyricAccuracy': None, 'mismatchRanges': []}
+    # Path-based transcription must use the API owning this generated WAV.
+    transcriber = engine_local or local
     try:
-        answer = local('POST', '/v1/sonara/transcribe', {
+        answer = transcriber('POST', '/v1/sonara/transcribe', {
             'path': str(path),
             'language': str(payload.get('vocal_language') or 'auto'),
             'expected_lyrics': lyrics,
@@ -419,6 +421,8 @@ def vocal_report(path, payload):
             'wordErrorRate': data.get('word_error_rate') if isinstance(data, dict) else None,
             'language': data.get('language') if isinstance(data, dict) else None,
             'mismatchRanges': ranges[:12] if isinstance(ranges, list) else [],
+            'attempted': True,
+            'verified': accuracy is not None,
         }
     except Exception:
         return {'performed': False, 'lyricAccuracy': None, 'mismatchRanges': [],
@@ -656,12 +660,12 @@ def process(job):
                 evaluated = []
                 for original_index, candidate_path in enumerate(paths[:4]):
                     audio_report = wav_quality_report(candidate_path, bool(payload.get('sonara_physical_fidelity_required')))
-                    vocal = vocal_report(candidate_path, payload)
+                    vocal = vocal_report(candidate_path, payload, engine_local)
                     repaired_path, repaired = maybe_repair_vocal(candidate_path, payload, vocal)
                     if repaired:
                         candidate_path = repaired_path
                         audio_report = wav_quality_report(candidate_path, bool(payload.get('sonara_physical_fidelity_required')))
-                        vocal = vocal_report(candidate_path, payload)
+                        vocal = vocal_report(candidate_path, payload, engine_local)
                     bpm_report = independent_bpm_report(candidate_path, payload)
                     # Pulse support is comparative evidence only. Never equate it
                     # with verification or modify a candidate's WAV.
@@ -706,6 +710,8 @@ def process(job):
                         'tempoEvidence': item.get('tempoEvidence'),
                         'vocal': {
                             'performed': item['vocal'].get('performed'),
+                            'attempted': item['vocal'].get('attempted', False),
+                            'verified': item['vocal'].get('verified', False),
                             'lyricAccuracy': item['vocal'].get('lyricAccuracy'),
                             'wordErrorRate': item['vocal'].get('wordErrorRate'),
                             'language': item['vocal'].get('language'),
