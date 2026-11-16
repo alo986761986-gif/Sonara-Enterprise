@@ -69,7 +69,7 @@ section:has(#sonara-prompt) label[for="sonara-prompt"] {
 }
 
 section:has(#sonara-prompt) label[for="sonara-prompt"]::before {
-  content: "Descrivi il brano";
+  content: "Stili musicali";
   font-size: 12px;
   font-weight: 750;
   letter-spacing: 0.01em;
