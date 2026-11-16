@@ -771,11 +771,7 @@ async function proxyGeneration(user: AuthenticatedUser, body: Record<string, any
   // New open-model jobs stay behind the same account checks and metered billing.
   // They must go through the SONARA Cloudflare engine instead of the ElevenMusic API.
   const selectedOpenModel = ['heartmula-3b', 'stable-audio-3-medium'].includes(String(body.sonaraModelId || ''));
-  // Creator requests explicitly choose ACE-Step. The environment's legacy
-  // music-provider default must NEVER silently replace either ACE XL model.
-  const aceCreator = body.engineId === 'sonara_ace_step_v15_modal' ||
-    body.sonaraPromptMode === 'free' || body.sonaraPromptMode === 'guided';
-  const useEleven = !aceCreator && !selectedOpenModel && (provider === 'eleven' || provider === 'eleven_music' || provider === 'elevenlabs');
+  const useEleven = !selectedOpenModel && (provider === 'eleven' || provider === 'eleven_music' || provider === 'elevenlabs');
   const targetUrl = useEleven
     ? String(process.env.SONARA_ELEVEN_MUSIC_URL || DEFAULT_ELEVEN_MUSIC_URL).trim()
     : `${String(process.env.SONARA_ENGINE_API_URL || DEFAULT_ENGINE_URL).replace(/\/$/, '')}/api/engine/generate`;
@@ -828,8 +824,6 @@ export default async function handler(req: any, res: any) {
         service: 'sonara-billing',
         ready: webhookReady(),
         musicProvider: String(process.env.SONARA_MUSIC_PROVIDER || 'eleven_music').trim().toLowerCase(),
-        creatorEngineProvider: 'ace_step_xl',
-        creatorEngineRoute: 'cloudflare-r2-molab',
         checks: {
           firebaseAdmin: billingStoreReady(),
           stripeSecret: Boolean(String(process.env.STRIPE_SECRET_KEY || '').trim()),
