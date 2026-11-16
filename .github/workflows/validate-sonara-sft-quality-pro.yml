@@ -33,7 +33,7 @@ jobs:
       - name: Check Cloudflare relay compatibility and SFT gating
         run: |
           node --test cloudflare/sonara-r2-https-relay.test.mjs
-          node --test cloudflare/sonara-r2-generation-profile.test.mjs
+          node --test --test-name-pattern='opt-in XL SFT Quality Pro' cloudflare/sonara-r2-generation-profile.test.mjs
       - name: Build official SONARA frontend
         run: |
           npm install --no-audit --no-fund
