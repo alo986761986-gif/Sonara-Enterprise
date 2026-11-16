@@ -36,7 +36,8 @@ async function normalizeCachedCreator(request) {
   try { body = await request.clone().json(); } catch { return request; }
   if (!body || typeof body !== 'object' || Array.isArray(body)
       || body.sonaraRemixPro === true) return request;
-  if (!['heartmula-3b','stable-audio-3-medium'].includes(body.sonaraModelId)) return request;
+  if (body.sonaraMultiEngineCreatorRequest !== true
+      && !['heartmula-3b','stable-audio-3-medium'].includes(body.sonaraModelId)) return request;
   // A user clicked Generate in a stale browser: keep that deliberate action,
   // but switch its generation to ACE-Step using the existing entitlement route.
   const normalized = { ...body };
