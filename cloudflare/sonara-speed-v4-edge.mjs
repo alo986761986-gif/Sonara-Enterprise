@@ -289,6 +289,11 @@ async function prepareGeneration(request, env, ctx) {
   catch { return runtime.fetch(request, env, ctx); }
 
   const profile = requestedProfile(body);
+  if (body?.sonaraPromptMode === 'free') {
+    // Free-mode contracts are verified and constructed by the R2 backend;
+    // preserve the creator's prompt and avoid all vocal/style rewrites here.
+    return runtime.fetch(request, env, ctx);
+  }
   let prepared;
   let vocalBody;
   try {

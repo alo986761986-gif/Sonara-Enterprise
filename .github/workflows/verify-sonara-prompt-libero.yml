@@ -1,0 +1,46 @@
+name: Verify SONARA Prompt Libero
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/App.tsx"
+      - "src/sonaraPromptMode.ts"
+      - "src/sonaraPromptMode.test.ts"
+      - "src/components/generator/**"
+      - "cloudflare/sonara-molab-xl-router.mjs"
+      - "cloudflare/sonara-prompt-libero.test.mjs"
+      - "cloudflare/sonara-real-music-v3-edge.mjs"
+      - "cloudflare/sonara-speed-v4-edge.mjs"
+      - "cloudflare/sonara-quality-fast-batch-v8.mjs"
+      - "cloudflare/sonara-ultra-diversity-v1-edge.mjs"
+      - "cloudflare/sonara-quality-ultra-stability-guard.mjs"
+      - "cloudflare/sonara-world-tempo-router.mjs"
+      - ".github/workflows/verify-sonara-prompt-libero.yml"
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install SONARA dependencies
+        run: npm install --no-audit --no-fund
+      - name: Verify direct prompt fidelity and optional tempo
+        run: |
+          npx tsx --test src/sonaraPromptMode.test.ts
+          node --test cloudflare/sonara-prompt-libero.test.mjs
+      - name: Verify production build compiles free and guided UI
+        env:
+          WORKERS_CI: "1"
+        run: npm run build
+      - name: Verify default free interface and guided fallback in compiled assets
+        run: |
+          test -d dist/assets
+          grep -R -Fq "sonaraPromptMode" dist/assets
+          grep -R -Fq "sonara.generation.prompt.mode.v1" dist/assets
+          grep -R -Fq "PROMPT LIBERO" dist/assets
+          grep -R -Fq "MODALITÀ GUIDATA" dist/assets

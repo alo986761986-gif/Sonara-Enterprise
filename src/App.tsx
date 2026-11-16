@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { WORLD_MUSIC_GENRES, findGenre } from './data/worldMusicGenres';
 import { buildGenerationPrompt, type VocalMode } from './generationPrompt';
+import { buildFreePromptBody, explicitPromptBpm, normalizePromptMode, SONARA_PROMPT_MODE_KEY, type SonaraPromptMode } from './sonaraPromptMode';
 import { buildRandomLyrics } from './randomLyrics';
 import { SONARA_PLANS } from './billing/plans';
 import { getAtmospheresForSelection } from './musicStyleIntelligence';
@@ -261,11 +262,18 @@ export default function App() {
   const t = useMemo(() => (key: Parameters<typeof uiText>[1]) => brandSonara(uiText(language, key)), [language]);
 
   const [prompt, setPrompt] = useState(INITIAL_PROMPT);
+  const [promptMode, setPromptMode] = useState<SonaraPromptMode>(() => normalizePromptMode(localStorage.getItem(SONARA_PROMPT_MODE_KEY)));
+  const selectPromptMode = (value: SonaraPromptMode) => {
+    setPromptMode(value);
+    if (automaticTitleRef.current) setTitle(value === 'free' ? 'Nuovo brano SONARA' : `Sonara ${subgenre} Track`);
+    localStorage.setItem(SONARA_PROMPT_MODE_KEY, value);
+    window.dispatchEvent(new CustomEvent('sonara:prompt-mode-changed', { detail: value }));
+  };
   const [genreFamily, setGenreFamily] = useState(INITIAL_SELECTION.genreFamily);
   const [genre, setGenre] = useState(INITIAL_SELECTION.genre);
   const [subgenre, setSubgenre] = useState(INITIAL_SELECTION.subgenre);
   const [mood, setMood] = useState(INITIAL_SELECTION.mood);
-  const [title, setTitle] = useState(INITIAL_SELECTION.title);
+  const [title, setTitle] = useState(() => localStorage.getItem(SONARA_PROMPT_MODE_KEY) === 'guided' ? INITIAL_SELECTION.title : 'Nuovo brano SONARA');
   const [lyrics, setLyrics] = useState('');
   const [vocalMode, setVocalMode] = useState<VocalMode>(INITIAL_SELECTION.vocalMode);
   const [vocalLanguage, setVocalLanguage] = useState<LanguageCode>(() => {
@@ -496,8 +504,8 @@ export default function App() {
       const tasteContext = accountPreferences.myTaste && accountPreferences.styleAugmentation
         ? [accountPreferences.favoriteGenres && `Preferred genres: ${accountPreferences.favoriteGenres}`, accountPreferences.favoriteMoods && `Preferred moods: ${accountPreferences.favoriteMoods}`].filter(Boolean).join('. ')
         : '';
-      const personalizedPrompt = tasteContext ? `${rawPrompt}\nCREATOR TASTE: ${tasteContext}. Keep the selected genre and subgenre authoritative.` : rawPrompt;
-      const finalPrompt = buildGenerationPrompt({
+      const personalizedPrompt = promptMode === 'guided' && tasteContext ? `${rawPrompt}\nCREATOR TASTE: ${tasteContext}. Keep the selected genre and subgenre authoritative.` : rawPrompt;
+      const finalPrompt = promptMode === 'free' ? rawPrompt : buildGenerationPrompt({
         rawPrompt: personalizedPrompt,
         genreFamily,
         genre,
@@ -520,7 +528,14 @@ export default function App() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${firebaseToken}`
         },
-        body: JSON.stringify({
+        body: JSON.stringify(promptMode === 'free' ? buildFreePromptBody({
+          prompt: rawPrompt,
+          durationSec,
+          title,
+          outputFormat: accountPreferences.outputFormat || 'wav',
+          audioQuality: accountPreferences.audioQuality || 'lossless'
+        }) : {
+          sonaraPromptMode: 'guided',
           prompt: finalPrompt,
           rawPrompt,
           genre,
@@ -601,10 +616,10 @@ export default function App() {
             const archived = await archiveGeneratedProject({
               jobId: id,
               title,
-              genre,
-              subgenre,
-              bpm,
-              keySignature,
+              genre: promptMode === 'free' ? 'Prompt libero' : genre,
+              subgenre: promptMode === 'free' ? 'Composizione AI' : subgenre,
+              bpm: promptMode === 'free' ? (explicitPromptBpm(prompt) ?? 0) : bpm,
+              keySignature: promptMode === 'free' ? 'Automatic' : keySignature,
               durationSec,
               primaryAudioUrl: String(url),
               audioFormat: completedAudioFormat,
@@ -745,16 +760,23 @@ export default function App() {
       )}
 
       <div>
+        <div className="mb-4 rounded-xl border border-violet-400/20 bg-slate-950/55 p-3" aria-label="Modalità composizione SONARA">
+          <div className="mb-2 text-xs font-semibold text-slate-200">Come vuoi creare la musica?</div>
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" disabled={busy} data-sonara-prompt-mode="free" aria-pressed={promptMode === 'free'} onClick={() => selectPromptMode('free')} className={`rounded-lg border p-3 text-left text-xs font-semibold transition disabled:opacity-50 ${promptMode === 'free' ? 'border-violet-400 bg-violet-500/20 text-white' : 'border-slate-700 bg-slate-900 text-slate-400'}`}>PROMPT LIBERO<span className="mt-1 block text-[10px] font-normal">Il modello segue le tue parole, senza stili imposti</span></button>
+            <button type="button" disabled={busy} data-sonara-prompt-mode="guided" aria-pressed={promptMode === 'guided'} onClick={() => selectPromptMode('guided')} className={`rounded-lg border p-3 text-left text-xs font-semibold transition disabled:opacity-50 ${promptMode === 'guided' ? 'border-violet-400 bg-violet-500/20 text-white' : 'border-slate-700 bg-slate-900 text-slate-400'}`}>MODALITÀ GUIDATA<span className="mt-1 block text-[10px] font-normal">Famiglia, genere, sottogenere e controlli avanzati</span></button>
+          </div>
+        </div>
         <textarea
           id="sonara-prompt"
-          aria-label="Stili musicali"
+          aria-label="Prompt musicale"
           value={prompt}
           onChange={event => setPrompt(event.target.value)}
-          placeholder="Es. Deep House, groove caldo a 124 BPM, basso profondo, piano Rhodes, atmosfera notturna, produzione naturale e professionale."
+          placeholder={promptMode === 'free' ? 'Descrivi liberamente la musica che vuoi ascoltare. Es. Jazz Fusion a 150 BPM con chitarra elettrica, Rhodes, basso fretless e batteria acustica reale.' : 'Es. Deep House, groove caldo a 124 BPM, basso profondo, piano Rhodes, atmosfera notturna.'}
           rows={5}
           className="w-full rounded-xl border border-white/10 bg-[#111114] p-4 text-sm leading-relaxed text-white outline-none transition focus:border-blue-500/50"
         />
-        <details className="mt-3 rounded-xl border border-white/10 bg-[#171719] px-4 py-3">
+        {promptMode === 'guided' && <details className="mt-3 rounded-xl border border-white/10 bg-[#171719] px-4 py-3">
           <summary className="cursor-pointer select-none text-xs font-semibold text-slate-300">Opzioni avanzate · Weirdness e Style Influence</summary>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <CreativeControlSlider
@@ -774,10 +796,10 @@ export default function App() {
             onChange={updateStyleInfluence}
           />
         </div>
-        </details>
+        </details>}
       </div>
 
-      <div className="mt-5 grid gap-4 md:grid-cols-3">
+      {promptMode === 'guided' && <div className="mt-5 grid gap-4 md:grid-cols-3">
         <label className="text-xs text-slate-400">{t('genreFamily')}
           <select value={genreFamily} onChange={event => updateFamily(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2.5 text-slate-100">
             {WORLD_MUSIC_GENRES.map(group => <option key={group.family} value={group.family}>{group.family}</option>)}
@@ -793,9 +815,9 @@ export default function App() {
             {(genreEntry?.subgenres || [genre]).map(item => <option key={item} value={item}>{item}</option>)}
           </select>
         </label>
-      </div>
+      </div>}
 
-      <div className="mt-4 grid gap-4 md:grid-cols-4">
+      {promptMode === 'guided' && <div className="mt-4 grid gap-4 md:grid-cols-4">
         <label className="text-xs text-slate-400">{t('mood')}
           <select value={mood} onChange={event => setMood(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2.5 text-slate-100">{availableMoods.map(item => <option key={item}>{item}</option>)}</select>
         </label>
@@ -810,9 +832,9 @@ export default function App() {
         <label className="text-xs text-slate-400">{t('title')}
           <input value={title} onChange={event => { automaticTitleRef.current = false; setTitle(event.target.value); }} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2.5 text-slate-100" />
         </label>
-      </div>
+      </div>}
 
-      <div className="mt-4 rounded-2xl border border-purple-500/20 bg-purple-500/5 p-4">
+      {promptMode === 'guided' && <div className="mt-4 rounded-2xl border border-purple-500/20 bg-purple-500/5 p-4">
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
           <div>
             <div className="text-xs font-bold uppercase tracking-wider text-purple-300">{t('bpm')} preferiti</div>
@@ -854,9 +876,21 @@ export default function App() {
             <button key={value} type="button" disabled={busy} onClick={() => updateBpm(value)} className={`rounded-lg border px-2.5 py-1 text-[10px] font-bold transition disabled:opacity-40 ${bpm === value ? 'border-purple-400 bg-purple-500/20 text-white' : 'border-slate-800 bg-slate-950 text-slate-500 hover:border-slate-600 hover:text-slate-200'}`}>{value}</button>
           ))}
         </div>
-      </div>
+      </div>}
 
-      <details className="mt-5 rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+      {promptMode === 'free' && <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <label className="text-xs text-slate-400">Durata del brano
+          <select value={durationSec} onChange={event => updateDuration(Number(event.target.value))} disabled={busy} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2.5 text-slate-100">
+            {allowedDurationOptions.map(value => <option key={value} value={value}>{durationLabel(value, t)}</option>)}
+          </select>
+        </label>
+        <label className="text-xs text-slate-400">Titolo (facoltativo)
+          <input value={title} onChange={event => { automaticTitleRef.current = false; setTitle(event.target.value); }} disabled={busy} className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-950 p-2.5 text-slate-100" />
+        </label>
+        <p className="text-xs text-slate-400 sm:col-span-2">Se scrivi un BPM nel prompt, SONARA lo usa come riferimento. Altrimenti lascia al modello la scelta del tempo, del genere e degli strumenti.</p>
+      </div>}
+
+      {promptMode === 'guided' && <details className="mt-5 rounded-xl border border-slate-800 bg-slate-950/60 p-4">
         <summary className="cursor-pointer text-sm font-bold text-white">{t('lyrics')}</summary>
         <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           {VOCAL_MODES.map(option => {
@@ -930,9 +964,9 @@ export default function App() {
           className="w-full rounded-xl border border-slate-800 bg-[#060a12] p-4 text-sm outline-none focus:border-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
         />
         {!vocalReady && <div className="mt-3 rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-300">Inserisci il testo prima di generare con la modalità vocale selezionata.</div>}
-      </details>
+      </details>}
 
-      <button onClick={() => void generate()} disabled={busy || !prompt.trim() || !vocalReady} className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-fuchsia-600 via-purple-600 to-indigo-600 px-6 py-4 font-bold disabled:opacity-50">
+      <button onClick={() => void generate()} disabled={busy || !prompt.trim() || (promptMode === 'guided' && !vocalReady)} className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-fuchsia-600 via-purple-600 to-indigo-600 px-6 py-4 font-bold disabled:opacity-50">
         {busy ? <><RefreshCw className="h-5 w-5 animate-spin" />{t('generating')}</> : <><Zap className="h-5 w-5" />{t('generate')}</>}
       </button>
 
@@ -947,7 +981,7 @@ export default function App() {
 
       {status === 'COMPLETED' && audioUrl && (
         <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5">
-          <div className="mb-4 flex items-center justify-between gap-4"><div><div className="font-bold text-emerald-300">{t('audioReady')}</div><div className="mt-1 text-xs text-slate-500">{title} · {genre} / {subgenre} · {durationLabel(durationSec, t)}</div>{qualityScore !== null && <div className="mt-1 text-[10px] font-bold text-emerald-400">Professional audio gate: {qualityScore}/100</div>}</div><div className="text-[10px] font-bold tracking-widest text-slate-500">{engine}</div></div>
+          <div className="mb-4 flex items-center justify-between gap-4"><div><div className="font-bold text-emerald-300">{t('audioReady')}</div><div className="mt-1 text-xs text-slate-500">{title} · {promptMode === 'free' ? 'Prompt libero' : `${genre} / ${subgenre}`} · {durationLabel(durationSec, t)}</div>{qualityScore !== null && <div className="mt-1 text-[10px] font-bold text-emerald-400">Professional audio gate: {qualityScore}/100</div>}</div><div className="text-[10px] font-bold tracking-widest text-slate-500">{engine}</div></div>
           <audio ref={audioRef} controls src={audioUrl} className="w-full" />
           <div className="mt-4 flex flex-wrap gap-2">
             <button onClick={() => setIsPlaying(value => !value)} className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs">{isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}{isPlaying ? t('pause') : t('play')}</button>

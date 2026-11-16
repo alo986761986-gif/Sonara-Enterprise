@@ -82,7 +82,7 @@ export default {
       let body;
       try { body = await request.clone().json(); }
       catch { return runtime.fetch(request, env, ctx); }
-      if (body?.sonaraDirectorBypass === true) return runtime.fetch(request, env, ctx);
+      if (body?.sonaraPromptMode === 'free' || body?.sonaraDirectorBypass === true) return runtime.fetch(request, env, ctx);
       if (profileOf(body) === 'quality') {
         const headers = new Headers(request.headers);
         headers.delete('content-length');

@@ -287,7 +287,7 @@ async function submitDirector(request, env, ctx) {
   let body;
   try { body = await request.clone().json(); }
   catch { return runtime.fetch(request, env, ctx); }
-  if (body?.sonaraDirectorBypass === true) return runtime.fetch(request, env, ctx);
+  if (body?.sonaraPromptMode === 'free' || body?.sonaraDirectorBypass === true) return runtime.fetch(request, env, ctx);
 
   const profile = profileOf(body);
   const spec = profileSpec(profile);

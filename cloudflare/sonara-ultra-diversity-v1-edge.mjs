@@ -35,6 +35,7 @@ function variationDirection(seed) {
 }
 
 function diversifyUltra(body = {}) {
+  if (body?.sonaraPromptMode === 'free') return body;
   const seed = freshSeed();
   const direction = variationDirection(seed);
   const originalPrompt = clean(body.prompt || body.creatorPrompt || body.rawPrompt || body.musicPrompt);

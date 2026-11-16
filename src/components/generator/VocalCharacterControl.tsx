@@ -85,7 +85,7 @@ function patchGenerationPayload(body: string): string {
   try {
     const payload = JSON.parse(body);
     const vocalMode = String(payload?.vocalMode || '').toLowerCase();
-    if (!payload || vocalMode === 'instrumental') return body;
+    if (!payload || payload.sonaraPromptMode === 'free' || vocalMode === 'instrumental') return body;
 
     const profile = currentProfile();
     payload.vocalCharacter = profile.value;

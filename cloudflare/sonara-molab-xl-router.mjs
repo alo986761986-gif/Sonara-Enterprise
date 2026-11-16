@@ -2,6 +2,7 @@ import siteRuntime from './sonara-instant-speed-router.mjs';
 import { buildStudioPayload } from './sonara-engine-v16-studio-quality.mjs';
 import { rewriteGenerationRequest } from './sonara-engine-v15-authoritative-prompt.mjs';
 import { applyR2GenerationProfile } from './sonara-r2-generation-profile.mjs';
+import { buildFreeMolabR2Payload } from './sonara-direct-prompt-r2.mjs';
 import { preparePreciseRemixPayload } from './sonara-remix-precision-v1.mjs';
 export { SonaraJobState } from './sonara-instant-speed-router.mjs';
 
@@ -531,6 +532,9 @@ function qualityMetadata(count, payload = {}) {
 // Resolve the existing creator controls, then apply native XL Turbo quality
 // settings for R2. The optional custom realism API is not a prerequisite.
 export async function prepareMolabR2RelayPayload(body) {
+  if (body?.sonaraPromptMode === 'free' && body?.sonaraRemixPro !== true && !body?.sonaraRemixSourceId) {
+    return buildFreeMolabR2Payload(body);
+  }
   const request = new Request('https://api.sonaraenterprise.com/api/engine/generate', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
   });
