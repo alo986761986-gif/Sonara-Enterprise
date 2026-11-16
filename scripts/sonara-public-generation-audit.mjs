@@ -24,11 +24,13 @@ async function get(url, parse = 'json') {
 
 const billing = await get(BASE + '/api/billing/health');
 const musicProvider = typeof billing.data?.musicProvider === 'string' ? billing.data.musicProvider.trim().toLowerCase() : '';
-const aceBilling = ['ace_step_xl', 'ace_step', 'acestep', 'sonara_ace_step'].includes(musicProvider);
+const creatorRoute = String(billing.data?.creatorEngineProvider || '').trim().toLowerCase();
+const aceBilling = ['ace_step_xl', 'ace_step', 'acestep', 'sonara_ace_step'].includes(creatorRoute || musicProvider);
 results.push({
   check: 'BILLING_SELECTED_PROVIDER',
   http: billing.http,
   reportedProvider: musicProvider || 'UNVERIFIED',
+  creatorEngineProvider: creatorRoute || 'UNVERIFIED',
   aceStepConfirmed: aceBilling,
   status: billing.ok && aceBilling ? 'PASS' : billing.ok ? 'FAIL' : 'UNVERIFIED'
 });
