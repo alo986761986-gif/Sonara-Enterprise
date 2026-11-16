@@ -374,6 +374,9 @@ test('opt-in XL SFT Quality Pro builds 50-step payload without changing Turbo pr
   assert.equal(pro.guidance_scale, 7);
   assert.equal(pro.batch_size, 1);
   assert.equal(pro.sonaraSftQualityPro, true);
+  assert.equal(pro.sonara_sft_lm_planning_policy, 'auto-gpu-health-verified');
+  assert.equal(pro.thinking, false); // GPU worker checks live LM4B health before enabling
+
   const remix = applyR2GenerationProfile(payload, source,
     { ...source, sonaraAceVariant: 'xl-sft', sonaraSftQualityPro: true, sonaraRemixPro: true });
   assert.equal(remix.sonaraAceVariant, undefined);
