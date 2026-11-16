@@ -1,0 +1,86 @@
+name: Build SONARA Android APK
+
+on:
+  push:
+    branches:
+      - mobile/sonara-android-apk-20261116
+    paths:
+      - 'android-app/**'
+      - '.github/workflows/build-sonara-android-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    name: Compile and publish Android beta APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout isolated Android branch
+        uses: actions/checkout@v4
+
+      - name: Configure Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Configure Gradle 8.12
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.12'
+
+      - name: Configure Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 35
+        run: sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Compile signed debug APK
+        working-directory: android-app
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Verify APK and package identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="android-app/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -E '^(package:|sdkVersion:|targetSdkVersion:)'
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$APK"
+          mkdir -p android-apk
+          cp "$APK" android-apk/SONARA-Android-v1.0.0-beta.apk
+          sha256sum android-apk/SONARA-Android-v1.0.0-beta.apk | tee android-apk/SHA256SUMS.txt
+
+      - name: Archive installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SONARA-Android-v1.0.0-beta
+          path: android-apk/*
+          if-no-files-found: error
+
+      - name: Publish GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="sonara-android-v1.0.0-beta"
+          FILE="android-apk/SONARA-Android-v1.0.0-beta.apk"
+          cat > android-apk/RELEASE_NOTES.txt <<'NOTES'
+          SONARA Android beta 1.0.0
+
+          First-party, browser-backed Android launcher for https://sonaraenterprise.com
+          - Android 6.0+ (updated browser recommended)
+          - Uses Chrome Custom Tabs for Google login compatibility, music playback, file upload and download.
+          - Requires Internet; does not run AI music models on the phone.
+          - Beta/debug-signed. Test on a real device before public distribution.
+          - Existing SONARA website, ACE-Step, Cloudflare and Remix Pro are unchanged.
+          NOTES
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$FILE" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" "$FILE"               --repo "$GITHUB_REPOSITORY"               --target "$GITHUB_SHA"               --title "SONARA Android 1.0.0 Beta (APK)"               --notes-file android-apk/RELEASE_NOTES.txt               --prerelease
+          fi
