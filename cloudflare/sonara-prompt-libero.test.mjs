@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildFreeMolabR2Payload, prepareMolabR2RelayPayload } from './sonara-molab-xl-router.mjs';
+import { buildFreeMolabR2Payload } from './sonara-direct-prompt-r2.mjs';
+import { readFileSync } from 'node:fs';
 
 test('Prompt Libero preserves the creator brief, without default Deep House taxonomy or tempo', async () => {
   const brief = 'Live jazz fusion band, fingerstyle bass, warm Rhodes piano, expressive drum kit.';
@@ -12,7 +13,7 @@ test('Prompt Libero preserves the creator brief, without default Deep House taxo
     mood: 'Hypnotic', key: 'A Minor', bpm: 124, requestedBpm: 124,
     styleInfluence: 100, weirdness: 100, durationSec: 180, candidateCount: 2
   };
-  const job = await prepareMolabR2RelayPayload(source);
+  const job = buildFreeMolabR2Payload(source);
   assert.equal(job.prompt, brief);
   assert.equal(job.model, 'acestep-v15-xl-turbo');
   assert.equal(job.batch_size, 1);
@@ -68,4 +69,11 @@ test('Prompt Libero does not override other advanced flows by accident', () => {
   assert.equal(job.sonaraSftQualityPro, undefined);
   assert.equal(job.model, 'acestep-v15-xl-turbo');
   assert.throws(() => buildFreeMolabR2Payload({ rawPrompt: '  ' }), /requires a prompt/);
+});
+test('R2 integration branches to direct prompt before invoking the old genre editor', () => {
+  const router = readFileSync(new URL('./sonara-molab-xl-router.mjs', import.meta.url), 'utf8');
+  const start = router.indexOf("if (body?.sonaraPromptMode === 'free'");
+  const later = router.indexOf("await rewriteGenerationRequest(request)", start);
+  assert.ok(start > 0 && later > start);
+  assert.match(router.slice(start, later), /buildFreeMolabR2Payload\(body\)/);
 });
