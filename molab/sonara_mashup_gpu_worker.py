@@ -280,9 +280,9 @@ def run(item):
             if p.get("directorV2") is not None:
                 # Server has independently validated the controls and only
                 # leases V2 jobs after a fresh V2 worker heartbeat.
-                options=valid_config(p["directorV2"])
+                valid_config(p["directorV2"])
                 guard.verify()
-                proof=create_master(stems_a,stems_b,bpm_a,bpm_b,seconds,mode,output,options)
+                proof=create_master(stems_a,stems_b,bpm_a,bpm_b,seconds,mode,output,p["directorV2"])
             else:
                 proof=make_master(stems_a,stems_b,bpm_a,bpm_b,seconds,mode,output)
             stage(jid,lease,"mastering",guard)
