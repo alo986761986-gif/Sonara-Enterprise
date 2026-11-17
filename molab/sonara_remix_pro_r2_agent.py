@@ -511,6 +511,17 @@ def pro_heartbeat_payload():
                 and callable(plan_song_form) and callable(section_gains))
         except (ImportError, AttributeError):
             pass
+    v10_evidence_ready = False
+    try:
+        from sonara_remix_pro_v10_music_profile import (
+            REVISION as V10_REVISION, tonal_profile, compare_profiles,
+            harmonic_direction, transition_report,
+        )
+        v10_evidence_ready = (V10_REVISION == "sonara-v10-tonal-evidence-and-transitions-r1"
+            and all(callable(x) for x in
+                    (tonal_profile, compare_profiles, harmonic_direction, transition_report)))
+    except (ImportError, AttributeError):
+        pass
     v9_director_ready = False
     if song_form_ready:
         try:
@@ -532,6 +543,7 @@ def pro_heartbeat_payload():
             "v7CreativeModesReady": creative_modes_ready,
             "v8SongFormReady": song_form_ready,
             "v9MusicDirectorReady": v9_director_ready,
+            "v10MusicEvidenceReady": v10_evidence_ready,
             "v6ExplosiveReady": explosive_ready}
 
 
@@ -828,6 +840,7 @@ def run_job(item, auth_mode):
                     requested_seconds, bpm_a,
                     b_influence=int(params.get("bInfluence", 50)))
             director_plan = None
+            v10_relationship = None
             if params.get("v9MusicDirector") is True:
                 if (song_form is None or params.get("v8SongForm") is not True
                         or pro_heartbeat_payload().get("v9MusicDirectorReady") is not True):
@@ -842,6 +855,11 @@ def run_job(item, auth_mode):
                 director_plan = create_music_direction(
                     song_form, evidence, report_a, report_b,
                     creative_mode=params.get("v6Controls", {}).get("mode", "balanced"))
+                if pro_heartbeat_payload().get("v10MusicEvidenceReady") is True:
+                    from sonara_remix_pro_v10_music_profile import tonal_profile, compare_profiles
+                    renewal.verify()
+                    v10_relationship = compare_profiles(tonal_profile(a), tonal_profile(b))
+                    renewal.verify()
             # In V6, BOTH real source hooks reach ACE-Step's primary
             # conditioning guide in short alternating phrases. B is also an
             # independent style reference. This is a PRIVATE GUIDE only:
@@ -889,6 +907,10 @@ def run_job(item, auth_mode):
                 requested_seconds=requested_seconds,
                 explosive=explosive,
             )
+            if v10_relationship is not None:
+                from sonara_remix_pro_v10_music_profile import harmonic_direction
+                # Advisory only: never claim true key/chord transcription or originality.
+                prompt = (harmonic_direction(v10_relationship) + prompt)[:9000]
             failure_step = "ace_step"
             progress(job, lease, "regenerating", renewal)
             if params.get("v5") is True:
@@ -946,6 +968,20 @@ def run_job(item, auth_mode):
                     "technicalScore": choice["technicalScore"],
                     "artisticListeningRequired": True,
                 }
+                if director_plan is not None and v10_relationship is not None:
+                    from sonara_remix_pro_v10_music_profile import transition_report
+                    renewal.verify()
+                    transitions = transition_report(master_file, director_plan["sections"])
+                    renewal.verify()
+                    v5_metadata["v10MusicEvidence"] = {
+                        "revision": transitions["revision"],
+                        "tonalRelationship": v10_relationship["relationship"],
+                        "tonalSimilarityProxy": v10_relationship["similarity"],
+                        "unverifiedKeyAndChords": True,
+                        "transitionReviewCount": transitions["needsListeningCount"],
+                        "transitionMaxRmsJumpDb": transitions["maxRmsJumpDb"],
+                        "technicalReviewOnly": True,
+                    }
                 if params.get("v6") is True:
                     preserved = choice.get("originalVoices")
                     if not isinstance(preserved, dict) or preserved.get(

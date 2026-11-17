@@ -768,3 +768,19 @@ test('V9 Music Director refuses until complete private GPU V8 attestation and co
   assert.equal(newer.jobId,JOB);
   assert.equal(newer.params.v9MusicDirector,true);
 });
+
+test('V10 evidence is advertised only by a fresh fully capable GPU heartbeat', async()=>{
+  const e=env();
+  const legacy={gpuReady:true,v5Ready:true,v6Ready:true,v7Ready:true,
+    v8SongFormReady:true,v9MusicDirectorReady:true,v10MusicEvidenceReady:false};
+  assert.equal((await proCapabilities(e)).v10MusicEvidenceAvailable,false);
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',legacy,agent);
+  assert.equal((await proCapabilities(e)).v9MusicDirectorAvailable,true);
+  assert.equal((await proCapabilities(e)).v10MusicEvidenceAvailable,false);
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',
+    {...legacy,v10MusicEvidenceReady:true},agent);
+  assert.equal((await proCapabilities(e)).v10MusicEvidenceAvailable,true);
+  await call(e,'POST','/api/sonara-relay/pro-heartbeat',
+    {...legacy,v9MusicDirectorReady:false,v10MusicEvidenceReady:true},agent);
+  assert.equal((await proCapabilities(e)).v10MusicEvidenceAvailable,false);
+});

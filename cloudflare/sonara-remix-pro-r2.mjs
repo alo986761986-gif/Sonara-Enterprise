@@ -155,6 +155,7 @@ async function gpuState(b){
     v7CreativeModesReady:fresh&&d?.v7CreativeModesReady===true&&d?.v7Ready===true&&d?.revision===PRO_AGENT_REVISION,
     v8SongFormReady:fresh&&d?.v8SongFormReady===true&&d?.v7Ready===true&&d?.revision===PRO_AGENT_REVISION,
     v9MusicDirectorReady:fresh&&d?.v9MusicDirectorReady===true&&d?.v8SongFormReady===true&&d?.v7Ready===true&&d?.revision===PRO_AGENT_REVISION,
+    v10MusicEvidenceReady:fresh&&d?.v10MusicEvidenceReady===true&&d?.v9MusicDirectorReady===true&&d?.v8SongFormReady===true&&d?.v7Ready===true&&d?.revision===PRO_AGENT_REVISION,
     explosiveReady:fresh&&d?.v6Ready===true&&d?.v6ExplosiveReady===true&&d?.revision===PRO_AGENT_REVISION};
 }
 async function beat(b){
@@ -173,6 +174,7 @@ export async function proCapabilities(env) {
     v7CreativeModesAvailable:available&&gpu.v7CreativeModesReady,
     v8SongFormAvailable:available&&gpu.v8SongFormReady,
     v9MusicDirectorAvailable:available&&gpu.v9MusicDirectorReady,
+    v10MusicEvidenceAvailable:available&&gpu.v10MusicEvidenceReady,
     explosiveAvailable:available&&gpu.explosiveReady,engine:'Demucs 4.1 + ACE-Step XL Turbo',
     model:'htdemucs',expectedAgentRevision:PRO_AGENT_REVISION,
     multiformatAvailable:available&&gpu.formatsReady,
@@ -513,6 +515,7 @@ export async function handleRemixPro(req,env,ctx,auth) {
       v7CreativeModesReady:payload?.v5Ready===true&&payload?.v6Ready===true&&payload?.v7Ready===true&&payload?.v7CreativeModesReady===true,
       v8SongFormReady:payload?.v5Ready===true&&payload?.v6Ready===true&&payload?.v7Ready===true&&payload?.v8SongFormReady===true,
       v9MusicDirectorReady:payload?.v5Ready===true&&payload?.v6Ready===true&&payload?.v7Ready===true&&payload?.v8SongFormReady===true&&payload?.v9MusicDirectorReady===true,
+      v10MusicEvidenceReady:payload?.v5Ready===true&&payload?.v6Ready===true&&payload?.v7Ready===true&&payload?.v8SongFormReady===true&&payload?.v9MusicDirectorReady===true&&payload?.v10MusicEvidenceReady===true,
       v6ExplosiveReady:payload?.v5Ready===true&&payload?.v6Ready===true&&payload?.v6ExplosiveReady===true,
       lastSeen:Date.now()}));
     return json({authenticated:true,revision:agentRevision(req)});
