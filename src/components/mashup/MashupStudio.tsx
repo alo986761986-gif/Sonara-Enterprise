@@ -5,7 +5,7 @@ import MusicDirectorPanel, {readSavedDirector, type DirectorSettings} from './Mu
 
 type Loaded = MashupTrack & { name: string; peaks: number[]; confidence: number };
 type Item = { id: string; name: string; url: string; bytes: number; createdAt: string };
-type GpuJob = {jobId:string;title?:string;status:string;stage:string;progress:number;audioUrl?:string|null;error?:string|null;createdAt:number;durationSec:number;stemsVerified?:boolean;audit?:{format?:string;measuredLufs?:number|null;targetLufs?:number|null;samplePeakDbfs?:number|null;musicDirectorV2?:boolean;requiresListening?:boolean}|null;};
+type GpuJob = {jobId:string;title?:string;status:string;stage:string;progress:number;audioUrl?:string|null;error?:string|null;createdAt:number;durationSec:number;stemsVerified?:boolean;audit?:{format?:string;measuredLufs?:number|null;targetLufs?:number|null;samplePeakDbfs?:number|null;harmonicChromaSimilarity?:number|null;musicDirectorV2?:boolean;requiresListening?:boolean}|null;};
 const GPU_JOB_KEY='sonara.mashup.gpu.active';
 const fileAccept = '.wav,.mp3,.flac,.m4a,.aac,.aiff,.ogg';
 const humanTime = (seconds:number) => Math.floor(seconds/60)+':'+String(Math.floor(seconds%60)).padStart(2,'0');
@@ -344,6 +344,9 @@ export default function MashupStudio(){
           {gpuJob.audit.format&&<span className="rounded-lg bg-slate-800 px-3 py-2">{gpuJob.audit.format}</span>}
           {typeof gpuJob.audit.measuredLufs==='number'&&<span className="rounded-lg bg-slate-800 px-3 py-2">LUFS misurati: {gpuJob.audit.measuredLufs.toFixed(1)}</span>}
           {typeof gpuJob.audit.samplePeakDbfs==='number'&&<span className="rounded-lg bg-slate-800 px-3 py-2">Picco campione: {gpuJob.audit.samplePeakDbfs.toFixed(1)} dBFS</span>}
+          {typeof gpuJob.audit.harmonicChromaSimilarity==='number'&&<span className="rounded-lg bg-slate-800 px-3 py-2">
+            Compatibilità spettrale stimata: {Math.round(gpuJob.audit.harmonicChromaSimilarity*100)}% (non è una tonalità certificata)
+          </span>}
         </div>}
         <p className="mt-2 text-xs text-slate-400">La separazione degli stem non garantisce la qualità musicale. Picco campione non significa true peak certificato. Ascolta il master prima di utilizzarlo.</p>
       </section>}
