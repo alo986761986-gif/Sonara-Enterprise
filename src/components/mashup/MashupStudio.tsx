@@ -4,6 +4,8 @@ import { buildMashupPlan, estimateBpm, renderMashup, waveformPeaks, type MashupM
 
 type Loaded = MashupTrack & { name: string; peaks: number[]; confidence: number };
 type Item = { id: string; name: string; url: string; bytes: number; createdAt: string };
+type GpuJob = {jobId:string;title?:string;status:string;stage:string;progress:number;audioUrl?:string|null;error?:string|null;createdAt:number;durationSec:number;stemsVerified?:boolean;};
+const GPU_JOB_KEY='sonara.mashup.gpu.active';
 const fileAccept = '.wav,.mp3,.flac,.m4a,.aac,.aiff,.ogg';
 const humanTime = (seconds:number) => Math.floor(seconds/60)+':'+String(Math.floor(seconds%60)).padStart(2,'0');
 const selectedDefault: MashupSettings = {
@@ -18,6 +20,12 @@ function Waveform({values, tone}:{values:number[];tone:string}){
 export default function MashupStudio(){
   const [open,setOpen]=useState(()=>window.location.pathname.replace(/\/$/,'')==='/mashup');
   const [tracks,setTracks]=useState<Array<Loaded|null>>([null,null]);
+  const [files,setFiles]=useState<Array<File|null>>([null,null]);
+  const [gpuEnabled,setGpuEnabled]=useState(false);
+  const [gpuAvailable,setGpuAvailable]=useState(false);
+  const [gpuJob,setGpuJob]=useState<GpuJob|null>(null);
+  const [gpuLibrary,setGpuLibrary]=useState<GpuJob[]>([]);
+  const [rights,setRights]=useState(false);
   const [settings,setSettings]=useState<MashupSettings>(selectedDefault);
   const [stage,setStage]=useState('Pronto per due sorgenti audio');
   const [error,setError]=useState('');
@@ -51,6 +59,39 @@ export default function MashupStudio(){
       document.querySelectorAll('[data-sonara-mashup-entry]').forEach(node=>node.remove());};
   },[]);
   useEffect(()=>()=>{for(const u of resultUrls.current)URL.revokeObjectURL(u);},[]);
+  useEffect(()=>{if(!open)return;let cancelled=false;
+    const inspect=async()=>{
+      try{
+        const response=await fetch('/api/sonara-relay/mashup-capabilities',{credentials:'include',cache:'no-store'});
+        const data=await response.json();
+        if(!cancelled)setGpuAvailable(response.ok&&data.available===true);
+      }catch{if(!cancelled)setGpuAvailable(false);}
+    };
+    const reloadLibrary=async()=>{
+      try{
+        const r=await fetch('/api/sonara-relay/mashup-library',{credentials:'include',cache:'no-store'});
+        if(!r.ok)return;
+        const data=await r.json();
+        if(!cancelled)setGpuLibrary(Array.isArray(data.items)?data.items:[]);
+      }catch{}
+    };
+    void inspect();void reloadLibrary();
+    const interval=window.setInterval(()=>void inspect(),15000);
+    return()=>{cancelled=true;window.clearInterval(interval);};
+  },[open]);
+  useEffect(()=>{if(!open)return;let cancelled=false;
+    let id='';
+    try{id=sessionStorage.getItem(GPU_JOB_KEY)||'';}catch{}
+    if(!/^smash_[a-f0-9-]{36}$/.test(id))return;
+    void (async()=>{
+      const j=await fetch('/api/sonara-relay/mashup-job/'+id,{credentials:'include',cache:'no-store'});
+      if(cancelled||!j.ok)return;
+      const data:GpuJob=await j.json();
+      setGpuJob(data);
+      if(data.status==='PROCESSING'){setWorking(true);void pollGpu(data.jobId);}
+    })();
+    return()=>{cancelled=true;};
+  },[open]);
   useEffect(()=>{if(!open)return;
     document.body.dataset.sonaraMashupOpen='true';
     const esc=(ev:KeyboardEvent)=>{if(ev.key==='Escape'&&!working)setOpen(false);};
@@ -74,6 +115,7 @@ export default function MashupStudio(){
       const detected=estimateBpm(buffer);
       const loaded:Loaded={name:file.name,buffer,bpm:detected.bpm||124,confidence:detected.confidence,offset:0,peaks:waveformPeaks(buffer)};
       setTracks(current=>current.map((entry,i)=>i===index?loaded:entry));
+      setFiles(current=>current.map((entry,i)=>i===index?file:entry));
       setStage('Sorgente pronta. Controlla BPM e punto di partenza.');
     }catch(e){setError(e instanceof Error?e.message:'Impossibile decodificare il file.');}
     finally{void ac.close();}
@@ -120,6 +162,70 @@ export default function MashupStudio(){
     }catch(e){setError(e instanceof Error?e.message:'Rendering audio non riuscito.');setStage('Operazione interrotta');}
     finally{setWorking(false);}
   }
+  async function gpuRequest(endpoint:string,options:RequestInit={}){
+    const response=await fetch('/api/sonara-relay/'+endpoint,{
+      credentials:'include',cache:'no-store',...options
+    });
+    const payload=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(typeof payload.error==='string'?payload.error:'Gateway Mashup HTTP '+response.status);
+    return payload;
+  }
+  async function pollGpu(id:string){
+    for(let i=0;i<360;i++){
+      try{
+        const job:GpuJob=await gpuRequest('mashup-job/'+id);
+        setGpuJob(job);setStage('GPU: '+job.stage+' · '+job.progress+'%');
+        if(job.status==='COMPLETED'){
+          setStage('Mashup GPU con stem reali completato.');
+          try{sessionStorage.removeItem(GPU_JOB_KEY);}catch{}
+          const lib=await gpuRequest('mashup-library');
+          setGpuLibrary(Array.isArray(lib.items)?lib.items:[]);
+          setWorking(false);return;
+        }
+        if(job.status==='FAILED'){
+          setError(job.error||'Mashup GPU non riuscito.');
+          setWorking(false);return;
+        }
+      }catch(e){
+        setError(e instanceof Error?e.message:'Connessione GPU temporaneamente interrotta.');
+      }
+      await new Promise(resolve=>window.setTimeout(resolve,5000));
+    }
+    setWorking(false);setError('Il controllo ha superato il tempo previsto. Il job rimane consultabile nell’archivio.');
+  }
+  async function generateGpu(){
+    if(!gpuAvailable||!files[0]||!files[1]||!tracks[0]||!tracks[1]||!rights)return;
+    if(files.some(f=>!f||f.size>64*1024*1024||!/\.(wav|mp3|flac|m4a|ogg)$/i.test(f.name))){
+      setError('Per la GPU sono supportati WAV, MP3, FLAC, M4A, OGG fino a 64 MiB per file.');return;
+    }
+    if(Math.abs(tracks[0].bpm/tracks[1].bpm-1)>0.12){
+      setError('I BPM sono incompatibili oltre il 12%. Correggi il valore rilevato.');return;
+    }
+    setWorking(true);setError('');setGpuJob(null);
+    try{
+      const refs:string[]=[];
+      for(const [i,file] of files.entries()){
+        if(!file)throw new Error('File mancante.');
+        setStage('Upload privato sorgente '+(i?'B':'A'));
+        const data=await gpuRequest('mashup-source',{
+          method:'POST',headers:{'Content-Type':file.type||'application/octet-stream','X-Sonara-Mashup-Name':file.name},body:file
+        });
+        refs.push(data.sourceId);
+      }
+      setStage('Prenotazione GPU');
+      const mode=settings.mode==='club'?'club':settings.mode==='conversation'?'dialogue':'instrumental';
+      const job:GpuJob=await gpuRequest('mashup-enqueue',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({sourceA:refs[0],sourceB:refs[1],bpmA:tracks[0].bpm,bpmB:tracks[1].bpm,
+          durationSec:settings.durationSec,mode,title:'SONARA Mashup GPU',rightsConfirmed:true})
+      });
+      setGpuJob(job);
+      try{sessionStorage.setItem(GPU_JOB_KEY,job.jobId);}catch{}
+      void pollGpu(job.jobId);
+    }catch(e){
+      setError(e instanceof Error?e.message:'Invio GPU non riuscito.');
+      setWorking(false);
+    }
+  }
   const plan=tracks[0]&&tracks[1]?(()=>{try{return buildMashupPlan(tracks[0],tracks[1],settings);}catch{return null;}})():null;
   if(!open)return null;
   return <div className="fixed inset-0 z-[100000] overflow-y-auto bg-[#070911]/98 text-slate-100" data-sonara-mashup-studio="true" role="dialog" aria-modal="true" aria-label="SONARA Mashup AI Pro">
@@ -127,10 +233,23 @@ export default function MashupStudio(){
       <header className="flex items-start justify-between gap-4">
         <div><p className="text-[11px] font-bold uppercase tracking-[0.2em] text-violet-300">SONARA ENTERPRISE · DJ WORKSPACE</p>
           <h1 className="mt-2 flex items-center gap-3 text-2xl font-black sm:text-3xl"><AudioLines className="text-violet-400"/> MASHUP AI PRO</h1>
-          <p className="mt-2 text-sm text-slate-400">Studio di mashup stereo con beatmatching, transizioni, mastering WAV e archivio locale.</p></div>
+          <p className="mt-2 text-sm text-slate-400">Mashup stereo offline o separazione reale Demucs su RTX PRO 6000 quando connessa.</p></div>
         <button aria-label="Chiudi Mashup" disabled={working} onClick={()=>{setOpen(false);if(window.location.pathname==='/mashup')history.replaceState({},'','/');}}
           className="rounded-xl border border-slate-700 p-3 hover:bg-slate-800 disabled:opacity-40"><X size={19}/></button>
       </header>
+      <section className="rounded-2xl border border-slate-800 bg-[#151927] p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <button disabled={working} onClick={()=>{setGpuEnabled(false);setError('');}}
+            className={'rounded-xl px-4 py-2 text-xs font-bold '+(!gpuEnabled?'bg-violet-600 text-white':'border border-slate-700 text-slate-300')}>Stereo locale</button>
+          <button disabled={!gpuAvailable||working} onClick={()=>{setGpuEnabled(true);setError('');}}
+            className={'rounded-xl px-4 py-2 text-xs font-bold '+(gpuEnabled?'bg-violet-600 text-white':'border border-slate-700 text-slate-300')+' disabled:opacity-40'}>
+            GPU · Stem Demucs</button>
+          <span className={'text-xs '+(gpuAvailable?'text-emerald-300':'text-amber-300')}>
+            {gpuAvailable?'MoLab GPU collegata e verificata':'MoLab GPU non disponibile: rimane utilizzabile il mix stereo'}
+          </span>
+        </div>
+        <p className="mt-2 text-xs text-slate-500">In modalità GPU le voci e gli strumenti vengono separati davvero. Richiede due WAV/MP3/FLAC/M4A/OGG fino a 64 MiB. La GPU non utilizza ACE-Step.</p>
+      </section>
       <div className="grid gap-4 md:grid-cols-2">
         {tracks.map((track,index)=><section key={index} className="rounded-2xl border border-slate-800 bg-[#151927] p-5">
           <div className="mb-4 flex items-center gap-2 font-bold"><Music2 className={index===0?'text-violet-400':'text-cyan-400'}/> BRANO {index===0?'A':'B'}</div>
@@ -180,11 +299,25 @@ export default function MashupStudio(){
           <span className="rounded-full bg-violet-500/15 px-3 py-1 text-xs text-violet-200">Mix stereo · locale · senza ACE-Step</span></div>
         <div className="mt-4 grid grid-cols-8 gap-1">{Array.from({length:8},(_,i)=><div key={i} className={'h-8 rounded-md '+(settings.mode==='club'?'bg-violet-500/40':i%2===0?'bg-violet-500/50':'bg-cyan-500/40')} title={'Frase '+(i+1)}/>)}</div>
         {plan?<div className="mt-4 space-y-2 text-xs text-amber-200">{plan.warnings.map((w,i)=><p key={i}>• {w}</p>)}</div>:<p className="mt-3 text-xs text-slate-400">Carica due brani e imposta BPM compatibili (massimo ±12%) prima di generare.</p>}
-        <button disabled={!plan||working} onClick={()=>void generate()} className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 p-4 font-bold disabled:cursor-not-allowed disabled:opacity-40">
-          <Sparkles size={19}/>{working?'Elaborazione audio in corso…':'GENERA MASHUP PRO'}</button>
+        {gpuEnabled&&<label className="mt-4 flex items-center gap-3 text-xs text-slate-300">
+          <input type="checkbox" checked={rights} onChange={e=>setRights(e.target.checked)} disabled={working} className="accent-violet-500"/>
+          Confermo di avere i diritti necessari sui due brani.
+        </label>}
+        <button disabled={working||(gpuEnabled?(!gpuAvailable||!tracks[0]||!tracks[1]||!rights):!plan)}
+          onClick={()=>void (gpuEnabled?generateGpu():generate())}
+          className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 p-4 font-bold disabled:cursor-not-allowed disabled:opacity-40">
+          <Sparkles size={19}/>{working?'Elaborazione audio in corso…':gpuEnabled?'GENERA MASHUP GPU · STEM REALI':'GENERA MASHUP PRO'}</button>
         <p className="mt-3 text-center text-xs text-slate-400" role="status">{stage}</p>
         {error&&<p role="alert" className="mt-3 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-300">{error}</p>}
       </section>
+      {gpuJob?.status==='COMPLETED'&&gpuJob.audioUrl&&<section className="rounded-2xl border border-emerald-500/25 bg-emerald-500/5 p-5">
+        <h2 className="font-bold">Master GPU · stem Demucs verificati</h2>
+        <audio controls src={gpuJob.audioUrl} className="mt-3 w-full"/>
+        <a href={gpuJob.audioUrl} download={'SONARA-Mashup-GPU-'+gpuJob.jobId+'.wav'}
+          className="mt-3 inline-flex gap-2 rounded-lg border border-emerald-500/30 px-3 py-2 text-sm text-emerald-300">
+          <Download size={18}/> Scarica il master</a>
+        <p className="mt-2 text-xs text-slate-400">La verifica degli stem non garantisce il risultato artistico. Ascolta il brano prima di utilizzarlo.</p>
+      </section>}
       {result&&<section className="rounded-2xl border border-emerald-500/25 bg-emerald-500/5 p-5">
         <h2 className="mb-3 flex items-center gap-2 font-bold"><Headphones size={18}/> Il tuo mashup è pronto</h2>
         <audio controls src={result.url} className="w-full"/>
@@ -198,6 +331,15 @@ export default function MashupStudio(){
           <div><p className="text-sm">{item.name}</p><p className="text-xs text-slate-500">{(item.bytes/1048576).toFixed(1)} MB</p></div>
           <a href={item.url} download={'SONARA-Mashup-'+item.id.slice(0,8)+'.wav'} className="text-xs font-bold text-violet-300">Scarica WAV</a>
         </div>):<p className="text-xs text-slate-500">Nessun mashup salvato su questo dispositivo.</p>}</div>
+      </section>
+      <section className="rounded-2xl border border-slate-800 bg-[#151927] p-5">
+        <h2 className="font-bold">Archivio GPU · account SONARA</h2>
+        <p className="my-2 text-xs text-slate-400">I master GPU vengono custoditi in R2 con accesso riservato al tuo account.</p>
+        {gpuLibrary.length?gpuLibrary.map(job=><div key={job.jobId} className="my-2 rounded-lg bg-[#0b1020] p-3">
+          <p className="text-sm">{job.title||'Mashup GPU'} · {humanTime(job.durationSec)}</p>
+          {job.audioUrl&&<><audio controls src={job.audioUrl} className="mt-2 w-full"/>
+            <a href={job.audioUrl} download={job.jobId+'.wav'} className="text-xs text-violet-300">Scarica WAV</a></>}
+        </div>):<p className="text-xs text-slate-500">Nessun master GPU pubblicato.</p>}
       </section>
       <p className="pb-8 text-xs leading-5 text-slate-500">Questa versione offre elaborazione audio stereo reale e non separa voci o strumenti. L'analisi BPM è una stima da verificare; il cambio velocità può modificare la tonalità. Usa soltanto registrazioni per cui possiedi i diritti necessari.</p>
     </div>
