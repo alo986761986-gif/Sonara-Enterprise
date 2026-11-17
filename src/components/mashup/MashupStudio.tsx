@@ -213,7 +213,7 @@ export default function MashupStudio(){
         refs.push(data.sourceId);
       }
       setStage('Prenotazione GPU');
-      const mode=settings.mode==='club'?'club':settings.mode==='conversation'?'dialogue':'instrumental';
+      const mode=settings.mode==='club'?'club':'dialogue';
       const job:GpuJob=await gpuRequest('mashup-enqueue',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({sourceA:refs[0],sourceB:refs[1],bpmA:tracks[0].bpm,bpmB:tracks[1].bpm,
           durationSec:settings.durationSec,mode,title:'SONARA Mashup GPU',rightsConfirmed:true})
@@ -297,6 +297,7 @@ export default function MashupStudio(){
         <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-bold">Direzione musicale · anteprima del piano</h2>
           <p className="mt-1 text-xs text-slate-400">Transizioni a frasi di 8 battute; cassa del brano A prioritaria in modalità Club.</p></div>
           <span className="rounded-full bg-violet-500/15 px-3 py-1 text-xs text-violet-200">Mix stereo · locale · senza ACE-Step</span></div>
+        {gpuEnabled&&<p className="mt-2 text-xs text-violet-300">Modalità GPU: ritmo e BPM del brano A. Le transizioni sono calcolate sulle frasi musicali, senza rigenerazione ACE-Step.</p>}
         <div className="mt-4 grid grid-cols-8 gap-1">{Array.from({length:8},(_,i)=><div key={i} className={'h-8 rounded-md '+(settings.mode==='club'?'bg-violet-500/40':i%2===0?'bg-violet-500/50':'bg-cyan-500/40')} title={'Frase '+(i+1)}/>)}</div>
         {plan?<div className="mt-4 space-y-2 text-xs text-amber-200">{plan.warnings.map((w,i)=><p key={i}>• {w}</p>)}</div>:<p className="mt-3 text-xs text-slate-400">Carica due brani e imposta BPM compatibili (massimo ±12%) prima di generare.</p>}
         {gpuEnabled&&<label className="mt-4 flex items-center gap-3 text-xs text-slate-300">
