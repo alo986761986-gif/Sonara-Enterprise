@@ -8,6 +8,8 @@ on:
       - 'cloudflare/sonara-mashup-gpu-r2*'
       - 'cloudflare/sonara-r2-https-relay.mjs'
       - 'molab/sonara_mashup_gpu_worker.py'
+      - 'molab/sonara_mashup_music_director_v2.py'
+      - 'molab/test_sonara_mashup_music_director_v2.py'
       - 'wrangler.jsonc'
       - 'src/main.tsx'
       - '.github/workflows/deploy-mashup-ai-pro.yml'
@@ -42,6 +44,10 @@ jobs:
         run: node --test cloudflare/sonara-mashup-gpu-r2.test.mjs
       - name: Validate standalone MoLab Python worker
         run: python -m py_compile molab/sonara_mashup_gpu_worker.py
+      - name: Test Music Director V2 arrangements
+        run: python -m unittest molab.test_sonara_mashup_music_director_v2 -v
+      - name: Validate Music Director V2 syntax
+        run: python -m py_compile molab/sonara_mashup_music_director_v2.py
       - name: Build all SONARA assets
         run: npm run build
       - name: Verify Mashup bundled

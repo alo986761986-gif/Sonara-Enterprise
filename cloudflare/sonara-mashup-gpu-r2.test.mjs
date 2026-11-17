@@ -111,3 +111,48 @@ test('browser unknown formats and conflicting extensions are rejected',async()=>
     assert.equal(r.status,415,filename);
   }
 });
+
+test('V2 controls are rejected until verified upgraded MoLab heartbeat',async()=>{
+  const e=env();
+  const signal=(v2)=>handleMashupGpu(new Request(BASE+'mashup-heartbeat',{
+    method:'POST',body:JSON.stringify({revision:'sonara-mashup-htdemucs-v1',gpuReady:true,demucsReady:true,musicDirectorV2:v2})
+  }),e,{},auth);
+  const upload=async(name)=>{
+    const r=await handleMashupGpu(new Request(BASE+'mashup-source',{
+      method:'POST',headers:{origin:'https://sonaraenterprise.com','content-type':'audio/wav',
+        'X-Sonara-Mashup-Name':name,'X-Sonara-Mashup-Format':'wav'},body:new Uint8Array(500)
+    }),e,{},auth);
+    assert.equal(r.status,201);
+    return (await r.json()).sourceId;
+  };
+  await signal(false);
+  const before=await handleMashupGpu(get('mashup-capabilities'),e,{},auth);
+  assert.equal((await before.json()).professionalAvailable,false);
+  const a=await upload('a.wav'),b=await upload('b.wav');
+  const director={
+    vocalPolicy:'dialogue',masterProfile:'studio',variation:0,
+    vocalGainA:75,vocalGainB:75,instrumentGainB:75,
+    sections:[{name:'verse',bars:8,voice:'a',energy:80}]
+  };
+  const job=()=>new Request(BASE+'mashup-enqueue',{
+    method:'POST',headers:{origin:'https://sonaraenterprise.com','content-type':'application/json'},
+    body:JSON.stringify({rightsConfirmed:true,sourceA:a,sourceB:b,
+      bpmA:124,bpmB:126,durationSec:120,mode:'club',directorV2:director})
+  });
+  const denied=await handleMashupGpu(job(),e,{},auth);
+  assert.equal(denied.status,503);
+  await signal(true);
+  const after=await handleMashupGpu(get('mashup-capabilities'),e,{},auth);
+  assert.equal((await after.json()).professionalAvailable,true);
+  const accepted=await handleMashupGpu(job(),e,{},auth);
+  assert.equal(accepted.status,202);
+  const acceptedPayload=await accepted.json();
+  assert.match(acceptedPayload.jobId,/^smash_/);
+  const invalid=await handleMashupGpu(new Request(BASE+'mashup-enqueue',{
+    method:'POST',headers:{origin:'https://sonaraenterprise.com','content-type':'application/json'},
+    body:JSON.stringify({rightsConfirmed:true,sourceA:a,sourceB:b,
+      bpmA:124,bpmB:126,durationSec:120,mode:'club',
+      directorV2:{...director,sections:[{name:'verse',bars:7,voice:'a',energy:80}]}})
+  }),e,{},auth);
+  assert.equal(invalid.status,400);
+});

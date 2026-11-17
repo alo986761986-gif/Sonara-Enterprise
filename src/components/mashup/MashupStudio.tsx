@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { AudioLines, Download, Headphones, Library, Music2, SlidersHorizontal, Sparkles, UploadCloud, X } from 'lucide-react';
 import { buildMashupPlan, estimateBpm, renderMashup, waveformPeaks, type MashupMode, type MashupTrack, type MashupSettings } from './mashupEngine';
+import MusicDirectorPanel, {readSavedDirector, type DirectorSettings} from './MusicDirectorPanel';
 
 type Loaded = MashupTrack & { name: string; peaks: number[]; confidence: number };
 type Item = { id: string; name: string; url: string; bytes: number; createdAt: string };
-type GpuJob = {jobId:string;title?:string;status:string;stage:string;progress:number;audioUrl?:string|null;error?:string|null;createdAt:number;durationSec:number;stemsVerified?:boolean;};
+type GpuJob = {jobId:string;title?:string;status:string;stage:string;progress:number;audioUrl?:string|null;error?:string|null;createdAt:number;durationSec:number;stemsVerified?:boolean;audit?:{format?:string;measuredLufs?:number|null;targetLufs?:number|null;samplePeakDbfs?:number|null;harmonicChromaSimilarity?:number|null;musicDirectorV2?:boolean;requiresListening?:boolean}|null;};
 const GPU_JOB_KEY='sonara.mashup.gpu.active';
 const fileAccept = '.wav,.mp3,.flac,.m4a,.aac,.aiff,.ogg';
 const humanTime = (seconds:number) => Math.floor(seconds/60)+':'+String(Math.floor(seconds%60)).padStart(2,'0');
@@ -23,6 +24,9 @@ export default function MashupStudio(){
   const [files,setFiles]=useState<Array<File|null>>([null,null]);
   const [gpuEnabled,setGpuEnabled]=useState(false);
   const [gpuAvailable,setGpuAvailable]=useState(false);
+  const [professionalAvailable,setProfessionalAvailable]=useState(false);
+  const [professionalEnabled,setProfessionalEnabled]=useState(true);
+  const [director,setDirector]=useState<DirectorSettings>(readSavedDirector);
   const [gpuJob,setGpuJob]=useState<GpuJob|null>(null);
   const [gpuLibrary,setGpuLibrary]=useState<GpuJob[]>([]);
   const [rights,setRights]=useState(false);
@@ -64,8 +68,9 @@ export default function MashupStudio(){
       try{
         const response=await fetch('/api/sonara-relay/mashup-capabilities',{credentials:'include',cache:'no-store'});
         const data=await response.json();
-        if(!cancelled)setGpuAvailable(response.ok&&data.available===true);
-      }catch{if(!cancelled)setGpuAvailable(false);}
+        if(!cancelled){setGpuAvailable(response.ok&&data.available===true);
+          setProfessionalAvailable(response.ok&&data.professionalAvailable===true);}
+      }catch{if(!cancelled){setGpuAvailable(false);setProfessionalAvailable(false);}}
     };
     const reloadLibrary=async()=>{
       try{
@@ -216,7 +221,8 @@ export default function MashupStudio(){
       const mode=settings.mode==='club'?'club':'dialogue';
       const job:GpuJob=await gpuRequest('mashup-enqueue',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({sourceA:refs[0],sourceB:refs[1],bpmA:tracks[0].bpm,bpmB:tracks[1].bpm,
-          durationSec:settings.durationSec,mode,title:'SONARA Mashup GPU',rightsConfirmed:true})
+          durationSec:settings.durationSec,mode,title:'SONARA Mashup GPU',rightsConfirmed:true,
+          ...(professionalEnabled&&professionalAvailable?{directorV2:director}: {})})
       });
       setGpuJob(job);
       try{sessionStorage.setItem(GPU_JOB_KEY,job.jobId);}catch{}
@@ -293,6 +299,19 @@ export default function MashupStudio(){
               onChange={e=>update(control.key,Number(e.target.value))}/></label>)}
         </div>
       </section>
+      {gpuEnabled&&<div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 p-3">
+          <div><h2 className="text-sm font-bold">Arrangiamento professionale</h2>
+            <p className="text-xs text-slate-500">Scegli il motore: V2 disponibile solo dopo verifica del worker MoLab aggiornato.</p></div>
+          <label className="flex items-center gap-2 text-xs text-violet-200">
+            <input type="checkbox" checked={professionalEnabled} disabled={working}
+              onChange={e=>setProfessionalEnabled(e.target.checked)} className="accent-violet-500"/>
+            Attiva Music Director V2
+          </label>
+        </div>
+        {professionalEnabled&&<MusicDirectorPanel value={director} onChange={setDirector}
+          enabled={professionalAvailable} bpm={tracks[0]?.bpm||settings.targetBpm} locked={working}/>}
+      </div>}
       <section className="rounded-2xl border border-violet-500/20 bg-[#171226] p-5">
         <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-bold">Direzione musicale · anteprima del piano</h2>
           <p className="mt-1 text-xs text-slate-400">Transizioni a frasi di 8 battute; cassa del brano A prioritaria in modalità Club.</p></div>
@@ -304,10 +323,14 @@ export default function MashupStudio(){
           <input type="checkbox" checked={rights} onChange={e=>setRights(e.target.checked)} disabled={working} className="accent-violet-500"/>
           Confermo di avere i diritti necessari sui due brani.
         </label>}
-        <button disabled={working||(gpuEnabled?(!gpuAvailable||!tracks[0]||!tracks[1]||!rights):!plan)}
+        <button disabled={working||(gpuEnabled?(!gpuAvailable||!tracks[0]||!tracks[1]||!rights||(professionalEnabled&&!professionalAvailable)):!plan)}
           onClick={()=>void (gpuEnabled?generateGpu():generate())}
           className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 p-4 font-bold disabled:cursor-not-allowed disabled:opacity-40">
           <Sparkles size={19}/>{working?'Elaborazione audio in corso…':gpuEnabled?'GENERA MASHUP GPU · STEM REALI':'GENERA MASHUP PRO'}</button>
+        {gpuEnabled&&professionalEnabled&&!professionalAvailable&&
+          <p className="mt-3 rounded-xl border border-amber-600/30 bg-amber-600/10 p-3 text-xs text-amber-100">
+            Per Music Director V2 occorre aggiornare il worker privato su MoLab. Puoi disattivare Music Director V2 e continuare con il Mashup GPU standard.
+          </p>}
         <p className="mt-3 text-center text-xs text-slate-400" role="status">{stage}</p>
         {error&&<p role="alert" className="mt-3 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-300">{error}</p>}
       </section>
@@ -317,7 +340,15 @@ export default function MashupStudio(){
         <a href={gpuJob.audioUrl} download={'SONARA-Mashup-GPU-'+gpuJob.jobId+'.wav'}
           className="mt-3 inline-flex gap-2 rounded-lg border border-emerald-500/30 px-3 py-2 text-sm text-emerald-300">
           <Download size={18}/> Scarica il master</a>
-        <p className="mt-2 text-xs text-slate-400">La verifica degli stem non garantisce il risultato artistico. Ascolta il brano prima di utilizzarlo.</p>
+        {gpuJob.audit&&<div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-300">
+          {gpuJob.audit.format&&<span className="rounded-lg bg-slate-800 px-3 py-2">{gpuJob.audit.format}</span>}
+          {typeof gpuJob.audit.measuredLufs==='number'&&<span className="rounded-lg bg-slate-800 px-3 py-2">LUFS misurati: {gpuJob.audit.measuredLufs.toFixed(1)}</span>}
+          {typeof gpuJob.audit.samplePeakDbfs==='number'&&<span className="rounded-lg bg-slate-800 px-3 py-2">Picco campione: {gpuJob.audit.samplePeakDbfs.toFixed(1)} dBFS</span>}
+          {typeof gpuJob.audit.harmonicChromaSimilarity==='number'&&<span className="rounded-lg bg-slate-800 px-3 py-2">
+            Compatibilità spettrale stimata: {Math.round(gpuJob.audit.harmonicChromaSimilarity*100)}% (non è una tonalità certificata)
+          </span>}
+        </div>}
+        <p className="mt-2 text-xs text-slate-400">La separazione degli stem non garantisce la qualità musicale. Picco campione non significa true peak certificato. Ascolta il master prima di utilizzarlo.</p>
       </section>}
       {result&&<section className="rounded-2xl border border-emerald-500/25 bg-emerald-500/5 p-5">
         <h2 className="mb-3 flex items-center gap-2 font-bold"><Headphones size={18}/> Il tuo mashup è pronto</h2>

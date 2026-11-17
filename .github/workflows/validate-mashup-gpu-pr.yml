@@ -10,6 +10,8 @@ on:
       - 'cloudflare/sonara-r2-https-relay.mjs'
       - 'src/components/mashup/**'
       - 'molab/sonara_mashup_gpu_worker.py'
+      - 'molab/sonara_mashup_music_director_v2.py'
+      - 'molab/test_sonara_mashup_music_director_v2.py'
       - '.github/workflows/validate-mashup-gpu-pr.yml'
   workflow_dispatch:
 permissions:
@@ -25,6 +27,10 @@ jobs:
           node-version: '24'
       - name: Python syntax validation
         run: python -m py_compile molab/sonara_mashup_gpu_worker.py
+      - name: Validate professional V2 Python arranger
+        run: |
+          python -m py_compile molab/sonara_mashup_music_director_v2.py
+          python -m unittest molab.test_sonara_mashup_music_director_v2 -v
       - name: GPU API security contracts
         run: node --test cloudflare/sonara-mashup-gpu-r2.test.mjs
       - name: Install SONARA dependencies

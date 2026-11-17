@@ -5,7 +5,7 @@
 const BASE='/api/sonara-relay/';
 const ROOT='relay-v1/mashup/';
 const REV='sonara-mashup-htdemucs-v1';
-const SIZE=64*1024*1024, FRESH=35000, LEASE=20*60*1000;
+const SIZE=64*1024*1024, OUTPUT_MAX=120*1024*1024, FRESH=35000, LEASE=20*60*1000;
 const JOB=/^smash_[a-f0-9-]{36}$/, REF=/^smref_[a-f0-9-]{36}$/;
 const STAGES=new Set(['downloading','analyzing','separating','arranging','mastering','uploading']);
 const MODES=new Set(['club','dialogue','instrumental']);
@@ -27,12 +27,14 @@ async function ownerHash(uid){
 async function beat(b){
   const v=await read(b?await b.get(ROOT+'agent/heartbeat.json'):null);
   const age=v?.lastSeen?Math.max(0,Date.now()-v.lastSeen):null;
-  return {online:age!==null&&age<FRESH&&v.revision===REV&&v.gpuReady===true&&v.demucsReady===true,age};
+  return {online:age!==null&&age<FRESH&&v.revision===REV&&v.gpuReady===true&&v.demucsReady===true,age,
+    musicDirectorV2:v?.musicDirectorV2===true};
 }
 async function capabilities(e){
   const h=await beat(e.SONARA_AUDIO_BUCKET);
   return {mode:'gpu-demucs-stems',model:'htdemucs',available:enabled(e)&&h.online,
-    agentOnline:h.online,heartbeatAgeMs:h.age,expectedAgentRevision:REV,aceStepUnmodified:true,
+    agentOnline:h.online,heartbeatAgeMs:h.age,professionalAvailable:enabled(e)&&h.online&&h.musicDirectorV2,
+    expectedAgentRevision:REV,aceStepUnmodified:true,
     maxSourceMiB:64,maxDurationSec:300};
 }
 async function save(b,j,etag=null){
@@ -93,7 +95,8 @@ export async function handleMashupGpu(req,env,ctx,auth){
     if(path===BASE+'mashup-heartbeat'&&req.method==='POST'){
       const d=await req.json().catch(()=>({}));
       if(d.revision!==REV||d.gpuReady!==true||d.demucsReady!==true)return fail('CUDA e Demucs non verificati',409);
-      await b.put(ROOT+'agent/heartbeat.json',JSON.stringify({revision:REV,gpuReady:true,demucsReady:true,lastSeen:Date.now()}),
+      await b.put(ROOT+'agent/heartbeat.json',JSON.stringify({revision:REV,gpuReady:true,demucsReady:true,
+        musicDirectorV2:d.musicDirectorV2===true,lastSeen:Date.now()}),
         {httpMetadata:{contentType:'application/json'}});
       return json({authenticated:true,available:enabled(env)});
     }
@@ -102,10 +105,18 @@ export async function handleMashupGpu(req,env,ctx,auth){
       const objects=await b.list({prefix:ROOT+'queue/',limit:100});
       for(const entry of objects.objects||[]){
         const id=entry.key.split('/').pop();if(!JOB.test(id))continue;
-        const o=await b.get(jobKey(id)),j=await read(o);if(!j||['COMPLETE','FAILED'].includes(j.status))continue;
+        const o=await b.get(jobKey(id)),j=await read(o);
+        if(!j||['COMPLETE','FAILED'].includes(j.status)){
+          // An old finished job must never block new users after 100 queue entries.
+          await b.delete(entry.key).catch(()=>{});
+          continue;
+        }
         const now=Date.now();
         if(j.attempts>=3||now-j.createdAt>2*60*60*1000){
-          if(await save(b,{...j,status:'FAILED',stage:'failed',error:'Timeout lavoro GPU',updatedAt:now},o.etag))await release(b,j);
+          if(await save(b,{...j,status:'FAILED',stage:'failed',error:'Timeout lavoro GPU',updatedAt:now},o.etag)){
+            await release(b,j);
+            await b.delete(entry.key).catch(()=>{});
+          }
           continue;
         }
         if(j.status!=='QUEUED'&&!(j.status==='LEASED'&&j.leaseUntil<now))continue;
@@ -113,7 +124,8 @@ export async function handleMashupGpu(req,env,ctx,auth){
         const next={...j,status:'LEASED',stage:'downloading',attempts:j.attempts+1,leaseId,leaseUntil:now+LEASE,updatedAt:now};
         if(!await save(b,next,o.etag))continue;
         return json({jobId:id,leaseId,params:{mode:j.mode,durationSec:j.durationSec,
-          bpmA:j.bpmA,bpmB:j.bpmB,formatA:j.sourceA.format,formatB:j.sourceB.format}});
+          bpmA:j.bpmA,bpmB:j.bpmB,formatA:j.sourceA.format,formatB:j.sourceB.format,
+          ...(j.directorV2?{directorV2:j.directorV2}:{})}});
       }
       return json({jobId:null});
     }
@@ -168,6 +180,34 @@ export async function handleMashupGpu(req,env,ctx,auth){
     if(!Number.isFinite(bpmA)||!Number.isFinite(bpmB)||bpmA<60||bpmA>200||bpmB<60||bpmB>220||
        Math.abs(bpmA/bpmB-1)>0.12)return fail('Verifica BPM (massimo 12% di differenza)',400);
     if(!MODES.has(d.mode))return fail('Modalità non valida');
+    let directorV2=null;
+    if(d.directorV2!==undefined){
+      if(!(await capabilities(env)).professionalAvailable)
+        return fail('Music Director V2 non ancora attivo sul worker MoLab. È disponibile il motore GPU standard.',503);
+      const options=d.directorV2;
+      if(!options||typeof options!=='object'||Array.isArray(options))
+        return fail('Impostazioni Music Director V2 non valide',400);
+      if(!['dialogue','a','b','instrumental'].includes(options.vocalPolicy)||
+         !['studio','club','streaming'].includes(options.masterProfile)||
+         !Number.isInteger(options.variation)||options.variation<0||options.variation>99)
+        return fail('Controlli Music Director V2 fuori intervallo',400);
+      const levels=['vocalGainA','vocalGainB','instrumentGainB'];
+      if(levels.some(key=>typeof options[key]!=='number'||!Number.isFinite(options[key])||options[key]<0||options[key]>100))
+        return fail('Livelli delle tracce non validi',400);
+      if(!Array.isArray(options.sections)||options.sections.length>32)
+        return fail('Struttura musicale non valida',400);
+      if(options.sections.some(s=>!s||typeof s!=='object'||
+         !['intro','verse','chorus','bridge','drop','outro'].includes(s.name)||
+         ![4,8,16].includes(s.bars)||!Number.isInteger(s.bars)||
+         !['auto','a','b','none'].includes(s.voice)||
+         typeof s.energy!=='number'||!Number.isFinite(s.energy)||s.energy<0||s.energy>100))
+        return fail('Una sezione musicale contiene parametri non validi',400);
+      directorV2={vocalPolicy:options.vocalPolicy,masterProfile:options.masterProfile,
+        variation:options.variation,vocalGainA:options.vocalGainA,vocalGainB:options.vocalGainB,
+        instrumentGainB:options.instrumentGainB,sections:options.sections.map(s=>({
+          name:s.name,bars:s.bars,voice:s.voice,energy:s.energy
+        }))};
+    }
     const hash=await ownerHash(user.uid);
     const active=await read(await b.get(lockKey(hash)));
     if(active?.jobId&&JOB.test(active.jobId)){
@@ -178,7 +218,8 @@ export async function handleMashupGpu(req,env,ctx,auth){
     const id='smash_'+crypto.randomUUID(),now=Date.now();
     const j={id,kind:'mashup-gpu',ownerUid:user.uid,ownerHash:hash,title:safeName(d.title||'SONARA Mashup GPU'),
       status:'QUEUED',stage:'queued',createdAt:now,updatedAt:now,attempts:0,leaseId:null,leaseUntil:0,
-      sourceA:a,sourceB:c,durationSec:duration,bpmA,bpmB,mode:d.mode,output:null,stemsVerified:false,error:null};
+      sourceA:a,sourceB:c,durationSec:duration,bpmA,bpmB,mode:d.mode,
+      ...(directorV2?{directorV2}:{}),output:null,stemsVerified:false,error:null};
     if(!await save(b,j))return fail('Salvataggio job fallito',503);
     await b.put(ROOT+'queue/'+String(now).padStart(13,'0')+'/'+id,id);
     await b.put(lockKey(hash),JSON.stringify({jobId:id,createdAt:now}),{httpMetadata:{contentType:'application/json'}});
@@ -218,10 +259,10 @@ export async function handleMashupGpu(req,env,ctx,auth){
     }
     if(action==='audio'&&req.method==='PUT'){
       if(!req.body)return fail('Master mancante');
-      if(Number(req.headers.get('content-length')||0)>SIZE)return fail('Master troppo grande',413);
+      if(Number(req.headers.get('content-length')||0)>OUTPUT_MAX)return fail('Master troppo grande',413);
       await b.put(audioKey(id),req.body,{httpMetadata:{contentType:'audio/wav'}});
       const head=await b.head(audioKey(id));
-      if(!head||head.size<1000||head.size>SIZE){await b.delete(audioKey(id));return fail('Master non valido',413);}
+      if(!head||head.size<1000||head.size>OUTPUT_MAX){await b.delete(audioKey(id));return fail('Master non valido',413);}
       for(let i=0;i<6;i++){
         const o=await b.get(jobKey(id)),c=await read(o);
         if(!leaseOk(c,req))return fail('Lease modificata',409);
@@ -233,16 +274,25 @@ export async function handleMashupGpu(req,env,ctx,auth){
     if(action==='complete'&&req.method==='POST'){
       const d=await req.json().catch(()=>({}));
       if(!j.output||!await b.head(audioKey(id)))return fail('Master non caricato',409);
-      if(d.model!=='htdemucs'||d.stemsVerified!==true||Math.abs(Number(d.actualDurationSec)-j.durationSec)>0.15)
+      if(d.model!=='htdemucs'||d.stemsVerified!==true||Math.abs(Number(d.actualDurationSec)-j.durationSec)>0.15||
+         (Boolean(j.directorV2)&&d.musicDirectorV2!==true))
         return fail('Durata o stem non verificati',409);
       const audit={peakDbfs:Number.isFinite(d.audit?.peakDbfs)?d.audit.peakDbfs:null,
-        renderBpm:j.bpmA,model:'htdemucs',requiresListening:true};
+        samplePeakDbfs:Number.isFinite(d.audit?.samplePeakDbfs)?d.audit.samplePeakDbfs:null,
+        measuredLufs:Number.isFinite(d.audit?.measuredLufs)?d.audit.measuredLufs:null,
+        harmonicChromaSimilarity:Number.isFinite(d.audit?.harmonicChromaSimilarity)?
+          Math.max(0,Math.min(1,d.audit.harmonicChromaSimilarity)):null,
+        targetLufs:Number.isFinite(d.audit?.targetLufs)?d.audit.targetLufs:null,
+        format:d.musicDirectorV2===true?'WAV 48kHz PCM24':'WAV 44.1kHz PCM16',
+        musicDirectorV2:d.musicDirectorV2===true,
+        truePeakCertified:false,renderBpm:j.bpmA,model:'htdemucs',requiresListening:true};
       const final={...j,status:'COMPLETE',stage:'completed',updatedAt:Date.now(),
         leaseId:null,leaseUntil:0,sourceA:null,sourceB:null,stemsVerified:true,audit};
       if(!await save(b,final,obj.etag))return fail('Conferma in conflitto',409);
       await b.put(ROOT+'library/'+j.ownerHash+'/'+String(j.createdAt).padStart(13,'0')+'-'+id+'.json',JSON.stringify(final),
         {httpMetadata:{contentType:'application/json'}});
       await release(b,j);
+      await b.delete(ROOT+'queue/'+String(j.createdAt).padStart(13,'0')+'/'+id).catch(()=>{});
       return json({...publicJob(final),ok:true});
     }
     if(action==='fail'&&req.method==='POST'){
@@ -255,6 +305,7 @@ export async function handleMashupGpu(req,env,ctx,auth){
       const final={...j,status:'FAILED',stage:'failed',error:message,updatedAt:Date.now(),leaseId:null,leaseUntil:0};
       if(!await save(b,final,obj.etag))return fail('Conflitto errore',409);
       await release(b,j);
+      await b.delete(ROOT+'queue/'+String(j.createdAt).padStart(13,'0')+'/'+id).catch(()=>{});
       return json({ok:true});
     }
     return fail('Metodo non valido',405);
