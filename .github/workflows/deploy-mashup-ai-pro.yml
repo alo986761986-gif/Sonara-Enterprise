@@ -1,0 +1,61 @@
+name: Deploy SONARA Mashup AI Pro on Cloudflare
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/components/mashup/**'
+      - 'src/main.tsx'
+      - '.github/workflows/deploy-mashup-ai-pro.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sonara-cloudflare-mashup-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify Cloudflare token
+        run: test -n "$CLOUDFLARE_API_TOKEN"
+      - name: Install dependencies
+        run: npm install
+      - name: Test Mashup DSP contracts
+        run: npx tsx --test src/components/mashup/mashupEngine.test.ts
+      - name: Build all SONARA assets
+        run: npm run build
+      - name: Verify Mashup bundled
+        run: |
+          test -d dist/assets
+          grep -RlF 'MASHUP AI PRO' dist/assets >/dev/null
+          grep -RlF 'GENERA MASHUP PRO' dist/assets >/dev/null
+      - name: Publish to official Cloudflare Worker and assets
+        run: npx --yes wrangler@latest deploy --config wrangler.jsonc
+      - name: Verify public mashup release
+        run: |
+          set -euo pipefail
+          for attempt in {1..25}; do
+            html="$(curl -fsS --max-time 20 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com/?mashup_release=${GITHUB_SHA}-${attempt}" || true)"
+            asset="$(printf '%s' "$html" | grep -oE 'src="/assets/index-[^"]+\.js"' | head -n1 | cut -d'"' -f2 || true)"
+            if [[ -n "$asset" ]] && curl -fsS --max-time 30 -H 'Cache-Control: no-cache' "https://sonaraenterprise.com${asset}?release=${GITHUB_SHA}" -o /tmp/sonara-mashup-live.js; then
+              if grep -Fq 'GENERA MASHUP PRO' /tmp/sonara-mashup-live.js; then
+                echo "SONARA Mashup deployed to official site"
+                exit 0
+              fi
+            fi
+            sleep 5
+          done
+          echo "Mashup release not verified publicly" >&2
+          exit 1
