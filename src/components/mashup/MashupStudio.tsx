@@ -5,7 +5,7 @@ import MusicDirectorPanel, {readSavedDirector, type DirectorSettings} from './Mu
 
 type Loaded = MashupTrack & { name: string; peaks: number[]; confidence: number };
 type Item = { id: string; name: string; url: string; bytes: number; createdAt: string };
-type GpuJob = {jobId:string;title?:string;status:string;stage:string;progress:number;audioUrl?:string|null;error?:string|null;createdAt:number;durationSec:number;stemsVerified?:boolean;};
+type GpuJob = {jobId:string;title?:string;status:string;stage:string;progress:number;audioUrl?:string|null;error?:string|null;createdAt:number;durationSec:number;stemsVerified?:boolean;audit?:{format?:string;measuredLufs?:number|null;targetLufs?:number|null;samplePeakDbfs?:number|null;musicDirectorV2?:boolean;requiresListening?:boolean}|null;};
 const GPU_JOB_KEY='sonara.mashup.gpu.active';
 const fileAccept = '.wav,.mp3,.flac,.m4a,.aac,.aiff,.ogg';
 const humanTime = (seconds:number) => Math.floor(seconds/60)+':'+String(Math.floor(seconds%60)).padStart(2,'0');
@@ -340,7 +340,12 @@ export default function MashupStudio(){
         <a href={gpuJob.audioUrl} download={'SONARA-Mashup-GPU-'+gpuJob.jobId+'.wav'}
           className="mt-3 inline-flex gap-2 rounded-lg border border-emerald-500/30 px-3 py-2 text-sm text-emerald-300">
           <Download size={18}/> Scarica il master</a>
-        <p className="mt-2 text-xs text-slate-400">La verifica degli stem non garantisce il risultato artistico. Ascolta il brano prima di utilizzarlo.</p>
+        {gpuJob.audit&&<div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-300">
+          {gpuJob.audit.format&&<span className="rounded-lg bg-slate-800 px-3 py-2">{gpuJob.audit.format}</span>}
+          {typeof gpuJob.audit.measuredLufs==='number'&&<span className="rounded-lg bg-slate-800 px-3 py-2">LUFS misurati: {gpuJob.audit.measuredLufs.toFixed(1)}</span>}
+          {typeof gpuJob.audit.samplePeakDbfs==='number'&&<span className="rounded-lg bg-slate-800 px-3 py-2">Picco campione: {gpuJob.audit.samplePeakDbfs.toFixed(1)} dBFS</span>}
+        </div>}
+        <p className="mt-2 text-xs text-slate-400">La separazione degli stem non garantisce la qualità musicale. Picco campione non significa true peak certificato. Ascolta il master prima di utilizzarlo.</p>
       </section>}
       {result&&<section className="rounded-2xl border border-emerald-500/25 bg-emerald-500/5 p-5">
         <h2 className="mb-3 flex items-center gap-2 font-bold"><Headphones size={18}/> Il tuo mashup è pronto</h2>
