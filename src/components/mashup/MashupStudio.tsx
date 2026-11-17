@@ -25,8 +25,6 @@ export default function MashupStudio(){
   const [result,setResult]=useState<Item|null>(null);
   const [library,setLibrary]=useState<Item[]>([]);
   const resultUrls=useRef<string[]>([]);
-  const decoded=useRef<Array<Loaded|null>>([null,null]);
-  useEffect(()=>{decoded.current=tracks;},[tracks]);
   useEffect(()=>{
     const start=()=>setOpen(true);
     window.addEventListener('sonara:open-mashup',start);
@@ -153,7 +151,6 @@ export default function MashupStudio(){
                   onChange={e=>setTracks(old=>old.map((x,i)=>i===index&&x?{...x,offset:Number(e.target.value)}:x))}
                   className="mt-1 w-full rounded-lg border border-slate-700 bg-[#0b1020] p-2 text-white"/></label>
             </div>
-            <audio controls src={URL.createObjectURL ? undefined:undefined} className="hidden"/>
           </div>:<p className="mt-3 text-xs text-slate-500">WAV · MP3 · FLAC · M4A · AAC · AIFF · OGG, quando supportati dal browser.</p>}
         </section>)}
       </div>
