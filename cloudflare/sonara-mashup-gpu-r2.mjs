@@ -123,10 +123,25 @@ export async function handleMashupGpu(req,env,ctx,auth){
     const user=await auth.user(req,env);if(!user?.uid)return fail('Accedi a SONARA',401);
     if(!(await capabilities(env)).available)return fail('GPU Mashup non collegata',503);
     if(!req.body)return fail('Sorgente mancante');
-    const name=safeName(req.headers.get('X-Sonara-Mashup-Name'));
-    const format=(name.match(/\.(wav|mp3|flac|m4a|ogg|aac|aif|aiff)$/i)||[])[1];
-    const type=(req.headers.get('content-type')||'').split(';')[0].toLowerCase();
-    if(!format||!(/^(audio\/|application\/octet-stream)/.test(type)))return fail('Formato non ammesso',415);
+    // Browsers can label .m4a as video/mp4 and .flac as application/x-flac.
+    // The file's extension, not the browser MIME guess, drives FFmpeg decoding.
+    // Keep a strict allowlist; binary uploads are subsequently decoded on MoLab.
+    const rawName=String(req.headers.get('X-Sonara-Mashup-Name')||'').trim();
+    const filename=safeName(rawName);
+    const namedFormat=(rawName?filename.match(/\.(wav|mp3|flac|m4a|ogg)$/i):null)?.[1]?.toLowerCase()||'';
+    const hintedFormat=String(req.headers.get('X-Sonara-Mashup-Format')||'').toLowerCase().trim();
+    const allowedFormats=new Set(['wav','mp3','flac','m4a','ogg']);
+    if(hintedFormat&&!allowedFormats.has(hintedFormat))return fail('Estensione audio non supportata dalla GPU',415);
+    if(namedFormat&&hintedFormat&&namedFormat!==hintedFormat)return fail('Estensione audio non coerente',415);
+    const format=namedFormat||hintedFormat;
+    const name=namedFormat?filename:'SONARA source.'+format;
+    const type=(req.headers.get('content-type')||'').split(';')[0].trim().toLowerCase();
+    const mimeAllowed=type.startsWith('audio/')||new Set([
+      'application/octet-stream','video/mp4','application/mp4',
+      'application/x-flac','application/ogg','application/x-m4a'
+    ]).has(type);
+    if(!allowedFormats.has(format)||!mimeAllowed)
+      return fail('Formato audio non ammesso. Per Mashup GPU usa WAV, MP3, FLAC, M4A o OGG.',415);
     if(Number(req.headers.get('content-length')||0)>SIZE)return fail('Limite 64 MiB',413);
     const id='smref_'+crypto.randomUUID(),key=sourceKey(id);
     await b.put(key,req.body,{httpMetadata:{contentType:type}});

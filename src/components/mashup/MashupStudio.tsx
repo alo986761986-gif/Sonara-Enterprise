@@ -208,7 +208,7 @@ export default function MashupStudio(){
         if(!file)throw new Error('File mancante.');
         setStage('Upload privato sorgente '+(i?'B':'A'));
         const data=await gpuRequest('mashup-source',{
-          method:'POST',headers:{'Content-Type':file.type||'application/octet-stream','X-Sonara-Mashup-Name':file.name},body:file
+          method:'POST',headers:{'Content-Type':'application/octet-stream','X-Sonara-Mashup-Name':file.name,'X-Sonara-Mashup-Format':file.name.split('.').pop()?.toLowerCase()||''},body:file
         });
         refs.push(data.sourceId);
       }

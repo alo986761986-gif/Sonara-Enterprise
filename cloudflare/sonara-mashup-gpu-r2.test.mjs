@@ -66,3 +66,48 @@ test('GPU masters never accessible to a different SONARA account',async()=>{
   const r=await handleMashupGpu(get('mashup-job/smash_12345678-1234-1234-1234-123456789abc/audio'),e,{},auth);
   assert.equal(r.status,404);
 });
+
+test('browser audio formats upload with explicit extension even when MIME varies',async()=>{
+  const valid=[
+    ['house.m4a','video/mp4','m4a'],
+    ['house.flac','application/x-flac','flac'],
+    ['house.wav','application/octet-stream','wav'],
+    ['house.mp3','audio/mpeg','mp3'],
+    ['house.ogg','application/ogg','ogg']
+  ];
+  for(const [filename,mime,extension] of valid){
+    const e=env();
+    await handleMashupGpu(new Request(BASE+'mashup-heartbeat',{
+      method:'POST',body:JSON.stringify({revision:'sonara-mashup-htdemucs-v1',gpuReady:true,demucsReady:true})
+    }),e,{},auth);
+    const r=await handleMashupGpu(new Request(BASE+'mashup-source',{
+      method:'POST',
+      headers:{origin:'https://sonaraenterprise.com','content-type':mime,
+        'X-Sonara-Mashup-Name':filename,'X-Sonara-Mashup-Format':extension},
+      body:new Uint8Array(400)
+    }),e,{},auth);
+    assert.equal(r.status,201,filename+' ('+mime+')');
+    const value=await r.json();
+    assert.match(value.sourceId,/^smref_/);
+  }
+});
+test('browser unknown formats and conflicting extensions are rejected',async()=>{
+  const e=env();
+  await handleMashupGpu(new Request(BASE+'mashup-heartbeat',{
+    method:'POST',body:JSON.stringify({revision:'sonara-mashup-htdemucs-v1',gpuReady:true,demucsReady:true})
+  }),e,{},auth);
+  for(const row of [
+    ['song.mp4','mp4','video/mp4'],
+    ['song.wav','mp3','audio/wav'],
+    ['song.txt','txt','application/octet-stream']
+  ]){
+    const [filename,format,mime]=row;
+    const r=await handleMashupGpu(new Request(BASE+'mashup-source',{
+      method:'POST',
+      headers:{origin:'https://sonaraenterprise.com','content-type':mime,
+        'X-Sonara-Mashup-Name':filename,'X-Sonara-Mashup-Format':format},
+      body:new Uint8Array(400)
+    }),e,{},auth);
+    assert.equal(r.status,415,filename);
+  }
+});
