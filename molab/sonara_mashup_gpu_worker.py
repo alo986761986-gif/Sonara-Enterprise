@@ -69,7 +69,8 @@ def headers(lease=None, data=False):
     h={"X-Sonara-Relay-Token":secret,
        "X-Sonara-Pro-Agent-Revision":"sonara-remix-pro-r2-agent-v3-dual-reference-fusion",
        "User-Agent":"SONARA-Mashup-HTDemucs/1.0",
-       "Accept":"application/json"}
+       "Accept":"application/json",
+       "X-Sonara-Mashup-Director-Revision":"music-director-v2"}
     if lease:h["X-Sonara-Mashup-Lease"]=lease
     if data:h["Content-Type"]="application/json"
     return h
@@ -309,7 +310,9 @@ def main():
     if ROOT.exists() and ROOT.is_symlink():raise MashupError("Percorso privato non sicuro")
     ROOT.mkdir(mode=0o700,parents=True,exist_ok=True)
     check_runtime(model=True)
-    status=beat()
+    # Read-only preflight: never claim GPU V2 online while the old worker
+    # might still be running. Agent auth is verified by a read-only endpoint.
+    status=call("mashup-agent-check")
     caps=call("mashup-capabilities")
     print("MASHUP_GPU_DEMUCS_REAL_MODEL_READY=True",flush=True)
     print("MASHUP_MUSIC_DIRECTOR_V2_READY=True",flush=True)
@@ -317,7 +320,11 @@ def main():
     print("MASHUP_GPU_SITE_AVAILABLE",caps.get("available") is True,flush=True)
     print("ACE_STEP_UNMODIFIED=True",flush=True)
     print("NO_CUSTOMER_AUDIO_JOB_CREATED=True",flush=True)
-    if args.preflight:return
+    if args.preflight:
+        print("MASHUP_V2_PREFLIGHT_READ_ONLY=True",flush=True)
+        return
+    # An active worker advertises V2 only after full model and agent checks.
+    beat()
     while not STOP.is_set():
         try:
             beat()
