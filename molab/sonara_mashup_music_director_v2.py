@@ -176,6 +176,25 @@ def _phase(a,b,bpm,sr=SR):
     lag=int(np.argmax(correlation[start:end])+start-middle)
     return lag*512
 
+def harmonic_similarity(a,b,sr=SR):
+    """12-class chroma overlap is an advisory similarity, NEVER a key detector."""
+    import numpy as np
+    import soundfile as sf
+    import librosa
+    profiles=[]
+    for path in (a,b):
+        with sf.SoundFile(str(path)) as stem:
+            if stem.samplerate!=sr:raise DirectorError("Unexpected stem sample rate")
+            audio=stem.read(frames=min(stem.frames,20*sr),dtype="float32",always_2d=True)
+        if len(audio)<sr:return None
+        mono=audio.mean(axis=1)
+        chroma=librosa.feature.chroma_stft(y=mono,sr=sr,hop_length=2048,n_fft=4096)
+        vector=np.mean(chroma,axis=1)
+        vector=vector/float(np.linalg.norm(vector)+1e-8)
+        profiles.append(vector)
+    result=float(np.dot(profiles[0],profiles[1]))
+    return round(min(1,max(0,result)),4)
+
 def _profile(data,profile,sr=SR):
     """Measured integrated loudness when pyloudnorm is installed, plus peak guard.
     A LUFS target is not a true-peak or mastering-certification claim.
@@ -219,6 +238,10 @@ def create_master(a,b,bpm_a,bpm_b,seconds,mode,out,options):
     frames=seconds*SR
     master=np.zeros((frames,2),dtype=np.float32)
     reports=[]
+    try:
+        harmonic_score=harmonic_similarity(a["other"],b["other"])
+    except (ImportError,ValueError,RuntimeError,OSError):
+        harmonic_score=None
     anchor_a,confidence_a=beat_anchor(a["drums"],bpm_a)
     anchor_b,confidence_b=beat_anchor(b["drums"],bpm_b)
     # B is retimed to the A clock. The estimated beat phase must be retimed too.
@@ -285,9 +308,15 @@ def create_master(a,b,bpm_a,bpm_b,seconds,mode,out,options):
     audit["sections"]=len(segments)
     audit["beatGridEstimateConfidence"]={"A":round(confidence_a,3),"B":round(confidence_b,3)}
     audit["beatAnchorBasis"]="drum-transient-periodic-phase-not-musical-downbeat"
+    audit["harmonicChromaSimilarity"]=harmonic_score
+    warnings=[
+        "Beat-grid alignment is a measured estimate, not a confirmed downbeat",
+        "Phrase boundaries are estimated; listen for word cuts and harmonic clashes",
+        "Pitch/key compatibility is not guaranteed by BPM synchronization",
+        "A mastering engineer should review final loudness and true peak"
+    ]
+    if harmonic_score is not None and harmonic_score<0.60:
+        warnings.append("Low chroma compatibility proxy: verify harmonic clashes by ear")
     return {"model":"htdemucs","stemsVerified":True,"actualDurationSec":seconds,
       "musicDirectorV2":True,"audit":audit,"segments":segments,"stems":reports,
-      "warnings":["Beat-grid alignment is a measured estimate, not a confirmed downbeat",
-                  "Phrase boundaries are estimated; listen for word cuts and harmonic clashes",
-                  "Pitch/key compatibility is not guaranteed by BPM synchronization",
-                  "A mastering engineer should review final loudness and true peak"]}
+      "warnings":warnings}
