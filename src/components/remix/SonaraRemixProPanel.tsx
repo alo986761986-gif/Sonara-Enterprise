@@ -37,6 +37,7 @@ export default function SonaraRemixProPanel() {
   const [v8SongFormAvailable,setV8SongFormAvailable]=useState(false);
   const [v8SongFormEnabled,setV8SongFormEnabled]=useState(true);
   const [v9MusicDirectorAvailable,setV9MusicDirectorAvailable]=useState(false);
+  const [v10MusicEvidenceAvailable,setV10MusicEvidenceAvailable]=useState(false);
   const [v9MusicDirectorEnabled,setV9MusicDirectorEnabled]=useState(true);
   const [rhythmMode,setRhythmMode]=useState<'source-a'|'manual'>('source-a');
   const [phraseBars,setPhraseBars]=useState<4|8|16>(8);
@@ -144,7 +145,7 @@ export default function SonaraRemixProPanel() {
       setInfo('Recupero un job precedente. La sua durata potrebbe essere diversa dalla nuova selezione.');}
     fetch('/api/sonara-relay/pro-capabilities',{cache:'no-store',credentials:'include'})
       .then(r=>r.ok?r.json():{available:false})
-      .then(x=>{if(mounted.current){setAvailable(x.available===true);setMultiformatAvailable(x.multiformatAvailable===true);setV5Available(x.v5Available===true);setV6Available(x.v6Available===true);setV7Available(x.v7Available===true);setV7RhythmAvailable(x.v7RhythmAvailable===true);setV7CreativeModesAvailable(x.v7CreativeModesAvailable===true);setV8SongFormAvailable(x.v8SongFormAvailable===true);setV9MusicDirectorAvailable(x.v9MusicDirectorAvailable===true);setExplosiveAvailable(x.explosiveAvailable===true);}})
+      .then(x=>{if(mounted.current){setAvailable(x.available===true);setMultiformatAvailable(x.multiformatAvailable===true);setV5Available(x.v5Available===true);setV6Available(x.v6Available===true);setV7Available(x.v7Available===true);setV7RhythmAvailable(x.v7RhythmAvailable===true);setV7CreativeModesAvailable(x.v7CreativeModesAvailable===true);setV8SongFormAvailable(x.v8SongFormAvailable===true);setV9MusicDirectorAvailable(x.v9MusicDirectorAvailable===true);setV10MusicEvidenceAvailable(x.v10MusicEvidenceAvailable===true);setExplosiveAvailable(x.explosiveAvailable===true);}})
       .catch(()=>{if(mounted.current)setAvailable(false);});
     return()=>{mounted.current=false;};
   },[]);
@@ -571,6 +572,15 @@ export default function SonaraRemixProPanel() {
           ?'Disponibile: analisi dei momenti distintivi A+B, tema A e risposta B, groove House con variazioni, dialogo delle voci originali, mix anti-impasto e analisi della dinamica. La qualità artistica si valuta anche con ascolto.'
           :'Music Director V9 in attesa di aggiornamento MoLab. Il motore V8 continua a funzionare.'}</small>
       </section>
+      {v9MusicDirectorAvailable&&<div className="sonara-v10-evidence-status" role="status"
+        data-testid="sonara-v10-evidence-status" style={{padding:'11px 14px',borderRadius:11,
+          border:'1px solid rgba(128,202,191,.28)',background:'rgba(15,110,105,.07)',
+          fontSize:12,color:'#d1e8e4'}}>
+        <strong>Music Director V10 · Analisi armonica A+B</strong>
+        <div>{v10MusicEvidenceAvailable
+          ?'Modulo GPU V10 verificato: confronto delle caratteristiche tonali e controllo tecnico delle transizioni. Stime, non riconoscimento certo di accordi o qualità artistica.'
+          :'Modulo V10 non ancora confermato sulla GPU MoLab. La composizione V9 resta disponibile senza analisi V10.'}</div>
+      </div>}
       <SonaraRemixV7Studio enabled={v7Enabled} onEnabledChange={setV7Enabled}
         intent={v7Intent} onIntentChange={setV7Intent}
         direction={v7Direction} onDirectionChange={setV7Direction}/>
