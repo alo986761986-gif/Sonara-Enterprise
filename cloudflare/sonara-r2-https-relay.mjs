@@ -50,6 +50,8 @@ const hasWorkerAuth = async (r,e) => {
     String(e.SONARA_RELAY_TOKEN_SHA256_OCTONARY||'').trim().toLowerCase(),
     // Add the new MoLab HeartMuLa notebook without revoking prior agents.
     String(e.SONARA_RELAY_TOKEN_SHA256_NONARY||'').trim().toLowerCase(),
+    // Tenth independent MoLab notebook, preserves all previous pairings.
+    String(e.SONARA_RELAY_TOKEN_SHA256_DECENARY||'').trim().toLowerCase(),
   ].filter(value=>/^[0-9a-f]{64}$/.test(value));
   if(!authorized.length)return false;
   const bytes=new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(supplied)));
