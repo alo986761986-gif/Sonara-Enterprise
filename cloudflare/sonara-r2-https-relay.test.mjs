@@ -21,6 +21,7 @@ const fifthNotebook = 'fifth-notebook-independent-sample-private-token-long';
 const sixthNotebook = 'sixth-notebook-separate-rtx6000-local-token-test-long';
 const seventhNotebook = 'seventh-notebook-independent-rtx6000-local-token-long';
 const eighthNotebook = 'eighth-notebook-independent-rtx6000-recovery-token-long';
+const tenthNotebook = 'tenth-notebook-independent-molab-token-not-real';
 const pairingEnv = {
   SONARA_RELAY_TOKEN_SHA256: hashToken(primary),
   SONARA_RELAY_TOKEN_SHA256_SECONDARY: hashToken(newNotebook),
@@ -30,6 +31,7 @@ const pairingEnv = {
   SONARA_RELAY_TOKEN_SHA256_SENARY: hashToken(sixthNotebook),
   SONARA_RELAY_TOKEN_SHA256_SEPTENARY: hashToken(seventhNotebook),
   SONARA_RELAY_TOKEN_SHA256_OCTONARY: hashToken(eighthNotebook),
+  SONARA_RELAY_TOKEN_SHA256_DECENARY: hashToken(tenthNotebook),
   SONARA_R2_RELAY_ENABLED: 'true',
   SONARA_INTERNAL_PROXY_SECRET: 'gateway-test-secret',
 };
@@ -80,6 +82,19 @@ test('unpaired notebook, near-match and missing fingerprint are rejected', async
   assert.equal((await authenticate(sixthNotebook, { SONARA_RELAY_TOKEN_SHA256_SENARY:'bad' })).status, 401);
   assert.equal((await authenticate(seventhNotebook, { SONARA_RELAY_TOKEN_SHA256_SEPTENARY:'bad' })).status, 401);
   assert.equal((await authenticate(eighthNotebook, { SONARA_RELAY_TOKEN_SHA256_OCTONARY:'bad' })).status, 401);
+});
+
+test('tenth MoLab fingerprint authorizes a new token without revoking existing tokens', async () => {
+  const accepted = await authenticate(tenthNotebook);
+  assert.equal(accepted.status, 200);
+  const near = await authenticate(tenthNotebook + 'x');
+  assert.equal(near.status, 401);
+  for (const old of [primary,newNotebook,thirdNotebook,fourthNotebook,
+    fifthNotebook,sixthNotebook,seventhNotebook,eighthNotebook]) {
+    assert.equal((await authenticate(old)).status,200);
+  }
+  const malformed = {...pairingEnv,SONARA_RELAY_TOKEN_SHA256_DECENARY:'bad'};
+  assert.equal((await authenticate(tenthNotebook,malformed)).status,401);
 });
 
 test('rotated eighth fingerprint accepts new MoLab token and rejects superseded token', async () => {
