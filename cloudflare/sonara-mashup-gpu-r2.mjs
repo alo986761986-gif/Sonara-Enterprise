@@ -89,9 +89,11 @@ export async function handleMashupGpu(req,env,ctx,auth){
   if(path===BASE+'mashup-capabilities'&&req.method==='GET')return json(await capabilities(env));
   if(!b||env.SONARA_R2_RELAY_ENABLED!=='true')return fail('Storage Mashup non disponibile',503);
   const match=path.match(/^\/api\/sonara-relay\/mashup-job\/(smash_[a-f0-9-]{36})(?:\/(.+))?$/);
-  const agentPath=path===BASE+'mashup-heartbeat'||path===BASE+'mashup-claim'||(match&&(req.method!=='GET'||/^source\//.test(match[2]||'')));
+  const agentPath=path===BASE+'mashup-heartbeat'||path===BASE+'mashup-claim'||path===BASE+'mashup-agent-check'||(match&&(req.method!=='GET'||/^source\//.test(match[2]||'')));
   if(agentPath){
     if(!await auth.agent(req,env))return fail('Agente non autorizzato',401);
+    if(path===BASE+'mashup-agent-check'&&req.method==='GET')
+      return json({authenticated:true,revision:REV,available:enabled(env)});
     if(path===BASE+'mashup-heartbeat'&&req.method==='POST'){
       const d=await req.json().catch(()=>({}));
       if(d.revision!==REV||d.gpuReady!==true||d.demucsReady!==true)return fail('CUDA e Demucs non verificati',409);
@@ -120,6 +122,9 @@ export async function handleMashupGpu(req,env,ctx,auth){
           continue;
         }
         if(j.status!=='QUEUED'&&!(j.status==='LEASED'&&j.leaseUntil<now))continue;
+        // A V1 agent must never consume a V2 job, even if a V2 preflight
+        // previously refreshed the shared heartbeat.
+        if(j.directorV2&&req.headers.get('X-Sonara-Mashup-Director-Revision')!=='music-director-v2')continue;
         const leaseId=crypto.randomUUID();
         const next={...j,status:'LEASED',stage:'downloading',attempts:j.attempts+1,leaseId,leaseUntil:now+LEASE,updatedAt:now};
         if(!await save(b,next,o.etag))continue;
