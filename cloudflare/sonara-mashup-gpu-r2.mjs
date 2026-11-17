@@ -105,10 +105,18 @@ export async function handleMashupGpu(req,env,ctx,auth){
       const objects=await b.list({prefix:ROOT+'queue/',limit:100});
       for(const entry of objects.objects||[]){
         const id=entry.key.split('/').pop();if(!JOB.test(id))continue;
-        const o=await b.get(jobKey(id)),j=await read(o);if(!j||['COMPLETE','FAILED'].includes(j.status))continue;
+        const o=await b.get(jobKey(id)),j=await read(o);
+        if(!j||['COMPLETE','FAILED'].includes(j.status)){
+          // An old finished job must never block new users after 100 queue entries.
+          await b.delete(entry.key).catch(()=>{});
+          continue;
+        }
         const now=Date.now();
         if(j.attempts>=3||now-j.createdAt>2*60*60*1000){
-          if(await save(b,{...j,status:'FAILED',stage:'failed',error:'Timeout lavoro GPU',updatedAt:now},o.etag))await release(b,j);
+          if(await save(b,{...j,status:'FAILED',stage:'failed',error:'Timeout lavoro GPU',updatedAt:now},o.etag)){
+            await release(b,j);
+            await b.delete(entry.key).catch(()=>{});
+          }
           continue;
         }
         if(j.status!=='QUEUED'&&!(j.status==='LEASED'&&j.leaseUntil<now))continue;
@@ -282,6 +290,7 @@ export async function handleMashupGpu(req,env,ctx,auth){
       await b.put(ROOT+'library/'+j.ownerHash+'/'+String(j.createdAt).padStart(13,'0')+'-'+id+'.json',JSON.stringify(final),
         {httpMetadata:{contentType:'application/json'}});
       await release(b,j);
+      await b.delete(ROOT+'queue/'+String(j.createdAt).padStart(13,'0')+'/'+id).catch(()=>{});
       return json({...publicJob(final),ok:true});
     }
     if(action==='fail'&&req.method==='POST'){
@@ -294,6 +303,7 @@ export async function handleMashupGpu(req,env,ctx,auth){
       const final={...j,status:'FAILED',stage:'failed',error:message,updatedAt:Date.now(),leaseId:null,leaseUntil:0};
       if(!await save(b,final,obj.etag))return fail('Conflitto errore',409);
       await release(b,j);
+      await b.delete(ROOT+'queue/'+String(j.createdAt).padStart(13,'0')+'/'+id).catch(()=>{});
       return json({ok:true});
     }
     return fail('Metodo non valido',405);
