@@ -87,7 +87,7 @@ export async function handleMashupGpu(req,env,ctx,auth){
   if(path===BASE+'mashup-capabilities'&&req.method==='GET')return json(await capabilities(env));
   if(!b||env.SONARA_R2_RELAY_ENABLED!=='true')return fail('Storage Mashup non disponibile',503);
   const match=path.match(/^\/api\/sonara-relay\/mashup-job\/(smash_[a-f0-9-]{36})(?:\/(.+))?$/);
-  const agentPath=path===BASE+'mashup-heartbeat'||path===BASE+'mashup-claim'||(match&&req.method!=='GET');
+  const agentPath=path===BASE+'mashup-heartbeat'||path===BASE+'mashup-claim'||(match&&(req.method!=='GET'||/^source\//.test(match[2]||'')));
   if(agentPath){
     if(!await auth.agent(req,env))return fail('Agente non autorizzato',401);
     if(path===BASE+'mashup-heartbeat'&&req.method==='POST'){
@@ -185,7 +185,7 @@ export async function handleMashupGpu(req,env,ctx,auth){
       if(!action)return json(publicJob(j));
       return j.status==='COMPLETE'?audio(req,b,audioKey(id)):fail('Master non pronto',409);
     }
-    if(!leaseOk(j,req))return fail('Lease scaduta',409);
+    if(!(await auth.agent(req,env))||!leaseOk(j,req))return fail('Lease o agente non autorizzati',409);
     if(req.method==='GET'&&(action==='source/a'||action==='source/b')){
       const s=action==='source/a'?j.sourceA:j.sourceB;
       const o=await b.get(s.objectKey);
