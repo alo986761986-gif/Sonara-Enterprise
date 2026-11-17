@@ -1,0 +1,34 @@
+name: Verify SONARA Remix Pro V10 Fresh MoLab Handoff
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "molab/sonara_remix_pro_v10_fresh_handoff.py"
+      - "molab/test_sonara_remix_pro_v10_fresh_handoff.py"
+      - ".github/workflows/verify-sonara-remix-v10-fresh-handoff.yml"
+  push:
+    branches: [main]
+    paths:
+      - "molab/sonara_remix_pro_v10_fresh_handoff.py"
+      - "molab/test_sonara_remix_pro_v10_fresh_handoff.py"
+      - ".github/workflows/verify-sonara-remix-v10-fresh-handoff.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout SONARA
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verify source syntax
+        run: python -m py_compile molab/sonara_remix_pro_v10_fresh_handoff.py molab/test_sonara_remix_pro_v10_fresh_handoff.py
+      - name: Verify pinned modules and safe upgrade guards
+        run: python -m unittest discover -s molab -p 'test_sonara_remix_pro_v10_fresh_handoff.py' -v
