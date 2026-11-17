@@ -22,6 +22,8 @@ import time
 import urllib.error
 import urllib.request
 
+from sonara_mashup_music_director_v2 import create_master, valid_config
+
 API = "https://api.sonaraenterprise.com/api/sonara-relay/"
 REV = "sonara-mashup-htdemucs-v1"
 ROOT = Path("/marimo/SONARA-MASHUP-GPU")
@@ -41,6 +43,7 @@ def check_runtime(*, model=False):
     import numpy
     import soundfile
     import librosa
+    valid_config({"vocalPolicy":"dialogue","masterProfile":"studio"})
     if not torch.cuda.is_available() or tuple(torch.cuda.get_device_capability(0)) != (12, 0):
         raise MashupError("RTX PRO 6000 Blackwell CUDA non disponibile")
     if "sm_120" not in torch.cuda.get_arch_list():
@@ -95,7 +98,7 @@ def call(path, method="GET", payload=None, lease=None, binary=False, timeout=55)
 
 def beat():
     return call("mashup-heartbeat","POST",{
-        "revision":REV,"gpuReady":True,"demucsReady":True
+        "revision":REV,"gpuReady":True,"demucsReady":True,"musicDirectorV2":True
     })
 
 class LeaseKeeper:
@@ -274,7 +277,14 @@ def run(item):
             stems_b=separate(converted[1],root/"stems-b")
             stage(jid,lease,"arranging",guard)
             output=root/"master.wav"
-            proof=make_master(stems_a,stems_b,bpm_a,bpm_b,seconds,mode,output)
+            if p.get("directorV2") is not None:
+                # Server has independently validated the controls and only
+                # leases V2 jobs after a fresh V2 worker heartbeat.
+                options=valid_config(p["directorV2"])
+                guard.verify()
+                proof=create_master(stems_a,stems_b,bpm_a,bpm_b,seconds,mode,output,options)
+            else:
+                proof=make_master(stems_a,stems_b,bpm_a,bpm_b,seconds,mode,output)
             stage(jid,lease,"mastering",guard)
             guard.verify()
             stage(jid,lease,"uploading",guard)
@@ -302,6 +312,7 @@ def main():
     status=beat()
     caps=call("mashup-capabilities")
     print("MASHUP_GPU_DEMUCS_REAL_MODEL_READY=True",flush=True)
+    print("MASHUP_MUSIC_DIRECTOR_V2_READY=True",flush=True)
     print("MASHUP_GPU_CLOUDFLARE_AUTHENTICATED",status.get("authenticated") is True,flush=True)
     print("MASHUP_GPU_SITE_AVAILABLE",caps.get("available") is True,flush=True)
     print("ACE_STEP_UNMODIFIED=True",flush=True)
