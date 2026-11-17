@@ -280,6 +280,8 @@ export async function handleMashupGpu(req,env,ctx,auth){
       const audit={peakDbfs:Number.isFinite(d.audit?.peakDbfs)?d.audit.peakDbfs:null,
         samplePeakDbfs:Number.isFinite(d.audit?.samplePeakDbfs)?d.audit.samplePeakDbfs:null,
         measuredLufs:Number.isFinite(d.audit?.measuredLufs)?d.audit.measuredLufs:null,
+        harmonicChromaSimilarity:Number.isFinite(d.audit?.harmonicChromaSimilarity)?
+          Math.max(0,Math.min(1,d.audit.harmonicChromaSimilarity)):null,
         targetLufs:Number.isFinite(d.audit?.targetLufs)?d.audit.targetLufs:null,
         format:d.musicDirectorV2===true?'WAV 48kHz PCM24':'WAV 44.1kHz PCM16',
         musicDirectorV2:d.musicDirectorV2===true,
