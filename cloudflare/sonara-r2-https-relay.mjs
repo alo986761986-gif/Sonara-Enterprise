@@ -1,4 +1,5 @@
 import { handleRemixPro } from './sonara-remix-pro-r2.mjs';
+import { handleMashupGpu } from './sonara-mashup-gpu-r2.mjs';
 import { handleLongWavUpload } from './sonara-long-wav-upload.mjs';
 // SONARA R2 HTTPS relay: all MoLab traffic is outbound on TCP/443.
 // Deployed inside the existing sonara-enterprise Worker; gated by SONARA_R2_RELAY_ENABLED.
@@ -185,6 +186,11 @@ export default {
   // endpoints retain their existing size and behavior.
   if(p.startsWith('/api/sonara-relay/reference-multipart/')){
     return handleLongWavUpload(request,env,nativeUser);
+  }
+  // GPU Mashup uses a separate namespace, leases and archived masters.
+  // It reuses the existing private Pro agent token verification only.
+  if(p==='/api/sonara-relay/mashup-capabilities'||p.startsWith('/api/sonara-relay/mashup-')){
+    return handleMashupGpu(request,env,ctx,{user:nativeUser,agent:hasRemixProAuth});
   }
   // Dedicated Remix Pro queue, separately gated and authenticated. Legacy jobs
   // never enter this namespace and are not affected if Pro is disabled.

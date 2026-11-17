@@ -1,0 +1,35 @@
+name: Validate SONARA Mashup GPU Feature
+on:
+  push:
+    branches:
+      - feature/mashup-gpu-stems-20261117
+  pull_request:
+    branches: [main]
+    paths:
+      - 'cloudflare/sonara-mashup-gpu-r2*'
+      - 'cloudflare/sonara-r2-https-relay.mjs'
+      - 'src/components/mashup/**'
+      - 'molab/sonara_mashup_gpu_worker.py'
+      - '.github/workflows/validate-mashup-gpu-pr.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Python syntax validation
+        run: python -m py_compile molab/sonara_mashup_gpu_worker.py
+      - name: GPU API security contracts
+        run: node --test cloudflare/sonara-mashup-gpu-r2.test.mjs
+      - name: Install SONARA dependencies
+        run: npm install
+      - name: Browser audio unit tests
+        run: npx tsx --test src/components/mashup/mashupEngine.test.ts
+      - name: Frontend production build
+        run: npm run build
