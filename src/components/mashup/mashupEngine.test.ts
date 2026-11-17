@@ -28,7 +28,7 @@ test('PCM writer creates valid WAV RIFF stereo and avoids clipping',async()=>{
   assert.equal(wav.size,60);
   assert.equal(data.getUint32(24,true),44100);
   assert.equal(data.getUint16(22,true),2);
-  assert.equal(data.getInt16(56,true),Math.round(-.98*32768));
+  assert.equal(data.getInt16(58,true),Math.round(-.98*32768));
 });
 test('peaks include isolated amplitude events',()=>{
   const values=new Float32Array(800);
