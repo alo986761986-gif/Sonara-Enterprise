@@ -156,3 +156,42 @@ test('V2 controls are rejected until verified upgraded MoLab heartbeat',async()=
   }),e,{},auth);
   assert.equal(invalid.status,400);
 });
+
+test('V2 preflight authenticates read-only, without forging a V2 heartbeat',async()=>{
+  const e=env();
+  const probe=await handleMashupGpu(new Request(BASE+'mashup-agent-check'),e,{},auth);
+  assert.equal(probe.status,200);
+  assert.equal((await probe.json()).authenticated,true);
+  const cap=await handleMashupGpu(get('mashup-capabilities'),e,{},auth);
+  const data=await cap.json();
+  assert.equal(data.available,false);
+  assert.equal(data.professionalAvailable,false);
+  const rejected=await handleMashupGpu(new Request(BASE+'mashup-agent-check'),e,{},{
+    ...auth,agent:async()=>false
+  });
+  assert.equal(rejected.status,401);
+});
+test('A legacy worker cannot lease a pending V2 job',async()=>{
+  const e=env();
+  await handleMashupGpu(new Request(BASE+'mashup-heartbeat',{
+    method:'POST',body:JSON.stringify({revision:'sonara-mashup-htdemucs-v1',
+      gpuReady:true,demucsReady:true,musicDirectorV2:true})
+  }),e,{},auth);
+  const id='smash_12345678-1234-1234-1234-123456789abc';
+  const now=Date.now();
+  const job={id,kind:'mashup-gpu',status:'QUEUED',stage:'queued',attempts:0,
+    ownerUid:'owner',ownerHash:'hash',createdAt:now,updatedAt:now,
+    directorV2:{vocalPolicy:'dialogue'},sourceA:{format:'wav'},sourceB:{format:'wav'},
+    bpmA:124,bpmB:124,durationSec:120};
+  e.SONARA_AUDIO_BUCKET.objects.set('relay-v1/mashup/jobs/'+id+'.json',JSON.stringify(job));
+  e.SONARA_AUDIO_BUCKET.objects.set('relay-v1/mashup/queue/'+String(now).padStart(13,'0')+'/'+id,id);
+  const legacy=await handleMashupGpu(new Request(BASE+'mashup-claim',{
+    method:'POST',body:'{}'
+  }),e,{},auth);
+  assert.equal((await legacy.json()).jobId,null);
+  const modern=await handleMashupGpu(new Request(BASE+'mashup-claim',{
+    method:'POST',headers:{'X-Sonara-Mashup-Director-Revision':'music-director-v2'},
+    body:'{}'
+  }),e,{},auth);
+  assert.equal((await modern.json()).jobId,id);
+});
