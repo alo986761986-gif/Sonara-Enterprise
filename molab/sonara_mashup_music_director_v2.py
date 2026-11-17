@@ -80,18 +80,43 @@ def build_segments(seconds,bpm,mode,config):
         if index>100:raise DirectorError("Arrangement exceeds safe segment limit")
     return result
 
-def source_candidates(stem,sr,bpm,section_sec):
-    """Return RMS-labelled real source passages; no invented section markers."""
+def beat_anchor(path,bpm,sr=SR):
+    """Estimate first-beat phase from real drum transients (not a downbeat proof)."""
+    import numpy as np
+    import soundfile as sf
+    with sf.SoundFile(str(path)) as stem:
+        audio=stem.read(frames=min(stem.frames,10*sr),dtype="float32",always_2d=True)
+        if stem.samplerate!=sr:raise DirectorError("Unexpected drum stem sample rate")
+    hop=441
+    frames=len(audio)//hop
+    if frames<100:return 0,0.0
+    mono=audio[:frames*hop].mean(axis=1).reshape(frames,hop)
+    envelope=np.sqrt(np.mean(np.square(mono.astype(np.float64)),axis=1))
+    novelty=np.maximum(0,np.diff(envelope,prepend=envelope[0]))
+    stride=max(1,int(round((60/bpm)*sr/hop)))
+    scores=np.array([sum(novelty[offset::stride]) for offset in range(stride)])
+    if not np.isfinite(scores).all() or not float(scores.max()):return 0,0.0
+    best=int(np.argmax(scores))
+    confidence=float((scores[best]/max(1e-9,float(scores.mean()))-1)/5)
+    return best*hop,max(0,min(1,confidence))
+
+def source_candidates(stem,sr,bpm,section_sec,anchor=0,prefer_vocal=False):
+    """Beat-grid windows with measured energy and safe phrase-edge preference."""
     import numpy as np
     frames=max(1,int(section_sec*sr))
-    count=max(1,len(stem)//frames)
+    start_at=max(0,min(int(anchor),max(0,len(stem)-sr)))
+    count=max(1,(len(stem)-start_at)//frames)
     data=[]
     for i in range(count):
-        start=i*frames
+        start=start_at+i*frames
         end=min(len(stem),start+frames)
         excerpt=stem[start:end]
         if len(excerpt)<sr:continue
         energy=float(np.sqrt(np.mean(np.square(excerpt.astype(np.float64)))))
+        if prefer_vocal:
+            edge=max(1,min(len(excerpt)//4,int(.20*sr)))
+            boundary=float(np.sqrt(np.mean(np.square(excerpt[:edge].astype(np.float64)))))+float(np.sqrt(np.mean(np.square(excerpt[-edge:].astype(np.float64)))))
+            energy=energy/(1+8*boundary)
         data.append((start,end,energy))
     if not data:
         return [(0,len(stem),float(np.sqrt(np.mean(np.square(stem.astype(np.float64))))))]
@@ -165,6 +190,8 @@ def _profile(data,profile,sr=SR):
         if math.isfinite(measured):
             shift=np.clip(target-measured,-12,12)
             data=data*float(10**(shift/20))
+        else:
+            measured=None
     except (ImportError,ValueError,RuntimeError):
         measured=None
     # 4x oversampled approximation only; this is not certified true-peak metering.
@@ -192,8 +219,12 @@ def create_master(a,b,bpm_a,bpm_b,seconds,mode,out,options):
     frames=seconds*SR
     master=np.zeros((frames,2),dtype=np.float32)
     reports=[]
-    sources=[("A",a,bpm_a),("B",b,bpm_b)]
-    for owner,paths,bpm in sources:
+    anchor_a,confidence_a=beat_anchor(a["drums"],bpm_a)
+    anchor_b,confidence_b=beat_anchor(b["drums"],bpm_b)
+    # B is retimed to the A clock. The estimated beat phase must be retimed too.
+    anchor_b=int(anchor_b*bpm_b/bpm_a)
+    sources=[("A",a,bpm_a,anchor_a),("B",b,bpm_b,anchor_b)]
+    for owner,paths,bpm,beat_phase in sources:
         for role in ("drums","bass","other","vocals"):
             if owner=="B" and role in ("drums","bass"):continue
             if opts["vocalPolicy"]=="instrumental" and role=="vocals":continue
@@ -222,7 +253,7 @@ def create_master(a,b,bpm_a,bpm_b,seconds,mode,out,options):
                     gain=.78*(opts["vocalGainA"] if owner=="A" else opts["vocalGainB"])
                 if gain<=0:continue
                 length=section["end"]-section["start"]
-                candidates=source_candidates(track,SR,bpm_a,length)
+                candidates=source_candidates(track,SR,bpm_a,length,beat_phase,prefer_vocal=role=="vocals")
                 # Variation affects passage preference, not random fake audio.
                 ranked=sorted(candidates,key=lambda p:p[2],reverse=role in ("vocals","drums"))
                 choice=ranked[(i+opts["variation"])%min(3,len(ranked))]
@@ -252,8 +283,11 @@ def create_master(a,b,bpm_a,bpm_b,seconds,mode,out,options):
     audit["finalFormat"]="WAV PCM_24 48000Hz stereo"
     audit["structureBasis"]="estimated-phrase-energy-not-transcribed-song-sections"
     audit["sections"]=len(segments)
+    audit["beatGridEstimateConfidence"]={"A":round(confidence_a,3),"B":round(confidence_b,3)}
+    audit["beatAnchorBasis"]="drum-transient-periodic-phase-not-musical-downbeat"
     return {"model":"htdemucs","stemsVerified":True,"actualDurationSec":seconds,
       "musicDirectorV2":True,"audit":audit,"segments":segments,"stems":reports,
-      "warnings":["Phrase boundaries are estimated; listen for word cuts and harmonic clashes",
+      "warnings":["Beat-grid alignment is a measured estimate, not a confirmed downbeat",
+                  "Phrase boundaries are estimated; listen for word cuts and harmonic clashes",
                   "Pitch/key compatibility is not guaranteed by BPM synchronization",
                   "A mastering engineer should review final loudness and true peak"]}
